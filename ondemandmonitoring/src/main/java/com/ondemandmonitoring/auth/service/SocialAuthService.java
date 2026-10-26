@@ -98,7 +98,8 @@ public class SocialAuthService {
             refreshTokenCookieService.write(
                     response,
                     responseTokens.refreshToken(),
-                    responseTokens.username());
+                    responseTokens.username(),
+                    request.isRememberMe());
         }
 
         return AuthResponse.builder()

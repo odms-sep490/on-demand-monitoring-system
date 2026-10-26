@@ -21,4 +21,6 @@ public class SocialSyncRequest {
     @NotNull(message = "provider is required")
     private AuthProvider provider;
 
+    private boolean rememberMe;
+
 }

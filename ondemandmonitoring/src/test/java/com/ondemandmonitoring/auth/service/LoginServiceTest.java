@@ -16,6 +16,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mapstruct.factory.Mappers;
 
 import java.util.Optional;
@@ -39,10 +41,12 @@ class LoginServiceTest {
                 Mappers.getMapper(AuthenticatedUserMapper.class));
     }
 
-    @Test
-    void loginReturnsProfileAndWritesRefreshCookieWithCognitoUsername() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void loginReturnsProfileAndWritesRefreshCookieWithCognitoUsername(boolean rememberMe) {
         User user = activeUser();
         LoginRequest request = loginRequest();
+        request.setRememberMe(rememberMe);
         HttpServletResponse response = mock(HttpServletResponse.class);
         when(users.findByEmail("user@example.com")).thenReturn(user);
         when(users.getCognitoUsername("user@example.com", IdentityProvider.LOCAL)).thenReturn("uuid-user");
@@ -55,7 +59,7 @@ class LoginServiceTest {
         verify(identityProvider).authenticate("uuid-user", "Password1!");
         verify(identityProvider, never()).addUserToGroup(anyString(), anyString());
         assertEquals(RoleCode.CUSTOMER, result.getUser().getRole());
-        verify(cookies).write(response, "refresh", "uuid-user");
+        verify(cookies).write(response, "refresh", "uuid-user", rememberMe);
         verify(users).recordLogin(user.getId());
     }
 
@@ -87,13 +91,15 @@ class LoginServiceTest {
         verifyNoInteractions(identityProvider);
     }
 
-    @Test
-    void completeFirstLoginRespondsToChallengeAndWritesCookie() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void completeFirstLoginRespondsToChallengeAndWritesCookie(boolean rememberMe) {
         User user = activeUser();
         FirstLoginPasswordChangeRequest request = new FirstLoginPasswordChangeRequest();
         request.setEmail("user@example.com");
         request.setSession("challenge-session");
         request.setNewPassword("NewPassword1!");
+        request.setRememberMe(rememberMe);
         HttpServletResponse response = mock(HttpServletResponse.class);
         when(users.findByEmail("user@example.com")).thenReturn(user);
         when(users.getCognitoUsername("user@example.com", IdentityProvider.LOCAL)).thenReturn("uuid-user");
@@ -104,7 +110,7 @@ class LoginServiceTest {
 
         assertEquals("AUTHENTICATED", result.getStatus());
         verify(identityProvider, never()).addUserToGroup(anyString(), anyString());
-        verify(cookies).write(response, "refresh", "uuid-user");
+        verify(cookies).write(response, "refresh", "uuid-user", rememberMe);
         verify(users).recordLogin(user.getId());
     }
 

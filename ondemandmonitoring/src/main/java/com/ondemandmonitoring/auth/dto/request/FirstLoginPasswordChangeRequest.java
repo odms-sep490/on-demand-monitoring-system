@@ -18,4 +18,6 @@ public class FirstLoginPasswordChangeRequest {
     @NotBlank
     @Size(min = 8, message = "Password must be at least 8 characters.")
     private String newPassword;
+
+    private boolean rememberMe;
 }

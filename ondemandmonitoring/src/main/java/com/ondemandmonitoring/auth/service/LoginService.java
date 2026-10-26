@@ -54,7 +54,7 @@ public class LoginService {
             }
             userService.recordLogin(user.getId());
             if (tokens.refreshToken() != null) {
-                refreshTokenCookieService.write(response, tokens.refreshToken(), tokens.username());
+                refreshTokenCookieService.write(response, tokens.refreshToken(), tokens.username(), request.isRememberMe());
             }
             return toResponse(tokens, user);
         } catch (NotAuthorizedException exception) {
@@ -83,7 +83,7 @@ public class LoginService {
                     username, request.getSession(), request.getNewPassword());
             userService.recordLogin(user.getId());
             if (tokens.refreshToken() != null) {
-                refreshTokenCookieService.write(response, tokens.refreshToken(), tokens.username());
+                refreshTokenCookieService.write(response, tokens.refreshToken(), tokens.username(), request.isRememberMe());
             }
             return toResponse(tokens, user);
         } catch (InvalidPasswordException exception) {

@@ -19,6 +19,8 @@ import com.ondemandmonitoring.user.service.IUserService;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mapstruct.factory.Mappers;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.InvalidPasswordException;
 
@@ -49,9 +51,11 @@ class SocialAuthServiceTest {
                 Mappers.getMapper(AuthenticatedUserMapper.class));
     }
 
-    @Test
-    void socialLoginCreatesCustomerAssignsGroupAndReturnsRefreshedToken() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void socialLoginCreatesCustomerAssignsGroupAndReturnsRefreshedToken(boolean rememberMe) {
         SocialSyncRequest request = request(SocialAuthIntent.LOGIN_OR_REGISTER);
+        request.setRememberMe(rememberMe);
         SocialAuthenticationResult identity = identity(true);
         User user = customer();
         when(socialProvider.exchangeSocialCode(request)).thenReturn(identity);
@@ -67,7 +71,7 @@ class SocialAuthServiceTest {
         assertEquals("access-with-group", result.getAccessToken());
         assertEquals(RoleCode.CUSTOMER, result.getUser().getRole());
         verify(cognito).addUserToGroup("google_123", "CUSTOMER");
-        verify(cookies).write(response, "social-refresh", "google_123");
+        verify(cookies).write(response, "social-refresh", "google_123", rememberMe);
     }
 
     @Test

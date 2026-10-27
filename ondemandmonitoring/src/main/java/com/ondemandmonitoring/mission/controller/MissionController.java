@@ -13,6 +13,7 @@ import com.ondemandmonitoring.mission.dto.request.AssignStaffRequest;
 import com.ondemandmonitoring.mission.dto.request.MissionFailRequest;
 import com.ondemandmonitoring.mission.dto.request.MissionRejectRequest;
 import com.ondemandmonitoring.mission.dto.request.MissionUpdateRequest;
+import com.ondemandmonitoring.mission.dto.request.MissionRescheduleRequest;
 import com.ondemandmonitoring.mission.dto.request.PostFlightStatusRequest;
 import com.ondemandmonitoring.mission.dto.request.FlightPermitUpdateRequest;
 import com.ondemandmonitoring.mission.dto.response.MissionPlanResponse;
@@ -103,6 +104,15 @@ public class MissionController {
             @Valid @RequestBody MissionUpdateRequest request) {
         MissionResponse response = missionService.updateMission(id, request);
         return ResponseEntity.ok(ApiResponse.ok("Cập nhật mission thành công", response));
+    }
+
+    @PatchMapping("/{id}/schedule")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<MissionResponse>> rescheduleMission(
+            @PathVariable String id,
+            @Valid @RequestBody MissionRescheduleRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok("Đổi lịch mission thành công",
+                missionService.rescheduleMission(id, request)));
     }
 
     /**

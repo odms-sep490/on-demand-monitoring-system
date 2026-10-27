@@ -4,6 +4,7 @@ import com.ondemandmonitoring.devicecheck.dto.response.PreDeviceCheckResponse;
 import com.ondemandmonitoring.mission.dto.request.AssignDeviceRequest;
 import com.ondemandmonitoring.mission.dto.request.AssignStaffRequest;
 import com.ondemandmonitoring.mission.dto.request.MissionUpdateRequest;
+import com.ondemandmonitoring.mission.dto.request.MissionRescheduleRequest;
 import com.ondemandmonitoring.mission.dto.request.FlightPermitUpdateRequest;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.dto.response.MissionPlanResponse;
@@ -33,6 +34,8 @@ public interface IMissionService {
     MissionResponse finalizeReplacementMission(String missionId);
 
     MissionResponse updateMission(String missionId, MissionUpdateRequest request);
+
+    MissionResponse rescheduleMission(String missionId, MissionRescheduleRequest request);
 
     MissionResponse updateFlightPermit(String missionId, FlightPermitUpdateRequest request);
 

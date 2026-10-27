@@ -304,7 +304,7 @@ class MissionServiceTest {
 
             AssignStaffRequest request = AssignStaffRequest.builder().staffId("op-01").build();
             assertThat(missionService.assignStaff("m-assign", request).getStatus())
-                    .isEqualTo(MissionStatus.READY);
+                    .isEqualTo(MissionStatus.WAITING_CREW_CONFIRMATION);
         }
 
         @Test

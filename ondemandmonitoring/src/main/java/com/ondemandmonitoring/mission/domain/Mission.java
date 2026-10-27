@@ -3,6 +3,7 @@ package com.ondemandmonitoring.mission.domain;
 import com.ondemandmonitoring.common.entity.BaseEntity;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.enums.FlightPermitStatus;
+import com.ondemandmonitoring.mission.enums.MissionRescheduleReason;
 import com.ondemandmonitoring.order.domain.Order;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -94,6 +95,22 @@ public class Mission extends BaseEntity {
 
     @Column(name = "scheduled_end_at", nullable = false)
     Instant scheduledEndAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "last_reschedule_reason", length = 50)
+    MissionRescheduleReason lastRescheduleReason;
+
+    @Column(name = "last_reschedule_note", length = 1000)
+    String lastRescheduleNote;
+
+    @Column(name = "last_rescheduled_at")
+    Instant lastRescheduledAt;
+
+    @Column(name = "last_rescheduled_by", length = 255)
+    String lastRescheduledBy;
+
+    @Column(name = "schedule_revision", nullable = false, columnDefinition = "integer default 0")
+    Integer scheduleRevision = 0;
 
     @Column(name = "actual_start_at")
     Instant actualStartAt;

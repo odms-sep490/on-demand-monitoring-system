@@ -27,7 +27,6 @@ import com.ondemandmonitoring.mission.dto.response.MissionTelemetryReadinessResp
 import com.ondemandmonitoring.mission.enums.*;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.enums.OrderStatus;
-import com.ondemandmonitoring.order.enums.OrderWeatherFallback;
 import com.ondemandmonitoring.mission.repository.ControlHandoverRepository;
 import com.ondemandmonitoring.mission.repository.DeviceConnectionRepository;
 import com.ondemandmonitoring.mission.repository.FlightTokenRepository;
@@ -477,7 +476,7 @@ public class MissionService implements IMissionService {
         var currentSameDevice = missionDeviceAssignmentRepository
                 .findAllByMissionIdAndDeviceIdAndIsCurrentTrueOrderByCreatedAtDesc(resolvedMissionId, deviceId);
         if (!currentSameDevice.isEmpty()) {
-            if (hasCurrentCrewAssigned(resolvedMissionId) && mission.getStatus() == MissionStatus.READY) {
+            if (hasRequiredCrewAssigned(resolvedMissionId) && mission.getStatus() == MissionStatus.READY) {
                 mission.setStatus(MissionStatus.WAITING_CREW_CONFIRMATION);
             }
             return missionMapper.toResponse(missionRepository.save(mission));
@@ -515,7 +514,7 @@ public class MissionService implements IMissionService {
                 .build();
 
         missionDeviceAssignmentRepository.save(newAssignment);
-        if (hasCurrentCrewAssigned(resolvedMissionId) && mission.getStatus() == MissionStatus.READY) {
+        if (hasRequiredCrewAssigned(resolvedMissionId) && mission.getStatus() == MissionStatus.READY) {
             mission.setStatus(MissionStatus.WAITING_CREW_CONFIRMATION);
         }
         Mission saved = missionRepository.save(mission);
@@ -601,6 +600,7 @@ public class MissionService implements IMissionService {
                         assignedRole)
                 .isEmpty()) {
             if (missionDeviceAssignmentRepository.existsByMissionId(resolvedMissionId)
+                    && hasRequiredCrewAssigned(resolvedMissionId)
                     && mission.getStatus() == MissionStatus.READY) {
                 mission.setStatus(MissionStatus.WAITING_CREW_CONFIRMATION);
             }
@@ -628,6 +628,7 @@ public class MissionService implements IMissionService {
         userScheduleRepository.save(staffSchedule);
 
         if (missionDeviceAssignmentRepository.existsByMissionId(resolvedMissionId)
+                && hasRequiredCrewAssigned(resolvedMissionId)
                 && mission.getStatus() == MissionStatus.READY) {
             mission.setStatus(MissionStatus.WAITING_CREW_CONFIRMATION);
         }
@@ -723,100 +724,6 @@ public class MissionService implements IMissionService {
         return missionMapper.toResponse(saved);
     }
 
-    @Override
-    @Transactional
-    @PreAuthorize("@missionAuthorizationService.canManageMissions()")
-    public MissionResponse rescheduleMission(String missionId, MissionRescheduleRequest request) {
-        if (request == null) throw new ApiException(ErrorCode.INVALID_REQUEST);
-
-        String orderId = missionRepository.findOrderIdByMissionId(missionId)
-                .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
-        Order order = orderRepository.findByIdForUpdate(orderId)
-                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-        Mission mission = missionRepository.findByIdForUpdate(missionId)
-                .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
-
-        if (!orderId.equals(mission.getOrder().getId())) {
-            throw new ApiException(ErrorCode.CHECKLIST_ASSIGNMENT_CROSS_ORDER);
-        }
-        if (!Set.of(MissionStatus.PLANNING, MissionStatus.WAITING_DEPOSIT,
-                MissionStatus.READY, MissionStatus.WAITING_CREW_CONFIRMATION,
-                MissionStatus.WAITING_OPERATOR_ACCEPTANCE, MissionStatus.SCHEDULED,
-                MissionStatus.FAILED_PREFLIGHT, MissionStatus.PENDING_APPROVAL)
-                .contains(mission.getStatus()) || mission.getActualStartAt() != null) {
-            throw new ApiException(ErrorCode.MISSION_RESCHEDULE_NOT_ALLOWED);
-        }
-        if (order.getOrderStatus() != OrderStatus.APPROVED
-                && order.getOrderStatus() != OrderStatus.IN_PROGRESS) {
-            throw new ApiException(ErrorCode.MISSION_RESCHEDULE_NOT_ALLOWED);
-        }
-
-        OrderWeatherFallback fallback = order.getWeatherFallback() == null
-                ? OrderWeatherFallback.CONTACT_CUSTOMER
-                : order.getWeatherFallback();
-        if (fallback == OrderWeatherFallback.CANCEL_ORDER) {
-            throw new ApiException(ErrorCode.MISSION_RESCHEDULE_ORDER_CANCELLATION_REQUIRED);
-        }
-        if (fallback == OrderWeatherFallback.CONTACT_CUSTOMER && !request.customerConfirmed()) {
-            throw new ApiException(ErrorCode.MISSION_RESCHEDULE_CUSTOMER_CONFIRMATION_REQUIRED);
-        }
-
-        Instant newStart = request.scheduledStartAt();
-        Instant newEnd = request.scheduledEndAt();
-        if (newStart == null || newEnd == null || !newStart.isBefore(newEnd)
-                || newStart.isBefore(Instant.now())) {
-            throw new ApiException(ErrorCode.INVALID_REQUEST,
-                    "The replacement schedule must be a valid future interval");
-        }
-        if (newStart.equals(mission.getScheduledStartAt()) && newEnd.equals(mission.getScheduledEndAt())) {
-            throw new ApiException(ErrorCode.INVALID_REQUEST, "Choose a different schedule");
-        }
-
-        try {
-            validateScheduledDates(newStart, newEnd, order);
-        } catch (ApiException invalidWindow) {
-            throw new ApiException(ErrorCode.MISSION_RESCHEDULE_OUTSIDE_CUSTOMER_WINDOW,
-                    "Update the Order with the customer before selecting a time outside the requested window");
-        }
-
-        resources.revalidateSchedule(mission, newStart, newEnd);
-
-        Instant now = Instant.now();
-        mission.setScheduledStartAt(newStart);
-        mission.setScheduledEndAt(newEnd);
-        mission.setLastRescheduleReason(request.reason());
-        mission.setLastRescheduleNote(blankToNull(request.note()));
-        mission.setLastRescheduledAt(now);
-        mission.setLastRescheduledBy(authenticatedUserResolver.getCurrentUserId());
-        mission.setScheduleRevision((mission.getScheduleRevision() == null ? 0 : mission.getScheduleRevision()) + 1);
-
-        // A changed time requires every current crew member to explicitly accept again.
-        List<MissionStaffAssignment> crew = missionStaffAssignmentRepository
-                .findAllByMissionIdAndIsCurrentTrue(mission.getId());
-        crew.forEach(assignment -> {
-            assignment.setResponseStatus(StaffResponseStatus.PENDING);
-            assignment.setResponseAt(null);
-            assignment.setRespondedAt(null);
-            assignment.setDeclineReason(null);
-        });
-        missionStaffAssignmentRepository.saveAll(crew);
-
-        if (mission.getStatus() != MissionStatus.PLANNING
-                && mission.getStatus() != MissionStatus.WAITING_DEPOSIT) {
-            mission.setStatus(crew.isEmpty() ? MissionStatus.READY : MissionStatus.WAITING_CREW_CONFIRMATION);
-        }
-
-        if (order.getExecutionPlanStatus() == ExecutionPlanStatus.FINALIZED) {
-            order.setExecutionPlanRevision(order.getExecutionPlanRevision() + 1);
-            order.setExecutionPlanAmendedAt(now);
-            order.setExecutionPlanAmendedBy(authenticatedUserResolver.getCurrentUserId());
-            order.setExecutionPlanAmendmentReason("Mission rescheduled: " + request.reason());
-            orderRepository.save(order);
-        }
-
-        return missionMapper.toResponse(missionRepository.save(mission));
-    }
-
     private MissionStaffRole resolveStaffRole(String role) {
         if (role == null || role.isBlank()) {
             return MissionStaffRole.PILOT;
@@ -869,12 +776,6 @@ public class MissionService implements IMissionService {
             assignment.setRespondedAt(now);
         });
         missionStaffAssignmentRepository.saveAll(assignments);
-
-        // Normalize missions created by the older assignment flow, which left
-        // assigned staff on READY and consequently hid the Accept action.
-        if (mission.getStatus() == MissionStatus.READY) {
-            mission.setStatus(MissionStatus.WAITING_CREW_CONFIRMATION);
-        }
 
         return missionMapper.toResponse(missionRepository.save(mission));
     }
@@ -1004,8 +905,7 @@ public class MissionService implements IMissionService {
     }
 
     private void requireCrewConfirmationStatus(Mission mission) {
-        if (mission.getStatus() != MissionStatus.READY
-                && mission.getStatus() != MissionStatus.WAITING_CREW_CONFIRMATION
+        if (mission.getStatus() != MissionStatus.WAITING_CREW_CONFIRMATION
                 && mission.getStatus() != MissionStatus.WAITING_OPERATOR_ACCEPTANCE) {
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
                     "Mission must be waiting for crew confirmation, current: " + mission.getStatus());
@@ -1019,11 +919,6 @@ public class MissionService implements IMissionService {
                 .map(MissionStaffAssignment::getAssignedRole)
                 .collect(java.util.stream.Collectors.toSet());
         return roles.containsAll(REQUIRED_CREW_ROLES);
-    }
-
-    private boolean hasCurrentCrewAssigned(String missionId) {
-        return missionStaffAssignmentRepository.findAllByMissionIdAndIsCurrentTrue(missionId)
-                .stream().anyMatch(this::isUsablePlanningCrew);
     }
 
     private boolean isRequiredCrewAccepted(String missionId) {

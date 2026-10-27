@@ -11,7 +11,6 @@ import lombok.experimental.FieldDefaults;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalTime;
 import java.util.List;
 
 @Getter
@@ -49,19 +48,11 @@ public class MissionResponse {
 
     String orderTitle;
 
-    String scopeLabel;
-
     LocalDate orderPreferredDateFrom;
 
     LocalDate orderPreferredDateTo;
 
     String orderPreferredTimeName;
-
-    LocalTime orderPreferredTimeStart;
-
-    LocalTime orderPreferredTimeEnd;
-
-    com.ondemandmonitoring.order.enums.OrderWeatherFallback orderWeatherFallback;
 
     String serviceName;
 
@@ -116,16 +107,6 @@ public class MissionResponse {
 
     @Schema(description = "Scheduled end timestamp")
     Instant scheduledEndAt;
-
-    com.ondemandmonitoring.mission.enums.MissionRescheduleReason lastRescheduleReason;
-
-    String lastRescheduleNote;
-
-    Instant lastRescheduledAt;
-
-    String lastRescheduledBy;
-
-    Integer scheduleRevision;
 
     @Schema(description = "Actual start timestamp")
     Instant actualStartAt;

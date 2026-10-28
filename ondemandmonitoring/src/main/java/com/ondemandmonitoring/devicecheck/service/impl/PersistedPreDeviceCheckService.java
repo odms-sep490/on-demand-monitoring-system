@@ -213,11 +213,11 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
         boolean mediaFallback = PreDeviceCheckType.MEDIA_STORAGE.code().equals(item.getCheckType())
                 && (item.getStatus() == PreDeviceItemStatus.FAILED
                 || item.getStatus() == PreDeviceItemStatus.UNKNOWN
-                || item.getStatus() == PreDeviceItemStatus.STALE);
+                );
         boolean batteryFallback = PreDeviceCheckType.BATTERY_HEALTH.code().equals(item.getCheckType())
                 && (item.getStatus() == PreDeviceItemStatus.FAILED
                 || item.getStatus() == PreDeviceItemStatus.UNKNOWN
-                || item.getStatus() == PreDeviceItemStatus.STALE);
+                );
         boolean connectionFallback = CONNECTION_MANUAL_FALLBACK_TYPES.contains(item.getCheckType());
         if (item.getSource() != PreflightCheckSource.MANUAL
                 && !mediaFallback && !batteryFallback && !connectionFallback) {
@@ -245,7 +245,6 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                         : "Người vận hành nhập mức pin thủ công: ") + percent + "%");
             }
             item.setCheckedAt(Instant.now());
-            item.setExpiresAt(Instant.now().plusSeconds(300));
             item.setCheckedBy(authenticatedUserResolver.getCurrentUserId());
             refreshRunStatus(run);
             return PersistedPreDeviceCheckResponse.from(run);
@@ -270,7 +269,6 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
         item.setMessage(request.getMessage());
         item.setMeasuredValue(request.getMeasuredValue());
         item.setCheckedAt(Instant.now());
-        item.setExpiresAt(Instant.now().plusSeconds(900));
         item.setCheckedBy(authenticatedUserResolver.getCurrentUserId());
 
         refreshRunStatus(run);
@@ -298,7 +296,6 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
         item.setStatus(status);
         item.setMessage(message);
         item.setCheckedAt(Instant.now());
-        item.setExpiresAt(Instant.now().plusSeconds(300));
         refreshRunStatus(run);
         return PersistedPreDeviceCheckResponse.from(run);
     }
@@ -327,9 +324,9 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
         Instant now = Instant.now();
         if (telemetry != null && telemetry.getRecordedAt() != null
                 && telemetry.getRecordedAt().isBefore(now.minusSeconds(10))) {
-            item.setStatus(PreDeviceItemStatus.STALE);
-            item.setMessage("Dữ liệu pin từ Gazebo đã quá hạn");
-            item.setErrorCode("BATTERY_TELEMETRY_STALE");
+            item.setStatus(PreDeviceItemStatus.FAILED);
+            item.setMessage("Không đạt: dữ liệu pin từ Gazebo không còn hợp lệ");
+            item.setErrorCode("BATTERY_TELEMETRY_INVALID");
             item.setMeasuredValue(telemetry.getBatteryPercent() == null
                     ? telemetry.getRecordedAt().toString()
                     : telemetry.getBatteryPercent() + "%");
@@ -337,7 +334,6 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
             evaluateBattery(item, connection == null ? null : connection.getDevice(), telemetry);
         }
         item.setCheckedAt(now);
-        item.setExpiresAt(now.plusSeconds(300));
         refreshRunStatus(run);
         return PersistedPreDeviceCheckResponse.from(run);
     }
@@ -349,7 +345,7 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
 
     private boolean blocksFlight(PreDeviceItemStatus status) {
         return status == PreDeviceItemStatus.FAILED || status == PreDeviceItemStatus.UNKNOWN
-                || status == PreDeviceItemStatus.STALE || status == PreDeviceItemStatus.PENDING
+                || status == PreDeviceItemStatus.PENDING
                 || status == PreDeviceItemStatus.CHECKING;
     }
 
@@ -377,7 +373,6 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
         }
         Instant now = Instant.now();
         item.setCheckedAt(now);
-        item.setExpiresAt(now.plusSeconds(300));
         Device device = connection == null ? null : connection.getDevice();
         DeviceTelemetry telemetry = connection == null ? null : telemetryRepository
                 .findTopByDeviceConnectionIdOrderByRecordedAtDesc(connection.getId()).orElse(null);
@@ -389,9 +384,7 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                 } else if (telemetry == null) {
                     unknown(item, "Chưa nhận được dữ liệu telemetry", "TELEMETRY_MISSING");
                 } else if (telemetry.getRecordedAt().isBefore(now.minusSeconds(10))) {
-                    item.setStatus(PreDeviceItemStatus.STALE);
-                    item.setMessage("Dữ liệu telemetry đã quá hạn");
-                    item.setErrorCode("TELEMETRY_STALE");
+                    fail(item, "Không đạt: dữ liệu telemetry không còn hợp lệ", "TELEMETRY_INVALID");
                     item.setMeasuredValue(telemetry.getRecordedAt().toString());
                 } else if (!Boolean.TRUE.equals(telemetry.getConnected())) {
                     fail(item, "Thiết bị báo mất kết nối", "AIRCRAFT_DISCONNECTED");
@@ -405,12 +398,9 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                         .findFirstByMissionIdOrderByCreatedAtDesc(mission.getId()).orElse(null);
                 if (weather == null) unknown(item, "Chưa có kết quả đánh giá thời tiết", "WEATHER_DATA_MISSING");
                 else if (weather.getCheckedAt().isBefore(now.minusSeconds(900))) {
-                    item.setStatus(PreDeviceItemStatus.STALE);
-                    item.setMessage("Kết quả thời tiết đã quá hạn");
-                    item.setErrorCode("WEATHER_DATA_STALE");
+                    fail(item, "Không đạt: kết quả thời tiết không còn hợp lệ", "WEATHER_DATA_INVALID");
                 } else if (Boolean.TRUE.equals(weather.getSafeToFly())) {
                     pass(item, weather.getSummary(), "Gió " + weather.getWindSpeedMps() + " m/s; tầm nhìn " + weather.getVisibilityKm() + " km");
-                    item.setExpiresAt(weather.getCheckedAt().plusSeconds(900));
                 } else fail(item, weather.getSummary(), "WEATHER_UNSAFE");
             }
             case AIRSPACE_PERMISSION -> {

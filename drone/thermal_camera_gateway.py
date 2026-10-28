@@ -366,7 +366,8 @@ class ThermalCameraGateway:
         )
 
     def update(self) -> None:
-        self._refresh_sources_if_needed()
+        # Thermal input now comes from the native sensor or the local fallback.
+        # Do not poll the retired /api/thermal-sources endpoint.
         with self._lock:
             if not self.enabled:
                 return

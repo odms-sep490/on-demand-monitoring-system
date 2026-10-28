@@ -101,23 +101,23 @@ class ThermalCameraGatewayTest(unittest.TestCase):
     def test_thermal_off_does_not_create_frame(self) -> None:
         self.assertIsNone(self.gateway.latest_jpeg())
 
-    def test_hotspot_below_threshold_is_false(self) -> None:
+    def test_retired_db_source_below_threshold_is_ignored(self) -> None:
         with self.patch_sources([source(temp=45.0)]):
             self.gateway.update_pose(0.0, -280.0, 20.0)
             self.gateway.toggle()
             status = self.gateway.status()
 
         self.assertFalse(status["hotspotDetected"])
-        self.assertEqual(45.0, status["maxTemperatureC"])
+        self.assertEqual(28.0, status["maxTemperatureC"])
 
-    def test_hotspot_above_threshold_is_true(self) -> None:
+    def test_retired_db_source_above_threshold_is_ignored(self) -> None:
         with self.patch_sources([source(temp=120.0)]):
             self.gateway.update_pose(0.0, -280.0, 20.0)
             self.gateway.toggle()
             status = self.gateway.status()
 
-        self.assertTrue(status["hotspotDetected"])
-        self.assertEqual(120.0, status["hotspotTemperatureC"])
+        self.assertFalse(status["hotspotDetected"])
+        self.assertIsNone(status["hotspotTemperatureC"])
 
     def test_disabled_thermal_source_is_ignored(self) -> None:
         with self.patch_sources([source(temp=200.0, active=False)]):
@@ -153,7 +153,7 @@ class ThermalCameraGatewayTest(unittest.TestCase):
         self.assertFalse(status["thermalSensorOnline"])
         self.assertIsNone(status["maxTemperatureC"])
 
-    def test_uses_next_backend_candidate_when_localhost_is_unavailable(self) -> None:
+    def test_does_not_poll_backend_thermal_source_api(self) -> None:
         gateway = ThermalCameraGateway(
             ["http://localhost:8080", "http://windows-host:8080"],
             clock=self.clock,
@@ -162,16 +162,15 @@ class ThermalCameraGatewayTest(unittest.TestCase):
         with patch.object(
             thermal_module,
             "urlopen",
-            side_effect=[OSError("connection refused"), FakeResponse({"data": [source()]})],
+            side_effect=AssertionError("thermal source API must not be called"),
         ) as mocked_open:
             gateway.toggle()
             status = gateway.status()
 
-        self.assertTrue(status["thermalSensorOnline"])
-        self.assertIsNone(status["thermalSourceError"])
-        self.assertEqual("http://windows-host:8080/api/thermal-sources", mocked_open.call_args_list[1].args[0])
+        self.assertFalse(status["thermalSensorOnline"])
+        mocked_open.assert_not_called()
 
-    def test_cached_sources_stay_online_during_temporary_backend_failure(self) -> None:
+    def test_cached_db_sources_are_not_used_after_api_retirement(self) -> None:
         with self.patch_sources([source()]):
             self.gateway.update_pose(0.0, -280.0, 20.0)
             self.gateway.toggle()
@@ -181,9 +180,9 @@ class ThermalCameraGatewayTest(unittest.TestCase):
         with patch.object(thermal_module, "urlopen", side_effect=OSError("connection refused")):
             status = self.gateway.status()
 
-        self.assertTrue(status["thermalSensorOnline"])
+        self.assertFalse(status["thermalSensorOnline"])
         self.assertIsNone(status["thermalSourceError"])
-        self.assertEqual(120.0, status["maxTemperatureC"])
+        self.assertEqual(28.0, status["maxTemperatureC"])
 
     def test_coordinate_conversion_uses_existing_mapping(self) -> None:
         self.assertEqual((20.0, -270.0), px4_ned_to_sim_xy(10.0, 20.0))
@@ -219,7 +218,7 @@ class ThermalCameraGatewayTest(unittest.TestCase):
         self.assertAlmostEqual(247.8, status["maxTemperatureC"], places=1)
         self.assertTrue(status["hotspotDetected"])
 
-    def test_db_thermal_source_overrides_cold_native_frame(self) -> None:
+    def test_native_frame_is_not_overridden_by_retired_db_source(self) -> None:
         temperatures = np.full((2, 2), 21.9, dtype=np.float32)
         raw = np.rint((temperatures + 273.15) / thermal_module.THERMAL_LINEAR_RESOLUTION_K).astype("<u2")
         self.assertTrue(self.gateway.ingest_native_frame(2, 2, raw.tobytes(), "L_INT16"))
@@ -229,10 +228,10 @@ class ThermalCameraGatewayTest(unittest.TestCase):
             self.gateway.toggle()
             status = self.gateway.status()
 
-        self.assertEqual("DB_THERMAL_SOURCE", status["thermalMode"])
-        self.assertEqual(110.0, status["maxTemperatureC"])
-        self.assertEqual(110.0, status["hotspotTemperatureC"])
-        self.assertTrue(status["hotspotDetected"])
+        self.assertEqual("NATIVE_GAZEBO", status["thermalMode"])
+        self.assertAlmostEqual(21.9, status["maxTemperatureC"], places=1)
+        self.assertIsNone(status["hotspotTemperatureC"])
+        self.assertFalse(status["hotspotDetected"])
 
     def test_palette_changes_visualization_without_changing_temperatures(self) -> None:
         temperatures = np.array([[20.0, 60.0], [120.0, 250.0]], dtype=np.float32)

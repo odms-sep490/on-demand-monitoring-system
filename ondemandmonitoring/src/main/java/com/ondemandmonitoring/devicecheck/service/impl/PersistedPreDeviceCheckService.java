@@ -43,6 +43,7 @@ import static com.ondemandmonitoring.mission.service.impl.MissionRuntimeGate.req
 public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckService {
 
     private static final long START_IDEMPOTENCY_WINDOW_SECONDS = 30;
+    private static final double DEFAULT_MIN_PREFLIGHT_BATTERY_PERCENT = 30.0;
     private static final Set<PreDeviceCheckType> REMOVED_CHECKS = Set.of(
             PreDeviceCheckType.SATELLITE_SIGNAL,
             PreDeviceCheckType.POSITIONING_HEALTH,
@@ -237,7 +238,11 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                         ? "OPERATOR_REJECTED_BATTERY" : null);
             } else {
                 evaluateManualBattery(item, run.getDeviceConnection() == null ? null : run.getDeviceConnection().getDevice(), percent);
-                item.setMessage("Người vận hành nhập mức pin thủ công: " + percent + "%");
+                boolean automaticGazeboReading = request.getMessage() != null
+                        && request.getMessage().startsWith("Hệ thống tự động");
+                item.setMessage((automaticGazeboReading
+                        ? "Pin Gazebo tự động: "
+                        : "Người vận hành nhập mức pin thủ công: ") + percent + "%");
             }
             item.setCheckedAt(Instant.now());
             item.setExpiresAt(Instant.now().plusSeconds(300));
@@ -440,15 +445,9 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
             unknown(item, "Chưa có telemetry pin", "BATTERY_TELEMETRY_MISSING");
             return;
         }
-        Object configured = device == null || device.getDeviceModel() == null || device.getDeviceModel().getSpecsMetadata() == null
-                ? null : device.getDeviceModel().getSpecsMetadata().get("minPreflightBatteryPercent");
-        if (!(configured instanceof Number threshold)) {
-            unknown(item, "Chưa cấu hình ngưỡng pin trước bay cho mẫu thiết bị", "BATTERY_POLICY_MISSING");
-            item.setMeasuredValue(telemetry.getBatteryPercent() + "%");
-            return;
-        }
+        double threshold = batteryThreshold(device);
         item.setMeasuredValue(telemetry.getBatteryPercent() + "%");
-        if (telemetry.getBatteryPercent() >= threshold.doubleValue()) pass(item, "Pin đáp ứng ngưỡng của thiết bị", item.getMeasuredValue());
+        if (telemetry.getBatteryPercent() >= threshold) pass(item, "Pin đáp ứng ngưỡng của thiết bị", item.getMeasuredValue());
         else fail(item, "Pin thấp hơn ngưỡng vận hành", "BATTERY_BELOW_LIMIT");
     }
 
@@ -464,15 +463,23 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
 
     private void evaluateManualBattery(PersistedPreDeviceCheckItem item, Device device, double percent) {
         item.setMeasuredValue(percent + "%");
-        Object configured = device == null || device.getDeviceModel() == null || device.getDeviceModel().getSpecsMetadata() == null
-                ? null : device.getDeviceModel().getSpecsMetadata().get("minPreflightBatteryPercent");
-        if (!(configured instanceof Number threshold)) {
-            unknown(item, "Chưa cấu hình ngưỡng pin trước bay cho mẫu thiết bị", "BATTERY_POLICY_MISSING");
-        } else if (percent >= threshold.doubleValue()) {
+        double threshold = batteryThreshold(device);
+        if (percent >= threshold) {
             pass(item, "Mức pin nhập tay đáp ứng ngưỡng của thiết bị", item.getMeasuredValue());
         } else {
             fail(item, "Mức pin nhập tay thấp hơn ngưỡng vận hành", "BATTERY_BELOW_LIMIT");
         }
+    }
+
+    private double batteryThreshold(Device device) {
+        Object configured = device == null
+                || device.getDeviceModel() == null
+                || device.getDeviceModel().getSpecsMetadata() == null
+                ? null
+                : device.getDeviceModel().getSpecsMetadata().get("minPreflightBatteryPercent");
+        return configured instanceof Number number
+                ? number.doubleValue()
+                : DEFAULT_MIN_PREFLIGHT_BATTERY_PERCENT;
     }
 
     private void clearEvidence(PersistedPreDeviceCheckItem item) {

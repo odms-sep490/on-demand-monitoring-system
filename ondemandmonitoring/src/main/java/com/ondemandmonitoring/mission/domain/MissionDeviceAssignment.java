@@ -3,7 +3,7 @@ package com.ondemandmonitoring.mission.domain;
 import com.ondemandmonitoring.common.entity.BaseEntity;
 import com.ondemandmonitoring.device.domain.Device;
 import com.ondemandmonitoring.mission.domain.Mission;
-import com.ondemandmonitoring.mission.enums.CheckupStatus;
+import com.ondemandmonitoring.mission.enums.MissionDeviceAssignmentStatus;
 import com.ondemandmonitoring.mission.enums.DeviceRole;
 import jakarta.persistence.*;
 import lombok.*;
@@ -37,7 +37,7 @@ public class MissionDeviceAssignment extends BaseEntity {
     @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "checkup_status", nullable = false, length = 50)
-    CheckupStatus checkupStatus = CheckupStatus.PENDING;
+    MissionDeviceAssignmentStatus checkupStatus = MissionDeviceAssignmentStatus.PENDING;
 
     @Column(name = "postcheck_status", length = 50)
     String postcheckStatus;

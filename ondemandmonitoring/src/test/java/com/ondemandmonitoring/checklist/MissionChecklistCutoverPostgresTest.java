@@ -203,10 +203,10 @@ class MissionChecklistCutoverPostgresTest extends ChecklistPostgresTest {
         @Bean IExecutionPlanService plan(com.ondemandmonitoring.order.repository.OrderRepository orders,MissionRepository missions,
                 com.ondemandmonitoring.order.repository.OrderChecklistItemRepository items,MissionChecklistAssignmentRepository a,
                 IMissionChecklistMaterializationService materializer,IMissionChecklistScopeService scope,
-                com.ondemandmonitoring.user.service.AuthenticatedUserResolver user,MissionResultRepository results,IMissionChecklistExecutionService checklist) {
+                com.ondemandmonitoring.user.service.AuthenticatedUserResolver user,MissionResultRepository results,IMissionChecklistExecutionService checklist,
+                MissionStaffAssignmentRepository staff, MissionDeviceAssignmentRepository devices) {
             return new ExecutionPlanServiceImpl(orders,missions,items,a,materializer,scope,user,new ExecutionPlanCoverageService(),
-                    new com.ondemandmonitoring.order.service.impl.OrderExecutionCompletionPolicy(orders,missions,results,checklist,items,a,new ExecutionPlanCoverageService()),
-                    OrderMissionPostgresTest.paidInvoices(), OrderMissionPostgresTest.paidEligibility());
+                    staff, devices);
         }
     }
 }

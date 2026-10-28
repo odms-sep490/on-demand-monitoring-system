@@ -34,16 +34,18 @@ public class MissionCancellationServiceImpl implements IMissionCancellationServi
             throw new ApiException(ErrorCode.INVALID_REQUEST);
         String orderId = missions.findOrderIdByMissionId(missionId)
                 .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
-        var order = orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-        var mission = missions.findByIdForUpdate(missionId).orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
+        var order = orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        var mission = missions.findById(missionId).orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
         MissionCancellationGuard.requireAllowed(orderId, order, mission, request.expectedPlanRevision(), results, missions);
         mission.setStatus(MissionStatus.CANCELLED);
+        mission.setResourcePrepareStatus(MissionResourcePrepareStatus.CANCELLED);
         mission.setCancellationAt(Instant.now()); mission.setCancelledBy(actor.getCurrentUserId());
         mission.setCancellationReason(request.reason().strip());
         order.setExecutionPlanRevision(order.getExecutionPlanRevision() + 1);
         missions.saveAndFlush(mission); orders.saveAndFlush(order);
         if (checklistAssignmentStatusSync != null) checklistAssignmentStatusSync.syncForMission(mission);
-        return new MissionCancellationResponse(missionId, mission.getStatus(), order.getExecutionPlanRevision(),
+        return new MissionCancellationResponse(missionId, mission.getStatus(), mission.getResourcePrepareStatus(),
+                order.getExecutionPlanRevision(),
                 mission.getCancellationAt(), mission.getCancelledBy(), mission.getCancellationReason());
     }
 }

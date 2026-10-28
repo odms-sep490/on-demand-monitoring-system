@@ -7,7 +7,7 @@ import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import com.ondemandmonitoring.mission.domain.MissionStaffAssignment;
 import com.ondemandmonitoring.mission.enums.DeviceRole;
 import com.ondemandmonitoring.mission.enums.MissionStaffRole;
-import com.ondemandmonitoring.mission.enums.StaffResponseStatus;
+import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
 import com.ondemandmonitoring.mission.repository.FlightTokenRepository;
 import com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository;
 import com.ondemandmonitoring.mission.repository.MissionStaffAssignmentRepository;
@@ -53,7 +53,7 @@ public class FlightTokenService implements IFlightTokenService {
                 .findAllByMissionIdAndStaffIdAndIsCurrentTrueOrderByAssignedAtDesc(missionId, staffId)
                 .stream()
                 .filter(entry -> entry.getAssignedRole() == MissionStaffRole.PILOT
-                        && entry.getResponseStatus() == StaffResponseStatus.ACCEPTED)
+                        && entry.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED)
                 .findFirst()
                 .orElseThrow(() -> new ApiException(ErrorCode.INVALID_REQUEST,
                         "Staff " + staffId + " is not assigned to mission " + missionId));

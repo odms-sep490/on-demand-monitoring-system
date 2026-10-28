@@ -8,21 +8,12 @@ import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.mission.repository.MissionResultRepository;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.enums.*;
-import java.util.Set;
 
 /**
  * Shared existing cancellation preconditions for locked commands and
  * non-mutating capability reads.
  */
 final class MissionCancellationGuard {
-    // private static final Set<MissionStatus> SAFE_STATES =
-    // Set.of(MissionStatus.PLANNING,
-    // MissionStatus.WAITING_CREW_CONFIRMATION,
-    // MissionStatus.WAITING_OPERATOR_ACCEPTANCE, MissionStatus.READY,
-    // MissionStatus.SCHEDULED,
-    // MissionStatus.FAILED_PREFLIGHT, MissionStatus.PENDING_APPROVAL,
-    // MissionStatus.FAILED, MissionStatus.COMPLETED);
-
     private MissionCancellationGuard() {
     }
 
@@ -40,14 +31,5 @@ final class MissionCancellationGuard {
             throw new ApiException(ErrorCode.EXECUTION_PLAN_REVISION_CONFLICT);
         if (results.existsByMissionIdAndApprovalStatus(mission.getId(), MissionResultApprovalStatus.APPROVED))
             throw new ApiException(ErrorCode.MISSION_RESULT_ALREADY_APPROVED);
-        // if ((!SAFE_STATES.contains(mission.getStatus()) && !(mission.getStatus() ==
-        // MissionStatus.PENDING_REVIEW
-        // && mission.getSafeStopStatus() ==
-        // MissionSafeStopStatus.READY_FOR_CANCELLATION))
-        // || (mission.getSafeStopRequestedAt() != null
-        // && mission.getSafeStopStatus() !=
-        // MissionSafeStopStatus.READY_FOR_CANCELLATION)
-        // || missions.hasUnsafeCancellationResources(mission.getId()))
-        // throw new ApiException(ErrorCode.MISSION_CANCELLATION_REQUIRES_SAFE_STOP);
     }
 }

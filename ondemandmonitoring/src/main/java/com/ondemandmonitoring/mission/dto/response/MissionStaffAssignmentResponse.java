@@ -1,7 +1,7 @@
 package com.ondemandmonitoring.mission.dto.response;
 
 import com.ondemandmonitoring.mission.enums.MissionStaffRole;
-import com.ondemandmonitoring.mission.enums.StaffResponseStatus;
+import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -19,7 +19,7 @@ public class MissionStaffAssignmentResponse {
     String staffEmail;
     String staffPhone;
     MissionStaffRole assignedRole;
-    StaffResponseStatus responseStatus;
+    MissionStaffAssignmentStatus responseStatus;
     Instant assignedAt;
     Instant respondedAt;
     String declineReason;

@@ -59,7 +59,7 @@ public class MissionSafeStopServiceImpl implements IMissionSafeStopService {
     private void requireConfirmationAllowed(Mission m, com.ondemandmonitoring.user.domain.User user) {
         boolean authorized = user.getRole() != null && user.getRole().getCode() == RoleCode.STAFF
                 && crew.findByMissionId(m.getId()).stream().anyMatch(a -> a.getStaff() != null && user.getId().equals(a.getStaff().getId())
-                    && Boolean.TRUE.equals(a.getIsCurrent()) && a.getResponseStatus() == StaffResponseStatus.ACCEPTED
+                    && Boolean.TRUE.equals(a.getIsCurrent()) && a.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED
                     && (a.getAssignedRole() == MissionStaffRole.PILOT
                         || (!Boolean.TRUE.equals(m.getSafeStopRequiresLanding()) && a.getAssignedRole() == MissionStaffRole.OPERATOR)));
         if (!authorized) throw new ApiException(ErrorCode.ACCESS_DENIED);

@@ -4,7 +4,7 @@ import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.domain.MissionStaffAssignment;
 import com.ondemandmonitoring.mission.enums.MissionStaffRole;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
-import com.ondemandmonitoring.mission.enums.StaffResponseStatus;
+import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.mission.repository.MissionStaffAssignmentRepository;
 import com.ondemandmonitoring.mission.service.IMissionAuthorizationService;
@@ -75,10 +75,10 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
         User user = currentUser.getCurrentUser();
         if (!hasRole(user, RoleCode.STAFF) || !user.getId().equals(staffId)) return false;
         return findRuntimeMissionById(missionId).filter(mission ->
-                mission.getStatus() == MissionStatus.WAITING_CREW_CONFIRMATION
+                mission.getStatus() == MissionStatus.READY
                         || mission.getStatus() == MissionStatus.WAITING_OPERATOR_ACCEPTANCE)
                 .map(mission -> ownAssignments(mission.getId(), user).stream()
-                        .anyMatch(entry -> entry.getResponseStatus() == StaffResponseStatus.PENDING))
+                        .anyMatch(entry -> entry.getResponseStatus() == MissionStaffAssignmentStatus.PENDING))
                 .orElse(false);
     }
 
@@ -92,7 +92,7 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
         User user = currentUser.getCurrentUser();
         if (!hasRole(user, RoleCode.STAFF)) return false;
         return findRuntimeMissionById(missionId)
-                .filter(mission -> mission.getStatus() == MissionStatus.WAITING_CREW_CONFIRMATION
+                .filter(mission -> mission.getStatus() == MissionStatus.READY
                         || mission.getStatus() == MissionStatus.WAITING_OPERATOR_ACCEPTANCE)
                 .map(mission -> {
                     List<MissionStaffAssignment> crew = assignments
@@ -102,19 +102,19 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
                                     && entry.getReleasedAt() == null)
                             .toList();
                     Set<MissionStaffRole> acceptedRoles = crew.stream()
-                            .filter(entry -> entry.getResponseStatus() == StaffResponseStatus.ACCEPTED)
+                            .filter(entry -> entry.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED)
                             .map(MissionStaffAssignment::getAssignedRole)
                             .collect(java.util.stream.Collectors.toSet());
                     boolean inspector = crew.stream().anyMatch(entry ->
                             entry.getAssignedRole() == MissionStaffRole.INSPECTOR
-                                    && entry.getResponseStatus() == StaffResponseStatus.ACCEPTED
+                                    && entry.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED
                                     && user.getId().equals(entry.getStaff().getId()));
                     return inspector
                             && acceptedRoles.containsAll(Set.of(MissionStaffRole.PILOT,
                                     MissionStaffRole.OPERATOR, MissionStaffRole.MAINTAINER,
                                     MissionStaffRole.INSPECTOR))
                             && crew.stream().allMatch(entry ->
-                                    entry.getResponseStatus() == StaffResponseStatus.ACCEPTED);
+                                    entry.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED);
                 }).orElse(false);
     }
 
@@ -171,7 +171,7 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
         // released by successful completion can finish the business report afterwards.
         List<MissionStaffAssignment> usable = assignments.findByMissionId(mission.getId()).stream()
                 .filter(entry -> entry.getStaff() != null && hasRole(entry.getStaff(), RoleCode.STAFF))
-                .filter(entry -> entry.getResponseStatus() == StaffResponseStatus.ACCEPTED)
+                .filter(entry -> entry.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED)
                 .filter(entry -> completed
                         ? entry.getReleasedAt() != null && "MISSION_COMPLETE".equals(entry.getReleaseReason())
                         : Boolean.TRUE.equals(entry.getIsCurrent()) && entry.getReleasedAt() == null)
@@ -250,7 +250,7 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
                             && user.getId().equals(entry.getStaff().getId())
                             && Boolean.TRUE.equals(entry.getIsCurrent()) && entry.getReleasedAt() == null
                             && entry.getAssignedRole() == task
-                            && entry.getResponseStatus() == StaffResponseStatus.ACCEPTED);
+                            && entry.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED);
                 }).orElse(false);
     }
 
@@ -274,7 +274,7 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
                         && user.getId().equals(entry.getStaff().getId())
                         && hasRole(entry.getStaff(), RoleCode.STAFF)
                         && entry.getAssignedRole() == role
-                        && entry.getResponseStatus() == StaffResponseStatus.ACCEPTED
+                        && entry.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED
                         && Boolean.TRUE.equals(entry.getIsCurrent())
                         && (mission.getStatus() == MissionStatus.COMPLETED
                             ? entry.getReleasedAt() != null && "MISSION_COMPLETE".equals(entry.getReleaseReason())

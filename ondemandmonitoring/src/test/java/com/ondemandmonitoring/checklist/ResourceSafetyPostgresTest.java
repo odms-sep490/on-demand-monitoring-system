@@ -95,7 +95,7 @@ class ResourceSafetyPostgresTest extends ExecutionPlanAmendmentPostgresTest {
         });
     }
     String independentMission() {
-        String other = foreignOrder(); var request = replacementRequest(null);
+        String other = foreignOrder(); var request = request("Independent scope", 0);
         String id = missionService.createMission(other, request).getId();
         plan.finalizePlan(other,new ExecutionPlanFinalizeRequest(0L,true)); return id;
     }
@@ -340,7 +340,7 @@ class ResourceSafetyPostgresTest extends ExecutionPlanAmendmentPostgresTest {
     @Test void readySafeStopCannotReopenAndConfirmedCleanupCancellationPreserveLifecycle() {
         ready(0); String pilot=operationalFixture(first);
         withMission(first,m -> { m.setStatus(MissionStatus.READY_TO_FLY); m.setActualStartAt(null); });
-        amend(); requestStop(first); actor(pilot); capabilityAuthority("STAFF");
+        requestStop(first); actor(pilot); capabilityAuthority("STAFF");
         assertFalse(transaction.<Boolean>execute(tx -> flightPermissions().canControlFlight(first)));
         assertTrue(transaction.<Boolean>execute(tx -> flightPermissions().canTerminateFlight(first)));
         assertFalse(stop.get(first).canConfirmSafeStop());
@@ -356,13 +356,11 @@ class ResourceSafetyPostgresTest extends ExecutionPlanAmendmentPostgresTest {
         capabilityAuthority("MANAGER"); assertTrue(stop.get(first).canCleanupSafeStop()); stop.cleanup(first);
         assertTrue(stop.get(first).canCancelMission()); assertFalse(transaction.<Boolean>execute(tx -> flightPermissions().canControlFlight(first)));
         cancel(first); assertEquals(MissionStatus.CANCELLED,missions.findById(first).orElseThrow().getStatus());
-        String next=replacement(first); assertNotEquals(first,next);
         assertEquals(MissionStatus.CANCELLED,missions.findById(first).orElseThrow().getStatus());
-        assertNull(missions.findById(next).orElseThrow().getSafeStopRequestedAt());
     }
 
     @Test void historicalConfirmedReadyClosesOutViaPostflightWithoutReopeningFlight() {
-        ready(0); String pilot=operationalFixture(first); amend(); requestStop(first);
+        ready(0); String pilot=operationalFixture(first); requestStop(first);
         // Reproduce legacy data only in the disposable schema, never repair the application's DB.
         withMission(first,m -> { m.setStatus(MissionStatus.READY_TO_FLY); m.setActualStartAt(null);
             m.setSafeStopRequiresLanding(false); m.setSafeStopConfirmedAt(Instant.now());
@@ -377,8 +375,8 @@ class ResourceSafetyPostgresTest extends ExecutionPlanAmendmentPostgresTest {
         assertEquals(MissionStatus.CANCELLED,missions.findById(first).orElseThrow().getStatus());
     }
 
-    @Test void activeMissionRequiresCrewConfirmationInspectionCleanupThenCancellationAndReplacement() {
-        ready(0); String pilot=operationalFixture(first); amend(); var before=history(first);
+    @Test void activeMissionRequiresCrewConfirmationInspectionCleanupThenCancellation() {
+        ready(0); String pilot=operationalFixture(first); var before=history(first);
         error(ErrorCode.MISSION_CANCELLATION_REQUIRES_SAFE_STOP,() -> cancel(first)); requestStop(first);
         error(ErrorCode.MISSION_SAFE_STOP_NOT_READY,() -> stop.cleanup(first));
         error(ErrorCode.MISSION_CANCELLATION_REQUIRES_SAFE_STOP,() -> transaction.executeWithoutResult(tx -> operational.startMission(first)));
@@ -391,7 +389,7 @@ class ResourceSafetyPostgresTest extends ExecutionPlanAmendmentPostgresTest {
         postflight(first); actor(pilot); confirmStop(first); stop.cleanup(first);
         assertEquals(MissionStatus.PENDING_REVIEW,missions.findById(first).orElseThrow().getStatus());
         assertEquals("READY_FOR_CANCELLATION",jdbc.queryForObject("select safe_stop_status from missions where id=?",String.class,first));
-        cancel(first); String replacement=replacement(first); assertNotEquals(first,replacement);
+        cancel(first);
         assertEquals(MissionStatus.CANCELLED,missions.findById(first).orElseThrow().getStatus());
         assertNotNull(stop.cleanup(first).cleanedAt()); // cleanup retry after cancellation is still a no-op.
         assertEquals(0,jdbc.queryForObject("select count(*) from resource_time_locks where mission_id=? and released_at is null",Integer.class,first));
@@ -401,7 +399,7 @@ class ResourceSafetyPostgresTest extends ExecutionPlanAmendmentPostgresTest {
         assertEquals(before.get("drone_media"),history(first).get("drone_media"));
     }
     @Test void failedOrUnconfirmedStopRetainsReservationsAndSessions() {
-        ready(0); operationalFixture(first); amend(); requestStop(first); stop.fail(first,"No landing confirmation");
+        ready(0); operationalFixture(first); requestStop(first); stop.fail(first,"No landing confirmation");
         error(ErrorCode.MISSION_SAFE_STOP_FAILED,() -> stop.cleanup(first));
         error(ErrorCode.MISSION_CANCELLATION_REQUIRES_SAFE_STOP,() -> cancel(first));
         assertEquals(2,jdbc.queryForObject("select count(*) from resource_time_locks where mission_id=? and released_at is null",Integer.class,first));
@@ -409,7 +407,7 @@ class ResourceSafetyPostgresTest extends ExecutionPlanAmendmentPostgresTest {
         assertEquals(1,jdbc.queryForObject("select count(*) from flight_tokens where mission_id=? and revoked=false",Integer.class,first));
     }
     @Test void cleanupReplayPreservesAuditAndSiblingResourcesAndSessions() {
-        ready(0); String pilot=operationalFixture(first); operationalFixture(second); amend(); requestStop(first); postflight(first); actor(pilot); confirmStop(first);
+        ready(0); String pilot=operationalFixture(first); operationalFixture(second); requestStop(first); postflight(first); actor(pilot); confirmStop(first);
         var sibling=jdbc.queryForMap("select id,connection_status,telemetry_active,version from device_connections where mission_id=?",second);
         var siblingHistory=history(second); stop.cleanup(first);
         var audit=jdbc.queryForMap("select safe_stop_cleaned_at,version from missions where id=?",first);
@@ -421,7 +419,7 @@ class ResourceSafetyPostgresTest extends ExecutionPlanAmendmentPostgresTest {
         assertEquals(2,jdbc.queryForObject("select count(*) from resource_time_locks where mission_id=? and released_at is null",Integer.class,second));
     }
     @Test void managerCannotAttestLandingAndCancelledMissionCannotReconnectOrAcceptTelemetry() {
-        ready(0); String pilot=operationalFixture(first); amend(); requestStop(first); postflight(first);
+        ready(0); String pilot=operationalFixture(first); requestStop(first); postflight(first);
         when(resolver.getCurrentUser()).thenReturn(User.builder().role(Role.builder().code(RoleCode.MANAGER).build()).isActive(true).build());
         error(ErrorCode.ACCESS_DENIED,() -> confirmStop(first)); actor(pilot); confirmStop(first);
         assertNotNull(jdbc.queryForObject("select safe_stop_confirmed_at from missions where id=?",Object.class,first),"confirmation must be persisted");
@@ -450,7 +448,7 @@ class ResourceSafetyPostgresTest extends ExecutionPlanAmendmentPostgresTest {
                     List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_"+role))));
     }
     @Test void capabilityReadsReflectRealCleanupAndCancelGuardsWithoutMutatingDatabase() {
-        ready(0); String pilot=operationalFixture(first); amend(); requestStop(first);
+        ready(0); String pilot=operationalFixture(first); requestStop(first);
         capabilityAuthority("MANAGER");
         var before=jdbc.queryForList("select * from missions where id=?",first);
         var locks=jdbc.queryForList("select * from resource_time_locks where mission_id=? order by id",first);
@@ -466,7 +464,7 @@ class ResourceSafetyPostgresTest extends ExecutionPlanAmendmentPostgresTest {
         cancel(first); assertFalse(stop.get(first).canCancelMission()); assertFalse(stop.get(first).canCleanupSafeStop());
     }
     @Test void ownAndSiblingCrewHaveDifferentConfirmationCapabilities() {
-        ready(0); String pilotA=operationalFixture(first); String pilotB=operationalFixture(second); amend();
+        ready(0); String pilotA=operationalFixture(first); String pilotB=operationalFixture(second);
         requestStop(first); requestStop(second); postflight(first); postflight(second);
         capabilityAuthority("STAFF"); actor(pilotA);
         assertTrue(stop.get(first).canConfirmSafeStop()); assertFalse(stop.get(second).canConfirmSafeStop());

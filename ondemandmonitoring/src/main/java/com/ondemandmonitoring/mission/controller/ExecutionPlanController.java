@@ -15,12 +15,6 @@ import org.springframework.web.bind.annotation.*;
 @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
 public class ExecutionPlanController {
     private final IExecutionPlanService service;
-    @PostMapping("/amend")
-    public ApiResponse<com.ondemandmonitoring.mission.dto.response.ExecutionPlanAmendResponse> amend(
-            @PathVariable String orderId,
-            @Valid @RequestBody com.ondemandmonitoring.mission.dto.request.ExecutionPlanAmendRequest request) {
-        return ApiResponse.ok(service.amend(orderId, request));
-    }
     @GetMapping
     public ApiResponse<ExecutionPlanResponse> get(@PathVariable String orderId) { return ApiResponse.ok(service.get(orderId)); }
     @PostMapping("/finalize")

@@ -7,7 +7,7 @@ import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.domain.MissionStaffAssignment;
 import com.ondemandmonitoring.mission.enums.MissionStaffRole;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
-import com.ondemandmonitoring.mission.enums.StaffResponseStatus;
+import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.mission.repository.MissionStaffAssignmentRepository;
 import com.ondemandmonitoring.mission.service.IMissionAuthorizationService;
@@ -70,15 +70,15 @@ class MissionAuthorizationHttpTest {
 
     @Test
     void acceptedOperatorCanConnectButInspectorAndPilotCannot() throws Exception {
-        crew(MissionStaffRole.INSPECTOR, StaffResponseStatus.ACCEPTED);
+        crew(MissionStaffRole.INSPECTOR, MissionStaffAssignmentStatus.ACCEPTED);
         mvc.perform(post("/api/missions/mission-1/connect").with(jwt().authorities(() -> "ROLE_STAFF")).with(csrf()))
                 .andExpect(status().isForbidden());
         verifyNoInteractions(service);
-        crew(MissionStaffRole.PILOT, StaffResponseStatus.ACCEPTED);
+        crew(MissionStaffRole.PILOT, MissionStaffAssignmentStatus.ACCEPTED);
         mvc.perform(post("/api/missions/mission-1/connect").with(jwt().authorities(() -> "ROLE_STAFF")).with(csrf()))
                 .andExpect(status().isForbidden());
         verifyNoInteractions(service);
-        crew(MissionStaffRole.OPERATOR, StaffResponseStatus.ACCEPTED);
+        crew(MissionStaffRole.OPERATOR, MissionStaffAssignmentStatus.ACCEPTED);
         mvc.perform(post("/api/missions/mission-1/connect").with(jwt().authorities(() -> "ROLE_STAFF")).with(csrf()))
                 .andExpect(status().isOk());
         verify(service).connectGcs("mission-1");
@@ -88,7 +88,7 @@ class MissionAuthorizationHttpTest {
     void exactRoutesRejectOrderAndCodeAliasesWhileCodeLookupRemainsExplicit() throws Exception {
         var order = new com.ondemandmonitoring.order.domain.Order(); order.setId("order-1");
         mission.setOrder(order);
-        crew(MissionStaffRole.PILOT, StaffResponseStatus.ACCEPTED);
+        crew(MissionStaffRole.PILOT, MissionStaffAssignmentStatus.ACCEPTED);
         when(missions.findByMissionCode("MS-001")).thenReturn(Optional.of(mission));
         mvc.perform(get("/api/missions/order-1").with(jwt().authorities(() -> "ROLE_STAFF")))
                 .andExpect(status().isForbidden());
@@ -105,7 +105,7 @@ class MissionAuthorizationHttpTest {
     @Test
     void managerCoordinatesButCannotFly() throws Exception {
         user.getRole().setCode(RoleCode.MANAGER);
-        crew(MissionStaffRole.PILOT, StaffResponseStatus.ACCEPTED);
+        crew(MissionStaffRole.PILOT, MissionStaffAssignmentStatus.ACCEPTED);
         mvc.perform(get("/api/missions/pending-assignment")
                         .with(jwt().authorities(() -> "ROLE_MANAGER"))).andExpect(status().isOk());
         mvc.perform(post("/api/missions/mission-1/connect").with(jwt().authorities(() -> "ROLE_MANAGER")).with(csrf()))
@@ -115,8 +115,8 @@ class MissionAuthorizationHttpTest {
 
     @Test
     void pendingStaffCannotAcceptForAnotherStaff() throws Exception {
-        mission.setStatus(MissionStatus.WAITING_CREW_CONFIRMATION);
-        crew(MissionStaffRole.PILOT, StaffResponseStatus.PENDING);
+        mission.setStatus(MissionStatus.READY);
+        crew(MissionStaffRole.PILOT, MissionStaffAssignmentStatus.PENDING);
         mvc.perform(patch("/api/missions/mission-1/accept-staff").param("staffId", "staff-2")
                         .with(jwt().authorities(() -> "ROLE_STAFF")).with(csrf())).andExpect(status().isForbidden());
         mvc.perform(patch("/api/missions/mission-1/accept-staff").param("staffId", "staff-1")
@@ -128,14 +128,14 @@ class MissionAuthorizationHttpTest {
     void unassignedStaffAndCustomerCannotReadMission() throws Exception {
         mvc.perform(get("/api/missions/mission-1").with(jwt().authorities(() -> "ROLE_STAFF"))).andExpect(status().isForbidden());
         user.getRole().setCode(RoleCode.CUSTOMER);
-        crew(MissionStaffRole.PILOT, StaffResponseStatus.ACCEPTED);
+        crew(MissionStaffRole.PILOT, MissionStaffAssignmentStatus.ACCEPTED);
         mvc.perform(get("/api/missions/mission-1").with(jwt().authorities(() -> "ROLE_CUSTOMER"))).andExpect(status().isForbidden());
         verifyNoInteractions(service);
     }
 
     @Test
     void permissionsReflectAcceptedMissionRoleWithoutPilotFallback() throws Exception {
-        crew(MissionStaffRole.PILOT, StaffResponseStatus.ACCEPTED);
+        crew(MissionStaffRole.PILOT, MissionStaffAssignmentStatus.ACCEPTED);
         mvc.perform(get("/api/missions/mission-1/permissions")
                         .with(jwt().authorities(() -> "ROLE_STAFF")))
                 .andExpect(status().isOk())
@@ -144,7 +144,7 @@ class MissionAuthorizationHttpTest {
                 .andExpect(jsonPath("$.data.canOperatePayload").value(false))
                 .andExpect(jsonPath("$.data.canUploadMedia").value(false))
                 .andExpect(jsonPath("$.data.canMaintainDevice").value(false));
-        crew(MissionStaffRole.OPERATOR, StaffResponseStatus.ACCEPTED);
+        crew(MissionStaffRole.OPERATOR, MissionStaffAssignmentStatus.ACCEPTED);
         mvc.perform(get("/api/missions/mission-1/permissions")
                         .with(jwt().authorities(() -> "ROLE_STAFF")))
                 .andExpect(status().isOk())
@@ -152,7 +152,7 @@ class MissionAuthorizationHttpTest {
                 .andExpect(jsonPath("$.data.canOperatePayload").value(true))
                 .andExpect(jsonPath("$.data.canInspectDevice").value(false))
                 .andExpect(jsonPath("$.data.canUploadMedia").value(false));
-        crew(MissionStaffRole.INSPECTOR, StaffResponseStatus.ACCEPTED);
+        crew(MissionStaffRole.INSPECTOR, MissionStaffAssignmentStatus.ACCEPTED);
         mvc.perform(get("/api/missions/mission-1/permissions")
                         .with(jwt().authorities(() -> "ROLE_STAFF")))
                 .andExpect(status().isOk())
@@ -173,7 +173,7 @@ class MissionAuthorizationHttpTest {
                 .andExpect(jsonPath("$.data.canControlFlight").value(false));
     }
 
-    private void crew(MissionStaffRole role, StaffResponseStatus response) {
+    private void crew(MissionStaffRole role, MissionStaffAssignmentStatus response) {
         var crew = List.of(MissionStaffAssignment.builder().staff(user).mission(mission)
                 .assignedRole(role).responseStatus(response).isCurrent(true).build());
         when(assignments.findAllByMissionIdAndIsCurrentTrue("mission-1")).thenReturn(crew);
@@ -186,14 +186,14 @@ class MissionAuthorizationHttpTest {
     @Test
     void inspectorOwnsFinalAcceptanceWhilePilotAndOperatorCannotSubmit() throws Exception {
         mission.setStatus(MissionStatus.PENDING_REVIEW);
-        crew(MissionStaffRole.PILOT, StaffResponseStatus.ACCEPTED);
+        crew(MissionStaffRole.PILOT, MissionStaffAssignmentStatus.ACCEPTED);
         mvc.perform(get("/api/missions/mission-1/permissions").with(jwt().authorities(() -> "ROLE_STAFF")))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.canCompleteMission").value(false))
                 .andExpect(jsonPath("$.data.canSubmitMissionResult").value(false));
         submitResult(status().isForbidden());
-        crew(MissionStaffRole.OPERATOR, StaffResponseStatus.ACCEPTED);
+        crew(MissionStaffRole.OPERATOR, MissionStaffAssignmentStatus.ACCEPTED);
         submitResult(status().isForbidden());
-        crew(MissionStaffRole.INSPECTOR, StaffResponseStatus.ACCEPTED);
+        crew(MissionStaffRole.INSPECTOR, MissionStaffAssignmentStatus.ACCEPTED);
         mvc.perform(get("/api/missions/mission-1/permissions").with(jwt().authorities(() -> "ROLE_STAFF")))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.canCompleteMission").value(true))
                 .andExpect(jsonPath("$.data.canSubmitMissionResult").value(true));
@@ -214,7 +214,7 @@ class MissionAuthorizationHttpTest {
     @Test
     void inspectorMayUploadMediaAndSubmitTheFinalResult() throws Exception {
         mission.setStatus(MissionStatus.PENDING_REVIEW);
-        crew(MissionStaffRole.INSPECTOR, StaffResponseStatus.ACCEPTED);
+        crew(MissionStaffRole.INSPECTOR, MissionStaffAssignmentStatus.ACCEPTED);
         var mediaUploads = context.getBean(IMissionMediaUploadService.class);
         reset(mediaUploads);
         mvc.perform(get("/api/missions/mission-1/permissions").with(jwt().authorities(() -> "ROLE_STAFF")))

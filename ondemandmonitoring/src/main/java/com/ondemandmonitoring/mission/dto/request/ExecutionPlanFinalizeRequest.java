@@ -4,4 +4,4 @@ import jakarta.validation.constraints.*;
 
 public record ExecutionPlanFinalizeRequest(
         @NotNull @PositiveOrZero Long expectedPlanRevision,
-        @NotNull Boolean decompositionConfirmed) {}
+        Boolean decompositionConfirmed) {}

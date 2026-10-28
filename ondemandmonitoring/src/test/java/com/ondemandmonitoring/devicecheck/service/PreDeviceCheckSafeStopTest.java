@@ -29,7 +29,7 @@ class PreDeviceCheckSafeStopTest {
         var user=new com.ondemandmonitoring.user.domain.User(); user.setId("pilot");
         when(crew.findAllByMissionIdAndAssignedRoleAndIsCurrentTrue("m",com.ondemandmonitoring.mission.enums.MissionStaffRole.PILOT))
                 .thenReturn(java.util.List.of(com.ondemandmonitoring.mission.domain.MissionStaffAssignment.builder().staff(user)
-                        .responseStatus(com.ondemandmonitoring.mission.enums.StaffResponseStatus.ACCEPTED).build()));
+                        .responseStatus(com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus.ACCEPTED).build()));
         var runs=mock(com.ondemandmonitoring.devicecheck.repository.PersistedPreDeviceCheckRepository.class);
         var run=new com.ondemandmonitoring.devicecheck.domain.PersistedPreDeviceCheck();
         run.setStatus(com.ondemandmonitoring.devicecheck.enums.PreDeviceCheckStatus.PASSED);

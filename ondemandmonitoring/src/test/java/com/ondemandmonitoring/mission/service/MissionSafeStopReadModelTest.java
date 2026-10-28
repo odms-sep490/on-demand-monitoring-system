@@ -69,7 +69,7 @@ class MissionSafeStopReadModelTest {
     }
     void assign(User user, MissionStaffRole role) {
         when(crew.findByMissionId("m1")).thenReturn(List.of(MissionStaffAssignment.builder().mission(mission).staff(user)
-                .assignedRole(role).isCurrent(true).responseStatus(StaffResponseStatus.ACCEPTED).build()));
+                .assignedRole(role).isCurrent(true).responseStatus(MissionStaffAssignmentStatus.ACCEPTED).build()));
     }
     void assertNone(MissionSafeStopResponse response) {
         assertFalse(response.canRequestSafeStop()); assertFalse(response.canConfirmSafeStop());
@@ -116,7 +116,7 @@ class MissionSafeStopReadModelTest {
         assertTrue(service.get("m1").canConfirmSafeStop());
         mission.setSafeStopRequiresLanding(true); assertFalse(service.get("m1").canConfirmSafeStop());
         mission.setSafeStopRequiresLanding(false);
-        crew.findByMissionId("m1").getFirst().setResponseStatus(StaffResponseStatus.PENDING);
+        crew.findByMissionId("m1").getFirst().setResponseStatus(MissionStaffAssignmentStatus.PENDING);
         assertFalse(service.get("m1").canConfirmSafeStop());
     }
     @Test void siblingCrewCannotConfirmEvenWithStaffAuthority() {

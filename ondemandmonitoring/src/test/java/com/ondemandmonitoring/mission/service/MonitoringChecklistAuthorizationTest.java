@@ -61,7 +61,7 @@ class MonitoringChecklistAuthorizationTest {
 
     MissionStaffAssignment crew(User user, MissionStaffRole role) {
         return MissionStaffAssignment.builder().staff(user).assignedRole(role).isCurrent(true)
-                .responseStatus(StaffResponseStatus.ACCEPTED).build();
+                .responseStatus(MissionStaffAssignmentStatus.ACCEPTED).build();
     }
 
     @ParameterizedTest @EnumSource(MissionStaffRole.class)
@@ -72,11 +72,11 @@ class MonitoringChecklistAuthorizationTest {
         assertFalse(policy.canExecuteMonitoringChecklist("other"));
     }
 
-    @ParameterizedTest @EnumSource(StaffResponseStatus.class)
-    void operatorMustAccept(StaffResponseStatus response) {
+    @ParameterizedTest @EnumSource(MissionStaffAssignmentStatus.class)
+    void operatorMustAccept(MissionStaffAssignmentStatus response) {
         var operator = crew(actor, MissionStaffRole.OPERATOR); operator.setResponseStatus(response);
         when(assignments.findByMissionId("m")).thenReturn(List.of(operator));
-        assertEquals(response == StaffResponseStatus.ACCEPTED, policy.canExecuteMonitoringChecklist("m"));
+        assertEquals(response == MissionStaffAssignmentStatus.ACCEPTED, policy.canExecuteMonitoringChecklist("m"));
     }
 
     @Test void pilotFallbackRequiresNoUsableOperator() {
@@ -84,9 +84,9 @@ class MonitoringChecklistAuthorizationTest {
         var operator = crew(user("operator"), MissionStaffRole.OPERATOR);
         when(assignments.findByMissionId("m")).thenReturn(List.of(pilot, operator));
         assertTrue(policy.canExecuteMonitoringChecklist("m"));
-        operator.setResponseStatus(StaffResponseStatus.PENDING); assertTrue(policy.canExecuteMonitoringChecklist("m"));
-        operator.setResponseStatus(StaffResponseStatus.REJECTED); assertTrue(policy.canExecuteMonitoringChecklist("m"));
-        operator.setResponseStatus(StaffResponseStatus.ACCEPTED);
+        operator.setResponseStatus(MissionStaffAssignmentStatus.PENDING); assertTrue(policy.canExecuteMonitoringChecklist("m"));
+        operator.setResponseStatus(MissionStaffAssignmentStatus.REJECTED); assertTrue(policy.canExecuteMonitoringChecklist("m"));
+        operator.setResponseStatus(MissionStaffAssignmentStatus.ACCEPTED);
         operator.getStaff().setIsActive(false); assertTrue(policy.canExecuteMonitoringChecklist("m"));
         operator.getStaff().setIsActive(true);
         operator.setReleasedAt(Instant.now()); assertTrue(policy.canExecuteMonitoringChecklist("m"));
@@ -155,7 +155,7 @@ class MonitoringChecklistAuthorizationTest {
         assertTrue(policy.canAttachChecklistEvidence("m"));
         assertFalse(policy.canCompleteMission("m"));
         assertFalse(policy.canSubmitMissionResult("m"));
-        pilot.setResponseStatus(StaffResponseStatus.PENDING);
+        pilot.setResponseStatus(MissionStaffAssignmentStatus.PENDING);
         assertFalse(policy.canUploadMissionMedia("m"));
         assertFalse(policy.canExecuteMonitoringChecklist("m"));
     }
@@ -179,7 +179,7 @@ class MonitoringChecklistAuthorizationTest {
         assertTrue(policy.canUploadMissionMedia("m"));
         assertFalse(policy.canCompleteMission("m"));
         assertFalse(policy.canSubmitMissionResult("m"));
-        pilot.setResponseStatus(StaffResponseStatus.PENDING);
+        pilot.setResponseStatus(MissionStaffAssignmentStatus.PENDING);
         assertFalse(policy.canUploadMissionMedia("m"));
     }
 

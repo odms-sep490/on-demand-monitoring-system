@@ -87,7 +87,7 @@ class MissionChecklistExecutionHttpTest {
 
     void crew(MissionStaffRole role) {
         var entry = MissionStaffAssignment.builder().staff(actor).assignedRole(role)
-                .responseStatus(StaffResponseStatus.ACCEPTED).isCurrent(true).build();
+                .responseStatus(MissionStaffAssignmentStatus.ACCEPTED).isCurrent(true).build();
         when(assignments.findByMissionId("m")).thenReturn(List.of(entry));
         when(assignments.findAllByMissionIdAndStaffIdAndIsCurrentTrueOrderByAssignedAtDesc("m", "actor")).thenReturn(List.of(entry));
     }

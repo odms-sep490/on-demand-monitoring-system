@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface MissionChecklistAssignmentRepository extends JpaRepository<MissionChecklistAssignment, String> {
+    List<MissionChecklistAssignment> findByMissionId(String missionId);
     @Query("select a from MissionChecklistAssignment a join fetch a.orderChecklistItem where a.missionId = :missionId and a.removedAt is null order by a.displayOrder, a.id")
     List<MissionChecklistAssignment> findByMissionIdAndRemovedAtIsNullOrderByDisplayOrderAscIdAsc(@Param("missionId") String missionId);
 

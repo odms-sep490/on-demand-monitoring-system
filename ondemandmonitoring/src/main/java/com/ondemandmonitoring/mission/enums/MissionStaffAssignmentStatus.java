@@ -1,6 +1,7 @@
 package com.ondemandmonitoring.mission.enums;
 
-public enum StaffResponseStatus {
+public enum MissionStaffAssignmentStatus {
+    PLANNING,
     PENDING,
     ACCEPTED,
     REJECTED

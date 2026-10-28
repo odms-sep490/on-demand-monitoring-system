@@ -35,7 +35,7 @@ class MissionTelemetryReadinessTest {
         mission = new Mission(); mission.setId("M1"); mission.setStatus(MissionStatus.CONNECTED);
         Device device = new Device(); device.setId("device-uuid"); device.setDeviceCode("DRN-0052");
         assignment = new MissionDeviceAssignment(); assignment.setId("A1"); assignment.setMission(mission); assignment.setDevice(device);
-        MissionStaffAssignment crew = new MissionStaffAssignment(); crew.setId("S1"); crew.setIsCurrent(true); crew.setResponseStatus(StaffResponseStatus.ACCEPTED);
+        MissionStaffAssignment crew = new MissionStaffAssignment(); crew.setId("S1"); crew.setIsCurrent(true); crew.setResponseStatus(MissionStaffAssignmentStatus.ACCEPTED);
         session = new DeviceConnection(); session.setId("C1"); session.setMission(mission); session.setDeviceAssignment(assignment);
         session.setStaffAssignment(crew); session.setConnectionStatus("CONNECTED");
         sample = new DeviceTelemetry(); sample.setDeviceConnection(session); sample.setConnected(true);
@@ -77,7 +77,7 @@ class MissionTelemetryReadinessTest {
     }
     @Test void releasedOrUnacceptedSessionCrewIsNotReady() {
         session.getStaffAssignment().setReleasedAt(Instant.now()); assertFalse(service.getTelemetryReadiness("M1").ready());
-        session.getStaffAssignment().setReleasedAt(null); session.getStaffAssignment().setResponseStatus(StaffResponseStatus.PENDING);
+        session.getStaffAssignment().setReleasedAt(null); session.getStaffAssignment().setResponseStatus(MissionStaffAssignmentStatus.PENDING);
         assertFalse(service.getTelemetryReadiness("M1").ready());
     }
     @Test void cancelledFailedReviewCompletedAndSafeStopAreNotReady() {

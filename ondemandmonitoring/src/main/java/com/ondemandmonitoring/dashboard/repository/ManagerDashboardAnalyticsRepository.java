@@ -72,8 +72,10 @@ public class ManagerDashboardAnalyticsRepository {
         List<Object[]> values = entityManager.createNativeQuery(
                 """
                 select case
-                    when status in ('CREATED','WAITING_DEPOSIT','RESOURCE_ASSIGNING','WAITING_CREW_CONFIRMATION',
+                    when status in ('CREATED','WAITING_DEPOSIT','RESOURCE_ASSIGNING',
                                     'WAITING_OPERATOR_ACCEPTANCE','PENDING_APPROVAL') then 'PLANNING'
+                    when status = 'READY' and resource_prepare_status = 'READY' then 'READY'
+                    when status = 'READY' then 'PLANNING'
                     when status = 'SCHEDULED' then 'SCHEDULED'
                     when status in ('CONNECTED','PREFLIGHT_CHECKING','READY_TO_FLY') then 'READY'
                     when status in ('IN_FLIGHT','IN_PROGRESS') then 'IN_FLIGHT'

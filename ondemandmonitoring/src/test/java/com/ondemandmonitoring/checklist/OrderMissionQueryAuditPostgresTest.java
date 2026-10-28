@@ -107,7 +107,7 @@ class OrderMissionQueryAuditPostgresTest {
                 fixture.transaction.executeWithoutResult(tx -> {
                     var a = new MissionStaffAssignment(); a.setMission(fixture.missions.findById(id).orElseThrow());
                     a.setStaff(repository(fixture.entityManagerFactory, UserRepository.class).findById(staff).orElseThrow());
-                    a.setAssignedRole(role); a.setResponseStatus(StaffResponseStatus.ACCEPTED); a.setAssignedAt(Instant.now());
+                    a.setAssignedRole(role); a.setResponseStatus(MissionStaffAssignmentStatus.ACCEPTED); a.setAssignedAt(Instant.now());
                     repository(fixture.entityManagerFactory, MissionStaffAssignmentRepository.class).saveAndFlush(a);
                 });
             }

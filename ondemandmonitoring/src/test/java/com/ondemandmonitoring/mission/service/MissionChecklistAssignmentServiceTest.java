@@ -31,17 +31,17 @@ class MissionChecklistAssignmentServiceTest {
         mission=new Mission(); mission.setId("m"); mission.setOrder(order);
         mission.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.PLANNING);
         item=new OrderChecklistItem(); item.setId("i"); item.setOrder(order); item.setContent("Snapshot");
-        when(missions.findById("m")).thenReturn(Optional.of(mission)); when(missions.findByIdForUpdate("m")).thenReturn(Optional.of(mission));
-        when(orders.findByIdForUpdate("o")).thenReturn(Optional.of(order)); when(items.findById("i")).thenReturn(Optional.of(item));
+        when(missions.findById("m")).thenReturn(Optional.of(mission));
+        when(orders.findById("o")).thenReturn(Optional.of(order)); when(items.findById("i")).thenReturn(Optional.of(item));
         when(actor.getCurrentUserId()).thenReturn("manager");
     }
     ChecklistAssignmentSelectionRequest request(String... ids) {
         return new ChecklistAssignmentSelectionRequest(2L,Arrays.stream(ids).map(ChecklistAssignmentSelectionRequest.Item::new).toList());
     }
     void error(ErrorCode code,Runnable action) { assertEquals(code,assertThrows(ApiException.class,action::run).getErrorCode()); verify(assignments,never()).saveAllAndFlush(any()); }
-    @Test void locksOrderBeforeMissionAndIncrementsPublicRevisionWithoutExecutions() {
+    @Test void loadsOrderAndMissionAndIncrementsPublicRevisionWithoutExecutions() {
         var result=service.replace("m",request("i")); var sequence=inOrder(orders,missions);
-        sequence.verify(missions).findById("m"); sequence.verify(orders).findByIdForUpdate("o"); sequence.verify(missions).findByIdForUpdate("m");
+        sequence.verify(missions).findById("m"); sequence.verify(orders).findById("o"); sequence.verify(missions).findById("m");
         assertEquals(3,result.revision()); verify(executions,never()).saveAllAndFlush(any());
         verify(assignments).saveAllAndFlush(argThat(rows->rows.iterator().hasNext() && rows.iterator().next().getDisplayOrder()==0));
     }
@@ -51,10 +51,19 @@ class MissionChecklistAssignmentServiceTest {
         var foreign=new Order(); foreign.setId("other"); item.setOrder(foreign);
         error(ErrorCode.CHECKLIST_ASSIGNMENT_CROSS_ORDER,()->service.replace("m",request("i")));
     }
-    @Test void finalizedAndLegacyStructuresNeverRewritten() {
-        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED); error(ErrorCode.EXECUTION_PLAN_NOT_DRAFT,()->service.replace("m",request("i")));
-        order.setExecutionPlanStatus(ExecutionPlanStatus.DRAFT);
-        error(ErrorCode.EXECUTION_PLAN_NOT_DRAFT,()->service.replace("m",request("i")));
+    @Test void finalizedOrderAllowsUnconfirmedMissionSelectionAndAdvancesRevision() {
+        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED);
+        assertEquals(3, service.replace("m", request("i")).revision());
+        verify(executions, never()).saveAllAndFlush(any());
+    }
+    @Test void confirmedMissionCannotRewriteSelection() {
+        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED);
+        mission.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.READY);
+        error(ErrorCode.EXECUTION_PLAN_NOT_DRAFT, () -> service.replace("m", request("i")));
+    }
+    @Test void materializedMissionCannotRewriteSelectionEvenInDraft() {
+        when(executions.findOrderedByMissionId("m")).thenReturn(List.of(new MissionChecklistExecution()));
+        error(ErrorCode.MISSION_PLANNING_ONLY, () -> service.replace("m", request("i")));
     }
     @Test void removingSelectionIsAuditedNotDeleted() {
         var a=new MissionChecklistAssignment(); a.setId("a"); a.setMissionId("m"); a.setOrderId("o"); a.setOrderChecklistItemId("i"); a.setOrderChecklistItem(item);

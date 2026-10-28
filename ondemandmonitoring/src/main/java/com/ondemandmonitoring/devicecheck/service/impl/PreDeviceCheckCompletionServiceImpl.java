@@ -17,7 +17,7 @@ import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.enums.MissionStaffRole;
-import com.ondemandmonitoring.mission.enums.StaffResponseStatus;
+import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
 import com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.mission.repository.MissionStaffAssignmentRepository;
@@ -116,7 +116,7 @@ public class PreDeviceCheckCompletionServiceImpl implements IPreDeviceCheckCompl
                         MissionStaffRole.PILOT)
                 .stream()
                 .filter(entry -> entry.getResponseStatus() ==
-                        StaffResponseStatus.ACCEPTED)
+                        MissionStaffAssignmentStatus.ACCEPTED)
                 .findFirst()
                 .map(assignment -> assignment.getStaff() != null && assignment.getStaff().getId() != null
                         ? assignment.getStaff().getId().toString()

@@ -201,7 +201,7 @@ class OperatorAcceptAutoPlanningE2ETest {
             staffAssigned = missionService.assignStaff(staffAssigned.getId(), staffRequest);
         }
 
-        assertThat(staffAssigned.getStatus()).isEqualTo(MissionStatus.WAITING_CREW_CONFIRMATION);
+        assertThat(staffAssigned.getStatus()).isEqualTo(MissionStatus.READY);
 
         authenticate(staff);
         MissionResponse accepted = missionService.acceptMission(staffAssigned.getId(), staffId);
@@ -209,7 +209,7 @@ class OperatorAcceptAutoPlanningE2ETest {
         entityManager.clear();
 
         // Acceptance records crew consent only; planning belongs to the later preflight flow.
-        assertThat(accepted.getStatus()).isEqualTo(MissionStatus.WAITING_CREW_CONFIRMATION);
+        assertThat(accepted.getStatus()).isEqualTo(MissionStatus.READY);
         assertThat(accepted.getPlan()).isNull();
         assertThat(missionPlanRepository.findByMissionId(accepted.getId())).isEmpty();
         assertThat(countPlans(accepted.getId())).isZero();

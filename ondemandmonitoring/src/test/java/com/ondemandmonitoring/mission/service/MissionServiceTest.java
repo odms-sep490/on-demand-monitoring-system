@@ -22,7 +22,7 @@ import com.ondemandmonitoring.mission.dto.response.MissionResponse;
 import com.ondemandmonitoring.mission.enums.MissionStaffRole;
 import com.ondemandmonitoring.mission.enums.FlightPermitStatus;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
-import com.ondemandmonitoring.mission.enums.StaffResponseStatus;
+import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
 import com.ondemandmonitoring.mission.mapper.FlightTokenMapper;
 import com.ondemandmonitoring.mission.mapper.MissionMapper;
 import com.ondemandmonitoring.mission.repository.ControlHandoverRepository;
@@ -330,7 +330,7 @@ class MissionServiceTest {
 
         @Test
         void oneStaffCanAcceptAllAssignedRolesAndWaitForInspectorStart() {
-            Mission mission = buildMission("m-solo", MissionStatus.WAITING_CREW_CONFIRMATION);
+            Mission mission = buildMission("m-solo", MissionStatus.READY);
             var assignments = java.util.Arrays.stream(MissionStaffRole.values())
                     .map(role -> staffAssignment(mission, "seed-staff-1", role, "PENDING"))
                     .toList();
@@ -344,8 +344,8 @@ class MissionServiceTest {
 
             MissionResponse result = missionService.acceptMission("m-solo", "seed-staff-1");
 
-            assertThat(result.getStatus()).isEqualTo(MissionStatus.WAITING_CREW_CONFIRMATION);
-            assertThat(assignments).allMatch(entry -> entry.getResponseStatus() == StaffResponseStatus.ACCEPTED);
+            assertThat(result.getStatus()).isEqualTo(MissionStatus.READY);
+            assertThat(assignments).allMatch(entry -> entry.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED);
             verify(missionStaffAssignmentRepository).saveAll(assignments);
         }
 
@@ -441,7 +441,7 @@ class MissionServiceTest {
             msa.setStaff(staff);
             msa.setIsCurrent(true);
             msa.setAssignedRole(MissionStaffRole.OPERATOR);
-            msa.setResponseStatus(StaffResponseStatus.ACCEPTED);
+            msa.setResponseStatus(MissionStaffAssignmentStatus.ACCEPTED);
 
             when(missionRepository.findById("m-gcs")).thenReturn(Optional.of(mission));
             when(missionDeviceAssignmentRepository.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc("m-gcs"))
@@ -583,7 +583,7 @@ class MissionServiceTest {
 
             when(missionRepository.findById("m-5")).thenReturn(Optional.of(mission));
             msa.setAssignedRole(MissionStaffRole.OPERATOR);
-            msa.setResponseStatus(StaffResponseStatus.ACCEPTED);
+            msa.setResponseStatus(MissionStaffAssignmentStatus.ACCEPTED);
             when(missionStaffAssignmentRepository.findAllByMissionIdAndStaffIdAndIsCurrentTrueOrderByAssignedAtDesc("m-5", "op-new"))
                     .thenReturn(List.of(msa));
             when(missionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -970,7 +970,7 @@ class MissionServiceTest {
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.EnumSource(MissionStaffRole.class)
     void missingAnyOperationalRolePreventsScheduling(MissionStaffRole missing) {
-        var mission = buildMission("crew", MissionStatus.WAITING_CREW_CONFIRMATION);
+        var mission = buildMission("crew", MissionStatus.READY);
         var crew = java.util.Arrays.stream(MissionStaffRole.values())
                 .filter(role -> role != missing)
                 .map(role -> staffAssignment(mission, role.name(), role, "ACCEPTED")).toList();
@@ -983,7 +983,7 @@ class MissionServiceTest {
 
     @Test
     void allFourRolesMustAcceptBeforeScheduling() {
-        var mission = buildMission("crew", MissionStatus.WAITING_CREW_CONFIRMATION);
+        var mission = buildMission("crew", MissionStatus.READY);
         var crew = java.util.Arrays.stream(MissionStaffRole.values())
                 .map(role -> staffAssignment(mission, role.name(), role, "ACCEPTED")).toList();
         when(missionStaffAssignmentRepository.findAllByMissionIdAndIsCurrentTrue("crew")).thenReturn(crew);
@@ -991,7 +991,7 @@ class MissionServiceTest {
                 missionService, "hasRequiredCrewAssigned", "crew")).isTrue();
         assertThat((Boolean) org.springframework.test.util.ReflectionTestUtils.invokeMethod(
                 missionService, "isRequiredCrewAccepted", "crew")).isTrue();
-        crew.getFirst().setResponseStatus(StaffResponseStatus.PENDING);
+        crew.getFirst().setResponseStatus(MissionStaffAssignmentStatus.PENDING);
         assertThat((Boolean) org.springframework.test.util.ReflectionTestUtils.invokeMethod(
                 missionService, "isRequiredCrewAccepted", "crew")).isFalse();
     }
@@ -999,7 +999,7 @@ class MissionServiceTest {
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = {"released", "inactive", "historical"})
     void unusableAcceptedCrewMustNotScheduleMission(String state) {
-        var mission = buildMission("crew-invalid", MissionStatus.WAITING_CREW_CONFIRMATION);
+        var mission = buildMission("crew-invalid", MissionStatus.READY);
         var crew = java.util.Arrays.stream(MissionStaffRole.values())
                 .map(role -> staffAssignment(mission, role.name(), role, "ACCEPTED")).toList();
         var operator = crew.stream().filter(entry -> entry.getAssignedRole() == MissionStaffRole.OPERATOR)
@@ -1012,7 +1012,7 @@ class MissionServiceTest {
         }
         var pilot = crew.stream().filter(entry -> entry.getAssignedRole() == MissionStaffRole.PILOT)
                 .findFirst().orElseThrow();
-        pilot.setResponseStatus(StaffResponseStatus.PENDING);
+        pilot.setResponseStatus(MissionStaffAssignmentStatus.PENDING);
         when(missionRepository.findById("crew-invalid")).thenReturn(Optional.of(mission));
         when(missionStaffAssignmentRepository.findAllByMissionIdAndStaffIdAndIsCurrentTrueOrderByAssignedAtDesc(
                 "crew-invalid", "PILOT")).thenReturn(List.of(pilot));
@@ -1021,7 +1021,7 @@ class MissionServiceTest {
         when(missionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         assertThat(missionService.acceptMission("crew-invalid", "PILOT").getStatus())
-                .isEqualTo(MissionStatus.WAITING_CREW_CONFIRMATION);
+                .isEqualTo(MissionStatus.READY);
         assertThat((Boolean) org.springframework.test.util.ReflectionTestUtils.invokeMethod(
                 missionService, "hasRequiredCrewAssigned", "crew-invalid")).isFalse();
     }
@@ -1161,7 +1161,7 @@ class MissionServiceTest {
         staff.setId(staffId);
         assignment.setStaff(staff);
         assignment.setAssignedRole(role);
-        assignment.setResponseStatus(StaffResponseStatus.valueOf(status));
+        assignment.setResponseStatus(MissionStaffAssignmentStatus.valueOf(status));
         assignment.setIsCurrent(true);
         return assignment;
     }

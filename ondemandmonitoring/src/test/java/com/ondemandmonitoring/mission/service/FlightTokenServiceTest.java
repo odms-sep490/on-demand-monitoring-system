@@ -71,7 +71,7 @@ class FlightTokenServiceTest {
         staffAssignment.setStaff(staff);
         staffAssignment.setIsCurrent(true);
         staffAssignment.setAssignedRole(com.ondemandmonitoring.mission.enums.MissionStaffRole.PILOT);
-        staffAssignment.setResponseStatus(com.ondemandmonitoring.mission.enums.StaffResponseStatus.ACCEPTED);
+        staffAssignment.setResponseStatus(com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus.ACCEPTED);
 
         when(missionDeviceAssignmentRepository.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc(missionId))
                 .thenReturn(List.of(deviceAssignment));

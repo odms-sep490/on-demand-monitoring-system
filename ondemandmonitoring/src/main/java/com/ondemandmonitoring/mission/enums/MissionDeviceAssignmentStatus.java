@@ -1,6 +1,7 @@
 package com.ondemandmonitoring.mission.enums;
 
-public enum CheckupStatus {
+public enum MissionDeviceAssignmentStatus {
+    PLANNING,
     PENDING,
     CHECKING,
     PASSED,

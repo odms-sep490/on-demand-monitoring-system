@@ -2,6 +2,7 @@ package com.ondemandmonitoring.mission.dto.response;
 
 import com.ondemandmonitoring.mission.enums.MediaType;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
+import com.ondemandmonitoring.mission.enums.MissionResourcePrepareStatus;
 import com.ondemandmonitoring.mission.enums.FlightPermitStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AccessLevel;
@@ -24,8 +25,10 @@ public class MissionResponse {
     @Schema(description = "Unique code of the mission", example = "MS-2026-0001")
     String missionCode;
 
-    @Schema(description = "Current status of the mission", example = "PENDING")
+    @Schema(description = "Mission lifecycle status", example = "PLANNING")
     MissionStatus status;
+
+    MissionResourcePrepareStatus resourcePrepareStatus;
 
     FlightPermitStatus flightPermitStatus;
     String flightPermitNote;

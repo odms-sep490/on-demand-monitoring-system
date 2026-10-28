@@ -74,20 +74,24 @@ public class MissionController {
                 .body(ApiResponse.ok("Mission created", result));
     }
 
-    @PostMapping("/{missionId}/replacement")
+    @PostMapping("/{orderId}/additional")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
-    public ResponseEntity<ApiResponse<MissionResponse>> replaceMission(
-            @PathVariable String missionId,
+    public ResponseEntity<ApiResponse<MissionResponse>> createAdditional(@PathVariable String orderId,
             @Valid @RequestBody MissionCreateRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.ok("Replacement mission created", missionService.replaceMission(missionId, request)));
+        return ResponseEntity.status(201).body(ApiResponse.ok(missionService.createAdditionalMission(orderId, request)));
     }
 
-    @PostMapping("/{id}/finalize-replacement")
+    @PostMapping("/{missionId}/confirm-planning")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
-    public ResponseEntity<ApiResponse<MissionResponse>> finalizeReplacementMission(@PathVariable String id) {
-        return ResponseEntity.ok(ApiResponse.ok("Replacement mission finalized",
-                missionService.finalizeReplacementMission(id)));
+    public ApiResponse<MissionResponse> confirm(@PathVariable String missionId) {
+        return ApiResponse.ok(missionService.confirmMissionPlanning(missionId));
+    }
+
+    @DeleteMapping("/{missionId}")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<Void> deleteDraft(@PathVariable String missionId) {
+        missionService.deleteDraftMission(missionId);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/all")

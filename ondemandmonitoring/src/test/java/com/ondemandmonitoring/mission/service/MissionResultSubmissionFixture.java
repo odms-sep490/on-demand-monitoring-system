@@ -82,7 +82,7 @@ public final class MissionResultSubmissionFixture {
             case UNASSIGNED -> actor = user("unassigned", RoleCode.STAFF);
             case SIBLING_OPERATOR -> targetId = sibling.getId();
             case REPLACED_OPERATOR -> operator.setReleaseReason("REPLACED");
-            case UNACCEPTED_OPERATOR -> operator.setResponseStatus(StaffResponseStatus.PENDING);
+            case UNACCEPTED_OPERATOR -> operator.setResponseStatus(MissionStaffAssignmentStatus.PENDING);
             case INACTIVE_OPERATOR -> actor.setIsActive(false);
             default -> { }
         }
@@ -111,7 +111,7 @@ public final class MissionResultSubmissionFixture {
 
     private MissionStaffAssignment assignment(Mission mission, MissionStaffRole role, String id) {
         return MissionStaffAssignment.builder().mission(mission).staff(user(id, RoleCode.STAFF))
-                .assignedRole(role).isCurrent(true).responseStatus(StaffResponseStatus.ACCEPTED)
+                .assignedRole(role).isCurrent(true).responseStatus(MissionStaffAssignmentStatus.ACCEPTED)
                 .releasedAt(Instant.now()).releaseReason("MISSION_COMPLETE").build();
     }
 

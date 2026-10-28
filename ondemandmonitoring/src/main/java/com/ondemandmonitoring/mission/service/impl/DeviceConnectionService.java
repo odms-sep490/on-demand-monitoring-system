@@ -11,7 +11,7 @@ import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import com.ondemandmonitoring.mission.domain.MissionStaffAssignment;
 import com.ondemandmonitoring.mission.enums.DeviceRole;
 import com.ondemandmonitoring.mission.enums.MissionStaffRole;
-import com.ondemandmonitoring.mission.enums.StaffResponseStatus;
+import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
 import com.ondemandmonitoring.mission.dto.response.MissionResponse;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.mapper.MissionMapper;
@@ -303,7 +303,7 @@ public class DeviceConnectionService implements IDeviceConnectionService {
                 missionId);
         return assignments.stream()
                 .filter(assignment -> assignment.getAssignedRole() == MissionStaffRole.OPERATOR
-                        && assignment.getResponseStatus() == StaffResponseStatus.ACCEPTED
+                        && assignment.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED
                         && assignment.getReleasedAt() == null)
                 .findFirst()
                 .orElse(null);

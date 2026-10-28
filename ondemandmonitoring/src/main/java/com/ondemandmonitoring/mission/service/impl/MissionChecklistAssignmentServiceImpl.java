@@ -39,22 +39,21 @@ public class MissionChecklistAssignmentServiceImpl implements IMissionChecklistA
     @Transactional
     public ChecklistAssignmentSelectionResponse replace(String missionId, ChecklistAssignmentSelectionRequest request) {
         var orderId = mission(missionId).getOrder().getId();
-        var order = orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-        var mission = missions.findByIdForUpdate(missionId).orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
+        var order = orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        var mission = missions.findById(missionId).orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
         if (!orderId.equals(mission.getOrder().getId())) throw new ApiException(ErrorCode.CHECKLIST_ASSIGNMENT_CROSS_ORDER);
-        boolean finalizedReplacement = order.getExecutionPlanStatus() == ExecutionPlanStatus.FINALIZED
-                && mission.getReplacesMissionId() != null && mission.getStatus() == MissionStatus.PLANNING;
-        if (order.getExecutionPlanStatus() != ExecutionPlanStatus.DRAFT && !finalizedReplacement)
+        boolean finalizedPlanning = order.getExecutionPlanStatus() == ExecutionPlanStatus.FINALIZED
+                && mission.getStatus() == MissionStatus.PLANNING;
+        if (order.getExecutionPlanStatus() != ExecutionPlanStatus.DRAFT && !finalizedPlanning)
             throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_DRAFT);
         if (request == null || request.expectedPlanRevision() == null || request.items() == null)
             throw new ApiException(ErrorCode.INVALID_REQUEST);
         if (order.getExecutionPlanRevision() != request.expectedPlanRevision()
-                || (!finalizedReplacement && order.getExecutionPlanRevision() == Long.MAX_VALUE))
+                || order.getExecutionPlanRevision() == Long.MAX_VALUE)
             throw new ApiException(ErrorCode.EXECUTION_PLAN_REVISION_CONFLICT);
-        // if (mission.getCreationIdempotencyKey() == null || mission.getStatus() != MissionStatus.PLANNING
-        //         || mission.getCancellationAt() != null
-        //         || !executions.findOrderedByMissionId(missionId).isEmpty())
-        //     throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_DRAFT);
+        if (mission.getStatus() != MissionStatus.PLANNING || mission.getCancellationAt() != null
+                || !executions.findOrderedByMissionId(missionId).isEmpty())
+            throw new ApiException(ErrorCode.MISSION_PLANNING_ONLY);
         var selected = new LinkedHashMap<String, com.ondemandmonitoring.order.domain.OrderChecklistItem>();
         for (var entry : request.items()) {
             if (entry == null || entry.orderChecklistItemId() == null || entry.orderChecklistItemId().isBlank())
@@ -105,10 +104,8 @@ public class MissionChecklistAssignmentServiceImpl implements IMissionChecklistA
         }
         assignments.saveAllAndFlush(changed);
         items.saveAll(selected.values());
-        if (!finalizedReplacement) {
-            order.setExecutionPlanRevision(Math.addExact(order.getExecutionPlanRevision(), 1));
-            orders.saveAndFlush(order);
-        }
+        order.setExecutionPlanRevision(Math.addExact(order.getExecutionPlanRevision(), 1));
+        orders.saveAndFlush(order);
         return response(mission);
     }
 

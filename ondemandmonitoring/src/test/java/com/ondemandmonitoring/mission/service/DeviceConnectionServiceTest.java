@@ -9,7 +9,7 @@ import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import com.ondemandmonitoring.mission.domain.MissionStaffAssignment;
 import com.ondemandmonitoring.mission.dto.response.MissionResponse;
 import com.ondemandmonitoring.mission.enums.MissionStaffRole;
-import com.ondemandmonitoring.mission.enums.StaffResponseStatus;
+import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.mapper.MissionMapper;
 import com.ondemandmonitoring.mission.repository.DeviceConnectionRepository;
@@ -95,7 +95,7 @@ class DeviceConnectionServiceTest {
         msa.setMission(mission);
         msa.setIsCurrent(true);
         msa.setAssignedRole(MissionStaffRole.OPERATOR);
-        msa.setResponseStatus(StaffResponseStatus.ACCEPTED);
+        msa.setResponseStatus(MissionStaffAssignmentStatus.ACCEPTED);
 
         when(missionRepository.findById(missionId)).thenReturn(Optional.of(mission));
         when(missionDeviceAssignmentRepository.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc(missionId))

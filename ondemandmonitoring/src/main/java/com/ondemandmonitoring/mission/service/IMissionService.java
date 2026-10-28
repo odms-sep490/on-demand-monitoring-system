@@ -25,12 +25,14 @@ import java.util.List;
  * presentation/controller layers.
  */
 public interface IMissionService {
-
     MissionResponse createMission(String orderId, MissionCreateRequest request);
 
+    MissionResponse createAdditionalMission(String orderId, MissionCreateRequest request);
 
-    MissionResponse replaceMission(String missionId, MissionCreateRequest request);
-    MissionResponse finalizeReplacementMission(String missionId);
+    MissionResponse confirmMissionPlanning(String missionId);
+
+    void deleteDraftMission(String missionId);
+
 
     MissionResponse updateMission(String missionId, MissionUpdateRequest request);
 

@@ -150,7 +150,10 @@ public class MissionMapperHelper {
         if (mission == null || mission.getId() == null) {
             return List.of();
         }
-        return missionStaffAssignmentRepository.findAllByMissionIdAndIsCurrentTrue(mission.getId()).stream()
+        var assignments = mission.getStatus() == com.ondemandmonitoring.mission.enums.MissionStatus.PLANNING
+                ? missionStaffAssignmentRepository.findByMissionId(mission.getId())
+                : missionStaffAssignmentRepository.findAllByMissionIdAndIsCurrentTrue(mission.getId());
+        return assignments.stream()
                 .sorted(Comparator.comparing(MissionStaffAssignment::getAssignedRole,
                         Comparator.nullsLast(Comparator.naturalOrder())))
                 .map(missionStaffAssignmentMapper::toResponse)
@@ -162,7 +165,10 @@ public class MissionMapperHelper {
         if (mission == null || mission.getId() == null) {
             return List.of();
         }
-        return missionDeviceAssignmentRepository.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc(mission.getId()).stream()
+        var assignments = mission.getStatus() == com.ondemandmonitoring.mission.enums.MissionStatus.PLANNING
+                ? missionDeviceAssignmentRepository.findByMissionId(mission.getId())
+                : missionDeviceAssignmentRepository.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc(mission.getId());
+        return assignments.stream()
                 .sorted(Comparator.comparing(MissionDeviceAssignment::getDeviceRole,
                         Comparator.nullsLast(Comparator.naturalOrder())))
                 .map(missionDeviceAssignmentMapper::toResponse)

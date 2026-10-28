@@ -67,13 +67,13 @@ public class PersistedPreDeviceCheckResponse {
                 .toList();
         int total = visibleItems.size();
         int done = (int) visibleItems.stream()
-                .filter(i -> isResolved(effectiveStatus(i, now)))
+                .filter(i -> isResolved(displayStatus(i)))
                 .count();
         int passed = (int) visibleItems.stream()
-                .filter(i -> effectiveStatus(i, now) == PreDeviceItemStatus.PASSED)
+                .filter(i -> displayStatus(i) == PreDeviceItemStatus.PASSED)
                 .count();
         int failed = (int) visibleItems.stream()
-                .filter(i -> effectiveStatus(i, now) == PreDeviceItemStatus.FAILED)
+                .filter(i -> displayStatus(i) == PreDeviceItemStatus.FAILED)
                 .count();
         PreDeviceCheckStatus status = resolveStatus(run, total, done, failed);
 
@@ -100,7 +100,7 @@ public class PersistedPreDeviceCheckResponse {
                                 .category(i.getCategory())
                                 .required(i.getRequired())
                                 .source(i.getSource())
-                                .status(effectiveStatus(i, now))
+                                .status(displayStatus(i))
                                 .checkLevel(i.getCheckLevel())
                                 .message(i.getMessage())
                                 .measuredValue(i.getMeasuredValue())
@@ -125,20 +125,18 @@ public class PersistedPreDeviceCheckResponse {
                 : PreDeviceCheckStatus.CHECKING;
     }
 
-    private static PreDeviceItemStatus effectiveStatus(PersistedPreDeviceCheckItem item, Instant now) {
-        if (Boolean.TRUE.equals(item.getRequired())
-                && item.getStatus() == PreDeviceItemStatus.PASSED
-                && (item.getExpiresAt() == null || !item.getExpiresAt().isAfter(now))) {
-            return PreDeviceItemStatus.STALE;
-        }
-        return item.getStatus();
-    }
-
     private static boolean isResolved(PreDeviceItemStatus status) {
         return status == PreDeviceItemStatus.PASSED
                 || status == PreDeviceItemStatus.WARNING
                 || status == PreDeviceItemStatus.FAILED
                 || status == PreDeviceItemStatus.UNKNOWN
                 || status == PreDeviceItemStatus.NOT_APPLICABLE;
+    }
+
+    /** Keep older persisted STALE rows compatible with the two-result UI. */
+    private static PreDeviceItemStatus displayStatus(PersistedPreDeviceCheckItem item) {
+        return item.getStatus() == PreDeviceItemStatus.STALE
+                ? PreDeviceItemStatus.FAILED
+                : item.getStatus();
     }
 }

@@ -63,7 +63,7 @@ public class WeatherPreflightController {
                             ErrorCode.RESOURCE_NOT_FOUND, "Mission not found: " + missionId));
             MissionWeatherCheck saved = toEntity(mission, response);
             response = toResponse(weatherCheckRepository.save(saved));
-            persistPreDeviceWeatherResult(missionId, response.safeToFly(), response.summary());
+            persistPreDeviceWeatherResult(missionId, response.status(), response.summary());
         }
 
         return ResponseEntity.ok(ApiResponse.ok("Current weather preflight checked", response));
@@ -121,15 +121,16 @@ public class WeatherPreflightController {
                 check.getCheckedAt());
     }
 
-    private void persistPreDeviceWeatherResult(String missionId, boolean safeToFly, String summary) {
+    private void persistPreDeviceWeatherResult(String missionId, String weatherStatus, String summary) {
         PersistedPreDeviceCheckResponse current = preDeviceChecks.current(missionId);
         if (current == null) {
             return;
         }
+        boolean blocksFlight = "FAIL".equalsIgnoreCase(weatherStatus);
         preDeviceChecks.recordSystemResult(
                 current.getId(),
                 PreDeviceCheckType.WEATHER_CONDITIONS.code(),
-                safeToFly ? PreDeviceItemStatus.PASSED : PreDeviceItemStatus.FAILED,
+                blocksFlight ? PreDeviceItemStatus.FAILED : PreDeviceItemStatus.PASSED,
                 summary);
     }
 }

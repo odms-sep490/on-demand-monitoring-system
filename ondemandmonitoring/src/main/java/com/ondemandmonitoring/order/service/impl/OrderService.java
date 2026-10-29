@@ -8,6 +8,7 @@ import com.ondemandmonitoring.order.dto.request.OrderCreateRequest;
 import com.ondemandmonitoring.order.dto.request.OrderDeliverableRequest;
 import com.ondemandmonitoring.order.dto.request.FlightAreaReviewRequest;
 import com.ondemandmonitoring.order.dto.request.LegalReviewResolutionRequest;
+import com.ondemandmonitoring.order.dto.request.PermitCancellationProposalRequest;
 import com.ondemandmonitoring.order.dto.OrderAuthorizationDocument;
 import com.ondemandmonitoring.order.dto.response.OrderCreateResponse;
 import com.ondemandmonitoring.order.enums.OrderDeliveryMethod;
@@ -154,6 +155,31 @@ public class OrderService implements IOrderService {
         if (request.status() == LegalReviewStatus.REJECTED) {
             order.setFlightAreaReviewReason("Permit verification was rejected");
         }
+        return toResponse(orderRepository.save(order));
+    }
+
+    @Override
+    @Transactional
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public OrderCreateResponse cancelAfterPermitRejection(
+            String orderId, PermitCancellationProposalRequest request) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
+        if (order.getOrderStatus() == OrderStatus.COMPLETED
+                || order.getOrderStatus() == OrderStatus.CANCELLED
+                || order.getOrderStatus() == OrderStatus.REJECTED) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "A cancellation proposal cannot be created for a terminal order");
+        }
+        if (order.getLegalReviewStatus() != LegalReviewStatus.REJECTED) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "A permit cancellation proposal requires a rejected permit");
+        }
+        order.setFlightAreaReviewReason("PERMIT_REJECTED_ORDER_CANCELLED");
+        order.setFlightAreaReviewNote(request.reason().trim());
+        order.setFlightAreaReviewedBy(authenticatedUserResolver.getCurrentUser());
+        order.setFlightAreaReviewedAt(Instant.now());
+        order.setOrderStatus(OrderStatus.CANCELLED);
         return toResponse(orderRepository.save(order));
     }
 

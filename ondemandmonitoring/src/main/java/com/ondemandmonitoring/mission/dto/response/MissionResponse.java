@@ -4,6 +4,7 @@ import com.ondemandmonitoring.mission.enums.MediaType;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.enums.MissionResourcePrepareStatus;
 import com.ondemandmonitoring.mission.enums.FlightPermitStatus;
+import com.ondemandmonitoring.order.enums.OrderStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -35,6 +36,12 @@ public class MissionResponse {
     String flightPermitFileName;
     String flightPermitContentType;
     String flightPermitDataUrl;
+    Instant flightPermitResourceHoldUntil;
+    Instant flightPermitResourcesReleasedAt;
+    com.ondemandmonitoring.mission.enums.MissionRescheduleReason lastRescheduleReason;
+    String lastRescheduleNote;
+    Instant lastRescheduledAt;
+    Long scheduleRevision;
 
     com.ondemandmonitoring.mission.enums.MissionSafeStopStatus safeStopStatus;
     Instant safeStopRequestedAt;
@@ -46,6 +53,8 @@ public class MissionResponse {
 
     String orderCode;
 
+    OrderStatus orderStatus;
+
     // Persisted relation only; no sibling detail lookup or inherited runtime history.
     String replacesMissionId;
 
@@ -56,6 +65,9 @@ public class MissionResponse {
     LocalDate orderPreferredDateTo;
 
     String orderPreferredTimeName;
+    String orderPreferredTimeId;
+    java.time.LocalTime orderPreferredTimeStart;
+    java.time.LocalTime orderPreferredTimeEnd;
 
     String serviceName;
 

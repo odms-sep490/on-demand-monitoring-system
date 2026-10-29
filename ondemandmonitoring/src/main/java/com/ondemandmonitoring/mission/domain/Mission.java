@@ -4,6 +4,7 @@ import com.ondemandmonitoring.common.entity.BaseEntity;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.enums.MissionResourcePrepareStatus;
 import com.ondemandmonitoring.mission.enums.FlightPermitStatus;
+import com.ondemandmonitoring.mission.enums.MissionRescheduleReason;
 import com.ondemandmonitoring.order.domain.Order;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -48,6 +49,25 @@ public class Mission extends BaseEntity {
 
     @Column(name = "flight_permit_data_url", columnDefinition = "TEXT")
     String flightPermitDataUrl;
+
+    @Column(name = "flight_permit_resource_hold_until")
+    Instant flightPermitResourceHoldUntil;
+
+    @Column(name = "flight_permit_resources_released_at")
+    Instant flightPermitResourcesReleasedAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "last_reschedule_reason", length = 50)
+    MissionRescheduleReason lastRescheduleReason;
+
+    @Column(name = "last_reschedule_note", length = 1000)
+    String lastRescheduleNote;
+
+    @Column(name = "last_rescheduled_at")
+    Instant lastRescheduledAt;
+
+    @Column(name = "schedule_revision", nullable = false)
+    Long scheduleRevision = 0L;
 
     // ===== Relationship to Order =====
     @ManyToOne(fetch = FetchType.LAZY, optional = false)

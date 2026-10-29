@@ -27,6 +27,7 @@ import com.ondemandmonitoring.mission.dto.response.MissionTelemetryReadinessResp
 import com.ondemandmonitoring.mission.enums.*;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.enums.OrderStatus;
+import com.ondemandmonitoring.order.enums.LegalReviewStatus;
 import com.ondemandmonitoring.mission.repository.ControlHandoverRepository;
 import com.ondemandmonitoring.mission.repository.DeviceConnectionRepository;
 import com.ondemandmonitoring.mission.repository.FlightTokenRepository;
@@ -92,6 +93,8 @@ import com.ondemandmonitoring.mission.repository.*;
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class MissionService implements IMissionService {
 
+    private static final long PERMIT_RESOURCE_HOLD_HOURS = 24;
+
     // Each operational step has a distinct actor and no role fallback.
     static final Set<MissionStaffRole> REQUIRED_CREW_ROLES = Set.of(
             MissionStaffRole.PILOT, MissionStaffRole.OPERATOR,
@@ -114,6 +117,7 @@ public class MissionService implements IMissionService {
     PersistedPreDeviceCheckRepository preDeviceCheckRepository;
     MaintenanceTicketRepository maintenanceTicketRepository;
     OrderRepository orderRepository;
+    com.ondemandmonitoring.warehouse.repository.PreferredTimeRepository preferredTimeRepository;
     InvoiceRepository invoiceRepository;
     IMissionPaymentEligibilityService missionPaymentEligibilityService;
     IDeviceConnectionService deviceConnectionService;
@@ -150,27 +154,146 @@ public class MissionService implements IMissionService {
     @PreAuthorize("@missionAuthorizationService.canManageMissions()")
     public MissionResponse updateFlightPermit(String missionId, FlightPermitUpdateRequest request) {
         Mission mission = getMissionByIdOrThrow(missionId);
-        boolean hasDevice = missionDeviceAssignmentRepository
-                .findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc(mission.getId()).stream()
-                .anyMatch(a -> a.getReleasedAt() == null && a.getDevice() != null);
-        boolean hasStaff = missionStaffAssignmentRepository
-                .findAllByMissionIdAndIsCurrentTrue(mission.getId()).stream()
-                .anyMatch(a -> a.getReleasedAt() == null);
-        if (!hasDevice || !hasStaff) {
+        if (Set.of(MissionStatus.IN_FLIGHT, MissionStatus.IN_PROGRESS, MissionStatus.RETURNING,
+                MissionStatus.POSTFLIGHT_CHECKING, MissionStatus.PENDING_REVIEW,
+                MissionStatus.COMPLETED, MissionStatus.FAILED, MissionStatus.CANCELLED)
+                .contains(mission.getStatus())) {
             throw new ApiException(ErrorCode.INVALID_REQUEST,
-                    "Assign a drone and staff before updating the flight permit");
+                    "Flight permit history cannot be changed after mission execution has started");
         }
         if (request.dataUrl() != null && request.dataUrl().length() > 7_000_000) {
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Flight permit file must not exceed 5 MB");
         }
+        String note = blankToNull(request.note());
+        if (request.status() == FlightPermitStatus.REJECTED && note == null) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "A rejection reason is required for a rejected flight permit");
+        }
+        if (request.status() == FlightPermitStatus.PENDING
+                && mission.getFlightPermitStatus() == FlightPermitStatus.REJECTED
+                && (request.dataUrl() == null || request.dataUrl().isBlank())
+                && (note == null || note.equals(mission.getFlightPermitNote()))) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "Add an updated permit document or remediation note before resubmitting");
+        }
         mission.setFlightPermitStatus(request.status());
-        mission.setFlightPermitNote(blankToNull(request.note()));
+        mission.setFlightPermitNote(note);
+        if (request.status() == FlightPermitStatus.REJECTED) {
+            mission.setFlightPermitResourceHoldUntil(Instant.now().plusSeconds(PERMIT_RESOURCE_HOLD_HOURS * 3600));
+            mission.setFlightPermitResourcesReleasedAt(null);
+        } else if (request.status() == FlightPermitStatus.APPROVED) {
+            mission.setFlightPermitResourceHoldUntil(null);
+            mission.setFlightPermitResourcesReleasedAt(null);
+        } else if (request.status() == FlightPermitStatus.PENDING) {
+            mission.setFlightPermitResourcesReleasedAt(null);
+        }
         if (request.dataUrl() != null && !request.dataUrl().isBlank()) {
             mission.setFlightPermitFileName(request.fileName());
             mission.setFlightPermitContentType(request.contentType());
             mission.setFlightPermitDataUrl(request.dataUrl());
         }
+        Mission saved = missionRepository.save(mission);
+        syncOrderLegalReview(saved);
+        return missionMapper.toResponse(saved);
+    }
+
+    @Override
+    @Transactional
+    @PreAuthorize("@missionAuthorizationService.canManageMissions()")
+    public MissionResponse rescheduleMission(String missionId, MissionScheduleUpdateRequest request) {
+        Mission mission = missionRepository.findByIdWithOrder(missionId)
+                .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
+        if (!Set.of(MissionStatus.PLANNING, MissionStatus.WAITING_DEPOSIT,
+                MissionStatus.WAITING_OPERATOR_ACCEPTANCE, MissionStatus.READY, MissionStatus.SCHEDULED)
+                .contains(mission.getStatus())) {
+            throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
+                    "Only a mission that has not entered preflight can be rescheduled");
+        }
+        if (!request.customerConfirmed()) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "Customer confirmation is required before rescheduling");
+        }
+
+        Order order = mission.getOrder();
+        Instant newStart = request.scheduledStartAt();
+        Instant newEnd = request.scheduledEndAt();
+        ZoneId businessZone = ZoneId.of("Asia/Ho_Chi_Minh");
+        LocalDate newDate = newStart.atZone(businessZone).toLocalDate();
+        LocalDate endDate = newEnd.atZone(businessZone).toLocalDate();
+        if (!newStart.isBefore(newEnd) || !newDate.equals(endDate)) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "The new mission schedule must start and end on the same day");
+        }
+
+        if (request.scope() == MissionRescheduleScope.ORDER_AND_MISSION) {
+            if (request.orderPreferredDateFrom() == null || request.orderPreferredDateTo() == null
+                    || request.orderPreferredTimeId() == null || request.orderPreferredTimeId().isBlank()) {
+                throw new ApiException(ErrorCode.INVALID_REQUEST,
+                        "New Order preferred dates and time slot are required");
+            }
+            if (request.orderPreferredDateTo().isBefore(request.orderPreferredDateFrom())) {
+                throw new ApiException(ErrorCode.INVALID_REQUEST,
+                        "Order preferred end date cannot be before start date");
+            }
+            if (newDate.isBefore(request.orderPreferredDateFrom())
+                    || newDate.isAfter(request.orderPreferredDateTo())) {
+                throw new ApiException(ErrorCode.INVALID_REQUEST,
+                        "The new Mission date must be within the new Order preferred dates");
+            }
+            var preferredTime = preferredTimeRepository.findById(request.orderPreferredTimeId())
+                    .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND,
+                            "Preferred time slot not found"));
+            order.setPreferredDateFrom(request.orderPreferredDateFrom());
+            order.setPreferredDateTo(request.orderPreferredDateTo());
+            order.setPreferredTime(preferredTime);
+            if (order.getResultDeadline() != null
+                    && order.getResultDeadline().isBefore(request.orderPreferredDateTo())) {
+                order.setResultDeadline(request.orderPreferredDateTo());
+            }
+        }
+
+        validatePlanningSchedule(newStart, newEnd, order);
+        resources.revalidateSchedule(mission, newStart, newEnd);
+        mission.setScheduledStartAt(newStart);
+        mission.setScheduledEndAt(newEnd);
+        mission.setLastRescheduleReason(request.reason());
+        mission.setLastRescheduleNote(blankToNull(request.note()));
+        mission.setLastRescheduledAt(Instant.now());
+        mission.setScheduleRevision((mission.getScheduleRevision() == null ? 0L : mission.getScheduleRevision()) + 1L);
+
+        if (request.scope() == MissionRescheduleScope.ORDER_AND_MISSION) {
+            orderRepository.save(order);
+        }
         return missionMapper.toResponse(missionRepository.save(mission));
+    }
+
+    private void syncOrderLegalReview(Mission mission) {
+        Order order = mission.getOrder();
+        FlightPermitStatus permitStatus = mission.getFlightPermitStatus();
+        if (permitStatus == FlightPermitStatus.REJECTED) {
+            order.setLegalReviewStatus(LegalReviewStatus.REJECTED);
+            order.setFlightAreaReviewReason("FLIGHT_PERMIT_REJECTED");
+            order.setFlightAreaReviewNote(mission.getFlightPermitNote());
+        } else if (permitStatus == FlightPermitStatus.PENDING) {
+            order.setLegalReviewStatus(LegalReviewStatus.PENDING_PERMIT);
+            order.setFlightAreaReviewReason("FLIGHT_PERMIT_RESUBMITTED");
+            order.setFlightAreaReviewNote(mission.getFlightPermitNote());
+        } else if (permitStatus == FlightPermitStatus.APPROVED) {
+            boolean allApproved = missionRepository
+                    .findAllByOrderIdOrderByScheduledStartAtAscIdAsc(order.getId()).stream()
+                    .filter(item -> item.getStatus() != MissionStatus.CANCELLED)
+                    .allMatch(item -> item.getFlightPermitStatus() == FlightPermitStatus.APPROVED);
+            order.setLegalReviewStatus(allApproved
+                    ? LegalReviewStatus.APPROVED
+                    : LegalReviewStatus.PENDING_PERMIT);
+            order.setFlightAreaReviewReason(allApproved ? null : "WAITING_FOR_OTHER_MISSION_PERMITS");
+            order.setFlightAreaReviewNote(allApproved ? null : order.getFlightAreaReviewNote());
+        }
+        order.setFlightAreaReviewedBy(authenticatedUserResolver.getCurrentUser());
+        order.setFlightAreaReviewedAt(Instant.now());
+        orderRepository.save(order);
+        // Intentionally do not change OrderStatus: permit rejection blocks execution,
+        // but it is not an order rejection or cancellation decision.
     }
 
     @Override
@@ -1215,14 +1338,12 @@ public class MissionService implements IMissionService {
         var run = preDeviceCheckRepository.findFirstByMissionIdOrderByCreatedAtDesc(missionId)
                 .orElseThrow(() -> new ApiException(ErrorCode.INVALID_REQUEST,
                         "Không tìm thấy phiên kiểm tra trước chuyến bay."));
-        Instant now = Instant.now();
         boolean blocked = run.getStatus() != PreDeviceCheckStatus.PASSED
                 || run.getItems().stream().anyMatch(item -> Boolean.TRUE.equals(item.getRequired())
-                && (item.getStatus() != PreDeviceItemStatus.PASSED
-                || item.getExpiresAt() == null || !item.getExpiresAt().isAfter(now)));
+                && item.getStatus() != PreDeviceItemStatus.PASSED);
         if (blocked) {
             throw new ApiException(ErrorCode.INVALID_REQUEST,
-                    "Kết quả kiểm tra trước chuyến bay không còn hợp lệ. Vui lòng kiểm tra lại.");
+                    "Kiểm tra trước chuyến bay chưa đạt đầy đủ. Vui lòng kiểm tra lại.");
         }
     }
 

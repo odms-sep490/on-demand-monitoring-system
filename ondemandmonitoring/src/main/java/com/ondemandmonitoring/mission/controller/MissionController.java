@@ -231,6 +231,16 @@ public class MissionController {
                 missionService.updateFlightPermit(id, request)));
     }
 
+    @PatchMapping("/{id}/schedule")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<MissionResponse>> rescheduleMission(
+            @PathVariable String id,
+            @Valid @RequestBody com.ondemandmonitoring.mission.dto.request.MissionScheduleUpdateRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Cập nhật lịch mission thành công",
+                missionService.rescheduleMission(id, request)));
+    }
+
 
 
     // ------------------------------------------------------------------

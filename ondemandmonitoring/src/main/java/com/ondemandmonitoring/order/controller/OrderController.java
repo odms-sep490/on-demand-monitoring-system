@@ -5,6 +5,7 @@ import com.ondemandmonitoring.order.dto.request.OrderCreateRequest;
 import com.ondemandmonitoring.order.dto.request.OrderAdditionalInformationRequest;
 import com.ondemandmonitoring.order.dto.request.FlightAreaReviewRequest;
 import com.ondemandmonitoring.order.dto.request.LegalReviewResolutionRequest;
+import com.ondemandmonitoring.order.dto.request.PermitCancellationProposalRequest;
 import com.ondemandmonitoring.order.dto.response.OrderCreateResponse;
 import com.ondemandmonitoring.order.enums.OrderStatus;
 import com.ondemandmonitoring.order.service.IOrderService;
@@ -100,6 +101,16 @@ public class OrderController {
             @Valid @RequestBody LegalReviewResolutionRequest request) {
         return ResponseEntity.ok(ApiResponse.ok("Legal review resolved",
                 orderService.resolveLegalReview(orderId, request)));
+    }
+
+    @Operation(summary = "Cancel an order after an unrecoverable permit rejection")
+    @PostMapping("/{orderId}/permit-cancellation")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<OrderCreateResponse>> cancelAfterPermitRejection(
+            @PathVariable String orderId,
+            @Valid @RequestBody PermitCancellationProposalRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok("Order cancelled after permit rejection",
+                orderService.cancelAfterPermitRejection(orderId, request)));
     }
 
     @Operation(summary = "Submit approval decision", description = "Manager submits rejection or need-info decision with reason")

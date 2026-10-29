@@ -38,6 +38,9 @@ public interface IMissionService {
 
     MissionResponse updateFlightPermit(String missionId, FlightPermitUpdateRequest request);
 
+    MissionResponse rescheduleMission(String missionId,
+            com.ondemandmonitoring.mission.dto.request.MissionScheduleUpdateRequest request);
+
     MissionResponse assignDevice(String missionId, AssignDeviceRequest request);
 
     MissionResponse removeDevice(String missionId, com.ondemandmonitoring.mission.dto.request.RemoveDeviceRequest request);

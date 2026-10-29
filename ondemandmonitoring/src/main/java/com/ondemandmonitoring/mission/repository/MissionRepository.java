@@ -77,6 +77,10 @@ public interface MissionRepository extends JpaRepository<Mission, String>, JpaSp
 
     List<Mission> findByStatusIn(List<MissionStatus> statuses);
 
+    List<Mission> findByFlightPermitStatusAndFlightPermitResourceHoldUntilLessThanEqualAndFlightPermitResourcesReleasedAtIsNull(
+            com.ondemandmonitoring.mission.enums.FlightPermitStatus status,
+            java.time.Instant holdUntil);
+
     long countByStatusIn(java.util.Collection<MissionStatus> statuses);
 
     long countByStatus(MissionStatus status);

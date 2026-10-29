@@ -1,5 +1,16 @@
 CREATE EXTENSION IF NOT EXISTS postgis;
 
+ALTER TABLE IF EXISTS public.missions
+    ADD COLUMN IF NOT EXISTS flight_permit_resource_hold_until TIMESTAMP WITH TIME ZONE,
+    ADD COLUMN IF NOT EXISTS flight_permit_resources_released_at TIMESTAMP WITH TIME ZONE,
+    ADD COLUMN IF NOT EXISTS last_reschedule_reason VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS last_reschedule_note VARCHAR(1000),
+    ADD COLUMN IF NOT EXISTS last_rescheduled_at TIMESTAMP WITH TIME ZONE,
+    ADD COLUMN IF NOT EXISTS schedule_revision BIGINT NOT NULL DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS ix_missions_permit_resource_hold
+    ON public.missions (flight_permit_status, flight_permit_resource_hold_until);
+
 ALTER TABLE IF EXISTS public.zones
     ADD COLUMN IF NOT EXISTS restricted BOOLEAN NOT NULL DEFAULT FALSE;
 

@@ -17,6 +17,7 @@ import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.mission.service.IMissionChecklistExecutionService;
 import com.ondemandmonitoring.order.domain.Order;
+import com.ondemandmonitoring.order.domain.ChecklistGuidanceContent;
 import com.ondemandmonitoring.order.domain.OrderChecklistItem;
 import com.ondemandmonitoring.order.dto.response.OrderChecklistItemResponse;
 import com.ondemandmonitoring.order.enums.ChecklistReviewStatus;
@@ -68,8 +69,10 @@ public class QuoteService implements IQuoteService {
     @Transactional(readOnly = true)
     public PricingReviewResponse getPricingReview(String orderId) {
         Order order = orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        String blockedReason = guidanceOrderBlockedReason(order);
+        boolean manager = isManager(currentUser.getCurrentUser());
         List<OrderChecklistItemResponse> items = checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId)
-                .stream().map(checklistMapper::toResponse).toList();
+                .stream().map(item -> guidanceResponse(order, item, manager, blockedReason)).toList();
         List<QuoteResponse> history = quotes.findHistory(orderId).stream().map(FinanceMapper::quote).toList();
         long effectiveOrderRev = order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision();
         QuoteResponse current = history.stream().filter(q -> (q.status() == QuoteStatus.DRAFT
@@ -89,8 +92,142 @@ public class QuoteService implements IQuoteService {
     }
 
     @Transactional
+    public OrderChecklistItemResponse saveChecklistGuidance(String orderId, String itemId,
+            ChecklistGuidanceRequest request) {
+        User actor = currentUser.getCurrentUser();
+        if (!isManager(actor)) throw new ApiException(ErrorCode.ACCESS_DENIED);
+        Order order = orders.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        String blockedReason = guidanceOrderBlockedReason(order);
+        if (blockedReason != null) throw new ApiException(ErrorCode.CHECKLIST_GUIDANCE_EDIT_BLOCKED, blockedReason);
+        if (request.expectedChecklistRevision() == null
+                || request.expectedChecklistRevision() != effectiveRevision(order))
+            throw new ApiException(ErrorCode.STALE_PRICING_REVISION);
+        // Acquire quote locks before reading/changing the item, always after the order lock.
+        List<Quote> active = lockActiveQuotes(orderId);
+        OrderChecklistItem item = checklistItems.findByIdAndOrderId(itemId, orderId)
+                .orElseThrow(() -> new ApiException(ErrorCode.CHECKLIST_NOT_FOUND));
+        if (item.getChecklistRevision() != effectiveRevision(order))
+            throw new ApiException(ErrorCode.STALE_PRICING_REVISION);
+        if (item.getSourceType() != OrderChecklistSourceType.CUSTOMER_CUSTOM)
+            throw new ApiException(ErrorCode.CHECKLIST_GUIDANCE_INVALID, "Only customer custom checklist guidance can be edited");
+        if (request.expectedGuidanceVersion() == null || request.expectedGuidanceVersion() != item.getGuidanceVersion())
+            throw new ApiException(ErrorCode.STALE_GUIDANCE_VERSION);
+        ChecklistGuidanceContent content = ChecklistGuidanceContent.normalize(request.description(),
+                request.executionSteps(), request.inputRequirements(), request.expectedOutputs());
+        if (request.confirm() && !ChecklistGuidanceContent.isComplete(content))
+            throw new ApiException(ErrorCode.CHECKLIST_GUIDANCE_INCOMPLETE,
+                    "itemId=" + itemId + "; missingSections=" + ChecklistGuidanceContent.missingSections(content));
+        boolean changed = !content.equals(ChecklistGuidanceContent.normalize(item.getCustomGuidance()));
+        boolean confirmed = request.confirm() && !Objects.equals(item.getGuidanceConfirmedVersion(), item.getGuidanceVersion());
+        if (changed) {
+            item.setCustomGuidance(content);
+            item.setGuidanceVersion(Math.incrementExact(item.getGuidanceVersion()));
+            item.setGuidanceConfirmedVersion(null);
+            supersedeQuotes(active);
+        }
+        if (request.confirm()) item.setGuidanceConfirmedVersion(item.getGuidanceVersion());
+        if (changed || confirmed) {
+            item.setGuidanceUpdatedBy(actor);
+            item.setGuidanceUpdatedAt(Instant.now());
+        }
+        return guidanceResponse(order, item, true, null);
+    }
+
+    private List<Quote> lockActiveQuotes(String orderId) {
+        return quotes.findHistory(orderId).stream()
+                .filter(q -> isActiveUnaccepted(q.getStatus()))
+                .sorted(Comparator.comparing(Quote::getId))
+                .map(q -> quotes.findByIdForUpdate(q.getId()).orElseThrow(() -> new ApiException(ErrorCode.QUOTE_NOT_FOUND)))
+                .toList();
+    }
+
+    private void supersedeQuotes(List<Quote> active) {
+        for (Quote quote : active) {
+            quote.setStatus(QuoteStatus.SUPERSEDED);
+            quote.setApprovedBy(null); quote.setApprovedAt(null);
+            quote.setPricingApprovedBy(null); quote.setPricingApprovedAt(null);
+            quote.setPricingApprovalNote(null); quote.setPricingApprovalStatus(PricingApprovalStatus.NOT_REQUIRED);
+        }
+    }
+
+    private boolean isActiveUnaccepted(QuoteStatus status) {
+        return status == QuoteStatus.DRAFT || status == QuoteStatus.PENDING_REVIEW || status == QuoteStatus.APPROVED;
+    }
+
+    private boolean isManager(User user) {
+        return user != null && user.getRole() != null && user.getRole().getCode() != null
+                && (user.getRole().getCode().name().equals("MANAGER") || user.getRole().getCode().name().equals("ADMIN"));
+    }
+
+    private long effectiveRevision(Order order) {
+        return order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision();
+    }
+
+    private String guidanceOrderBlockedReason(Order order) {
+        if (order.getOrderStatus() == OrderStatus.REJECTED || order.getOrderStatus() == OrderStatus.CANCELLED
+                || order.getOrderStatus() == OrderStatus.COMPLETED || order.getOrderStatus() == OrderStatus.IN_PROGRESS)
+            return "ORDER_TERMINAL_OR_EXECUTING";
+        if (invoices.findByOrderId(order.getId()).isPresent()) return "ORDER_INVOICED";
+        if (quotes.findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc(order.getId(),
+                List.of(QuoteStatus.ACCEPTED_BY_CUSTOMER)).isPresent()) return "QUOTE_ACCEPTED";
+        if (missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc(order.getId()).stream()
+                .anyMatch(mission -> mission.getStatus() != MissionStatus.PLANNING && mission.getStatus() != MissionStatus.CANCELLED))
+            return "MISSION_EXECUTING";
+        return null;
+    }
+
+    private OrderChecklistItemResponse guidanceResponse(Order order, OrderChecklistItem item,
+            boolean manager, String orderBlockedReason) {
+        OrderChecklistItemResponse response = checklistMapper.toResponse(item);
+        if (response == null) return null;
+        String reason = !manager ? "ACCESS_DENIED" : orderBlockedReason;
+        if (reason == null && item.getChecklistRevision() != effectiveRevision(order)) reason = "STALE_CHECKLIST_REVISION";
+        if (reason == null && item.getSourceType() != OrderChecklistSourceType.CUSTOMER_CUSTOM) reason = "CATALOG_GUIDANCE";
+        response.setCanEditGuidance(reason == null);
+        response.setGuidanceBlockedReason(reason);
+        return response;
+    }
+
+    private List<OrderChecklistItem> effectiveCustomItems(Order order, List<OrderChecklistItem> items) {
+        return items.stream().filter(item -> item.getChecklistRevision() == effectiveRevision(order))
+                .filter(item -> item.getSourceType() == OrderChecklistSourceType.CUSTOMER_CUSTOM)
+                .filter(item -> item.getReviewStatus() != ChecklistReviewStatus.REJECTED
+                        && item.getReviewStatus() != ChecklistReviewStatus.DUPLICATE)
+                .sorted(Comparator.comparing(OrderChecklistItem::getId)).toList();
+    }
+
+    private ChecklistGuidanceSnapshot guidanceSnapshot(Order order, List<OrderChecklistItem> items) {
+        return new ChecklistGuidanceSnapshot(1, effectiveCustomItems(order, items).stream().map(item -> {
+            ChecklistGuidanceContent content = ChecklistGuidanceContent.normalize(item.getCustomGuidance());
+            return new ChecklistGuidanceSnapshot.Item(item.getId(), item.getChecklistRevision(), item.getGuidanceVersion(),
+                    content.description(), content.executionSteps(), content.inputRequirements(), content.expectedOutputs());
+        }).toList());
+    }
+
+    private void requireGuidanceSnapshot(Order order, Quote quote, List<OrderChecklistItem> items) {
+        List<OrderChecklistItem> custom = effectiveCustomItems(order, items);
+        // Catalog-only legacy quotes have no custom guidance scope to rebuild.
+        if (custom.isEmpty() && quote.getChecklistGuidanceSnapshot() == null) return;
+        if (quote.getChecklistGuidanceSnapshot() == null)
+            throw new ApiException(ErrorCode.QUOTE_GUIDANCE_SNAPSHOT_STALE, "Rebuild this quote to include custom guidance");
+        List<String> missing = custom.stream().filter(item -> !item.isGuidanceReady())
+                .map(item -> "itemId=" + item.getId() + "; missingSections="
+                        + ChecklistGuidanceContent.missingSections(item.getCustomGuidance())
+                        + (Objects.equals(item.getGuidanceConfirmedVersion(), item.getGuidanceVersion()) ? "" : "; confirmationRequired=true"))
+                .toList();
+        if (!missing.isEmpty()) throw new ApiException(ErrorCode.CHECKLIST_GUIDANCE_INCOMPLETE, String.join(" | ", missing));
+        if (!guidanceSnapshot(order, items).equals(quote.getChecklistGuidanceSnapshot()))
+            throw new ApiException(ErrorCode.QUOTE_GUIDANCE_SNAPSHOT_STALE);
+    }
+
+    @Transactional
     public OrderChecklistItemResponse reviewChecklist(String orderId, String itemId, ChecklistReviewRequest request) {
         Order order = orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        // Review status changes the quoted scope, so it shares guidance's edit restrictions and invalidation.
+        String blockedReason = guidanceOrderBlockedReason(order);
+        if (blockedReason != null) throw new ApiException(ErrorCode.CHECKLIST_GUIDANCE_EDIT_BLOCKED, blockedReason);
+        List<Quote> active = lockActiveQuotes(orderId);
         long effectiveOrderRev = order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision();
         if (request.expectedChecklistRevision() != null && request.expectedChecklistRevision() != effectiveOrderRev && request.expectedChecklistRevision() != order.getChecklistRevision()) {
             throw new ApiException(ErrorCode.STALE_PRICING_REVISION);
@@ -115,8 +252,12 @@ public class QuoteService implements IQuoteService {
             throw new ApiException(ErrorCode.ORDER_CHECKLIST_REVIEW_INVALID,
                     "A rejection reason is required");
         }
+        String note = trimToNull(request.managerNote());
+        if (item.getReviewStatus() == request.status() && Objects.equals(item.getManagerNote(), note))
+            return guidanceResponse(order, item, isManager(currentUser.getCurrentUser()), null);
+        supersedeQuotes(active);
         item.setReviewStatus(request.status());
-        item.setManagerNote(trimToNull(request.managerNote()));
+        item.setManagerNote(note);
         if (request.status() == ChecklistReviewStatus.DUPLICATE) {
             item.setPricingStatus(ChecklistPricingStatus.DUPLICATE);
             item.setManagerApprovedAmount(ZERO);
@@ -128,14 +269,13 @@ public class QuoteService implements IQuoteService {
         } else {
             item.setPricingStatus(ChecklistPricingStatus.NEEDS_MANAGER_REVIEW);
         }
-        return checklistMapper.toResponse(item);
+        return guidanceResponse(order, item, isManager(currentUser.getCurrentUser()), null);
     }
 
     @Transactional
     public QuoteResponse saveDraft(String orderId, QuoteDraftRequest request) {
         Order order = orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-        if (order.getOrderStatus() == OrderStatus.REJECTED || order.getOrderStatus() == OrderStatus.CANCELLED
-                || invoices.findByOrderId(orderId).isPresent()) {
+        if (guidanceOrderBlockedReason(order) != null) {
             throw new ApiException(ErrorCode.QUOTE_PRICING_INVALID, "Order can no longer be priced");
         }
         List<OrderChecklistItem> reviewed = checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId);
@@ -222,6 +362,7 @@ public class QuoteService implements IQuoteService {
         quote.setPricingRiskFlags(risks);
         quote.setPricingRevision(nextPricingRevision);
         quote.setChecklistRevision(effectiveOrderRev);
+        quote.setChecklistGuidanceSnapshot(guidanceSnapshot(order, reviewed));
         quote.setPricingApprovedBy(null); quote.setPricingApprovedAt(null); quote.setPricingApprovalNote(null);
         if (adjustment.signum() == 0) {
             quote.setPricingApprovalStatus(PricingApprovalStatus.NOT_REQUIRED);
@@ -255,6 +396,7 @@ public class QuoteService implements IQuoteService {
                 .anyMatch(item -> item.getReviewStatus() == null || item.getReviewStatus() == ChecklistReviewStatus.PENDING)) {
             throw new ApiException(ErrorCode.ORDER_CHECKLIST_REVIEW_INVALID);
         }
+        requireGuidanceSnapshot(order, quote, reviewed);
         // Approval criteria: automatic checks + the manager's own answers.
         readiness.requireApprovable(orderId);
         quote.setStatus(QuoteStatus.APPROVED);
@@ -292,6 +434,7 @@ public class QuoteService implements IQuoteService {
             quote.setStatus(QuoteStatus.REJECTED);
             return FinanceMapper.quote(quote);
         }
+        requireGuidanceSnapshot(order, quote, checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId));
         readiness.requireApprovable(orderId);
         quote.setPricingApprovalStatus(PricingApprovalStatus.APPROVED);
         quote.setStatus(QuoteStatus.APPROVED); quote.setApprovedBy(approver); quote.setApprovedAt(Instant.now());
@@ -307,7 +450,12 @@ public class QuoteService implements IQuoteService {
                 .filter(q -> q.getStatus() == QuoteStatus.ACCEPTED_BY_CUSTOMER
                         || (orderForCustomerQuote(orderId).getOrderStatus() == OrderStatus.APPROVED
                             && q.getChecklistRevision() == effectiveRevForOrder(orderId)))
-                .map(FinanceMapper::customerQuote).orElseThrow(() -> new ApiException(ErrorCode.QUOTE_NOT_FOUND));
+                .map(quote -> {
+                    if (quote.getStatus() != QuoteStatus.ACCEPTED_BY_CUSTOMER)
+                        requireGuidanceSnapshot(orderForCustomerQuote(orderId), quote,
+                                checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId));
+                    return FinanceMapper.customerQuote(quote);
+                }).orElseThrow(() -> new ApiException(ErrorCode.QUOTE_NOT_FOUND));
     }
 
     @Transactional
@@ -327,6 +475,9 @@ public class QuoteService implements IQuoteService {
                 || current.getChecklistRevision() != (order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision()))
             throw new ApiException(ErrorCode.QUOTE_NOT_CURRENT);
 
+        if (quote.getStatus() != QuoteStatus.APPROVED || order.getOrderStatus() != OrderStatus.APPROVED)
+            throw new ApiException(ErrorCode.QUOTE_NOT_APPROVED);
+        requireGuidanceSnapshot(order, quote, checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId));
         quote.setStatus(QuoteStatus.ACCEPTED_BY_CUSTOMER);
         quote.setAcceptedAt(Instant.now());
         Invoice invoice = new Invoice();

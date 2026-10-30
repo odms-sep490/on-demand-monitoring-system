@@ -1,6 +1,12 @@
 package com.ondemandmonitoring.order.service.impl;
 
 import com.ondemandmonitoring.common.exception.ApiException;
+import com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot;
+import com.ondemandmonitoring.finance.enums.QuoteStatus;
+import com.ondemandmonitoring.order.enums.OrderChecklistSourceType;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.stream.Collectors;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.domain.OrderDeliverable;
@@ -676,10 +682,12 @@ public class OrderService implements IOrderService {
 
     private List<OrderCreateResponse> toResponses(List<Order> orders) {
         var snapshots = checklistSnapshots.getByOrders(orders.stream().map(Order::getId).toList());
+        var publishedGuidance = publishedGuidanceByOrder(orders);
         return orders.stream().map(order -> {
             var response = orderMapper.toResponse(order);
             enrichCustomerProfile(response, order);
             response.setChecklistItems(snapshots.getOrDefault(order.getId(), List.of()));
+            applyPublishedGuidance(response, publishedGuidance.get(order.getId()));
             checklistSnapshots.enrichOrderResponse(order, response, false);
             if (order.getOrderStatus() == OrderStatus.APPROVED) {
                 response.setDepositSatisfied(invoiceRepository.findByOrderId(order.getId())
@@ -688,6 +696,50 @@ public class OrderService implements IOrderService {
             }
             return response;
         }).toList();
+    }
+
+    /** Customer-facing requirements use published scope, never the Manager's mutable draft. */
+    private Map<String, ChecklistGuidanceSnapshot> publishedGuidanceByOrder(
+            List<Order> orders) {
+        if (orders.isEmpty()) return Map.of();
+        var byId = orders.stream().collect(Collectors.toMap(Order::getId, o -> o));
+        var result = new HashMap<String, ChecklistGuidanceSnapshot>();
+        var candidates = quoteRepository.findGuidanceQuotesForOrders(byId.keySet(), List.of(
+                QuoteStatus.APPROVED,
+                QuoteStatus.ACCEPTED_BY_CUSTOMER));
+        // Accepted scope takes precedence over any later draft/published quote.
+        for (var status : List.of(QuoteStatus.ACCEPTED_BY_CUSTOMER,
+                QuoteStatus.APPROVED)) {
+            for (var quote : candidates) {
+                var order = byId.get(quote.getOrder().getId());
+                long revision = order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision();
+                if (quote.getStatus() != status || quote.getChecklistRevision() != revision
+                        || quote.getChecklistGuidanceSnapshot() == null
+                        || (status == QuoteStatus.APPROVED
+                            && order.getOrderStatus() != OrderStatus.APPROVED)) continue;
+                result.putIfAbsent(order.getId(), quote.getChecklistGuidanceSnapshot());
+            }
+        }
+        return result;
+    }
+
+    private void applyPublishedGuidance(OrderCreateResponse response,
+            ChecklistGuidanceSnapshot snapshot) {
+        if (snapshot == null || response.getChecklistItems() == null) return;
+        var guidanceByItem = snapshot.items().stream().collect(Collectors.toMap(
+                ChecklistGuidanceSnapshot.Item::itemId, g -> g));
+        for (var item : response.getChecklistItems()) {
+            if (item.getSourceType() != OrderChecklistSourceType.CUSTOMER_CUSTOM) continue;
+            var guidance = guidanceByItem.get(item.getId());
+            if (guidance == null || guidance.checklistRevision() != item.getChecklistRevision()) continue;
+            item.setDescription(guidance.description());
+            item.setExecutionSteps(guidance.executionSteps());
+            item.setInputRequirements(guidance.inputRequirements());
+            item.setExpectedOutputs(guidance.expectedOutputs());
+            item.setGuidanceVersion(guidance.guidanceVersion());
+            item.setGuidanceConfirmedVersion(guidance.guidanceVersion());
+            item.setGuidanceReady(true);
+        }
     }
 
     private void enrichCustomerProfile(OrderCreateResponse response, Order order) {

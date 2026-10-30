@@ -30,7 +30,7 @@ public final class FinanceMapper {
                 quote.getPricingApprovedBy() == null ? null : quote.getPricingApprovedBy().getFullName(),
                 quote.getPricingApprovedAt(), quote.getPricingApprovalNote(), quote.getPricingRevision(),
                 quote.getPricingRiskFlags() == null ? java.util.List.of() : quote.getPricingRiskFlags(),
-                quote.getChecklistRevision());
+                quote.getChecklistRevision(), quote.getChecklistGuidanceSnapshot());
     }
 
     public static QuoteItemResponse quoteItem(QuoteItem item) {
@@ -60,7 +60,7 @@ public final class FinanceMapper {
         return new CustomerQuoteResponse(quote.getId(), quote.getOrder().getId(), quote.getQuoteVersion(), quote.getStatus(),
                 estimatedBase, approvedAdditional, quote.getTotalAmount(), true,
                 quote.getApprovedAt(), quote.getAcceptedAt(), List.copyOf(safeItems),
-                quote.getChecklistRevision());
+                quote.getChecklistRevision(), quote.getChecklistGuidanceSnapshot());
     }
 
     public static InvoiceResponse invoice(Invoice invoice, boolean finalPaymentAllowed) {

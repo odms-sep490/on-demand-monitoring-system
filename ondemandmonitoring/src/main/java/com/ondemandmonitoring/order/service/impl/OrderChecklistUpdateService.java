@@ -24,6 +24,7 @@ import com.ondemandmonitoring.order.repository.OrderChecklistItemRepository;
 import com.ondemandmonitoring.order.repository.OrderChecklistRevisionRepository;
 import com.ondemandmonitoring.order.repository.OrderRepository;
 import com.ondemandmonitoring.order.service.IOrderChecklistUpdateService;
+import com.ondemandmonitoring.order.service.OrderChecklistGuidanceSupport;
 import com.ondemandmonitoring.order.service.IOrderService;
 import com.ondemandmonitoring.pricing.domain.PricingPolicy;
 import com.ondemandmonitoring.pricing.enums.ChecklistDifficulty;
@@ -317,6 +318,7 @@ public class OrderChecklistUpdateService implements IOrderChecklistUpdateService
             if (item.getExistingItemId() != null) {
                 OrderChecklistItem existing = baseById.get(item.getExistingItemId());
                 populateFromExistingSnapshot(entity, existing, item, explicitMedia, explicitEvidence);
+                OrderChecklistGuidanceSupport.copyForCustomerRevision(existing, entity);
             } else {
                 ChecklistDefinition source = item.getSourceChecklistId() == null
                         ? null

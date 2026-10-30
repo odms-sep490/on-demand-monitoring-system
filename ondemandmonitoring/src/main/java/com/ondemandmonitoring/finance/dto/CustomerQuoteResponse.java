@@ -10,12 +10,12 @@ public record CustomerQuoteResponse(String id, String orderId, int version, Quot
         BigDecimal estimatedBaseAmount, BigDecimal approvedAdditionalServiceAmount,
         BigDecimal finalOrderAmount, boolean pricingFinalized,
         Instant approvedAt, Instant acceptedAt, List<QuoteItemResponse> items,
-        long checklistRevision) {
+        long checklistRevision, ChecklistGuidanceSnapshot checklistGuidanceSnapshot) {
     public CustomerQuoteResponse(String id, String orderId, int version, QuoteStatus status,
             BigDecimal estimatedBaseAmount, BigDecimal approvedAdditionalServiceAmount,
             BigDecimal finalOrderAmount, boolean pricingFinalized,
             Instant approvedAt, Instant acceptedAt, List<QuoteItemResponse> items) {
         this(id, orderId, version, status, estimatedBaseAmount, approvedAdditionalServiceAmount,
-                finalOrderAmount, pricingFinalized, approvedAt, acceptedAt, items, 1L);
+                finalOrderAmount, pricingFinalized, approvedAt, acceptedAt, items, 1L, null);
     }
 }

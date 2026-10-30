@@ -23,6 +23,10 @@ import lombok.Setter;
                 @Index(name = "ix_quotes_created", columnList = "created_at")})
 @Getter @Setter
 public class Quote extends BaseEntity {
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "checklist_guidance_snapshot", columnDefinition = "jsonb")
+    private com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot checklistGuidanceSnapshot;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "order_id", nullable = false)
     private Order order;

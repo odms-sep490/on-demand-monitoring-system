@@ -192,13 +192,13 @@ class MissionChecklistCutoverPostgresTest extends ChecklistPostgresTest {
     @Configuration @Import(OrderMissionPostgresTest.MissionConfig.class)
     static class Beans {
         @Bean IMissionChecklistMaterializationService materializer(MissionChecklistAssignmentRepository a,MissionChecklistExecutionRepository e) {
-            return new MissionChecklistMaterializationServiceImpl(a,e);
+            return new MissionChecklistMaterializationServiceImpl(a,e, ignored -> null);
         }
         @Bean IMissionChecklistAssignmentService selection(com.ondemandmonitoring.order.repository.OrderRepository orders,MissionRepository missions,
                 com.ondemandmonitoring.order.repository.OrderChecklistItemRepository items,MissionChecklistAssignmentRepository a,
                 MissionChecklistExecutionRepository e,com.ondemandmonitoring.user.service.AuthenticatedUserResolver user) {
             return new MissionChecklistAssignmentServiceImpl(orders,missions,items,a,e,user,
-                    org.mapstruct.factory.Mappers.getMapper(com.ondemandmonitoring.mission.mapper.MissionChecklistAssignmentMapper.class));
+                    org.mapstruct.factory.Mappers.getMapper(com.ondemandmonitoring.mission.mapper.MissionChecklistAssignmentMapper.class), ignored -> null);
         }
         @Bean IExecutionPlanService plan(com.ondemandmonitoring.order.repository.OrderRepository orders,MissionRepository missions,
                 com.ondemandmonitoring.order.repository.OrderChecklistItemRepository items,MissionChecklistAssignmentRepository a,

@@ -6,6 +6,8 @@ import com.ondemandmonitoring.mission.dto.request.ChecklistAssignmentSelectionRe
 import com.ondemandmonitoring.mission.dto.response.ChecklistAssignmentSelectionResponse;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.mapper.MissionChecklistAssignmentMapper;
+import com.ondemandmonitoring.mission.mapper.MissionChecklistGuidanceContext;
+import com.ondemandmonitoring.finance.service.IAcceptedChecklistGuidanceService;
 import com.ondemandmonitoring.mission.repository.*;
 import com.ondemandmonitoring.mission.service.IMissionChecklistAssignmentService;
 import com.ondemandmonitoring.order.enums.ChecklistAssignmentStatus;
@@ -30,6 +32,7 @@ public class MissionChecklistAssignmentServiceImpl implements IMissionChecklistA
     private final MissionChecklistExecutionRepository executions;
     private final AuthenticatedUserResolver currentUser;
     private final MissionChecklistAssignmentMapper mapper;
+    private final IAcceptedChecklistGuidanceService acceptedGuidance;
 
     @Override
     @Transactional(readOnly = true)
@@ -65,6 +68,8 @@ public class MissionChecklistAssignmentServiceImpl implements IMissionChecklistA
             if (selected.put(item.getId(), item) != null) throw new ApiException(ErrorCode.CHECKLIST_ASSIGNMENT_DUPLICATE);
         }
         // One checklist item belongs to at most one effective Mission (cancelled Missions release their items).
+        var guidance = new MissionChecklistGuidanceContext(acceptedGuidance.findForOrder(orderId));
+        selected.values().forEach(guidance::resolve);
         var ownerMissions = new HashMap<String, Mission>();
         for (var other : assignments.findActiveByOrderId(orderId)) {
             if (missionId.equals(other.getMissionId()) || !selected.containsKey(other.getOrderChecklistItemId())) continue;

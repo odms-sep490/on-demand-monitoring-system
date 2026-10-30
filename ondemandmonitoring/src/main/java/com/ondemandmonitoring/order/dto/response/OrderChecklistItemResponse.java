@@ -52,4 +52,7 @@ public class OrderChecklistItemResponse {
     private java.math.BigDecimal finalAmount;
     private java.math.BigDecimal priceDifferenceAmount;
     private java.math.BigDecimal priceDifferencePercent;
+    private boolean required;
+    private long checklistRevision;
+    private Long sourceChecklistVersion;
 }

@@ -76,7 +76,7 @@ public class OrderService implements IOrderService {
     @Transactional
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public OrderCreateResponse approveOrder(String orderId) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
 
         if (order.getOrderStatus() == OrderStatus.APPROVED) {
@@ -105,7 +105,7 @@ public class OrderService implements IOrderService {
     @Transactional
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public OrderCreateResponse reviewFlightArea(String orderId, FlightAreaReviewRequest request) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
         if (order.getOrderStatus() != OrderStatus.PENDING) {
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Only PENDING orders can be reviewed");
@@ -136,7 +136,7 @@ public class OrderService implements IOrderService {
     @Transactional
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public OrderCreateResponse resolveLegalReview(String orderId, LegalReviewResolutionRequest request) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
         // The permit may still be pending after the order was approved and invoiced.
         if ((order.getOrderStatus() != OrderStatus.PENDING && order.getOrderStatus() != OrderStatus.APPROVED)
@@ -163,7 +163,7 @@ public class OrderService implements IOrderService {
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public OrderCreateResponse cancelAfterPermitRejection(
             String orderId, PermitCancellationProposalRequest request) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
         if (order.getOrderStatus() == OrderStatus.COMPLETED
                 || order.getOrderStatus() == OrderStatus.CANCELLED
@@ -351,6 +351,7 @@ public class OrderService implements IOrderService {
         OrderCreateResponse response = orderMapper.toResponse(savedOrder);
         enrichCustomerProfile(response, savedOrder);
         response.setChecklistItems(items);
+        checklistSnapshots.enrichOrderResponse(savedOrder, response, false);
         return response;
     }
 
@@ -389,7 +390,11 @@ public class OrderService implements IOrderService {
     @Transactional(readOnly = true)
     @PreAuthorize("@orderAuthorizationService.canViewOrder(#orderId)")
     public OrderCreateResponse getOrderById(String orderId) {
-        Order order = orderRepository.findById(orderId)
+        return toResponse(orderRepository.findById(orderId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId)));
+    }
+    private OrderCreateResponse unusedGetOrderById(String orderId) {
+        Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
         return toResponse(order);
     }
@@ -398,7 +403,7 @@ public class OrderService implements IOrderService {
     @Transactional
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public void rejectOrder(String orderId, String reason) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
 
         if (order.getOrderStatus() != OrderStatus.PENDING) {
@@ -415,7 +420,7 @@ public class OrderService implements IOrderService {
     @Transactional
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public void requestMoreInformation(String orderId, String reason, String requestedUpdateScope) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
 
         if (order.getOrderStatus() != OrderStatus.PENDING) {
@@ -435,7 +440,7 @@ public class OrderService implements IOrderService {
     @PreAuthorize("hasRole('CUSTOMER')")
     public OrderCreateResponse submitAdditionalInformation(String orderId,
             com.ondemandmonitoring.order.dto.request.OrderAdditionalInformationRequest request) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
         User customer = authenticatedUserResolver.getCurrentUser();
         if (order.getCustomer() == null || !order.getCustomer().getId().equals(customer.getId())) {
@@ -486,7 +491,7 @@ public class OrderService implements IOrderService {
     @PreAuthorize("hasRole('CUSTOMER')")
     public OrderCreateResponse updateCustomerOrder(String orderId,
             com.ondemandmonitoring.order.dto.request.OrderCustomerUpdateRequest request) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
         User customer = authenticatedUserResolver.getCurrentUser();
         if (order.getCustomer() == null || !order.getCustomer().getId().equals(customer.getId()))
@@ -655,7 +660,17 @@ public class OrderService implements IOrderService {
         return toResponses(orders);
     }
 
+    private Order findOrderByIdForWrite(String id) {
+        return orderRepository.findByIdForUpdate(id).or(() -> orderRepository.findById(id)).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + id));
+    }
+
     private OrderCreateResponse toResponse(Order order) {
+        var response = toResponses(List.of(order)).getFirst();
+        checklistSnapshots.enrichOrderResponse(order, response, true);
+        return response;
+    }
+
+    private OrderCreateResponse toResponseUnused(Order order) {
         return toResponses(List.of(order)).getFirst();
     }
 
@@ -665,6 +680,7 @@ public class OrderService implements IOrderService {
             var response = orderMapper.toResponse(order);
             enrichCustomerProfile(response, order);
             response.setChecklistItems(snapshots.getOrDefault(order.getId(), List.of()));
+            checklistSnapshots.enrichOrderResponse(order, response, false);
             if (order.getOrderStatus() == OrderStatus.APPROVED) {
                 response.setDepositSatisfied(invoiceRepository.findByOrderId(order.getId())
                         .map(invoice -> invoice.getPaidAmount().compareTo(invoice.getDepositAmount()) >= 0)

@@ -60,6 +60,8 @@ public class MissionChecklistAssignmentServiceImpl implements IMissionChecklistA
                 throw new ApiException(ErrorCode.INVALID_REQUEST);
             var item = items.findById(entry.orderChecklistItemId()).orElseThrow(() -> new ApiException(ErrorCode.CHECKLIST_ASSIGNMENT_CROSS_ORDER));
             if (!orderId.equals(item.getOrder().getId())) throw new ApiException(ErrorCode.CHECKLIST_ASSIGNMENT_CROSS_ORDER);
+            long effectiveOrderRev = order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision();
+            if (item.getChecklistRevision() != effectiveOrderRev) throw new ApiException(ErrorCode.ORDER_CHECKLIST_REVISION_CONFLICT);
             if (selected.put(item.getId(), item) != null) throw new ApiException(ErrorCode.CHECKLIST_ASSIGNMENT_DUPLICATE);
         }
         // One checklist item belongs to at most one effective Mission (cancelled Missions release their items).

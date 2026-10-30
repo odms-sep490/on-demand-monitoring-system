@@ -66,6 +66,7 @@ public class Quote extends BaseEntity {
     @Column(name = "pricing_approved_at") private Instant pricingApprovedAt;
     @Column(name = "pricing_approval_note", length = 2000) private String pricingApprovalNote;
     @Column(name = "pricing_revision") private long pricingRevision;
+    @Column(name = "checklist_revision", nullable = false) private long checklistRevision = 1;
     @JdbcTypeCode(SqlTypes.JSON) @Column(name = "pricing_risk_flags", columnDefinition = "jsonb")
     private List<PricingRiskFlag> pricingRiskFlags = new ArrayList<>();
     @Column(name = "manager_note", length = 2000)

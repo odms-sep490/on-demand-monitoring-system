@@ -29,7 +29,8 @@ public final class FinanceMapper {
                 quote.getAdjustmentRequestedAt(), quote.getPricingApprovalStatus(),
                 quote.getPricingApprovedBy() == null ? null : quote.getPricingApprovedBy().getFullName(),
                 quote.getPricingApprovedAt(), quote.getPricingApprovalNote(), quote.getPricingRevision(),
-                quote.getPricingRiskFlags() == null ? java.util.List.of() : quote.getPricingRiskFlags());
+                quote.getPricingRiskFlags() == null ? java.util.List.of() : quote.getPricingRiskFlags(),
+                quote.getChecklistRevision());
     }
 
     public static QuoteItemResponse quoteItem(QuoteItem item) {
@@ -58,7 +59,8 @@ public final class FinanceMapper {
         BigDecimal estimatedBase = quote.getTotalAmount().subtract(approvedAdditional);
         return new CustomerQuoteResponse(quote.getId(), quote.getOrder().getId(), quote.getQuoteVersion(), quote.getStatus(),
                 estimatedBase, approvedAdditional, quote.getTotalAmount(), true,
-                quote.getApprovedAt(), quote.getAcceptedAt(), List.copyOf(safeItems));
+                quote.getApprovedAt(), quote.getAcceptedAt(), List.copyOf(safeItems),
+                quote.getChecklistRevision());
     }
 
     public static InvoiceResponse invoice(Invoice invoice, boolean finalPaymentAllowed) {

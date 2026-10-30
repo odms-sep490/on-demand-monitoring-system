@@ -34,19 +34,31 @@ public final class ChecklistPricingPreviewRequests {
             @DecimalMin("0") BigDecimal altitudeM,
             @Min(1) @Max(100) Integer occurrences,
             @Size(max = 5) List<@NotNull OrderResultFormat> resultFormats,
-            OrderPermitStatus permitStatus) {
+            OrderPermitStatus permitStatus,
+            String orderId) {
         public Customer(String serviceId, List<CustomerItem> items) {
-            this(serviceId, items, null, null, null, null, null, null);
+            this(serviceId, items, null, null, null, null, null, null, null);
         }
         public Customer(String serviceId, List<CustomerItem> items, BigDecimal areaHa, BigDecimal lengthKm, BigDecimal altitudeM) {
-            this(serviceId, items, areaHa, lengthKm, altitudeM, null, null, null);
+            this(serviceId, items, areaHa, lengthKm, altitudeM, null, null, null, null);
         }
         public Customer(String serviceId, List<CustomerItem> items, BigDecimal areaHa, BigDecimal lengthKm,
                 BigDecimal altitudeM, Integer occurrences) {
-            this(serviceId, items, areaHa, lengthKm, altitudeM, occurrences, null, null);
+            this(serviceId, items, areaHa, lengthKm, altitudeM, occurrences, null, null, null);
+        }
+        public Customer(String serviceId, List<CustomerItem> items, BigDecimal areaHa, BigDecimal lengthKm,
+                BigDecimal altitudeM, Integer occurrences, List<OrderResultFormat> resultFormats,
+                OrderPermitStatus permitStatus) {
+            this(serviceId, items, areaHa, lengthKm, altitudeM, occurrences, resultFormats, permitStatus, null);
         }
     }
 
     public record CustomerItem(@Size(max = 255) String sourceChecklistId, @Size(max = 500) String content,
-            @Min(0) @Max(500) Integer requestedImageCount, @Min(0) @Max(500) Integer requestedVideoCount) {}
+            @Min(0) @Max(500) Integer requestedImageCount, @Min(0) @Max(500) Integer requestedVideoCount,
+            @Size(max = 255) String existingItemId) {
+        public CustomerItem(String sourceChecklistId, String content,
+                Integer requestedImageCount, Integer requestedVideoCount) {
+            this(sourceChecklistId, content, requestedImageCount, requestedVideoCount, null);
+        }
+    }
 }

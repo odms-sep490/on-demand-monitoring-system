@@ -85,6 +85,10 @@ public class Order extends BaseEntity {
     @Column(name = "checklist_snapshot_at")
     private Instant checklistSnapshotAt;
 
+    /** Current immutable checklist snapshot revision; existing snapshots start at revision 1. */
+    @jakarta.persistence.Column(name = "checklist_revision", nullable = false)
+    private long checklistRevision = 0;
+
     /** Pricing policy frozen when the request is submitted. Legacy orders may leave these fields null. */
     @Column(name = "pricing_policy_id", length = 36)
     private String pricingPolicyId;

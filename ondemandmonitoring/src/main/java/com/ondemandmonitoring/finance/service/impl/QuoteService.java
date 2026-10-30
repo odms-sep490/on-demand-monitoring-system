@@ -71,8 +71,9 @@ public class QuoteService implements IQuoteService {
         List<OrderChecklistItemResponse> items = checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId)
                 .stream().map(checklistMapper::toResponse).toList();
         List<QuoteResponse> history = quotes.findHistory(orderId).stream().map(FinanceMapper::quote).toList();
-        QuoteResponse current = history.stream().filter(q -> q.status() == QuoteStatus.DRAFT
-                || q.status() == QuoteStatus.APPROVED || q.status() == QuoteStatus.PENDING_REVIEW).findFirst().orElse(null);
+        long effectiveOrderRev = order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision();
+        QuoteResponse current = history.stream().filter(q -> (q.status() == QuoteStatus.DRAFT
+                || q.status() == QuoteStatus.APPROVED || q.status() == QuoteStatus.PENDING_REVIEW) && q.checklistRevision() == effectiveOrderRev).findFirst().orElse(null);
         PricingBreakdown calculation = pricingEngine.calculate(order,
                 checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId));
         Optional<PricingPolicy> policy = pricingPolicies.findById(calculation.policyId());
@@ -83,14 +84,22 @@ public class QuoteService implements IQuoteService {
                 order.getService().getName(), basePackagePrice, items, current, history, calculation,
                 currentUser.getCurrentUserId(),
                 policy.map(PricingPolicy::getManagerMaxDiscountPercent).orElse(null),
-                policy.map(PricingPolicy::getManagerMaxMarkupPercent).orElse(null));
+                policy.map(PricingPolicy::getManagerMaxMarkupPercent).orElse(null),
+                effectiveOrderRev);
     }
 
     @Transactional
     public OrderChecklistItemResponse reviewChecklist(String orderId, String itemId, ChecklistReviewRequest request) {
-        orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        Order order = orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        long effectiveOrderRev = order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision();
+        if (request.expectedChecklistRevision() != null && request.expectedChecklistRevision() != effectiveOrderRev && request.expectedChecklistRevision() != order.getChecklistRevision()) {
+            throw new ApiException(ErrorCode.STALE_PRICING_REVISION);
+        }
         OrderChecklistItem item = checklistItems.findByIdAndOrderId(itemId, orderId)
                 .orElseThrow(() -> new ApiException(ErrorCode.CHECKLIST_NOT_FOUND));
+        if (item.getChecklistRevision() != effectiveOrderRev) {
+            throw new ApiException(ErrorCode.STALE_PRICING_REVISION);
+        }
         if (item.getSourceType() == OrderChecklistSourceType.SERVICE_TEMPLATE) {
             throw new ApiException(ErrorCode.ORDER_CHECKLIST_REVIEW_INVALID,
                     "A service-package checklist is included and priced automatically");
@@ -148,6 +157,9 @@ public class QuoteService implements IQuoteService {
         // The Manager priced against the policy on screen; if an Admin published a newer one meanwhile, nothing is saved.
         if (request.expectedPolicyVersion() != null && request.expectedPolicyVersion() != calculation.policyVersion())
             throw new ApiException(ErrorCode.STALE_PRICING_POLICY);
+        long effectiveOrderRev = order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision();
+        if (request.expectedChecklistRevision() != null && request.expectedChecklistRevision() != effectiveOrderRev && request.expectedChecklistRevision() != order.getChecklistRevision())
+            throw new ApiException(ErrorCode.STALE_PRICING_REVISION);
         Map<String, BigDecimal> systemChecklistPrices = checklistSystemPrices(calculation);
         PricingPolicy policy = pricingPolicies.findById(calculation.policyId())
                 .orElseThrow(() -> new ApiException(ErrorCode.PRICING_POLICY_NOT_FOUND));
@@ -161,7 +173,7 @@ public class QuoteService implements IQuoteService {
             throw new ApiException(ErrorCode.STALE_PRICING_REVISION);
         long nextPricingRevision = active.map(Quote::getPricingRevision).orElse(0L) + 1;
         Quote quote;
-        if (active.isPresent() && active.get().getStatus() == QuoteStatus.DRAFT) {
+        if (active.isPresent() && active.get().getStatus() == QuoteStatus.DRAFT && active.get().getChecklistRevision() == effectiveOrderRev) {
             quote = quotes.findByIdForUpdate(active.get().getId()).orElseThrow();
         } else {
             active.ifPresent(previous -> {
@@ -209,6 +221,7 @@ public class QuoteService implements IQuoteService {
                 : Optional.ofNullable(request.adjustmentType()).orElse(PricingAdjustmentType.CORRECTION));
         quote.setPricingRiskFlags(risks);
         quote.setPricingRevision(nextPricingRevision);
+        quote.setChecklistRevision(effectiveOrderRev);
         quote.setPricingApprovedBy(null); quote.setPricingApprovedAt(null); quote.setPricingApprovalNote(null);
         if (adjustment.signum() == 0) {
             quote.setPricingApprovalStatus(PricingApprovalStatus.NOT_REQUIRED);
@@ -229,7 +242,8 @@ public class QuoteService implements IQuoteService {
     public QuoteResponse approve(String orderId, String quoteId) {
         Order order = orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
         Quote quote = quotes.findByIdForUpdate(quoteId).orElseThrow(() -> new ApiException(ErrorCode.QUOTE_NOT_FOUND));
-        if (!quote.getOrder().getId().equals(orderId) || quote.getStatus() != QuoteStatus.DRAFT) {
+        if (!quote.getOrder().getId().equals(orderId) || quote.getStatus() != QuoteStatus.DRAFT
+                || quote.getChecklistRevision() != (order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision())) {
             throw new ApiException(ErrorCode.QUOTE_NOT_CURRENT);
         }
         if (quote.getPricingApprovalStatus() != PricingApprovalStatus.NOT_REQUIRED
@@ -262,7 +276,8 @@ public class QuoteService implements IQuoteService {
         Order order = orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
         Quote quote = quotes.findByIdForUpdate(quoteId).orElseThrow(() -> new ApiException(ErrorCode.QUOTE_NOT_FOUND));
         if (!quote.getOrder().getId().equals(orderId) || quote.getStatus() != QuoteStatus.PENDING_REVIEW
-                || quote.getPricingApprovalStatus() != PricingApprovalStatus.PENDING_SECOND_MANAGER)
+                || quote.getPricingApprovalStatus() != PricingApprovalStatus.PENDING_SECOND_MANAGER
+                || quote.getChecklistRevision() != (order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision()))
             throw new ApiException(ErrorCode.QUOTE_NOT_CURRENT);
         if (request.pricingRevision() != quote.getPricingRevision())
             throw new ApiException(ErrorCode.STALE_PRICING_REVISION);
@@ -289,6 +304,9 @@ public class QuoteService implements IQuoteService {
         assertOwner(orderId);
         return quotes.findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc(orderId,
                         List.of(QuoteStatus.APPROVED, QuoteStatus.ACCEPTED_BY_CUSTOMER))
+                .filter(q -> q.getStatus() == QuoteStatus.ACCEPTED_BY_CUSTOMER
+                        || (orderForCustomerQuote(orderId).getOrderStatus() == OrderStatus.APPROVED
+                            && q.getChecklistRevision() == effectiveRevForOrder(orderId)))
                 .map(FinanceMapper::customerQuote).orElseThrow(() -> new ApiException(ErrorCode.QUOTE_NOT_FOUND));
     }
 
@@ -305,7 +323,9 @@ public class QuoteService implements IQuoteService {
         }
         Quote current = quotes.findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc(orderId, List.of(QuoteStatus.APPROVED))
                 .orElseThrow(() -> new ApiException(ErrorCode.QUOTE_NOT_APPROVED));
-        if (!current.getId().equals(quoteId)) throw new ApiException(ErrorCode.QUOTE_NOT_CURRENT);
+        if (!current.getId().equals(quoteId)
+                || current.getChecklistRevision() != (order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision()))
+            throw new ApiException(ErrorCode.QUOTE_NOT_CURRENT);
 
         quote.setStatus(QuoteStatus.ACCEPTED_BY_CUSTOMER);
         quote.setAcceptedAt(Instant.now());
@@ -545,6 +565,15 @@ public class QuoteService implements IQuoteService {
                 throw new ApiException(ErrorCode.MISSION_STATUS_INVALID, "Existing mission has already entered execution");
             }
         }
+    }
+
+    private Order orderForCustomerQuote(String orderId) {
+        return orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+    }
+
+    private long effectiveRevForOrder(String orderId) {
+        Order order = orderForCustomerQuote(orderId);
+        return order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision();
     }
 
     private void assertOwner(String orderId) {

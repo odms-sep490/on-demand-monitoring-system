@@ -279,14 +279,6 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
 
     @Override
     @Transactional(readOnly = true)
-    public void requireOriginalMissionAccess(String missionId) {
-        Mission mission = missions.findByIdWithOrder(missionId)
-                .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
-        requireOriginalAccess(mission.getOrder().getId());
-    }
-
-    @Override
-    @Transactional(readOnly = true)
     public List<String> originalAccessibleMissionIds(List<String> missionIds) {
         if (missionIds == null || missionIds.isEmpty()) return List.of();
         String customerId = currentUser.getCurrentUserId();

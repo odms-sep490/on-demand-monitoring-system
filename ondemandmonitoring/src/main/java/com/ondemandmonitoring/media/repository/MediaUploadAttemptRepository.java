@@ -12,12 +12,11 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface MediaUploadAttemptRepository extends JpaRepository<MediaUploadAttempt, String> {
+    List<MediaUploadAttempt> findByMediaIdOrderByAttemptNumberDesc(String mediaId);
 
     Optional<MediaUploadAttempt> findByIdAndMediaId(String id, String mediaId);
 
     Optional<MediaUploadAttempt> findFirstByMediaIdOrderByAttemptNumberDesc(String mediaId);
-
-    Optional<MediaUploadAttempt> findByStorageKey(String storageKey);
 
     @Query("select a.media.id from MediaUploadAttempt a where a.storageKey = :key")
     Optional<String> findMediaIdByStorageKey(@Param("key") String key);
@@ -31,7 +30,8 @@ public interface MediaUploadAttemptRepository extends JpaRepository<MediaUploadA
      * Prepares, abandoned presigned URLs and retries that were never transferred stay PENDING
      * and are therefore never counted as failed uploads.
      */
-    long countByMediaIdAndManualAttemptFalseAndStatus(String mediaId, UploadAttemptStatus status);
+    @Query("select count(a) from MediaUploadAttempt a where a.media.id = :mediaId and a.manualAttempt = false and a.status = :status and (a.failureCode is null or a.failureCode <> 'ORPHAN_CLEANUP')")
+    long countByMediaIdAndManualAttemptFalseAndStatus(@Param("mediaId") String mediaId, @Param("status") UploadAttemptStatus status);
 
     List<MediaUploadAttempt> findByStatusOrderByUpdatedAtAsc(
             UploadAttemptStatus status, Pageable pageable);

@@ -31,10 +31,16 @@ public class PaymentService implements IPaymentService {
 
     public PaymentResponse createDeposit(String invoiceId, String clientIp) { return create(invoiceId, PaymentType.DEPOSIT, clientIp); }
     public PaymentResponse completeTestDeposit(String invoiceId) {
+        return completeTestPayment(invoiceId, PaymentType.DEPOSIT);
+    }
+    public PaymentResponse completeTestFinal(String invoiceId) {
+        return completeTestPayment(invoiceId, PaymentType.FINAL_PAYMENT);
+    }
+    private PaymentResponse completeTestPayment(String invoiceId, PaymentType type) {
         if (!environment.acceptsProfiles(Profiles.of("!prod"))) {
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Test payment is disabled in production");
         }
-        PreparedPayment prepared = persistence.prepare(invoiceId, PaymentType.DEPOSIT);
+        PreparedPayment prepared = persistence.prepare(invoiceId, type);
         webhookProcessor.process(new VerifiedWebhook(
                 prepared.transactionReference(), prepared.amount(), "VND",
                 "TEST-" + prepared.transactionReference(), null, "00", "00", true));

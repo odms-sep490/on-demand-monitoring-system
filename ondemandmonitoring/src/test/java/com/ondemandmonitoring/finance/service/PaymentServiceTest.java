@@ -29,6 +29,45 @@ class PaymentServiceTest {
             persistence, webhook, paymentGateway, statusGateway,
             mock(org.springframework.core.env.Environment.class));
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void testFinalUsesTheExistingPaymentWorkflowWithoutContactingVnPay(boolean existing) {
+        var environment = new org.springframework.mock.env.MockEnvironment();
+        environment.setActiveProfiles("dev");
+        var testService = new PaymentService(persistence, webhook, paymentGateway, statusGateway, environment);
+        var amount = new BigDecimal("700000");
+        var success = new PaymentResponse("p1", "i1", 123456L, PaymentType.FINAL_PAYMENT,
+                amount, "VND", PaymentStatus.SUCCESS, PaymentProvider.VNPAY, null, "123456", "TEST-123456", java.time.Instant.now());
+        when(persistence.prepare("i1", PaymentType.FINAL_PAYMENT)).thenReturn(
+                new com.ondemandmonitoring.finance.record.PreparedPayment("p1", "123456", amount, "Final payment", existing, null));
+        when(persistence.getByReference("123456")).thenReturn(success);
+
+        assertThat(testService.completeTestFinal("i1")).isEqualTo(success);
+        verify(webhook).process(new VerifiedWebhook("123456", amount, "VND", "TEST-123456", null, "00", "00", true));
+        org.mockito.Mockito.verifyNoInteractions(paymentGateway, statusGateway);
+    }
+
+    @Test void testFinalStillRequiresNormalPaymentEligibility() {
+        var environment = new org.springframework.mock.env.MockEnvironment();
+        var testService = new PaymentService(persistence, webhook, paymentGateway, statusGateway, environment);
+        when(persistence.prepare("i1", PaymentType.FINAL_PAYMENT)).thenThrow(
+                new com.ondemandmonitoring.common.exception.ApiException(com.ondemandmonitoring.common.exception.ErrorCode.FINAL_PAYMENT_NOT_ALLOWED));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> testService.completeTestFinal("i1"))
+                .isInstanceOf(com.ondemandmonitoring.common.exception.ApiException.class);
+        org.mockito.Mockito.verifyNoInteractions(webhook, paymentGateway, statusGateway);
+    }
+
+    @Test void productionDisablesBothTestPaymentActions() {
+        var environment = new org.springframework.mock.env.MockEnvironment();
+        environment.setActiveProfiles("prod");
+        var testService = new PaymentService(persistence, webhook, paymentGateway, statusGateway, environment);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> testService.completeTestFinal("i1"))
+                .isInstanceOf(com.ondemandmonitoring.common.exception.ApiException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> testService.completeTestDeposit("i1"))
+                .isInstanceOf(com.ondemandmonitoring.common.exception.ApiException.class);
+        org.mockito.Mockito.verifyNoInteractions(persistence, webhook, paymentGateway, statusGateway);
+    }
+
     @Test
     void refreshUsesQueryDrAndAppliesVerifiedSuccess() {
         PaymentResponse pending = payment(PaymentStatus.PENDING);

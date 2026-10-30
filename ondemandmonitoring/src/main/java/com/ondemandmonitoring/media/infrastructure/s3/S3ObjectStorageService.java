@@ -128,8 +128,12 @@ public class S3ObjectStorageService implements IMediaObjectStorage {
 
     @Override
     public void abortMultipartUpload(String key, String uploadId) {
-        s3Client.abortMultipartUpload(AbortMultipartUploadRequest.builder()
-                .bucket(bucket()).key(key).uploadId(uploadId).build());
+        try {
+            s3Client.abortMultipartUpload(AbortMultipartUploadRequest.builder()
+                    .bucket(bucket()).key(key).uploadId(uploadId).build());
+        } catch (software.amazon.awssdk.services.s3.model.S3Exception failure) {
+            if (failure.statusCode() != 404) throw failure;
+        }
     }
 
     @Override

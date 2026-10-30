@@ -36,6 +36,8 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
     private final ChecklistEvidencePolicy policy;
     private final ChecklistEvidenceMapper mapper;
     private final IMediaObjectStorage storage;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.ondemandmonitoring.media.service.IMediaOrphanCleanupService orphanCleanup;
 
     @Override
     @Transactional
@@ -52,6 +54,7 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
         MediaAsset asset = media.findByIdForUpdate(request.mediaId()).orElseThrow(() -> new ApiException(ErrorCode.MEDIA_NOT_FOUND));
         if (!missionId.equals(asset.getMissionId())) throw new ApiException(ErrorCode.ACCESS_DENIED);
         if (!policy.attachable(asset)) throw new ApiException(ErrorCode.EVIDENCE_NOT_ELIGIBLE, policy.ineligibilityReason(asset, false));
+        if (orphanCleanup != null) orphanCleanup.cancel(asset.getId());
         var response = new ArrayList<ChecklistEvidenceResponse>();
         var seen = new HashSet<String>();
         // Mission lock serializes all same-mission commands; the SQL partial index remains the final boundary.
@@ -93,6 +96,7 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
         version(execution, expectedVersion);
         link.setDetachedBy(currentUser.getCurrentUserId()); link.setDetachedAt(Instant.now());
         link.setDetachReason(trimmed(reason)); evidence.saveAndFlush(link); touch(execution);
+        if (orphanCleanup != null) orphanCleanup.request(link.getMediaAsset().getId());
     }
 
     @Override
@@ -270,7 +274,7 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
     }
     private String preview(MediaAsset asset) {
         // Never sign upload-pending/nonvalidated objects for evidence previews.
-        if (asset.getValidatedAt() == null || asset.getMediaStatus() == null
+        if (asset.getStorageStatus() != com.ondemandmonitoring.media.enums.MediaStorageStatus.AVAILABLE || asset.getValidatedAt() == null || asset.getMediaStatus() == null
                 || !Set.of(MediaStatus.PENDING_MANAGER_APPROVAL, MediaStatus.AVAILABLE, MediaStatus.REJECTED).contains(asset.getMediaStatus())) return null;
         return storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key());
     }

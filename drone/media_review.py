@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import RLock
+from threading import Lock, RLock
 from urllib.parse import urlparse
 import hashlib
 import json
@@ -22,10 +22,24 @@ class LocalMediaLibrary:
         self.mission_code = mission_code
         self.device_id = device_id
         self.lock = RLock()
+        self.transfer_locks: dict[str, Lock] = {}
         self.root.mkdir(parents=True, exist_ok=True)
         self.manifest = self.root / "media-index.json"
         self.items = self._load()
+        # No worker survives a controller process restart. Keep the capture for
+        # backend reconciliation instead of displaying a permanently running PUT.
+        for item in self.items.values():
+            if item.get("status") == "UPLOADING":
+                item["status"] = "UPLOAD_FAILED"
         self._prepare_pending_videos()
+
+    def bind(self, mission_id: str | None, device_id: str | None,
+             mission_code: str | None = None) -> None:
+        """Retain the manifest owner and in-flight workers across session refreshes."""
+        with self.lock:
+            self.mission_id = mission_id
+            self.device_id = device_id
+            self.mission_code = mission_code
 
     def _load(self) -> dict[str, dict]:
         if not self.manifest.exists():
@@ -173,6 +187,16 @@ class LocalMediaLibrary:
 
     def discard(self, local_id: str) -> None:
         with self.lock:
+            transfer_lock = self.transfer_locks.setdefault(local_id, Lock())
+        if not transfer_lock.acquire(blocking=False):
+            raise ValueError("Media cannot be discarded during upload")
+        try:
+            self._discard(local_id)
+        finally:
+            transfer_lock.release()
+
+    def _discard(self, local_id: str) -> None:
+        with self.lock:
             item = self.get(local_id)
             if item["status"] not in {"REVIEW_PENDING", "UPLOAD_FAILED", "VALIDATING"}:
                 raise ValueError("Media cannot be discarded during upload")
@@ -184,6 +208,18 @@ class LocalMediaLibrary:
 
     def transfer(self, local_id: str, plan: dict) -> dict:
         """Transfer using backend-signed URLs; the caller completes/acknowledges backend state."""
+        with self.lock:
+            transfer_lock = self.transfer_locks.setdefault(local_id, Lock())
+        # Two browser tabs can send the same plan. Only one worker owns a capture.
+        with transfer_lock:
+            item = self.get(local_id)
+            attempt_id = plan.get("attemptId")
+            if (attempt_id and item.get("transferredAttemptId") == attempt_id
+                    and item.get("backendMediaId") == plan.get("mediaId")):
+                return item["transferResult"]
+            return self._transfer(local_id, plan)
+
+    def _transfer(self, local_id: str, plan: dict) -> dict:
         item = self.get(local_id)
         path = Path(item["localPath"])
         if not path.is_file() or path.stat().st_size != item["fileSize"]:
@@ -208,6 +244,8 @@ class LocalMediaLibrary:
             raise
         with self.lock:
             self.items[local_id]["status"] = "VALIDATING"
+            self.items[local_id]["transferredAttemptId"] = plan.get("attemptId")
+            self.items[local_id]["transferResult"] = result
             self._persist()
         return result
 

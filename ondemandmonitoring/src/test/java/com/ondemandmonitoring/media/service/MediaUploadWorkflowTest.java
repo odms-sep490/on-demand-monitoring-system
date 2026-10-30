@@ -163,6 +163,33 @@ class MediaUploadWorkflowTest {
                 .isEqualTo(MediaStatus.AVAILABLE);
     }
 
+    @Test void deletedOrphanCaptureIsUploadedAgainUsingANewAttemptAndTheSameMediaIdentity() {
+        var request=request("IMAGE","image/jpeg");
+        var existing=new MediaAsset(); existing.setId("media-id");existing.setMissionId("mission-id");existing.setDeviceId("device-id");
+        existing.setType("IMAGE");existing.setContentType("image/jpeg");existing.setFileSize(100L);existing.setChecksumSha256(request.getChecksumSha256());
+        existing.setStorageStatus(com.ondemandmonitoring.media.enums.MediaStorageStatus.DELETED);existing.setMediaStatus(MediaStatus.RETRY_REQUIRED);
+        existing.setDeletedFromStorageAt(Instant.now());existing.setValidatedAt(Instant.now());
+        when(media.findByMissionIdAndDeviceIdAndLocalMediaId("mission-id","device-id","capture-1")).thenReturn(Optional.of(existing));
+        var old=new MediaUploadAttempt();old.setAttemptNumber(1);
+        when(attempts.findFirstByMediaIdOrderByAttemptNumberDesc("media-id")).thenReturn(Optional.of(old));
+        when(storage.createPresignedPutUrl(any(),any(),anyLong(),any())).thenReturn(new IMediaObjectStorage.PresignedUpload("https://s3.example/new",Map.of(),900));
+        var result=service.prepare("mission-id",request);
+        assertThat(result.getMediaId()).isEqualTo("media-id");assertThat(result.getAttemptNumber()).isEqualTo(2);
+        assertThat(existing.getStorageStatus()).isEqualTo(com.ondemandmonitoring.media.enums.MediaStorageStatus.AVAILABLE);
+        assertThat(existing.getDeletedFromStorageAt()).isNull();assertThat(existing.getValidatedAt()).isNull();
+        assertThat(existing.getS3Key()).endsWith("/2.jpg");
+    }
+
+    @Test void aCaptureBeingDeletedCannotIssueAnotherSignedUploadUrl() {
+        var request=request("IMAGE","image/jpeg");
+        var existing=new MediaAsset();existing.setId("media-id");existing.setMissionId("mission-id");
+        existing.setType("IMAGE");existing.setContentType("image/jpeg");existing.setFileSize(100L);existing.setChecksumSha256(request.getChecksumSha256());
+        existing.setStorageStatus(com.ondemandmonitoring.media.enums.MediaStorageStatus.DELETE_PENDING);
+        when(media.findByMissionIdAndDeviceIdAndLocalMediaId("mission-id","device-id","capture-1")).thenReturn(Optional.of(existing));
+        assertThatThrownBy(()->service.prepare("mission-id",request)).isInstanceOf(ApiException.class);
+        verify(storage,never()).createPresignedPutUrl(any(),any(),anyLong(),any());
+    }
+
     private PrepareMediaUploadRequest request(String type, String contentType) {
         return new PrepareMediaUploadRequest("device-id", "capture-1", type, "capture.jpg",
                 contentType, 100L, "a".repeat(64), Instant.now());

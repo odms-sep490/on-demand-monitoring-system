@@ -81,6 +81,8 @@ public class ManagerMediaApprovalServiceImpl implements IManagerMediaApprovalSer
         missionLock.lock(mediaId);
         if (changesEvidenceDecision) missionLock.requireMutable(missionId, mediaId);
         return media.findByIdForUpdate(mediaId)
+                .filter(asset -> asset.getStorageStatus() == com.ondemandmonitoring.media.enums.MediaStorageStatus.AVAILABLE)
+                .filter(asset -> asset.getOrphanCleanupRequestedAt() == null)
                 .filter(asset -> missionId.equals(asset.getMissionId()))
                 .filter(asset -> asset.getMediaStatus() == MediaStatus.PENDING_MANAGER_APPROVAL)
                 .orElseThrow(() -> new ApiException(ErrorCode.MEDIA_NOT_FOUND));

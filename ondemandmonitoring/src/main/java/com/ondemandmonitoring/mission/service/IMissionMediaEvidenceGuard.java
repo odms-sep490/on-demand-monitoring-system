@@ -5,4 +5,5 @@ public interface IMissionMediaEvidenceGuard {
     void lockMission(String missionId);
     void requireMutable(String missionId, String mediaId);
     void requireDeletable(String mediaId);
+    boolean hasEvidenceOrResultReferences(String mediaId);
 }

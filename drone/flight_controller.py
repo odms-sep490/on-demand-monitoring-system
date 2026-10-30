@@ -3247,7 +3247,7 @@ async def main() -> None:
         active_mission_id = mission_id
         active_mission_code = str(assigned_mission.get("missionCode") or "").strip() or None
         active_device_id = assigned_device
-        media_library = LocalMediaLibrary(media_root, mission_id, assigned_device, active_mission_code)
+        media_library.bind(mission_id, assigned_device, active_mission_code)
         camera.media_library = media_library
         control_api.media_library = media_library
         control_api.preflight_persistence = PreflightPersistenceBridge(
@@ -3279,7 +3279,7 @@ async def main() -> None:
         active_mission_code = None
         active_device_id = None
         current_in_air = False
-        media_library = LocalMediaLibrary(media_root, None, None)
+        media_library.bind(None, None)
         camera.media_library = media_library
         control_api.media_library = media_library
         control_api.preflight_persistence = None

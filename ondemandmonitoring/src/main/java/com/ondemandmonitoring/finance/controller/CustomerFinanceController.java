@@ -49,6 +49,11 @@ public class CustomerFinanceController {
         return ApiResponse.ok("Final payment link ready", paymentService.createFinal(invoiceId, request.getRemoteAddr()));
     }
 
+    @PostMapping("/invoices/{invoiceId}/payments/test-final")
+    public ApiResponse<PaymentResponse> testFinal(@PathVariable String invoiceId) {
+        return ApiResponse.ok("Test final payment completed", paymentService.completeTestFinal(invoiceId));
+    }
+
     @GetMapping("/payments/{paymentId}")
     public ApiResponse<PaymentResponse> payment(@PathVariable String paymentId) {
         return ApiResponse.ok(paymentService.get(paymentId));

@@ -128,6 +128,8 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID);
         boolean unfinishedMediaReview = mediaAssetRepository
                 .findByMissionIdOrderByCapturedAtDesc(result.getMission().getId()).stream()
+                .filter(asset -> asset.getOrphanCleanupRequestedAt() == null
+                        && asset.getStorageStatus() == com.ondemandmonitoring.media.enums.MediaStorageStatus.AVAILABLE)
                 .anyMatch(asset -> asset.getMediaStatus() != MediaStatus.AVAILABLE
                         && asset.getMediaStatus() != MediaStatus.REJECTED);
         if (unfinishedMediaReview) {
@@ -177,7 +179,8 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
         var videos = new java.util.HashSet<String>();
         for (var mission : effective) {
             for (MediaAsset asset : mediaAssetRepository.findByMissionIdOrderByCapturedAtDesc(mission.getId())) {
-                if (asset.getMediaStatus() != MediaStatus.AVAILABLE) continue;
+                if (asset.getMediaStatus() != MediaStatus.AVAILABLE || asset.getOrphanCleanupRequestedAt() != null
+                        || asset.getStorageStatus() != com.ondemandmonitoring.media.enums.MediaStorageStatus.AVAILABLE) continue;
                 String key = asset.getChecksumSha256() == null || asset.getChecksumSha256().isBlank()
                         ? "id:" + asset.getId() : asset.getChecksumSha256().toLowerCase();
                 if ("IMAGE".equals(asset.getType())) images.add(key);
@@ -270,7 +273,9 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
     }
 
     private void attachMissionMedia(MissionResult result, String missionId) {
-        List<MediaAsset> missionMedia = mediaAssetRepository.findByMissionIdOrderByCapturedAtDesc(missionId);
+        List<MediaAsset> missionMedia = mediaAssetRepository.findByMissionIdOrderByCapturedAtDesc(missionId).stream()
+                .filter(asset -> asset.getOrphanCleanupRequestedAt() == null
+                        && asset.getStorageStatus() == com.ondemandmonitoring.media.enums.MediaStorageStatus.AVAILABLE).toList();
         result.setMediaFiles(new ArrayList<>(missionMedia));
         result.setMediaCount(missionMedia.size());
     }

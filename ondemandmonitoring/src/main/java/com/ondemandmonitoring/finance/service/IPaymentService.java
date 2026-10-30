@@ -15,6 +15,7 @@ import java.util.Map;
 public interface IPaymentService {
     PaymentResponse createDeposit(String invoiceId, String clientIp);
     PaymentResponse completeTestDeposit(String invoiceId);
+    PaymentResponse completeTestFinal(String invoiceId);
     PaymentResponse createFinal(String invoiceId, String clientIp);
     PaymentResponse get(String paymentId);
     PaymentResponse getByReference(String transactionReference);

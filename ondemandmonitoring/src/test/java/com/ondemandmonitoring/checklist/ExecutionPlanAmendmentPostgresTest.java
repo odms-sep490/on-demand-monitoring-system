@@ -179,7 +179,7 @@ class ExecutionPlanAmendmentPostgresTest extends OrderAggregateCompletionPostgre
                         .missionCode(mission.getMissionCode()).status(mission.getStatus()).build();
             });
             return new MissionService(missions, null, null, mapper, null, null, null, null, null, null,
-                    orders, OrderMissionPostgresTest.paidInvoices(), OrderMissionPostgresTest.paidEligibility(),
+                    orders, null, OrderMissionPostgresTest.paidInvoices(), OrderMissionPostgresTest.paidEligibility(),
                     null, null, null, null, null, null, actor,
                     mock(com.ondemandmonitoring.userschedule.repository.UserScheduleRepository.class), devices, staff,
                     mock(ResourceTimeLockRepository.class), executions, selection, mock(IResourceReservationService.class), null);

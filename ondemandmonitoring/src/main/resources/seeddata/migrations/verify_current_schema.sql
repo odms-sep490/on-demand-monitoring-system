@@ -192,3 +192,7 @@ SELECT tablename,indexname,indexdef FROM pg_indexes WHERE schemaname='public'
         'uk_mission_device_assignment_current_main','ex_resource_reservation_window','uk_evidence_active_pair')
     ORDER BY indexname;
 COMMIT;
+
+-- Read-only orphan cleanup audit.
+SELECT id, media_status, storage_status, orphan_cleanup_requested_at, orphan_cleanup_claimed_at
+FROM drone_media WHERE orphan_cleanup_requested_at IS NOT NULL;

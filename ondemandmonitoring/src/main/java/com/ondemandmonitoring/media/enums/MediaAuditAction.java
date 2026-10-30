@@ -1,13 +1,6 @@
 package com.ondemandmonitoring.media.enums;
 
 public enum MediaAuditAction {
-    PREPARED,
-    UPLOAD_PREPARED,
-    MANUAL_UPLOAD_PREPARED,
-    PC_BACKUP_SELECTED,
-    UPLOAD_FAILED,
-    UPLOAD_ACKNOWLEDGED,
-    MANUAL_UPLOAD_REQUIRED,
     VALIDATION_FAILED,
     AVAILABLE
 }

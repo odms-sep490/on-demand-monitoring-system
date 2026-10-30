@@ -17,7 +17,6 @@ import com.ondemandmonitoring.pricing.repository.PricingPolicyRepository;
 import com.ondemandmonitoring.service.domain.Service;
 import com.ondemandmonitoring.service.repository.ServiceRepository;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.*;
 import org.springframework.transaction.annotation.Transactional;
@@ -244,5 +243,4 @@ public class ChecklistPricingPreviewService {
     private Service service(String id) {
         return services.findById(id).orElseThrow(() -> new ApiException(ErrorCode.SERVICE_NOT_FOUND));
     }
-    private static BigDecimal whole(BigDecimal v) { return v == null ? BigDecimal.ZERO : v.setScale(0, RoundingMode.HALF_UP); }
 }

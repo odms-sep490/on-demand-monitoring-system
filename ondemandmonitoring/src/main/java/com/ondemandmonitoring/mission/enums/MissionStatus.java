@@ -33,12 +33,6 @@ public enum MissionStatus {
      */
     FAILED_PREFLIGHT,
 
-    /**
-     * Order re-queued to Manager after preflight failure.
-     * Mission will be cancelled and Manager re-assigns device + operator.
-     */
-    PENDING_APPROVAL,
-
     /** Device airborne, transmitting realtime GPS + video stream. */
     IN_FLIGHT,
 

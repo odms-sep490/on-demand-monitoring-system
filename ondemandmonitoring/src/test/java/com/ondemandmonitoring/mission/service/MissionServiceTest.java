@@ -144,6 +144,7 @@ class MissionServiceTest {
                 postDeviceCheckRepository,
                 maintenanceTicketRepository,
                 orderRepository,
+                null,
                 invoiceRepository,
                 missionPaymentEligibilityService,
                 deviceConnectionService,

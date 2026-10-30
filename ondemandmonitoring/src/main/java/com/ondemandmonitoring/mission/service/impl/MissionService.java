@@ -1212,25 +1212,6 @@ public class MissionService implements IMissionService {
         throw new ApiException(ErrorCode.INVALID_REQUEST, message);
     }
 
-    private void ensureScheduledStart(Mission mission) {
-        if (mission.getScheduledStartAt() != null || mission.getOrder() == null) {
-            return;
-        }
-
-        LocalDate date = mission.getOrder().getPreferredDateFrom();
-        LocalTime time = mission.getOrder().getPreferredTime() != null
-                ? mission.getOrder().getPreferredTime().getStartTime()
-                : null;
-        if (date == null || time == null) {
-            return;
-        }
-
-        mission.setScheduledStartAt(date.atTime(time)
-                .atZone(ZoneId.of("Asia/Ho_Chi_Minh"))
-                .toInstant());
-    }
-
-
     @Override
     @Transactional
     @PreAuthorize("(@missionAuthorizationService.canOperatePayload(#missionId) or @missionAuthorizationService.canControlFlight(#missionId)) and @missionAuthorizationService.canViewStaffMissions(#staffId)")
@@ -1542,13 +1523,6 @@ public class MissionService implements IMissionService {
         Mission saved = missionRepository.save(mission);
         if (saved.getStatus() == MissionStatus.COMPLETED) missionResultService.ensureCompletedResult(saved);
         return missionMapper.toResponse(saved);
-    }
-
-    private void requireScheduledWindow(Mission mission) {
-        if (mission.getScheduledStartAt() == null || mission.getScheduledEndAt() == null) {
-            throw new ApiException(ErrorCode.INVALID_REQUEST,
-                    "Mission schedule start and end times must be set before assigning resources.");
-        }
     }
 
     private void validateScheduledDates(Instant startAt, Instant endAt, Order order) {

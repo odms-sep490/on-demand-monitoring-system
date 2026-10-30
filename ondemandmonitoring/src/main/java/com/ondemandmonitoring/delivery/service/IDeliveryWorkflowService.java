@@ -17,7 +17,6 @@ public interface IDeliveryWorkflowService {
     void confirmFinalPayment(String orderId);
     void requireFinalPaymentEligible(String orderId);
     void requireOriginalAccess(String orderId);
-    void requireOriginalMissionAccess(String missionId);
     List<String> originalAccessibleMissionIds(List<String> missionIds);
     DeliveryResponse get(String orderId);
     DeliveryResponse previews(String orderId);

@@ -106,8 +106,13 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
                     || !captured.getChecksumSha256().equalsIgnoreCase(request.getChecksumSha256())) {
                 throw new ApiException(ErrorCode.MEDIA_IDEMPOTENCY_CONFLICT);
             }
+            if (captured.getStorageStatus() == com.ondemandmonitoring.media.enums.MediaStorageStatus.DELETED)
+                return newAttempt(captured, false);
+            requireStorageMutable(captured);
+            captured.setOrphanCleanupRequestedAt(null);
             return existingResponse(captured);
         }
+        requireRecentCapture(request, mission);
         if (storage.bucket() == null || storage.bucket().isBlank()) {
             throw new ApiException(ErrorCode.INTERNAL_SERVER_ERROR, "S3 bucket is required");
         }
@@ -331,6 +336,17 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
     }
 
     private MediaUploadResponse newAttempt(MediaAsset captured, boolean manual) {
+        requireStorageMutable(captured);
+        var order = captured.getMission() == null ? null : captured.getMission().getOrder();
+        if (order != null && order.getResultExpiresAt() != null && !order.getResultExpiresAt().isAfter(Instant.now()))
+            throw new ApiException(ErrorCode.MEDIA_UPLOAD_NOT_ALLOWED, "Result retention has expired");
+        captured.setStorageStatus(com.ondemandmonitoring.media.enums.MediaStorageStatus.AVAILABLE);
+        captured.setOrphanCleanupRequestedAt(null);
+        captured.setOrphanCleanupClaimedAt(null);
+        captured.setDeletedFromStorageAt(null);
+        captured.setStorageDeletionError(null);
+        captured.setValidatedAt(null);
+        captured.setValidationError(null);
 
         int number = attempts.findFirstByMediaIdOrderByAttemptNumberDesc(captured.getId())
                 .map(previous -> previous.getAttemptNumber() + 1).orElse(1);
@@ -482,7 +498,6 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
     }
 
     private void validateMetadata(PrepareMediaUploadRequest request, MissionMediaContext mission) {
-        requireRecentCapture(request, mission);
         if (request.getSourceType() != null && !java.util.Set.of(
                 "DRONE_CAMERA", "SATELLITE_SNAPSHOT", "MANUAL_UPLOAD").contains(request.getSourceType())) {
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Unsupported media source type");
@@ -522,6 +537,12 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
         return captured.getMediaStatus() == null
                 ? MediaStatus.AVAILABLE
                 : captured.getMediaStatus();
+    }
+
+    private void requireStorageMutable(MediaAsset asset) {
+        if (asset.getStorageStatus() == com.ondemandmonitoring.media.enums.MediaStorageStatus.DELETE_PENDING
+                || asset.getStorageStatus() == com.ondemandmonitoring.media.enums.MediaStorageStatus.DELETE_FAILED)
+            throw new ApiException(ErrorCode.MEDIA_EVIDENCE_PROTECTED, "Storage cleanup is in progress");
     }
 
     private String actor() {

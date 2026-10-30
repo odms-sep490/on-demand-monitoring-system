@@ -35,5 +35,8 @@ public class ResultRetentionAccessServiceImpl implements IResultRetentionAccessS
             throw new ApiException(ErrorCode.RESULT_RETENTION_EXPIRED,
                     "Kết quả đã được xóa khỏi hệ thống lưu trữ.");
         }
+        if (asset.getStorageStatus() != MediaStorageStatus.AVAILABLE) {
+            throw new ApiException(ErrorCode.MEDIA_NOT_FOUND, "Media storage cleanup is in progress.");
+        }
     }
 }

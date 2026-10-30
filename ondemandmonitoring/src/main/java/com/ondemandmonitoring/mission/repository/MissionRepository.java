@@ -39,11 +39,6 @@ public interface MissionRepository extends JpaRepository<Mission, String>, JpaSp
     @Query("select m.order.id from Mission m where m.id = :missionId")
     Optional<String> findOrderIdByMissionId(@Param("missionId") String missionId);
 
-    boolean existsByReplacesMissionIdAndStatusNot(String replacesMissionId, MissionStatus status);
-
-    @Query("select count(r) > 0 from MissionResult r where r.mission.id = :missionId and r.approvalStatus = 'APPROVED'")
-    boolean hasApprovedResult(@Param("missionId") String missionId);
-
     @Query(value = """
             select exists(select 1 from mission_device_assignments where mission_id=:missionId and released_at is null)
                 or exists(select 1 from mission_staff_assignments where mission_id=:missionId and released_at is null)
@@ -55,8 +50,6 @@ public interface MissionRepository extends JpaRepository<Mission, String>, JpaSp
 
 
     boolean existsByMissionCode(String missionCode);
-
-    boolean existsByOrderId(String orderId);
 
     List<Mission> findByOrder_Customer_Id(String customerId);
 

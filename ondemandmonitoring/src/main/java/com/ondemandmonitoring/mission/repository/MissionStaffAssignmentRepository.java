@@ -11,8 +11,6 @@ import java.util.Optional;
 @Repository
 public interface MissionStaffAssignmentRepository extends JpaRepository<MissionStaffAssignment, String> {
 
-    Optional<MissionStaffAssignment> findByMissionIdAndStaffId(String missionId, String staffId);
-
     boolean existsByMissionIdAndStaffId(String missionId, String staffId);
 
     Optional<MissionStaffAssignment> findByMissionIdAndIsCurrentTrue(String missionId);

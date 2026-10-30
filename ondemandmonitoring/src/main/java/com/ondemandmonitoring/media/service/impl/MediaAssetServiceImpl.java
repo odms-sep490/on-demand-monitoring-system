@@ -55,12 +55,6 @@ public class MediaAssetServiceImpl implements IMediaAssetService {
 
     @Transactional
     @Override
-    public MediaAsset upload(String deviceId, MultipartFile file) {
-        return upload("UNASSIGNED", deviceId, Instant.now(), file, MEDIA_TYPE_IMAGE);
-    }
-
-    @Transactional
-    @Override
     public MediaAsset upload(String missionId, String deviceId,
             Instant capturedAt, MultipartFile file) {
         return upload(missionId, deviceId, capturedAt, file, MEDIA_TYPE_IMAGE);
@@ -146,29 +140,6 @@ public class MediaAssetServiceImpl implements IMediaAssetService {
             cleanupUploadedObject(storedObject.bucket(), storedObject.key());
             throw exception;
         }
-    }
-
-    @Transactional
-    @Override
-    public MediaAsset uploadReference(String missionId, String deviceId, Instant capturedAt,
-            MultipartFile file, ReferenceProvenance provenance) {
-        MediaAsset stored = upload(missionId, deviceId, capturedAt, file, MEDIA_TYPE_IMAGE);
-        stored.setSourceType(provenance.sourceType());
-        stored.setSourceReferenceId(provenance.sourceReferenceId());
-        stored.setSourceCapturedAt(provenance.sourceCapturedAt());
-        stored.setSourceLatitude(provenance.sourceLatitude());
-        stored.setSourceLongitude(provenance.sourceLongitude());
-        stored.setCaptureLatitude(provenance.captureLatitude());
-        stored.setCaptureLongitude(provenance.captureLongitude());
-        stored.setCaptureAltitudeM(provenance.captureAltitudeM());
-        stored.setSourceDistanceMeters(provenance.sourceDistanceMeters());
-        return mediaAssetRepository.save(stored);
-    }
-
-    @Transactional(readOnly = true)
-    @Override
-    public java.util.Optional<MediaAsset> findRecentBySource(String missionId, String sourceType, Instant since) {
-        return mediaAssetRepository.findRecentBySourceType(missionId, sourceType, since).stream().findFirst();
     }
 
     @Transactional(readOnly = true)

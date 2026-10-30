@@ -304,4 +304,6 @@ DO $$ DECLARE entry record; actual text; expected text; BEGIN
         END IF;
     END LOOP;
 END $$;
+CREATE INDEX IF NOT EXISTS ix_media_orphan_cleanup ON public.drone_media(orphan_cleanup_requested_at, id)
+    WHERE orphan_cleanup_requested_at IS NOT NULL AND storage_status <> 'DELETED';
 COMMIT;

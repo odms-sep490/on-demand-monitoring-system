@@ -15,6 +15,17 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class CustomerQuoteProjectionTest {
+    @Test void managerAndCustomerReceiveTheSameFrozenGuidanceSnapshot() {
+        Order order = new Order(); order.setId("order-1");
+        Quote quote = new Quote(); quote.setOrder(order); quote.setTotalAmount(BigDecimal.TEN);
+        var snapshot = new com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot(1,
+                List.of(new com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot.Item("item-1", 2, 3,
+                        "Approved scope", List.of("Inspect"), List.of("Access"), List.of("Photos"))));
+        quote.setChecklistGuidanceSnapshot(snapshot);
+        assertThat(FinanceMapper.quote(quote).checklistGuidanceSnapshot()).isEqualTo(snapshot);
+        assertThat(FinanceMapper.customerQuote(quote).checklistGuidanceSnapshot()).isEqualTo(snapshot);
+    }
+
     @Test void customerQuoteCollapsesInternalCalculationAndAdjustmentIntoFinalAdditionalPrice() throws Exception {
         Order order = new Order(); order.setId("order-1");
         OrderChecklistItem custom = new OrderChecklistItem();

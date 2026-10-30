@@ -63,6 +63,47 @@ public class OrderChecklistItem extends BaseEntity {
         @jakarta.persistence.Convert(converter = com.ondemandmonitoring.checklist.domain.StringListJsonConverter.class)
         @Column(name = "expected_outputs_snapshot", columnDefinition = "text", updatable = false)
         private java.util.List<String> expectedOutputsSnapshot;
+
+        @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+        @Column(name = "custom_guidance", columnDefinition = "jsonb")
+        private ChecklistGuidanceContent customGuidance;
+        @Column(name = "guidance_version", nullable = false, columnDefinition = "bigint default 0")
+        private long guidanceVersion = 0;
+        @Column(name = "guidance_confirmed_version")
+        private Long guidanceConfirmedVersion;
+        @ManyToOne(fetch = FetchType.LAZY)
+        @JoinColumn(name = "guidance_updated_by", foreignKey = @ForeignKey(name = "fk_order_checklist_guidance_updated_by"))
+        private com.ondemandmonitoring.user.domain.User guidanceUpdatedBy;
+        @Column(name = "guidance_updated_at")
+        private java.time.Instant guidanceUpdatedAt;
+
+        /** Current order guidance only; accepted quote consumers must resolve the quote snapshot. */
+        public String getEffectiveDescription() {
+                return sourceType == OrderChecklistSourceType.CUSTOMER_CUSTOM
+                        ? (customGuidance == null ? null : customGuidance.description()) : descriptionSnapshot;
+        }
+
+        public java.util.List<String> getEffectiveExecutionSteps() {
+                return sourceType == OrderChecklistSourceType.CUSTOMER_CUSTOM
+                        ? (customGuidance == null ? null : customGuidance.executionSteps()) : executionStepsSnapshot;
+        }
+
+        public java.util.List<String> getEffectiveInputRequirements() {
+                return sourceType == OrderChecklistSourceType.CUSTOMER_CUSTOM
+                        ? (customGuidance == null ? null : customGuidance.inputRequirements()) : inputRequirementsSnapshot;
+        }
+
+        public java.util.List<String> getEffectiveExpectedOutputs() {
+                return sourceType == OrderChecklistSourceType.CUSTOMER_CUSTOM
+                        ? (customGuidance == null ? null : customGuidance.expectedOutputs()) : expectedOutputsSnapshot;
+        }
+
+        /** Custom guidance is ready only when complete and explicitly confirmed at its current version. */
+        public boolean isGuidanceReady() {
+                return sourceType != OrderChecklistSourceType.CUSTOMER_CUSTOM
+                        || (guidanceConfirmedVersion != null && guidanceConfirmedVersion == guidanceVersion
+                                && ChecklistGuidanceContent.isComplete(customGuidance));
+        }
         @Column(name = "display_order", nullable = false, updatable = false)
         private int displayOrder;
         @Enumerated(EnumType.STRING)

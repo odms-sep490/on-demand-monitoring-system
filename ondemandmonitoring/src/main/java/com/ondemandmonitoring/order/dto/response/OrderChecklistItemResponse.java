@@ -19,6 +19,14 @@ public class OrderChecklistItemResponse {
     private java.util.List<String> executionSteps;
     private java.util.List<String> inputRequirements;
     private java.util.List<String> expectedOutputs;
+    private long guidanceVersion;
+    private Long guidanceConfirmedVersion;
+    private String guidanceUpdatedById;
+    private java.time.Instant guidanceUpdatedAt;
+    private boolean guidanceReady;
+    /** Populated by the authorized pricing service, never inferred by the mapper. */
+    private boolean canEditGuidance;
+    private String guidanceBlockedReason;
     private int displayOrder;
     private OrderChecklistSourceType sourceType;
     private ChecklistReviewStatus reviewStatus;

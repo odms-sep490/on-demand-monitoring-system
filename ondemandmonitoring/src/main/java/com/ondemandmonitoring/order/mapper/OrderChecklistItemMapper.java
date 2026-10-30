@@ -7,22 +7,29 @@ import com.ondemandmonitoring.order.enums.ChecklistPricingStatus;
 import com.ondemandmonitoring.order.enums.OrderChecklistSourceType;
 import org.mapstruct.*;
 
-@Mapper(componentModel = "spring", builder = @Builder(disableBuilder = true))
+@Mapper(componentModel = "spring", builder = @Builder(disableBuilder = true), imports = OrderChecklistSourceType.class)
 public interface OrderChecklistItemMapper {
     @Mapping(source = "sourceChecklist.id", target = "sourceChecklistId")
     @Mapping(source = "sourceChecklist.version", target = "sourceChecklistVersion")
-    @Mapping(target = "description", source = "descriptionSnapshot")
-    @Mapping(target = "executionSteps", source = "executionStepsSnapshot")
-    @Mapping(target = "inputRequirements", source = "inputRequirementsSnapshot")
-    @Mapping(target = "expectedOutputs", source = "expectedOutputsSnapshot")
+    @Mapping(target = "description", source = "effectiveDescription")
+    @Mapping(target = "executionSteps", source = "effectiveExecutionSteps")
+    @Mapping(target = "inputRequirements", source = "effectiveInputRequirements")
+    @Mapping(target = "expectedOutputs", source = "effectiveExpectedOutputs")
+    @Mapping(target = "guidanceUpdatedById", source = "guidanceUpdatedBy.id")
+    @Mapping(target = "canEditGuidance", ignore = true)
+    @Mapping(target = "guidanceBlockedReason", ignore = true)
     OrderChecklistItemResponse toResponse(OrderChecklistItem item);
 
     @Mapping(source = "sourceChecklist.id", target = "sourceChecklistId")
     @Mapping(source = "sourceChecklist.version", target = "sourceChecklistVersion")
-    @Mapping(target = "description", source = "descriptionSnapshot")
-    @Mapping(target = "executionSteps", source = "executionStepsSnapshot")
-    @Mapping(target = "inputRequirements", source = "inputRequirementsSnapshot")
-    @Mapping(target = "expectedOutputs", source = "expectedOutputsSnapshot")
+    // Custom text is enriched from the published/accepted quote snapshot by the service.
+    @Mapping(target = "description", expression = "java(item.getSourceType() == OrderChecklistSourceType.CUSTOMER_CUSTOM ? null : item.getDescriptionSnapshot())")
+    @Mapping(target = "executionSteps", expression = "java(item.getSourceType() == OrderChecklistSourceType.CUSTOMER_CUSTOM ? null : item.getExecutionStepsSnapshot())")
+    @Mapping(target = "inputRequirements", expression = "java(item.getSourceType() == OrderChecklistSourceType.CUSTOMER_CUSTOM ? null : item.getInputRequirementsSnapshot())")
+    @Mapping(target = "expectedOutputs", expression = "java(item.getSourceType() == OrderChecklistSourceType.CUSTOMER_CUSTOM ? null : item.getExpectedOutputsSnapshot())")
+    @Mapping(target = "guidanceUpdatedById", source = "guidanceUpdatedBy.id")
+    @Mapping(target = "canEditGuidance", ignore = true)
+    @Mapping(target = "guidanceBlockedReason", ignore = true)
     @Mapping(target = "pricingStatus", expression = "java(customerPricingStatus(item))")
     @Mapping(target = "priceAvailable", expression = "java(customerPriceAvailable(item))")
     @Mapping(target = "approvedPrice", expression = "java(customerApprovedPrice(item))")

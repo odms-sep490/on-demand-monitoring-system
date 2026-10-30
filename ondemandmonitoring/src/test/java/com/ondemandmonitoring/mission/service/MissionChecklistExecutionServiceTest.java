@@ -12,6 +12,7 @@ import com.ondemandmonitoring.order.domain.*;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.repository.OrderChecklistItemRepository;
 import com.ondemandmonitoring.order.enums.RequiredEvidenceType;
+import com.ondemandmonitoring.order.enums.ExecutionPlanStatus;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import java.util.*;
 import org.junit.jupiter.api.*;
@@ -27,13 +28,17 @@ class MissionChecklistExecutionServiceTest {
     IMissionAuthorizationService auth = mock(IMissionAuthorizationService.class);
     AuthenticatedUserResolver resolver = mock(AuthenticatedUserResolver.class);
     IChecklistEvidenceService evidence = mock(IChecklistEvidenceService.class);
+    com.ondemandmonitoring.finance.service.IAcceptedChecklistGuidanceService acceptedGuidance = mock(com.ondemandmonitoring.finance.service.IAcceptedChecklistGuidanceService.class);
     MissionChecklistExecutionServiceImpl service = new MissionChecklistExecutionServiceImpl(missions,
             new com.ondemandmonitoring.mission.service.impl.MissionChecklistScopeServiceImpl(assignments, executions),
-            executions, results, auth, resolver, org.mapstruct.factory.Mappers.getMapper(MissionChecklistExecutionMapper.class), evidence);
+            executions, results, auth, resolver, org.mapstruct.factory.Mappers.getMapper(MissionChecklistExecutionMapper.class), evidence, acceptedGuidance);
     Mission mission; Order order; OrderChecklistItem item; MissionChecklistExecution execution;
 
     @BeforeEach void prepare() {
         order = new Order(); order.setId("o");
+        // Operational execution requires a finalized plan as well as valid assignment/execution rows.
+        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED);
+        order.setExecutionPlanRevision(1);
         mission = new Mission(); mission.setId("m"); mission.setOrder(order); mission.setStatus(MissionStatus.IN_FLIGHT);
         item = new OrderChecklistItem(); item.setId("i"); item.setOrder(order); item.setContent("Historical");
         item.setEvidencePolicyVersion(0); item.setMinimumEvidenceCount(0); item.setRequiredEvidenceType(RequiredEvidenceType.IMAGE_OR_VIDEO);
@@ -76,6 +81,68 @@ class MissionChecklistExecutionServiceTest {
     ChecklistExecutionUpdateRequest request(ChecklistExecutionStatus status) {
         var request = new ChecklistExecutionUpdateRequest(); request.setExpectedVersion(execution.getVersion());
         request.setExecutionStatus(status); request.setAssessmentStatus(ChecklistAssessmentStatus.NOT_ASSESSED); return request;
+    }
+    @Test void draftOrUnversionedPlanStillBlocksExecutionWithOtherwiseValidRows() {
+        order.setExecutionPlanStatus(ExecutionPlanStatus.DRAFT);
+        assertFalse(service.isReadyForSubmission(mission));
+        error(ErrorCode.CHECKLIST_ASSIGNMENT_NOT_FINALIZED,
+                () -> service.update("m", "e", request(ChecklistExecutionStatus.IN_PROGRESS)));
+        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED);
+        order.setExecutionPlanRevision(0);
+        assertFalse(service.isReadyForSubmission(mission));
+        error(ErrorCode.CHECKLIST_ASSIGNMENT_NOT_FINALIZED,
+                () -> service.update("m", "e", request(ChecklistExecutionStatus.IN_PROGRESS)));
+        assertEquals(ChecklistExecutionStatus.PENDING, execution.getExecutionStatus());
+        assertEquals(0L, execution.getVersion());
+        verifyNoInteractions(resolver);
+    }
+    @Test void readsAcceptedGuidanceOnceForTheWholeExecutionBatch() {
+        item.setSourceType(com.ondemandmonitoring.order.enums.OrderChecklistSourceType.CUSTOMER_CUSTOM);
+        item.setCustomGuidance(new ChecklistGuidanceContent("Mutable draft", List.of("Draft"), List.of(), List.of()));
+        var second = new MissionChecklistExecution(); second.setOrderChecklistItem(item);
+        second.setMissionChecklistAssignment(execution.getMissionChecklistAssignment());
+        when(executions.findOrderedByMissionId("m")).thenReturn(List.of(execution, second));
+        when(evidence.enrich(any(), eq(second), any())).thenAnswer(call -> call.getArgument(0));
+        when(acceptedGuidance.findForOrder("o")).thenReturn(acceptedSnapshot());
+
+        var response = service.getByMissionId("m");
+
+        assertEquals(2, response.executions().size());
+        response.executions().forEach(row -> assertEquals("Accepted", row.getDescription()));
+        verify(acceptedGuidance, times(1)).findForOrder("o");
+    }
+
+    @Test void updateResponseUsesAcceptedGuidanceAndLoadsSnapshotOnlyOnce() {
+        item.setSourceType(com.ondemandmonitoring.order.enums.OrderChecklistSourceType.CUSTOMER_CUSTOM);
+        when(acceptedGuidance.findForOrder("o")).thenReturn(acceptedSnapshot());
+        var response = service.update("m", "e", request(ChecklistExecutionStatus.IN_PROGRESS));
+        assertEquals("Accepted", response.getDescription());
+        assertEquals(List.of("Accepted step"), response.getExecutionSteps());
+        verify(acceptedGuidance, times(1)).findForOrder("o");
+    }
+
+    @Test void legacyCustomReadAndUpdateRemainAvailableWithoutDraftFallback() {
+        item.setSourceType(com.ondemandmonitoring.order.enums.OrderChecklistSourceType.CUSTOMER_CUSTOM);
+        item.setCustomGuidance(new ChecklistGuidanceContent("Mutable draft", List.of("Draft"), List.of(), List.of()));
+        assertNull(service.getByMissionId("m").executions().getFirst().getDescription());
+        assertNull(service.update("m", "e", request(ChecklistExecutionStatus.IN_PROGRESS)).getExecutionSteps());
+    }
+
+    @Test void missingCustomEntryInNewSnapshotBlocksReadAndUpdateBeforeMutation() {
+        item.setSourceType(com.ondemandmonitoring.order.enums.OrderChecklistSourceType.CUSTOMER_CUSTOM);
+        when(acceptedGuidance.findForOrder("o")).thenReturn(new com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot(1, List.of()));
+        error(ErrorCode.CHECKLIST_EXECUTION_INTEGRITY_INVALID, () -> service.getByMissionId("m"));
+        error(ErrorCode.CHECKLIST_EXECUTION_INTEGRITY_INVALID,
+                () -> service.update("m", "e", request(ChecklistExecutionStatus.IN_PROGRESS)));
+        assertEquals(ChecklistExecutionStatus.PENDING, execution.getExecutionStatus());
+        assertEquals(0L, execution.getVersion());
+        verifyNoInteractions(resolver);
+    }
+
+    private com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot acceptedSnapshot() {
+        return new com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot(1, List.of(
+                new com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot.Item("i", 1, 2,
+                        "Accepted", List.of("Accepted step"), List.of("Accepted input"), List.of("Accepted output"))));
     }
     @Test void pilotMayChangeExecutionStatusButCannotChangeAssessment() {
         when(auth.canSubmitMissionResult("m")).thenReturn(false);

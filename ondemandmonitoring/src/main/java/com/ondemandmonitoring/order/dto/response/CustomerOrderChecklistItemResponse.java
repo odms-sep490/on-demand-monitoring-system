@@ -37,4 +37,7 @@ public class CustomerOrderChecklistItemResponse {
     private ChecklistPricingStatus pricingStatus;
     private boolean priceAvailable;
     private BigDecimal approvedPrice;
+    private boolean required;
+    private long checklistRevision;
+    private Long sourceChecklistVersion;
 }

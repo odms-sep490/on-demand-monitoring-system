@@ -10,6 +10,7 @@ import org.mapstruct.*;
 @Mapper(componentModel = "spring", builder = @Builder(disableBuilder = true))
 public interface OrderChecklistItemMapper {
     @Mapping(source = "sourceChecklist.id", target = "sourceChecklistId")
+    @Mapping(source = "sourceChecklist.version", target = "sourceChecklistVersion")
     @Mapping(target = "description", source = "descriptionSnapshot")
     @Mapping(target = "executionSteps", source = "executionStepsSnapshot")
     @Mapping(target = "inputRequirements", source = "inputRequirementsSnapshot")
@@ -17,6 +18,7 @@ public interface OrderChecklistItemMapper {
     OrderChecklistItemResponse toResponse(OrderChecklistItem item);
 
     @Mapping(source = "sourceChecklist.id", target = "sourceChecklistId")
+    @Mapping(source = "sourceChecklist.version", target = "sourceChecklistVersion")
     @Mapping(target = "description", source = "descriptionSnapshot")
     @Mapping(target = "executionSteps", source = "executionStepsSnapshot")
     @Mapping(target = "inputRequirements", source = "inputRequirementsSnapshot")

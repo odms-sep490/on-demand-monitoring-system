@@ -9,4 +9,13 @@ import java.util.List;
 public record CustomerQuoteResponse(String id, String orderId, int version, QuoteStatus status,
         BigDecimal estimatedBaseAmount, BigDecimal approvedAdditionalServiceAmount,
         BigDecimal finalOrderAmount, boolean pricingFinalized,
-        Instant approvedAt, Instant acceptedAt, List<QuoteItemResponse> items) {}
+        Instant approvedAt, Instant acceptedAt, List<QuoteItemResponse> items,
+        long checklistRevision) {
+    public CustomerQuoteResponse(String id, String orderId, int version, QuoteStatus status,
+            BigDecimal estimatedBaseAmount, BigDecimal approvedAdditionalServiceAmount,
+            BigDecimal finalOrderAmount, boolean pricingFinalized,
+            Instant approvedAt, Instant acceptedAt, List<QuoteItemResponse> items) {
+        this(id, orderId, version, status, estimatedBaseAmount, approvedAdditionalServiceAmount,
+                finalOrderAmount, pricingFinalized, approvedAt, acceptedAt, items, 1L);
+    }
+}

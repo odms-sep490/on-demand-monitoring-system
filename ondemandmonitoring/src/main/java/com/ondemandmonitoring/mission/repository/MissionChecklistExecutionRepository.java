@@ -44,4 +44,6 @@ public interface MissionChecklistExecutionRepository extends JpaRepository<Missi
 
     @Query("select e from MissionChecklistExecution e join fetch e.orderChecklistItem join fetch e.missionChecklistAssignment a where e.missionId = :missionId order by a.displayOrder, a.id")
     List<MissionChecklistExecution> findOrderedByMissionId(@Param("missionId") String missionId);
+
+    boolean existsByOrderId(String orderId);
 }

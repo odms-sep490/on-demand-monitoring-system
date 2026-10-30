@@ -8,28 +8,36 @@ import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.domain.OrderChecklistItem;
+import com.ondemandmonitoring.order.domain.OrderChecklistRevision;
 import com.ondemandmonitoring.order.dto.request.OrderChecklistItemRequest;
 import com.ondemandmonitoring.order.dto.response.CustomerOrderChecklistItemResponse;
+import com.ondemandmonitoring.order.dto.response.OrderCreateResponse;
 import com.ondemandmonitoring.order.enums.ChecklistPricingStatus;
-import com.ondemandmonitoring.order.enums.OrderChecklistSourceType;
 import com.ondemandmonitoring.order.enums.ChecklistReviewStatus;
+import com.ondemandmonitoring.order.enums.ExecutionPlanStatus;
+import com.ondemandmonitoring.order.enums.OrderChecklistSourceType;
 import com.ondemandmonitoring.order.enums.OrderStatus;
 import com.ondemandmonitoring.order.enums.RequiredEvidenceType;
 import com.ondemandmonitoring.order.mapper.OrderChecklistItemMapper;
 import com.ondemandmonitoring.order.repository.OrderChecklistItemRepository;
+import com.ondemandmonitoring.order.repository.OrderChecklistRevisionRepository;
 import com.ondemandmonitoring.order.service.IOrderChecklistSnapshotService;
-import com.ondemandmonitoring.service.repository.ServiceRepository;
 import com.ondemandmonitoring.pricing.domain.PricingPolicy;
 import com.ondemandmonitoring.pricing.enums.ChecklistDifficulty;
 import com.ondemandmonitoring.pricing.enums.MediaPricingComponent;
 import com.ondemandmonitoring.pricing.repository.PricingPolicyRepository;
 import com.ondemandmonitoring.pricing.service.ChecklistPriceCalculator;
-import com.ondemandmonitoring.pricing.service.ServicePriceResolver;
 import com.ondemandmonitoring.pricing.service.PricingEngine;
-import java.math.BigDecimal;
+import com.ondemandmonitoring.pricing.service.ServicePriceResolver;
+import com.ondemandmonitoring.service.repository.ServiceRepository;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -40,6 +48,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,10 +66,22 @@ public class OrderChecklistSnapshotService implements IOrderChecklistSnapshotSer
     private final ChecklistPriceCalculator priceCalculator;
     private final ServicePriceResolver servicePrices;
     private PricingEngine pricingEngine;
+    private OrderChecklistRevisionRepository revisionRepository;
+    private OrderChecklistEditPolicy editPolicy;
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired(required = false)
     public void setPricingEngine(PricingEngine pricingEngine) {
         this.pricingEngine = pricingEngine;
+    }
+
+    @Autowired(required = false)
+    public void setRevisionRepository(OrderChecklistRevisionRepository revisionRepository) {
+        this.revisionRepository = revisionRepository;
+    }
+
+    @Autowired(required = false)
+    public void setEditPolicy(OrderChecklistEditPolicy editPolicy) {
+        this.editPolicy = editPolicy;
     }
 
     @Override
@@ -91,7 +112,13 @@ public class OrderChecklistSnapshotService implements IOrderChecklistSnapshotSer
         }
         if (!defaults && items.size() > 100) throw invalid("At most 100 checklist items are allowed");
         Map<String, ServiceChecklistRepository.TemplateOverride> overrides = new HashMap<>();
-        for (var override : assignments.findTemplateOverrides(service.getId())) overrides.put(override.getChecklistId(), override);
+        Set<String> requiredChecklistIds = new HashSet<>();
+        for (var override : assignments.findTemplateOverrides(service.getId())) {
+            overrides.put(override.getChecklistId(), override);
+            if (override.isRequired() && Boolean.TRUE.equals(override.getChecklistActive())) {
+                requiredChecklistIds.add(override.getChecklistId());
+            }
+        }
         Set<String> ids = new TreeSet<>();
         for (var item : items) {
             if (item == null) throw invalid("Checklist item cannot be null");
@@ -105,8 +132,8 @@ public class OrderChecklistSnapshotService implements IOrderChecklistSnapshotSer
             } else if (item.getExpectedChecklistVersion() != null) throw invalid("Custom item cannot declare a catalog version");
         }
         if (!defaults) {
-            for (var override : overrides.values()) {
-                if (override.isRequired() && Boolean.TRUE.equals(override.getChecklistActive()) && !ids.contains(override.getChecklistId()))
+            for (String reqId : requiredChecklistIds) {
+                if (!ids.contains(reqId))
                     throw new ApiException(ErrorCode.ORDER_CHECKLIST_REQUIRED_MISSING);
             }
         }
@@ -136,6 +163,10 @@ public class OrderChecklistSnapshotService implements IOrderChecklistSnapshotSer
             boolean explicitMedia = item.getRequestedImageCount() != null || item.getRequestedVideoCount() != null;
             if (explicitEvidence && explicitMedia)
                 throw invalid("Use requested media counts or an explicit evidence requirement, not both");
+            if ((item.getRequestedImageCount() != null && (item.getRequestedImageCount() < 0 || item.getRequestedImageCount() > 500))
+                    || (item.getRequestedVideoCount() != null && (item.getRequestedVideoCount() < 0 || item.getRequestedVideoCount() > 500))) {
+                throw invalid("Requested media counts must be between 0 and 500");
+            }
             // Effective configuration = association override, else the checklist definition (custom: policy allowance).
             BigDecimal basePrice = custom ? BigDecimal.ZERO : (override != null && override.getBasePriceOverride() != null
                     ? override.getBasePriceOverride() : source.getBasePrice());
@@ -153,6 +184,7 @@ public class OrderChecklistSnapshotService implements IOrderChecklistSnapshotSer
             if (explicitMedia && requestedImages + requestedVideos < 1)
                 throw invalid("A checklist needs at least one image or video");
             var entity = new OrderChecklistItem();
+            entity.setChecklistRevision(1);
             entity.setPricingSnapshotVersion(1);
             // Customer-added work is priced by policy first, then explicitly reviewed by a Manager.
             entity.setManagerQuoteRequired(!packageChecklist);
@@ -231,7 +263,23 @@ public class OrderChecklistSnapshotService implements IOrderChecklistSnapshotSer
         List<OrderChecklistItem> saved = snapshots.saveAllAndFlush(entities);
         applySystemPrices(order, saved);
         order.setChecklistSnapshotAt(Instant.now());
-        return saved.stream().map(mapper::toCustomerResponse).toList();
+        order.setChecklistRevision(1);
+        if (revisionRepository != null) {
+            OrderChecklistRevision rev = new OrderChecklistRevision();
+            rev.setOrder(order);
+            rev.setRevision(1);
+            rev.setActor(order.getCustomer());
+            rev.setChangeSummary("Initial checklist snapshot (" + saved.size() + " items)");
+            rev.setPayloadFingerprint(fingerprint(saved));
+            revisionRepository.save(rev);
+        }
+        return saved.stream().map(row -> {
+            CustomerOrderChecklistItemResponse dto = mapper.toCustomerResponse(row);
+            if (dto.getSourceChecklistId() != null && requiredChecklistIds.contains(dto.getSourceChecklistId())) {
+                dto.setRequired(true);
+            }
+            return dto;
+        }).toList();
     }
 
     @Override
@@ -240,8 +288,12 @@ public class OrderChecklistSnapshotService implements IOrderChecklistSnapshotSer
         applySystemPrices(order, snapshots.findAllByOrderIdOrderByDisplayOrderAscIdAsc(order.getId()));
     }
 
-    private void applySystemPrices(Order order, List<OrderChecklistItem> items) {
-        if (pricingEngine == null || items.isEmpty()) return;
+    public void applySystemPrices(Order order, List<OrderChecklistItem> items) {
+        if (pricingEngine == null) return;
+        if (items.isEmpty()) {
+            order.setSystemCalculatedAmount(BigDecimal.ZERO);
+            return;
+        }
         var calculated = pricingEngine.calculate(order, items);
         order.setSystemCalculatedAmount(calculated.systemCalculatedAmount());
         Map<String, BigDecimal> calculatedByItem = new HashMap<>();
@@ -252,12 +304,61 @@ public class OrderChecklistSnapshotService implements IOrderChecklistSnapshotSer
     }
 
     @Override
+    public void enrichOrderResponse(Order order, OrderCreateResponse response, boolean includeItemRequiredMetadata) {
+        if (order == null || response == null) return;
+        response.setChecklistRevision(order.getChecklistRevision());
+        OrderChecklistEditPolicy policy = editPolicy != null
+                ? editPolicy
+                : new OrderChecklistEditPolicy(null, null, null, null, null);
+        OrderChecklistEditPolicy.EditCapability capability = policy.evaluate(order);
+        response.setCanEditChecklist(capability.canEdit());
+        response.setChecklistEditBlockedReason(capability.blockedReason());
+
+        if (includeItemRequiredMetadata
+                && order.getExecutionPlanStatus() != ExecutionPlanStatus.FINALIZED
+                && order.getExecutionPlanRevision() == 0
+                && response.getChecklistItems() != null
+                && !response.getChecklistItems().isEmpty()
+                && order.getService() != null
+                && order.getService().getId() != null) {
+            Set<String> requiredIds = assignments.findTemplateOverrides(order.getService().getId()).stream()
+                    .filter(o -> o.isRequired() && Boolean.TRUE.equals(o.getChecklistActive()))
+                    .map(ServiceChecklistRepository.TemplateOverride::getChecklistId)
+                    .collect(Collectors.toSet());
+            for (CustomerOrderChecklistItemResponse item : response.getChecklistItems()) {
+                item.setRequired(item.getSourceChecklistId() != null && requiredIds.contains(item.getSourceChecklistId()));
+            }
+        }
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public Map<String, List<CustomerOrderChecklistItemResponse>> getByOrders(List<String> orderIds) {
         if (orderIds.isEmpty()) return Map.of();
         return snapshots.findAllByOrderIdInOrderByDisplayOrderAscIdAsc(orderIds).stream()
                 .collect(Collectors.groupingBy(item -> item.getOrder().getId(),
                         Collectors.mapping(mapper::toCustomerResponse, Collectors.toList())));
+    }
+
+    public static String fingerprint(List<OrderChecklistItem> items) {
+        StringBuilder sb = new StringBuilder();
+        for (OrderChecklistItem item : items) {
+            sb.append(item.getSourceChecklist() == null ? "CUSTOM" : item.getSourceChecklist().getId())
+              .append('|').append(item.getSourceType())
+              .append('|').append(item.getContent())
+              .append('|').append(item.getEvidencePolicyVersion())
+              .append('|').append(item.getRequestedImageCount())
+              .append('|').append(item.getRequestedVideoCount())
+              .append('|').append(item.getMinimumEvidenceCount())
+              .append('|').append(item.getRequiredEvidenceType())
+              .append('\n');
+        }
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(md.digest(sb.toString().getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 not available", e);
+        }
     }
 
     private ApiException invalid(String message) {

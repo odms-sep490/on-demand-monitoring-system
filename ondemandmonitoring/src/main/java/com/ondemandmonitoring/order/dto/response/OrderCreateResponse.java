@@ -115,6 +115,9 @@ public class OrderCreateResponse {
 
     List<CustomerOrderChecklistItemResponse> checklistItems;
     Instant checklistSnapshotAt;
+    long checklistRevision;
+    boolean canEditChecklist;
+    String checklistEditBlockedReason;
 
     Instant createdAt;
     Instant updatedAt;

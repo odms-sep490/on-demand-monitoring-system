@@ -89,6 +89,8 @@ public enum ErrorCode {
      */
     SERVICE_NOT_FOUND("Service not found", HttpStatus.NOT_FOUND),
     ORDER_CHECKLIST_LOCKED("Order checklist snapshot is immutable", HttpStatus.CONFLICT),
+    ORDER_CHECKLIST_EDIT_LOCKED("Order checklist can no longer be edited", HttpStatus.CONFLICT),
+    ORDER_CHECKLIST_REVISION_CONFLICT("Order checklist was modified by another request. Reload and retry.", HttpStatus.CONFLICT),
     ORDER_CHECKLIST_REQUIRED_MISSING("A required service checklist cannot be removed from the order", HttpStatus.CONFLICT),
     ORDER_CHECKLIST_TEMPLATE_CHANGED("Service checklist changed; refresh requirements and retry", HttpStatus.CONFLICT),
     ORDER_CHECKLIST_REVIEW_INVALID("Order checklist review is incomplete or invalid", HttpStatus.CONFLICT),

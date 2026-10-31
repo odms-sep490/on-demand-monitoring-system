@@ -245,7 +245,7 @@ class OrderMissionPostgresTest extends ChecklistPostgresTest {
             when(eligibility.isDepositSatisfied(invoice)).thenReturn(true);
             return new MissionService(missions, null, null, mapper, null,
                     null, null, null, null, null,
-                    orders, invoiceRepository, eligibility, null, null, null, null, null, null, null, null, null, null, null, executions,
+                    orders, null, invoiceRepository, eligibility, null, null, null, null, null, null, null, null, null, null, null, executions,
                     org.mockito.Mockito.mock(com.ondemandmonitoring.mission.service.IMissionChecklistAssignmentService.class),
                     org.mockito.Mockito.mock(com.ondemandmonitoring.mission.service.IResourceReservationService.class), null);
         }

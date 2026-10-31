@@ -201,10 +201,12 @@ class OperatorAcceptAutoPlanningE2ETest {
             staffAssigned = missionService.assignStaff(staffAssigned.getId(), staffRequest);
         }
 
-        assertThat(staffAssigned.getStatus()).isEqualTo(MissionStatus.READY);
+        assertThat(staffAssigned.getStatus()).isEqualTo(MissionStatus.PLANNING);
+        MissionResponse confirmed = missionService.confirmMissionPlanning(created.getId());
+        assertThat(confirmed.getStatus()).isEqualTo(MissionStatus.READY);
 
         authenticate(staff);
-        MissionResponse accepted = missionService.acceptMission(staffAssigned.getId(), staffId);
+        MissionResponse accepted = missionService.acceptMission(confirmed.getId(), staffId);
         entityManager.flush();
         entityManager.clear();
 

@@ -5,7 +5,6 @@ import com.ondemandmonitoring.mission.domain.*;
 import com.ondemandmonitoring.mission.enums.LockStatus;
 import com.ondemandmonitoring.mission.repository.ResourceTimeLockRepository;
 import com.ondemandmonitoring.mission.service.IResourceReservationService;
-import com.ondemandmonitoring.userschedule.enums.*;
 import com.ondemandmonitoring.userschedule.repository.UserScheduleRepository;
 import java.time.Instant;
 import java.util.*;
@@ -46,7 +45,7 @@ public class ResourceReservationServiceImpl implements IResourceReservationServi
 
     @Override public void reserveAll(Mission mission, Map<String, Boolean> requested) {
         var sorted = new TreeMap<>(requested);
-        sorted.forEach((id, staff) -> validate(id, mission.getId(), mission.getScheduledStartAt(), mission.getScheduledEndAt(), staff));
+        sorted.keySet().forEach(id -> validate(id, mission.getId(), mission.getScheduledStartAt(), mission.getScheduledEndAt()));
         try {
             sorted.forEach((id, staff) -> {
                 if (locks.findAllByResourceIdAndMissionId(id, mission.getId()).stream().noneMatch(l -> l.getReleasedAt() == null))
@@ -59,28 +58,18 @@ public class ResourceReservationServiceImpl implements IResourceReservationServi
         }
     }
 
-    private void validate(String id, String missionId, Instant start, Instant end, boolean staff) {
+    private void validate(String id, String missionId, Instant start, Instant end) {
         if (start == null || end == null || !start.isBefore(end)) throw new ApiException(ErrorCode.INVALID_REQUEST);
         if (locks.existsActiveOverlap(id, missionId, start, end)) throw new ApiException(ErrorCode.RESOURCE_TIME_CONFLICT);
-        if (staff && ReservationWindowPolicy.staffHasConflict(schedules.findByStaffId(id), missionId, start, end))
-            throw new ApiException(ErrorCode.RESOURCE_TIME_CONFLICT);
     }
 
     @Override
     public void revalidateSchedule(Mission mission, Instant start, Instant end) {
         var active = locks.findByMissionId(mission.getId()).stream().filter(l -> l.getReleasedAt() == null).toList();
-        var owned = schedules.findByReferenceId(mission.getId()).stream()
-                .filter(s -> s.getScheduleType() == UserScheduleType.MISSION && s.getStatus() != UserScheduleStatus.CANCELLED
-                        && s.getStatus() != UserScheduleStatus.COMPLETED).toList();
-        for (var lock : active) validate(lock.getResourceId(), mission.getId(), start, end,
-                "STAFF".equals(lock.getResourceType()) || schedules.findByStaffId(lock.getResourceId()).stream()
-                        .anyMatch(s -> mission.getId().equals(s.getReferenceId())));
-        for (var schedule : owned) validate(schedule.getStaff().getId(), mission.getId(), start, end, true);
+        for (var lock : active) validate(lock.getResourceId(), mission.getId(), start, end);
         for (var lock : active) { lock.setStartTime(start); lock.setEndTime(end); }
         try { locks.saveAllAndFlush(active); }
         catch (org.springframework.dao.DataIntegrityViolationException conflict) { throw new ApiException(ErrorCode.RESOURCE_TIME_CONFLICT); }
-        for (var schedule : owned) { schedule.setStartTime(start); schedule.setEndTime(end); }
-        schedules.saveAll(owned);
     }
 
     @Override public void release(String missionId, String reason) { releaseRows(locks.findByMissionId(missionId), reason); }

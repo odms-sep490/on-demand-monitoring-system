@@ -144,6 +144,7 @@ class MissionServiceTest {
                 postDeviceCheckRepository,
                 maintenanceTicketRepository,
                 orderRepository,
+                null,
                 invoiceRepository,
                 missionPaymentEligibilityService,
                 deviceConnectionService,
@@ -282,29 +283,16 @@ class MissionServiceTest {
     class F3_1_OperatorAcceptanceAndRejection {
 
         @Test
-        void assignStaffWithoutTelemetryDefersPlanning() {
+        void assignStaff_rejectsMissionOutsidePlanning() {
             Mission mission = buildMission("m-assign", MissionStatus.READY);
-            mission.setScheduledStartAt(Instant.now().plusSeconds(3600));
-            mission.setScheduledEndAt(Instant.now().plusSeconds(7200));
-
-            User staffUser = new User();
-            staffUser.setId("op-01");
-            staffUser.setIsActive(true);
-            Role role = new Role();
-            role.setCode(RoleCode.STAFF);
-            role.setActive(true);
-            staffUser.setRole(role);
-
             when(missionRepository.findById("m-assign")).thenReturn(Optional.of(mission));
-            when(staffDirectory.requireActiveStaff("op-01")).thenReturn(staffUser);
-            when(missionDeviceAssignmentRepository.existsByMissionId("m-assign")).thenReturn(true);
-            when(missionStaffAssignmentRepository.findAllByMissionIdAndIsCurrentTrue("m-assign"))
-                    .thenReturn(List.of(staffAssignment(mission, "op-01", "PENDING")));
-            when(missionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(orderRepository.findById("unit-order"))
+                    .thenReturn(Optional.of(new com.ondemandmonitoring.order.domain.Order()));
 
             AssignStaffRequest request = AssignStaffRequest.builder().staffId("op-01").build();
-            assertThat(missionService.assignStaff("m-assign", request).getStatus())
-                    .isEqualTo(MissionStatus.READY);
+            assertThatThrownBy(() -> missionService.assignStaff("m-assign", request))
+                    .isInstanceOf(ApiException.class)
+                    .hasMessageContaining("PLANNING");
         }
 
         @Test
@@ -934,12 +922,14 @@ class MissionServiceTest {
         @Test
         @DisplayName("AC-1. assignDevice throws when device is under MAINTENANCE")
         void assignDevice_maintenanceDevice_blocked() {
-            Mission mission = buildMission("m-assign", MissionStatus.READY);
+            Mission mission = buildMission("m-assign", MissionStatus.PLANNING);
             mission.setScheduledStartAt(Instant.now().plusSeconds(3600));
             mission.setScheduledEndAt(Instant.now().plusSeconds(7200));
             Device maintenanceDevice = buildDevice("DEV-BROKEN", DeviceStatus.MAINTENANCE);
 
             when(missionRepository.findById("m-assign")).thenReturn(Optional.of(mission));
+            when(orderRepository.findById("unit-order"))
+                    .thenReturn(Optional.of(new com.ondemandmonitoring.order.domain.Order()));
             when(deviceRepository.findById("DEV-BROKEN-id")).thenReturn(Optional.of(maintenanceDevice));
 
             AssignDeviceRequest request = new AssignDeviceRequest();

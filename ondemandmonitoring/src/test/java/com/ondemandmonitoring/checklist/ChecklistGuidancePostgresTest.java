@@ -8,6 +8,7 @@ import com.ondemandmonitoring.finance.dto.*;
 import com.ondemandmonitoring.finance.enums.QuoteStatus;
 import com.ondemandmonitoring.finance.repository.*;
 import com.ondemandmonitoring.finance.service.impl.QuoteService;
+import com.ondemandmonitoring.finance.service.impl.CommercialExpirationSettingsService;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.mission.service.IMissionChecklistExecutionService;
 import com.ondemandmonitoring.order.domain.OrderChecklistItem;
@@ -298,8 +299,13 @@ class ChecklistGuidancePostgresTest {
                 GuidancePricing pricing, PricingPolicyRepository policies) {
             return new QuoteService(orders, items, Mappers.getMapper(OrderChecklistItemMapper.class), quotes, invoices,
                     mock(MissionRepository.class), mock(IMissionChecklistExecutionService.class), resolver,
-                    new PaymentProperties(new BigDecimal("0.30")), mock(OrderDeliveryRepository.class), mock(IOrderReadinessService.class),
-                    pricing.engine, policies, mock(ChecklistPricingAuditRepository.class));
+                    new PaymentProperties(new BigDecimal("0.30")),
+                    new CommercialExpirationSettingsService(mock(com.ondemandmonitoring.finance.repository.CommercialExpirationSettingsRepository.class),
+                            mock(com.ondemandmonitoring.finance.repository.CommercialExpirationSettingsAuditRepository.class),
+                            mock(com.ondemandmonitoring.user.repository.UserIdentityRepository.class),
+                            java.time.Clock.systemUTC()),
+                    mock(OrderDeliveryRepository.class), mock(IOrderReadinessService.class),
+                    pricing.engine, policies, mock(ChecklistPricingAuditRepository.class), java.time.Clock.systemUTC());
         }
         @Bean OrderChecklistUpdateService guidanceCustomerEdits(OrderRepository orders,
                 com.ondemandmonitoring.service.repository.ServiceRepository services,

@@ -8,6 +8,7 @@ import com.ondemandmonitoring.order.enums.OrderPermitStatus;
 import com.ondemandmonitoring.order.enums.OrderRecurrenceType;
 import com.ondemandmonitoring.order.enums.OrderResultFormat;
 import com.ondemandmonitoring.order.enums.OrderStatus;
+import com.ondemandmonitoring.order.enums.OrderCancellationReason;
 import com.ondemandmonitoring.order.enums.ExecutionPlanStatus;
 import com.ondemandmonitoring.order.enums.OrderFlightPurpose;
 import com.ondemandmonitoring.order.enums.OrderUsagePurpose;
@@ -46,6 +47,7 @@ import org.locationtech.jts.geom.Polygon;
 @Entity
 @Table(name = "orders", indexes = {
         @jakarta.persistence.Index(name = "ix_orders_status_created", columnList = "order_status,created_at"),
+        @jakarta.persistence.Index(name = "ix_orders_deposit_expiration", columnList = "deposit_expires_at,order_status"),
         @jakarta.persistence.Index(name = "ix_orders_created", columnList = "created_at")})
 @Getter
 @Setter
@@ -237,6 +239,17 @@ public class Order extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "order_status", nullable = false)
     private OrderStatus orderStatus;
+
+    /** Commercial deadline assigned once at quote acceptance; configuration changes never move it. */
+    @Column(name = "deposit_expires_at")
+    private Instant depositExpiresAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "cancellation_reason", length = 40)
+    private OrderCancellationReason cancellationReason;
+
+    @Column(name = "cancelled_at")
+    private Instant cancelledAt;
 
     @Column(name = "reject_reason", columnDefinition = "TEXT")
     private String rejectReason;

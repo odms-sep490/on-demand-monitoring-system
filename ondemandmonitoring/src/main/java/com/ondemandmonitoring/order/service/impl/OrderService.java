@@ -186,6 +186,8 @@ public class OrderService implements IOrderService {
         order.setFlightAreaReviewedBy(authenticatedUserResolver.getCurrentUser());
         order.setFlightAreaReviewedAt(Instant.now());
         order.setOrderStatus(OrderStatus.CANCELLED);
+        order.setCancellationReason(com.ondemandmonitoring.order.enums.OrderCancellationReason.PERMIT_REJECTED);
+        order.setCancelledAt(Instant.now());
         return toResponse(orderRepository.save(order));
     }
 

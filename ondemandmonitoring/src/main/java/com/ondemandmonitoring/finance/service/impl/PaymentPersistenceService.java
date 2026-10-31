@@ -22,6 +22,8 @@ import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
+import java.time.Clock;
+import java.time.Instant;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,9 +38,14 @@ public class PaymentPersistenceService implements IPaymentPersistenceService {
     private final IMissionPaymentEligibilityService eligibility;
     private final PaymentReferenceGenerator referenceGenerator;
     private final IDeliveryWorkflowService deliveryWorkflow;
+    private final com.ondemandmonitoring.order.repository.OrderRepository orders;
+    private final Clock clock;
 
     @Transactional
     public PreparedPayment prepare(String invoiceId, PaymentType type) {
+        String orderId = invoices.findOrderIdById(invoiceId)
+                .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
+        orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
         Invoice invoice = invoices.findByIdForUpdate(invoiceId).orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
         if (!invoice.getOrder().getCustomer().getId().equals(currentUser.getCurrentUserId())) throw new ApiException(ErrorCode.ACCESS_DENIED);
         if (invoice.getOrder().getLegalReviewStatus() != LegalReviewStatus.NOT_REQUIRED
@@ -51,6 +58,10 @@ public class PaymentPersistenceService implements IPaymentPersistenceService {
         }
         if (invoice.getStatus() == InvoiceStatus.CANCELLED || invoice.getStatus() == InvoiceStatus.REFUNDED) {
             throw new ApiException(ErrorCode.INVOICE_NOT_PAYABLE);
+        }
+        if (type == PaymentType.DEPOSIT && invoice.getOrder().getDepositExpiresAt() != null
+                && !Instant.now(clock).isBefore(invoice.getOrder().getDepositExpiresAt())) {
+            throw new ApiException(ErrorCode.INVOICE_NOT_PAYABLE, "Deposit payment deadline has expired");
         }
         if (type == PaymentType.DEPOSIT && eligibility.isDepositSatisfied(invoice)) {
             throw new ApiException(ErrorCode.DEPOSIT_ALREADY_SATISFIED);

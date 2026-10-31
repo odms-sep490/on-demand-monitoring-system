@@ -17,7 +17,8 @@ public record QuoteResponse(String id, String orderId, int version, QuoteStatus 
                             Instant adjustmentRequestedAt, PricingApprovalStatus pricingApprovalStatus,
                             String pricingApprovedByName, Instant pricingApprovedAt, String pricingApprovalNote,
                             long pricingRevision, List<PricingRiskFlag> riskFlags,
-                            long checklistRevision, ChecklistGuidanceSnapshot checklistGuidanceSnapshot) {
+                            long checklistRevision, ChecklistGuidanceSnapshot checklistGuidanceSnapshot,
+                            Instant expiresAt) {
     public QuoteResponse(String id, String orderId, int version, QuoteStatus status,
                          BigDecimal packagePrice, BigDecimal additionalAmount,
                          BigDecimal discountAmount, BigDecimal adjustmentAmount,
@@ -34,6 +35,6 @@ public record QuoteResponse(String id, String orderId, int version, QuoteStatus 
                 pricingPolicyId, pricingPolicyVersion, systemCalculatedAmount, managerAdjustmentAmount,
                 adjustmentType, adjustmentReason, adjustmentRequestedById, adjustmentRequestedByName,
                 adjustmentRequestedAt, pricingApprovalStatus, pricingApprovedByName, pricingApprovedAt,
-                pricingApprovalNote, pricingRevision, riskFlags, 1L, null);
+                pricingApprovalNote, pricingRevision, riskFlags, 1L, null, null);
     }
 }

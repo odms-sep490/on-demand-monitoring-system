@@ -31,8 +31,9 @@ class PaymentPersistenceServiceTest {
     AuthenticatedUserResolver users = mock(AuthenticatedUserResolver.class);
     PaymentReferenceGenerator references = mock(PaymentReferenceGenerator.class);
     IDeliveryWorkflowService delivery = mock(IDeliveryWorkflowService.class);
+    com.ondemandmonitoring.order.repository.OrderRepository orders = mock(com.ondemandmonitoring.order.repository.OrderRepository.class);
     PaymentPersistenceService service = new PaymentPersistenceService(invoices, payments, missions, users,
-            new MissionPaymentEligibilityService(), references, delivery);
+            new MissionPaymentEligibilityService(), references, delivery, orders, java.time.Clock.systemUTC());
     Invoice invoice; User owner;
 
     @BeforeEach void setUp() {
@@ -42,6 +43,8 @@ class PaymentPersistenceServiceTest {
         invoice.setTotalAmount(new BigDecimal("1000")); invoice.setDepositAmount(new BigDecimal("300"));
         invoice.setPaidAmount(BigDecimal.ZERO); invoice.setRemainingAmount(new BigDecimal("1000"));
         when(invoices.findByIdForUpdate("i1")).thenReturn(Optional.of(invoice));
+        when(invoices.findOrderIdById("i1")).thenReturn(Optional.of("o1"));
+        when(orders.findByIdForUpdate("o1")).thenReturn(Optional.of(order));
         when(users.getCurrentUserId()).thenReturn("owner");
         when(payments.findFirstByInvoiceIdAndPaymentTypeAndProviderAndStatusInOrderByCreatedAtDesc(
                 eq("i1"), any(), eq(PaymentProvider.VNPAY), any()))
@@ -61,6 +64,13 @@ class PaymentPersistenceServiceTest {
         when(users.getCurrentUserId()).thenReturn("intruder");
         assertThatThrownBy(() -> service.prepare("i1", PaymentType.DEPOSIT)).isInstanceOf(ApiException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.ACCESS_DENIED);
+        verify(payments, never()).saveAndFlush(any());
+    }
+
+    @Test void depositCannotBeStartedAtOrAfterCommercialDeadline() {
+        invoice.getOrder().setDepositExpiresAt(java.time.Instant.EPOCH);
+        assertThatThrownBy(() -> service.prepare("i1", PaymentType.DEPOSIT))
+                .isInstanceOf(ApiException.class).hasMessageContaining("deadline has expired");
         verify(payments, never()).saveAndFlush(any());
     }
 

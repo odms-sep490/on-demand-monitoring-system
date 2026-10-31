@@ -12,6 +12,7 @@ import com.ondemandmonitoring.finance.dto.*;
 import com.ondemandmonitoring.finance.enums.*;
 import com.ondemandmonitoring.finance.repository.*;
 import com.ondemandmonitoring.finance.service.impl.QuoteService;
+import com.ondemandmonitoring.finance.service.impl.CommercialExpirationSettingsService;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
@@ -51,10 +52,13 @@ class QuoteGuidanceServiceTest {
     User manager;
 
     @BeforeEach void setup() {
+        CommercialExpirationSettingsService expirationSettings = mock(CommercialExpirationSettingsService.class);
+        when(expirationSettings.current()).thenReturn(new com.ondemandmonitoring.finance.dto.CommercialExpirationSettingsResponse(
+                48, 24, "system", java.time.Instant.EPOCH));
         service = new QuoteService(orders, items, mapper, quotes, invoices, missions,
                 mock(IMissionChecklistExecutionService.class), users, new PaymentProperties(new BigDecimal("0.30")),
-                mock(OrderDeliveryRepository.class), readiness, pricingEngine,
-                mock(PricingPolicyRepository.class), mock(ChecklistPricingAuditRepository.class));
+                expirationSettings, mock(OrderDeliveryRepository.class), readiness, pricingEngine,
+                mock(PricingPolicyRepository.class), mock(ChecklistPricingAuditRepository.class), java.time.Clock.systemUTC());
         order = new Order(); order.setId("o1"); order.setChecklistRevision(2); order.setOrderStatus(OrderStatus.APPROVED);
         order.setLegalReviewStatus(LegalReviewStatus.NOT_REQUIRED);
         item = new OrderChecklistItem(); item.setId("i1"); item.setOrder(order); item.setChecklistRevision(2);

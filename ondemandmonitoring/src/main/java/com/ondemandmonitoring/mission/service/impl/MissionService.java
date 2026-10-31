@@ -803,7 +803,9 @@ public class MissionService implements IMissionService {
 
         resources.reserve(mission, staffId, true);
 
-        if (missionStaffAssignmentRepository.findByMissionId(resolvedMissionId).stream()
+        List<MissionStaffAssignment> missionStaffAssignments =
+                missionStaffAssignmentRepository.findByMissionId(resolvedMissionId);
+        if (missionStaffAssignments.stream()
                 .anyMatch(a -> a.getReleasedAt() == null && a.getStaff().getId().equals(staffId)
                         && a.getAssignedRole() == assignedRole)) {
             return missionMapper.toResponse(missionRepository.save(mission));
@@ -820,16 +822,24 @@ public class MissionService implements IMissionService {
                 .build();
         missionStaffAssignmentRepository.save(assignment);
 
-        UserSchedule staffSchedule = UserSchedule.builder()
-                .staff(staff)
-                .startTime(missionStart)
-                .endTime(missionEnd)
-                .scheduleType(UserScheduleType.MISSION)
-                .referenceId(mission.getId())
-                .status(UserScheduleStatus.SCHEDULED)
-                .notes("Assigned to mission " + mission.getMissionCode() + " as " + assignedRole)
-                .build();
-        userScheduleRepository.save(staffSchedule);
+        boolean hasActiveMissionSchedule = userScheduleRepository.findByReferenceId(resolvedMissionId).stream()
+                .anyMatch(schedule -> schedule.getStaff() != null
+                        && staffId.equals(schedule.getStaff().getId())
+                        && schedule.getScheduleType() == UserScheduleType.MISSION
+                        && schedule.getStatus() != UserScheduleStatus.CANCELLED
+                        && schedule.getStatus() != UserScheduleStatus.COMPLETED);
+        if (!hasActiveMissionSchedule) {
+            UserSchedule staffSchedule = UserSchedule.builder()
+                    .staff(staff)
+                    .startTime(missionStart)
+                    .endTime(missionEnd)
+                    .scheduleType(UserScheduleType.MISSION)
+                    .referenceId(mission.getId())
+                    .status(UserScheduleStatus.SCHEDULED)
+                    .notes("Assigned to mission " + mission.getMissionCode() + " as " + assignedRole)
+                    .build();
+            userScheduleRepository.save(staffSchedule);
+        }
 
         Mission saved = missionRepository.save(mission);
         refreshResourcePrepareStatus(saved);
@@ -896,12 +906,12 @@ public class MissionService implements IMissionService {
             boolean staffStillAssigned = missionStaffAssignmentRepository.findByMissionId(resolvedMissionId).stream()
                     .anyMatch(a -> request.getStaffId().equals(a.getStaff().getId())
                             && Boolean.TRUE.equals(a.getIsCurrent()) && a.getReleasedAt() == null);
-            if (!staffStillAssigned) resources.releaseResource(resolvedMissionId, request.getStaffId(), reason);
-
-            // Clean up user schedule
-            userScheduleRepository.findByReferenceId(mission.getId()).stream()
-                    .filter(s -> s.getStaff() != null && request.getStaffId().equals(s.getStaff().getId()))
-                    .forEach(s -> s.setStatus(UserScheduleStatus.CANCELLED));
+            if (!staffStillAssigned) {
+                resources.releaseResource(resolvedMissionId, request.getStaffId(), reason);
+                userScheduleRepository.findByReferenceId(mission.getId()).stream()
+                        .filter(s -> s.getStaff() != null && request.getStaffId().equals(s.getStaff().getId()))
+                        .forEach(s -> s.setStatus(UserScheduleStatus.CANCELLED));
+            }
         }
 
         refreshResourcePrepareStatus(mission);

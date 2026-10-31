@@ -44,6 +44,9 @@ import com.ondemandmonitoring.role.enumeration.RoleCode;
 import com.ondemandmonitoring.user.domain.User;
 import com.ondemandmonitoring.user.service.IStaffDirectoryService;
 import com.ondemandmonitoring.userschedule.repository.UserScheduleRepository;
+import com.ondemandmonitoring.userschedule.domain.UserSchedule;
+import com.ondemandmonitoring.userschedule.enums.UserScheduleStatus;
+import com.ondemandmonitoring.userschedule.enums.UserScheduleType;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -306,6 +309,102 @@ class MissionServiceTest {
             AssignStaffRequest request = AssignStaffRequest.builder().staffId("op-01").build();
             assertThat(missionService.assignStaff("m-assign", request).getStatus())
                     .isEqualTo(MissionStatus.READY);
+        }
+
+        @Test
+        void assigningAdditionalRolesToOneStaffKeepsOneScheduleEntry() {
+            Mission mission = buildMission("m-multi-role", MissionStatus.PLANNING);
+            mission.setScheduledStartAt(Instant.now().plusSeconds(3600));
+            mission.setScheduledEndAt(Instant.now().plusSeconds(7200));
+            User staff = new User();
+            staff.setId("staff-1");
+            var existingRole = staffAssignment(mission, "staff-1", MissionStaffRole.PILOT, "PLANNING");
+            existingRole.setStaff(staff);
+            existingRole.setIsCurrent(false);
+            UserSchedule existingSchedule = UserSchedule.builder()
+                    .staff(staff)
+                    .startTime(mission.getScheduledStartAt())
+                    .endTime(mission.getScheduledEndAt())
+                    .scheduleType(UserScheduleType.MISSION)
+                    .referenceId(mission.getId())
+                    .status(UserScheduleStatus.SCHEDULED)
+                    .build();
+
+            when(missionRepository.findById("m-multi-role")).thenReturn(Optional.of(mission));
+            when(orderRepository.findById("order-m-multi-role"))
+                    .thenReturn(Optional.of(new com.ondemandmonitoring.order.domain.Order()));
+            when(staffDirectory.requireActiveStaff("staff-1")).thenReturn(staff);
+            when(missionStaffAssignmentRepository.findByMissionId("m-multi-role"))
+                    .thenReturn(List.of(existingRole));
+            when(userScheduleRepository.findByReferenceId("m-multi-role"))
+                    .thenReturn(List.of(existingSchedule));
+            when(userScheduleRepository.findByStaffId("staff-1"))
+                    .thenReturn(List.of(existingSchedule));
+            when(missionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            for (MissionStaffRole role : List.of(
+                    MissionStaffRole.OPERATOR,
+                    MissionStaffRole.MAINTAINER,
+                    MissionStaffRole.INSPECTOR)) {
+                AssignStaffRequest request = AssignStaffRequest.builder()
+                        .staffId("staff-1")
+                        .assignedRole(role.name())
+                        .build();
+                missionService.assignStaff("m-multi-role", request);
+            }
+
+            verify(missionStaffAssignmentRepository, times(3)).save(argThat(assignment ->
+                    assignment.getStaff().getId().equals("staff-1")
+                            && List.of(MissionStaffRole.OPERATOR, MissionStaffRole.MAINTAINER,
+                                    MissionStaffRole.INSPECTOR).contains(assignment.getAssignedRole())));
+            verify(userScheduleRepository, never()).save(any(UserSchedule.class));
+        }
+
+        @Test
+        void removingOneRoleDoesNotCancelScheduleWhileStaffKeepsAnotherRole() {
+            Mission mission = buildMission("m-multi-role-ready", MissionStatus.READY);
+            User staff = new User();
+            staff.setId("staff-1");
+            MissionStaffAssignment pilot = staffAssignment(
+                    mission, "staff-1", MissionStaffRole.PILOT, "PENDING");
+            pilot.setStaff(staff);
+            MissionStaffAssignment operator = staffAssignment(
+                    mission, "staff-1", MissionStaffRole.OPERATOR, "PENDING");
+            operator.setStaff(staff);
+            UserSchedule schedule = UserSchedule.builder()
+                    .staff(staff)
+                    .startTime(Instant.now().plusSeconds(3600))
+                    .endTime(Instant.now().plusSeconds(7200))
+                    .scheduleType(UserScheduleType.MISSION)
+                    .referenceId(mission.getId())
+                    .status(UserScheduleStatus.SCHEDULED)
+                    .build();
+
+            when(missionRepository.findById("m-multi-role-ready")).thenReturn(Optional.of(mission));
+            when(orderRepository.findById("order-m-multi-role-ready"))
+                    .thenReturn(Optional.of(new com.ondemandmonitoring.order.domain.Order()));
+            when(missionStaffAssignmentRepository
+                    .findAllByMissionIdAndStaffIdAndAssignedRoleAndIsCurrentTrueOrderByAssignedAtDesc(
+                            "m-multi-role-ready", "staff-1", MissionStaffRole.PILOT))
+                    .thenReturn(List.of(pilot));
+            when(missionStaffAssignmentRepository.findByMissionId("m-multi-role-ready"))
+                    .thenReturn(List.of(pilot, operator));
+            when(missionDeviceAssignmentRepository.findByMissionId("m-multi-role-ready"))
+                    .thenReturn(List.of());
+            when(userScheduleRepository.findByReferenceId("m-multi-role-ready"))
+                    .thenReturn(List.of(schedule));
+            when(missionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            missionService.removeStaff("m-multi-role-ready",
+                    com.ondemandmonitoring.mission.dto.request.RemoveStaffRequest.builder()
+                            .staffId("staff-1")
+                            .assignedRole("PILOT")
+                            .reason("Keep operator role")
+                            .build());
+
+            assertThat(pilot.getIsCurrent()).isFalse();
+            assertThat(operator.getIsCurrent()).isTrue();
+            assertThat(schedule.getStatus()).isEqualTo(UserScheduleStatus.SCHEDULED);
         }
 
         @Test

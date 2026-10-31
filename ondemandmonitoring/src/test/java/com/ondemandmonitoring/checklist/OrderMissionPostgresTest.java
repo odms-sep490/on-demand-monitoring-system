@@ -91,7 +91,7 @@ class OrderMissionPostgresTest extends ChecklistPostgresTest {
                 assignment.setDisplayOrder(item.getDisplayOrder()); assignment.setAssignedAt(java.time.Instant.now());
                 assignmentRepository.saveAndFlush(assignment);
             }
-            new com.ondemandmonitoring.mission.service.impl.MissionChecklistMaterializationServiceImpl(assignmentRepository, executions).materialize(mission);
+            new com.ondemandmonitoring.mission.service.impl.MissionChecklistMaterializationServiceImpl(assignmentRepository, executions, ignored -> null).materialize(mission);
             return MissionResponse.builder().id(mission.getId()).build();
         });
     }
@@ -272,7 +272,7 @@ class OrderMissionPostgresTest extends ChecklistPostgresTest {
                 com.ondemandmonitoring.mission.service.IChecklistEvidenceService evidenceService) {
             return new com.ondemandmonitoring.mission.service.impl.MissionChecklistExecutionServiceImpl(
                     missions, scope, executions, results, auth, resolver,
-                    org.mapstruct.factory.Mappers.getMapper(com.ondemandmonitoring.mission.mapper.MissionChecklistExecutionMapper.class), evidenceService);
+                    org.mapstruct.factory.Mappers.getMapper(com.ondemandmonitoring.mission.mapper.MissionChecklistExecutionMapper.class), evidenceService, ignored -> null);
         }
         @Bean com.ondemandmonitoring.mission.repository.MissionChecklistAssignmentRepository missionAssignments(EntityManagerFactory factory) {
             return new JpaRepositoryFactory(SharedEntityManagerCreator.createSharedEntityManager(factory)).getRepository(com.ondemandmonitoring.mission.repository.MissionChecklistAssignmentRepository.class);

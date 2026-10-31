@@ -80,6 +80,25 @@ class QuoteServiceTest {
         assertThat(result.items()).allMatch(line -> line.type() == QuoteItemType.PACKAGE);
     }
 
+    @Test void draftStoresAnImmutableGuidanceSnapshotAndAllowsIncompleteGuidance() {
+        var custom = item("custom", ChecklistReviewStatus.INCLUDED);
+        custom.setSourceType(OrderChecklistSourceType.CUSTOMER_CUSTOM);
+        custom.setCustomGuidance(ChecklistGuidanceContent.normalize("Draft", List.of("Inspect"), List.of(), List.of()));
+        custom.setGuidanceVersion(3);
+        when(items.findAllByOrderIdOrderByDisplayOrderAscIdAsc("o1")).thenReturn(List.of(custom));
+        var response = service.saveDraft("o1", request("5000000", "0", "0", Map.of()));
+        var snapshot = response.checklistGuidanceSnapshot();
+        assertThat(snapshot.schemaVersion()).isEqualTo(1);
+        assertThat(snapshot.items()).singleElement().satisfies(entry -> {
+            assertThat(entry.itemId()).isEqualTo("custom");
+            assertThat(entry.guidanceVersion()).isEqualTo(3);
+            assertThat(entry.executionSteps()).containsExactly("Inspect");
+            assertThat(entry.inputRequirements()).isEmpty();
+        });
+        custom.setCustomGuidance(ChecklistGuidanceContent.normalize("Changed", List.of("Other"), List.of(), List.of()));
+        assertThat(snapshot.items().getFirst().description()).isEqualTo("Draft");
+    }
+
     @Test void pricingReviewShowsNoPackagePriceWhenTheEngineProducedNoPackageLine() {
         User customer = new User(); customer.setFullName("Customer"); order.setCustomer(customer);
         order.getService().setBasePrice(new BigDecimal("9900000"));
@@ -163,6 +182,7 @@ class QuoteServiceTest {
         custom.setManagerPriceAdjustmentReason("Manager adjusted after reviewing scope");
         when(items.findAllByOrderIdOrderByDisplayOrderAscIdAsc("o1")).thenReturn(List.of(custom));
         Quote quote = approvableQuote();
+        prepareGuidance(custom, quote);
         when(quotes.findByIdForUpdate("q1")).thenReturn(Optional.of(quote));
 
         service.approve("o1", "q1");
@@ -190,7 +210,9 @@ class QuoteServiceTest {
         custom.setSystemCalculatedPrice(new BigDecimal("30000"));
         custom.setManagerQuotedPrice(new BigDecimal("30000"));
         when(items.findAllByOrderIdOrderByDisplayOrderAscIdAsc("o1")).thenReturn(List.of(custom));
-        when(quotes.findByIdForUpdate("q1")).thenReturn(Optional.of(approvableQuote()));
+        Quote quote = approvableQuote();
+        prepareGuidance(custom, quote);
+        when(quotes.findByIdForUpdate("q1")).thenReturn(Optional.of(quote));
 
         service.approve("o1", "q1");
 
@@ -304,6 +326,7 @@ class QuoteServiceTest {
     }
 
     @Test void acceptingApprovedQuoteCreatesThirtyPercentInvoiceWithoutImplicitMission() {
+        order.setOrderStatus(OrderStatus.APPROVED);
         User customer = new User(); customer.setId("u1"); order.setCustomer(customer); when(users.getCurrentUser()).thenReturn(customer);
         var preferred = new com.ondemandmonitoring.warehouse.domain.PreferredTime();
         preferred.setStartTime(java.time.LocalTime.of(8, 0)); preferred.setEndTime(java.time.LocalTime.of(10, 0));
@@ -323,6 +346,14 @@ class QuoteServiceTest {
         assertThat(quote.getStatus()).isEqualTo(QuoteStatus.ACCEPTED_BY_CUSTOMER);
         verify(missions, never()).save(any());
         verifyNoInteractions(executions);
+    }
+
+    private void prepareGuidance(OrderChecklistItem item, Quote quote) {
+        var content = ChecklistGuidanceContent.normalize(null, List.of("Inspect"), List.of("Access"), List.of("Photos"));
+        item.setCustomGuidance(content); item.setGuidanceVersion(1); item.setGuidanceConfirmedVersion(1L);
+        quote.setChecklistGuidanceSnapshot(new com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot(1,
+                List.of(new com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot.Item(item.getId(), 1, 1,
+                        null, content.executionSteps(), content.inputRequirements(), content.expectedOutputs()))));
     }
 
     private OrderChecklistItem item(String id, ChecklistReviewStatus status) {

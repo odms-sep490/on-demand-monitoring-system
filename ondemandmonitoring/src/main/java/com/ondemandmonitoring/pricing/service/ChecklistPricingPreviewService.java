@@ -7,6 +7,11 @@ import com.ondemandmonitoring.checklist.repository.ServiceChecklistRepository;
 import com.ondemandmonitoring.checklist.util.ChecklistContentNormalizer;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
+import com.ondemandmonitoring.order.domain.Order;
+import com.ondemandmonitoring.order.domain.OrderChecklistItem;
+import com.ondemandmonitoring.order.enums.OrderChecklistSourceType;
+import com.ondemandmonitoring.order.repository.OrderChecklistItemRepository;
+import com.ondemandmonitoring.order.repository.OrderRepository;
 import com.ondemandmonitoring.pricing.domain.PricingPolicy;
 import com.ondemandmonitoring.pricing.dto.ChecklistPriceBreakdown;
 import com.ondemandmonitoring.pricing.dto.ChecklistPricingPreviewRequests;
@@ -19,6 +24,7 @@ import com.ondemandmonitoring.service.repository.ServiceRepository;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -35,8 +41,10 @@ public class ChecklistPricingPreviewService {
     private final ChecklistPriceCalculator calculator;
     private final ServicePriceResolver resolver;
     private final OrderLevelPriceCalculator orderLevelPrices;
+    private OrderRepository orders;
+    private OrderChecklistItemRepository orderChecklistItems;
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public ChecklistPricingPreviewService(ServiceRepository services, ChecklistDefinitionRepository definitions,
             ServiceChecklistRepository assignments, PricingPolicyRepository policies,
             ChecklistPriceCalculator calculator, ServicePriceResolver resolver,
@@ -55,6 +63,12 @@ public class ChecklistPricingPreviewService {
             ServiceChecklistRepository assignments, PricingPolicyRepository policies,
             ChecklistPriceCalculator calculator, ServicePriceResolver resolver) {
         this(services, definitions, assignments, policies, calculator, resolver, new OrderLevelPriceCalculator());
+    }
+
+    @Autowired(required = false)
+    public void setOrderRepositories(OrderRepository orders, OrderChecklistItemRepository orderChecklistItems) {
+        this.orders = orders;
+        this.orderChecklistItems = orderChecklistItems;
     }
 
     /** Default price of a service: package fee + the stored default checklists at their included allowance. */
@@ -98,12 +112,34 @@ public class ChecklistPricingPreviewService {
 
     /** Customer estimate. Only checklist choices and quantities are read from the client; every price comes from storage. */
     public ServicePricePreviewResponse customerQuote(ChecklistPricingPreviewRequests.Customer request) {
-        Service service = service(request.serviceId());
-        if (!Boolean.TRUE.equals(service.getIsActive())) throw new ApiException(ErrorCode.SERVICE_INACTIVE);
-        PricingPolicy policy = activePolicy();
+        Order existingOrder = null;
+        if (request.orderId() != null && !request.orderId().isBlank() && orders != null) {
+            existingOrder = orders.findById(request.orderId()).orElse(null);
+        }
+        Service service = existingOrder != null && existingOrder.getService() != null
+                ? existingOrder.getService() : service(request.serviceId());
+        if (existingOrder == null && !Boolean.TRUE.equals(service.getIsActive())) {
+            throw new ApiException(ErrorCode.SERVICE_INACTIVE);
+        }
+        PricingPolicy policy = existingOrder != null && existingOrder.getPricingPolicyId() != null
+                ? policies.findById(existingOrder.getPricingPolicyId()).orElseGet(this::activePolicy)
+                : activePolicy();
         Map<String, ServiceChecklist> template = new LinkedHashMap<>();
         for (ServiceChecklist row : assignments.findAllByServiceIdAndChecklistIsActiveTrueOrderByDisplayOrderAscIdAsc(service.getId()))
             template.put(row.getChecklist().getId(), row);
+
+        Map<String, OrderChecklistItem> existingItemsById = new LinkedHashMap<>();
+        Set<String> requiredExistingSourceIds = new LinkedHashSet<>();
+        if (existingOrder != null && orderChecklistItems != null) {
+            for (OrderChecklistItem snap : orderChecklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(existingOrder.getId())) {
+                existingItemsById.put(snap.getId(), snap);
+                if (snap.getSourceType() == OrderChecklistSourceType.SERVICE_TEMPLATE
+                        && snap.getSourceChecklist() != null
+                        && Optional.ofNullable(template.get(snap.getSourceChecklist().getId())).map(ServiceChecklist::isRequired).orElse(false)) {
+                    requiredExistingSourceIds.add(snap.getSourceChecklist().getId());
+                }
+            }
+        }
 
         List<ChecklistPriceBreakdown> priced = new ArrayList<>();
         var context = new ChecklistPriceCalculator.RequestContext(request.areaHa(), request.lengthKm(), request.altitudeM());
@@ -114,7 +150,19 @@ public class ChecklistPricingPreviewService {
             Set<String> seen = new HashSet<>();
             Set<String> contents = new HashSet<>();
             for (var item : request.items()) {
-                if (item.sourceChecklistId() != null) {
+                OrderChecklistItem existingSnap = item.existingItemId() != null ? existingItemsById.get(item.existingItemId()) : null;
+                if (existingSnap != null) {
+                    if (existingSnap.getSourceChecklist() != null) {
+                        if (!seen.add(existingSnap.getSourceChecklist().getId()))
+                            throw new ApiException(ErrorCode.INVALID_REQUEST, "Duplicate source checklist");
+                    } else if (existingSnap.getContent() != null) {
+                        contents.add(ChecklistContentNormalizer.content(existingSnap.getContent()).toLowerCase(Locale.ROOT));
+                    }
+                    ChecklistPriceBreakdown calculated = priceExistingSnapshot(policy, existingSnap,
+                            item.requestedImageCount(), item.requestedVideoCount(), context);
+                    priced.add(existingSnap.getSourceType() == OrderChecklistSourceType.SERVICE_TEMPLATE
+                            ? calculated : customerHidden(calculated));
+                } else if (item.sourceChecklistId() != null) {
                     ServiceChecklist row = template.get(item.sourceChecklistId());
                     if (!seen.add(item.sourceChecklistId())) throw new ApiException(ErrorCode.INVALID_REQUEST, "Duplicate source checklist");
                     ChecklistDefinition definition = row == null
@@ -137,9 +185,17 @@ public class ChecklistPricingPreviewService {
                     priced.add(customerHidden(calculated));
                 }
             }
-            template.values().stream().filter(ServiceChecklist::isRequired)
-                    .filter(row -> !seen.contains(row.getChecklist().getId())).findAny()
-                    .ifPresent(row -> { throw new ApiException(ErrorCode.ORDER_CHECKLIST_REQUIRED_MISSING); });
+            if (existingOrder != null && !existingItemsById.isEmpty()) {
+                for (String reqSourceId : requiredExistingSourceIds) {
+                    if (!seen.contains(reqSourceId)) {
+                        throw new ApiException(ErrorCode.ORDER_CHECKLIST_REQUIRED_MISSING);
+                    }
+                }
+            } else {
+                template.values().stream().filter(ServiceChecklist::isRequired)
+                        .filter(row -> !seen.contains(row.getChecklist().getId())).findAny()
+                        .ifPresent(row -> { throw new ApiException(ErrorCode.ORDER_CHECKLIST_REQUIRED_MISSING); });
+            }
         }
         // The price source follows the service's default checklist set, exactly as at order creation.
         BigDecimal requestedImages = priced.stream().map(row -> BigDecimal.valueOf(row.requestedImageCount()))
@@ -160,6 +216,27 @@ public class ChecklistPricingPreviewService {
                         charge.line().amount()))
                 .toList();
         return response(service, policy, resolver.resolve(service, policy), priced, List.of(), addOns, occurrences);
+    }
+
+    private ChecklistPriceBreakdown priceExistingSnapshot(PricingPolicy policy, OrderChecklistItem snap,
+            Integer requestedImages, Integer requestedVideos, ChecklistPriceCalculator.RequestContext context) {
+        if (snap.getSourceType() == OrderChecklistSourceType.CUSTOMER_CUSTOM) {
+            return calculator.hasCustomRule(policy)
+                    ? calculator.price(policy, withContext(new ChecklistPriceCalculator.Input(null, snap.getContent(), null, true, null, null, null,
+                            requestedImages, requestedVideos, null, null, true), context))
+                    : calculator.managerQuoted(snap.getContent(), null, requestedImages, requestedVideos);
+        }
+        String checklistId = snap.getSourceChecklist() != null ? snap.getSourceChecklist().getId() : snap.getId();
+        Integer standardVideoSec = snap.getSourceChecklist() != null ? snap.getSourceChecklist().getStandardVideoDurationSeconds() : null;
+        var dims = new ChecklistPriceCalculator.PricingDimensions(
+                snap.isAreaPricingEnabledSnapshot(), snap.isLengthPricingEnabledSnapshot(),
+                snap.isAltitudePricingEnabledSnapshot(), snap.getIncludedAreaHaSnapshot(),
+                snap.getIncludedLengthKmSnapshot(), snap.getIncludedAltitudeMSnapshot());
+        var in = new ChecklistPriceCalculator.Input(checklistId, snap.getContent(), snap.getDifficultySnapshot(), false,
+                snap.getBasePriceSnapshot(), snap.getIncludedImageCountSnapshot(), snap.getIncludedVideoCountSnapshot(),
+                requestedImages, requestedVideos, snap.getPricingProfileSnapshot(),
+                standardVideoSec, true, dims, context);
+        return calculator.price(policy, in);
     }
 
     private String customerDescription(OrderLevelPriceCalculator.Charge charge) {

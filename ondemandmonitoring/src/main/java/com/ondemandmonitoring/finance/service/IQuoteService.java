@@ -5,6 +5,7 @@ import com.ondemandmonitoring.order.dto.response.OrderChecklistItemResponse;
 
 /** Application contract for quote review, approval and customer acceptance. */
 public interface IQuoteService {
+    OrderChecklistItemResponse saveChecklistGuidance(String orderId, String itemId, ChecklistGuidanceRequest request);
     PricingReviewResponse getPricingReview(String orderId);
     OrderChecklistItemResponse reviewChecklist(String orderId, String itemId, ChecklistReviewRequest request);
     QuoteResponse saveDraft(String orderId, QuoteDraftRequest request);

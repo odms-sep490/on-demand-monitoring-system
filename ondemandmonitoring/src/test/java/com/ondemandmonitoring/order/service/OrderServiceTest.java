@@ -49,6 +49,8 @@ class OrderServiceTest {
     private AuthenticatedUserResolver authenticatedUserResolver;
     private OrderMapper orderMapper;
     private OrderService orderService;
+    private IOrderChecklistSnapshotService checklistSnapshots;
+    private com.ondemandmonitoring.finance.repository.QuoteRepository quotes;
 
     @BeforeEach
     void setUp() {
@@ -59,6 +61,8 @@ class OrderServiceTest {
         preferredTimeRepository = mock(PreferredTimeRepository.class);
         authenticatedUserResolver = mock(AuthenticatedUserResolver.class);
         orderMapper = Mappers.getMapper(OrderMapper.class);
+        checklistSnapshots = mock(IOrderChecklistSnapshotService.class);
+        quotes = mock(com.ondemandmonitoring.finance.repository.QuoteRepository.class);
 
         orderService = new OrderService(
                 orderRepository,
@@ -69,9 +73,9 @@ class OrderServiceTest {
                 authenticatedUserResolver,
                 mock(com.ondemandmonitoring.user.repository.CustomerProfileRepository.class),
                 orderMapper,
-                mock(IOrderChecklistSnapshotService.class),
+                checklistSnapshots,
                 mock(OrderReviewRecordInitializer.class),
-                mock(com.ondemandmonitoring.finance.repository.QuoteRepository.class),
+                quotes,
                 mock(com.ondemandmonitoring.finance.repository.InvoiceRepository.class)
         );
 
@@ -117,6 +121,54 @@ class OrderServiceTest {
                 .getAnnotation(org.springframework.transaction.annotation.Transactional.class).readOnly());
         assertEquals(true, OrderService.class.getMethod("getMyOrders", OrderStatus.class)
                 .getAnnotation(org.springframework.transaction.annotation.Transactional.class).readOnly());
+    }
+
+    @Test
+    void customerOrderUsesPublishedQuoteGuidanceInsteadOfManagerDraft() {
+        Order order = Order.builder().orderStatus(OrderStatus.APPROVED).build();
+        order.setId("guidance-order"); order.setChecklistRevision(2);
+        var item = new com.ondemandmonitoring.order.dto.response.CustomerOrderChecklistItemResponse();
+        item.setId("custom"); item.setChecklistRevision(2);
+        item.setSourceType(com.ondemandmonitoring.order.enums.OrderChecklistSourceType.CUSTOMER_CUSTOM);
+        when(orderRepository.findById(order.getId())).thenReturn(Optional.of(order));
+        when(checklistSnapshots.getByOrders(List.of(order.getId())))
+                .thenReturn(Map.of(order.getId(), List.of(item)));
+        var quote = new com.ondemandmonitoring.finance.domain.Quote();
+        quote.setOrder(order); quote.setChecklistRevision(2);
+        quote.setStatus(com.ondemandmonitoring.finance.enums.QuoteStatus.APPROVED);
+        quote.setChecklistGuidanceSnapshot(new com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot(1,
+                List.of(new com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot.Item(
+                        "custom", 2, 3, "Published scope", List.of("Step"), List.of("Input"), List.of("Output")))));
+        when(quotes.findGuidanceQuotesForOrders(any(), any())).thenReturn(List.of(quote));
+
+        var result = orderService.getOrderById(order.getId()).getChecklistItems().getFirst();
+        assertEquals("Published scope", result.getDescription());
+        assertEquals(List.of("Step"), result.getExecutionSteps());
+        assertEquals(3, result.getGuidanceVersion());
+        assertEquals(true, result.isGuidanceReady());
+    }
+
+    @Test
+    void customerOrderDoesNotPublishGuidanceOfStaleChecklistRevision() {
+        Order order = Order.builder().orderStatus(OrderStatus.APPROVED).build();
+        order.setId("changed-order"); order.setChecklistRevision(3);
+        var item = new com.ondemandmonitoring.order.dto.response.CustomerOrderChecklistItemResponse();
+        item.setId("custom"); item.setChecklistRevision(3);
+        item.setSourceType(com.ondemandmonitoring.order.enums.OrderChecklistSourceType.CUSTOMER_CUSTOM);
+        when(orderRepository.findById(order.getId())).thenReturn(Optional.of(order));
+        when(checklistSnapshots.getByOrders(List.of(order.getId())))
+                .thenReturn(Map.of(order.getId(), List.of(item)));
+        var quote = new com.ondemandmonitoring.finance.domain.Quote();
+        quote.setOrder(order); quote.setChecklistRevision(2);
+        quote.setStatus(com.ondemandmonitoring.finance.enums.QuoteStatus.APPROVED);
+        quote.setChecklistGuidanceSnapshot(new com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot(1,
+                List.of(new com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot.Item(
+                        "custom", 2, 3, "Old scope", List.of("Step"), List.of("Input"), List.of("Output")))));
+        when(quotes.findGuidanceQuotesForOrders(any(), any())).thenReturn(List.of(quote));
+
+        var result = orderService.getOrderById(order.getId()).getChecklistItems().getFirst();
+        assertEquals(null, result.getDescription());
+        assertEquals(false, result.isGuidanceReady());
     }
 
     @Test

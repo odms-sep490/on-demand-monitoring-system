@@ -23,6 +23,10 @@ import lombok.Setter;
                 @Index(name = "ix_quotes_created", columnList = "created_at")})
 @Getter @Setter
 public class Quote extends BaseEntity {
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "checklist_guidance_snapshot", columnDefinition = "jsonb")
+    private com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot checklistGuidanceSnapshot;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "order_id", nullable = false)
     private Order order;
@@ -66,6 +70,7 @@ public class Quote extends BaseEntity {
     @Column(name = "pricing_approved_at") private Instant pricingApprovedAt;
     @Column(name = "pricing_approval_note", length = 2000) private String pricingApprovalNote;
     @Column(name = "pricing_revision") private long pricingRevision;
+    @Column(name = "checklist_revision", nullable = false) private long checklistRevision = 1;
     @JdbcTypeCode(SqlTypes.JSON) @Column(name = "pricing_risk_flags", columnDefinition = "jsonb")
     private List<PricingRiskFlag> pricingRiskFlags = new ArrayList<>();
     @Column(name = "manager_note", length = 2000)

@@ -4,6 +4,8 @@ import com.ondemandmonitoring.common.exception.*;
 import com.ondemandmonitoring.mission.domain.*;
 import com.ondemandmonitoring.mission.repository.*;
 import com.ondemandmonitoring.mission.service.IMissionChecklistMaterializationService;
+import com.ondemandmonitoring.finance.service.IAcceptedChecklistGuidanceService;
+import com.ondemandmonitoring.mission.mapper.MissionChecklistGuidanceContext;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -14,6 +16,7 @@ import org.springframework.transaction.annotation.*;
 public class MissionChecklistMaterializationServiceImpl implements IMissionChecklistMaterializationService {
     private final MissionChecklistAssignmentRepository assignments;
     private final MissionChecklistExecutionRepository executions;
+    private final IAcceptedChecklistGuidanceService acceptedGuidance;
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
@@ -21,10 +24,12 @@ public class MissionChecklistMaterializationServiceImpl implements IMissionCheck
         var selected = assignments.findByMissionIdAndRemovedAtIsNullOrderByDisplayOrderAscIdAsc(mission.getId());
         var byAssignment = new HashMap<String, MissionChecklistAssignment>();
         var items = new HashSet<String>();
+        var guidance = new MissionChecklistGuidanceContext(acceptedGuidance.findForOrder(mission.getOrder().getId()));
         for (var assignment : selected) {
             if (!ChecklistAssignmentIntegrity.matches(mission, assignment)
                     || byAssignment.put(assignment.getId(), assignment) != null
                     || !items.add(assignment.getOrderChecklistItemId())) invalid();
+            guidance.resolve(assignment.getOrderChecklistItem());
         }
         for (var execution : executions.findOrderedByMissionId(mission.getId())) {
             if (!ChecklistAssignmentIntegrity.matches(mission, execution)

@@ -50,6 +50,14 @@ public class ManagerPricingController {
         return ApiResponse.ok("Quote draft saved", quoteService.saveDraft(orderId, request));
     }
 
+    @PutMapping("/checklist-items/{itemId}/guidance")
+    public ApiResponse<com.ondemandmonitoring.order.dto.response.OrderChecklistItemResponse> guidance(
+            @PathVariable String orderId, @PathVariable String itemId,
+            @Valid @RequestBody ChecklistGuidanceRequest request) {
+        return ApiResponse.ok("Checklist guidance saved", quoteService.saveChecklistGuidance(orderId, itemId, request));
+    }
+
+    /* quote publication */
     @PostMapping("/quotes/{quoteId}/approve")
     public ApiResponse<QuoteResponse> approve(@PathVariable String orderId, @PathVariable String quoteId) {
         return ApiResponse.ok("Quote approved", quoteService.approve(orderId, quoteId));

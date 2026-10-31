@@ -1,6 +1,12 @@
 package com.ondemandmonitoring.order.service.impl;
 
 import com.ondemandmonitoring.common.exception.ApiException;
+import com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot;
+import com.ondemandmonitoring.finance.enums.QuoteStatus;
+import com.ondemandmonitoring.order.enums.OrderChecklistSourceType;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.stream.Collectors;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.domain.OrderDeliverable;
@@ -76,7 +82,7 @@ public class OrderService implements IOrderService {
     @Transactional
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public OrderCreateResponse approveOrder(String orderId) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
 
         if (order.getOrderStatus() == OrderStatus.APPROVED) {
@@ -105,7 +111,7 @@ public class OrderService implements IOrderService {
     @Transactional
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public OrderCreateResponse reviewFlightArea(String orderId, FlightAreaReviewRequest request) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
         if (order.getOrderStatus() != OrderStatus.PENDING) {
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Only PENDING orders can be reviewed");
@@ -136,7 +142,7 @@ public class OrderService implements IOrderService {
     @Transactional
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public OrderCreateResponse resolveLegalReview(String orderId, LegalReviewResolutionRequest request) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
         // The permit may still be pending after the order was approved and invoiced.
         if ((order.getOrderStatus() != OrderStatus.PENDING && order.getOrderStatus() != OrderStatus.APPROVED)
@@ -163,7 +169,7 @@ public class OrderService implements IOrderService {
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public OrderCreateResponse cancelAfterPermitRejection(
             String orderId, PermitCancellationProposalRequest request) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
         if (order.getOrderStatus() == OrderStatus.COMPLETED
                 || order.getOrderStatus() == OrderStatus.CANCELLED
@@ -351,6 +357,7 @@ public class OrderService implements IOrderService {
         OrderCreateResponse response = orderMapper.toResponse(savedOrder);
         enrichCustomerProfile(response, savedOrder);
         response.setChecklistItems(items);
+        checklistSnapshots.enrichOrderResponse(savedOrder, response, false);
         return response;
     }
 
@@ -389,7 +396,11 @@ public class OrderService implements IOrderService {
     @Transactional(readOnly = true)
     @PreAuthorize("@orderAuthorizationService.canViewOrder(#orderId)")
     public OrderCreateResponse getOrderById(String orderId) {
-        Order order = orderRepository.findById(orderId)
+        return toResponse(orderRepository.findById(orderId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId)));
+    }
+    private OrderCreateResponse unusedGetOrderById(String orderId) {
+        Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
         return toResponse(order);
     }
@@ -398,7 +409,7 @@ public class OrderService implements IOrderService {
     @Transactional
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public void rejectOrder(String orderId, String reason) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
 
         if (order.getOrderStatus() != OrderStatus.PENDING) {
@@ -415,7 +426,7 @@ public class OrderService implements IOrderService {
     @Transactional
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public void requestMoreInformation(String orderId, String reason, String requestedUpdateScope) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
 
         if (order.getOrderStatus() != OrderStatus.PENDING) {
@@ -435,7 +446,7 @@ public class OrderService implements IOrderService {
     @PreAuthorize("hasRole('CUSTOMER')")
     public OrderCreateResponse submitAdditionalInformation(String orderId,
             com.ondemandmonitoring.order.dto.request.OrderAdditionalInformationRequest request) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
         User customer = authenticatedUserResolver.getCurrentUser();
         if (order.getCustomer() == null || !order.getCustomer().getId().equals(customer.getId())) {
@@ -486,7 +497,7 @@ public class OrderService implements IOrderService {
     @PreAuthorize("hasRole('CUSTOMER')")
     public OrderCreateResponse updateCustomerOrder(String orderId,
             com.ondemandmonitoring.order.dto.request.OrderCustomerUpdateRequest request) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
         User customer = authenticatedUserResolver.getCurrentUser();
         if (order.getCustomer() == null || !order.getCustomer().getId().equals(customer.getId()))
@@ -655,16 +666,29 @@ public class OrderService implements IOrderService {
         return toResponses(orders);
     }
 
+    private Order findOrderByIdForWrite(String id) {
+        return orderRepository.findByIdForUpdate(id).or(() -> orderRepository.findById(id)).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + id));
+    }
+
     private OrderCreateResponse toResponse(Order order) {
+        var response = toResponses(List.of(order)).getFirst();
+        checklistSnapshots.enrichOrderResponse(order, response, true);
+        return response;
+    }
+
+    private OrderCreateResponse toResponseUnused(Order order) {
         return toResponses(List.of(order)).getFirst();
     }
 
     private List<OrderCreateResponse> toResponses(List<Order> orders) {
         var snapshots = checklistSnapshots.getByOrders(orders.stream().map(Order::getId).toList());
+        var publishedGuidance = publishedGuidanceByOrder(orders);
         return orders.stream().map(order -> {
             var response = orderMapper.toResponse(order);
             enrichCustomerProfile(response, order);
             response.setChecklistItems(snapshots.getOrDefault(order.getId(), List.of()));
+            applyPublishedGuidance(response, publishedGuidance.get(order.getId()));
+            checklistSnapshots.enrichOrderResponse(order, response, false);
             if (order.getOrderStatus() == OrderStatus.APPROVED) {
                 response.setDepositSatisfied(invoiceRepository.findByOrderId(order.getId())
                         .map(invoice -> invoice.getPaidAmount().compareTo(invoice.getDepositAmount()) >= 0)
@@ -672,6 +696,50 @@ public class OrderService implements IOrderService {
             }
             return response;
         }).toList();
+    }
+
+    /** Customer-facing requirements use published scope, never the Manager's mutable draft. */
+    private Map<String, ChecklistGuidanceSnapshot> publishedGuidanceByOrder(
+            List<Order> orders) {
+        if (orders.isEmpty()) return Map.of();
+        var byId = orders.stream().collect(Collectors.toMap(Order::getId, o -> o));
+        var result = new HashMap<String, ChecklistGuidanceSnapshot>();
+        var candidates = quoteRepository.findGuidanceQuotesForOrders(byId.keySet(), List.of(
+                QuoteStatus.APPROVED,
+                QuoteStatus.ACCEPTED_BY_CUSTOMER));
+        // Accepted scope takes precedence over any later draft/published quote.
+        for (var status : List.of(QuoteStatus.ACCEPTED_BY_CUSTOMER,
+                QuoteStatus.APPROVED)) {
+            for (var quote : candidates) {
+                var order = byId.get(quote.getOrder().getId());
+                long revision = order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision();
+                if (quote.getStatus() != status || quote.getChecklistRevision() != revision
+                        || quote.getChecklistGuidanceSnapshot() == null
+                        || (status == QuoteStatus.APPROVED
+                            && order.getOrderStatus() != OrderStatus.APPROVED)) continue;
+                result.putIfAbsent(order.getId(), quote.getChecklistGuidanceSnapshot());
+            }
+        }
+        return result;
+    }
+
+    private void applyPublishedGuidance(OrderCreateResponse response,
+            ChecklistGuidanceSnapshot snapshot) {
+        if (snapshot == null || response.getChecklistItems() == null) return;
+        var guidanceByItem = snapshot.items().stream().collect(Collectors.toMap(
+                ChecklistGuidanceSnapshot.Item::itemId, g -> g));
+        for (var item : response.getChecklistItems()) {
+            if (item.getSourceType() != OrderChecklistSourceType.CUSTOMER_CUSTOM) continue;
+            var guidance = guidanceByItem.get(item.getId());
+            if (guidance == null || guidance.checklistRevision() != item.getChecklistRevision()) continue;
+            item.setDescription(guidance.description());
+            item.setExecutionSteps(guidance.executionSteps());
+            item.setInputRequirements(guidance.inputRequirements());
+            item.setExpectedOutputs(guidance.expectedOutputs());
+            item.setGuidanceVersion(guidance.guidanceVersion());
+            item.setGuidanceConfirmedVersion(guidance.guidanceVersion());
+            item.setGuidanceReady(true);
+        }
     }
 
     private void enrichCustomerProfile(OrderCreateResponse response, Order order) {

@@ -5,5 +5,6 @@ public enum PaymentWebhookResult {
     ALREADY_CONFIRMED,
     ORDER_NOT_FOUND,
     INVALID_AMOUNT,
-    IGNORED
+    IGNORED,
+    LATE_PAYMENT_RECORDED
 }

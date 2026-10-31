@@ -16,6 +16,9 @@ public interface UserIdentityRepository extends JpaRepository<UserIdentity, Stri
     @EntityGraph(attributePaths = {"user", "user.role"})
     Optional<UserIdentity> findByCognitoSub(String cognitoSub);
 
+    @EntityGraph(attributePaths = {"user"})
+    List<UserIdentity> findAllByCognitoSubIn(List<String> cognitoSubs);
+
     @EntityGraph(attributePaths = {"user", "user.role"})
     Optional<UserIdentity> findByCognitoUsername(String cognitoUsername);
 

@@ -96,6 +96,17 @@ class PaymentWebhookProcessorTest {
         verify(delivery).confirmFinalPayment("o1");
     }
 
+    @Test void successfulLateIpnIsRecordedForReviewWithoutReopeningCancelledOrder() {
+        invoice.getOrder().setOrderStatus(com.ondemandmonitoring.order.enums.OrderStatus.CANCELLED);
+        payment.setStatus(PaymentStatus.CANCELLED);
+        assertThat(processor.process(webhook(300))).isEqualTo(PaymentWebhookResult.LATE_PAYMENT_RECORDED);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUIRES_REVIEW);
+        assertThat(payment.getFailureReason()).contains("manual refund/reconciliation");
+        assertThat(invoice.getPaidAmount()).isZero();
+        assertThat(invoice.getStatus()).isEqualTo(InvoiceStatus.ISSUED);
+        assertThat(invoice.getOrder().getOrderStatus()).isEqualTo(com.ondemandmonitoring.order.enums.OrderStatus.CANCELLED);
+    }
+
     @Test void unknownVnPayOrderIsReportedWithoutMutation() {
         when(payments.findByTransactionReferenceForUpdate("123")).thenReturn(Optional.empty());
         assertThat(processor.process(webhook(300))).isEqualTo(PaymentWebhookResult.ORDER_NOT_FOUND);

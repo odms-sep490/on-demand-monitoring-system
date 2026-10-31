@@ -51,6 +51,7 @@ public class VnPayCallbackService implements IVnPayCallbackService {
             case ORDER_NOT_FOUND -> Map.of("RspCode", "01", "Message", "Order not found");
             case INVALID_AMOUNT -> Map.of("RspCode", "04", "Message", "Invalid amount");
             case IGNORED -> Map.of("RspCode", "00", "Message", "Payment result recorded");
+            case LATE_PAYMENT_RECORDED -> Map.of("RspCode", "00", "Message", "Late payment recorded for reconciliation");
         };
     }
 

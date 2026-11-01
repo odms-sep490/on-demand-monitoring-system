@@ -74,7 +74,7 @@ class MissionPlanningServiceTest {
         when(missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc("o")).thenReturn(List.of(mission, sibling));
         service.confirmMissionPlanning("m");
         verify(materializer).materialize(mission);
-        assertEquals(MissionStatus.READY, mission.getStatus());
+        assertEquals(MissionStatus.PENDING_PAYMENT, mission.getStatus());
         assertEquals(MissionStatus.IN_FLIGHT, sibling.getStatus());
         assertEquals(ExecutionPlanStatus.FINALIZED, order.getExecutionPlanStatus());
         assertEquals(6, order.getExecutionPlanRevision());

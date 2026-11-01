@@ -8,11 +8,7 @@ import com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService;
 import com.ondemandmonitoring.finance.enums.*;
 import com.ondemandmonitoring.finance.gateway.VerifiedWebhook;
 import com.ondemandmonitoring.finance.repository.*;
-import com.ondemandmonitoring.finance.service.impl.MissionPaymentEligibilityService;
 import com.ondemandmonitoring.finance.service.impl.PaymentWebhookProcessor;
-import com.ondemandmonitoring.mission.domain.Mission;
-import com.ondemandmonitoring.mission.enums.MissionStatus;
-import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.order.domain.Order;
 import java.math.BigDecimal;
 import java.util.Optional;
@@ -22,11 +18,10 @@ import org.junit.jupiter.api.Test;
 class PaymentWebhookProcessorTest {
     PaymentRepository payments = mock(PaymentRepository.class);
     InvoiceRepository invoices = mock(InvoiceRepository.class);
-    MissionRepository missions = mock(MissionRepository.class);
     IDeliveryWorkflowService delivery = mock(IDeliveryWorkflowService.class);
     com.ondemandmonitoring.order.repository.OrderRepository orders = mock(com.ondemandmonitoring.order.repository.OrderRepository.class);
-    PaymentWebhookProcessor processor = new PaymentWebhookProcessor(payments, invoices, missions, new MissionPaymentEligibilityService(), delivery, orders);
-    Payment payment; Invoice invoice; Mission mission;
+    PaymentWebhookProcessor processor = new PaymentWebhookProcessor(payments, invoices, delivery, orders);
+    Payment payment; Invoice invoice;
 
     @BeforeEach void setUp() {
         Order order = new Order(); order.setId("o1");
@@ -37,14 +32,10 @@ class PaymentWebhookProcessorTest {
         payment = new Payment(); payment.setId("p1"); payment.setInvoice(invoice); payment.setPaymentCode(123L);
         payment.setTransactionReference("123");
         payment.setAmount(new BigDecimal("300")); payment.setProvider(PaymentProvider.VNPAY); payment.setStatus(PaymentStatus.PENDING);
-        mission = new Mission(); mission.setOrder(order); mission.setStatus(MissionStatus.WAITING_DEPOSIT);
         when(payments.findByTransactionReferenceForUpdate("123")).thenReturn(Optional.of(payment));
         when(invoices.findByIdForUpdate("i1")).thenReturn(Optional.of(invoice));
-        mission.setId("m1");
         when(payments.findOrderIdByTransactionReference("123")).thenReturn(Optional.of("o1"));
         when(orders.findByIdForUpdate("o1")).thenReturn(Optional.of(order));
-        when(missions.findIdsByOrderIdOrderById("o1")).thenReturn(java.util.List.of("m1"));
-        when(missions.findByIdForUpdate("m1")).thenReturn(Optional.of(mission));
     }
 
     @Test void wrongAmountDoesNotChangePayment() {
@@ -52,13 +43,12 @@ class PaymentWebhookProcessorTest {
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
     }
 
-    @Test void successfulDepositUpdatesInvoiceAndUnlocksMission() {
+    @Test void successfulDepositUpdatesInvoiceWithoutMutatingMission() {
         when(payments.sumSuccessfulPayments("i1")).thenReturn(new BigDecimal("300"));
         assertThat(processor.process(webhook(300))).isEqualTo(PaymentWebhookResult.PROCESSED);
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
         assertThat(invoice.getPaidAmount()).isEqualByComparingTo("300");
         assertThat(invoice.getStatus()).isEqualTo(InvoiceStatus.PARTIALLY_PAID);
-        assertThat(mission.getStatus()).isEqualTo(MissionStatus.PLANNING);
     }
 
     @Test void duplicateSuccessWebhookDoesNotCreditAgain() {
@@ -68,21 +58,13 @@ class PaymentWebhookProcessorTest {
         verify(payments, never()).sumSuccessfulPayments(anyString());
     }
 
-    @Test void depositUnlocksAllExactSiblingsUnderOrderFirstLocksAndReplayDoesNotCreditAgain() {
-        var sibling = new Mission(); sibling.setId("m2"); sibling.setOrder(mission.getOrder());
-        sibling.setStatus(MissionStatus.WAITING_DEPOSIT);
-        when(missions.findIdsByOrderIdOrderById("o1")).thenReturn(java.util.List.of("m1", "m2"));
-        when(missions.findByIdForUpdate("m2")).thenReturn(Optional.of(sibling));
+    @Test void depositProcessesUnderOrderPaymentInvoiceLocksAndReplayDoesNotCreditAgain() {
         when(payments.sumSuccessfulPayments("i1")).thenReturn(new BigDecimal("300"));
         assertThat(processor.process(webhook(300))).isEqualTo(PaymentWebhookResult.PROCESSED);
-        assertThat(mission.getStatus()).isEqualTo(MissionStatus.PLANNING);
-        assertThat(sibling.getStatus()).isEqualTo(MissionStatus.PLANNING);
-        var locks = inOrder(orders, payments, invoices, missions);
+        var locks = inOrder(orders, payments, invoices);
         locks.verify(orders).findByIdForUpdate("o1");
         locks.verify(payments).findByTransactionReferenceForUpdate("123");
         locks.verify(invoices).findByIdForUpdate("i1");
-        locks.verify(missions).findByIdForUpdate("m1");
-        locks.verify(missions).findByIdForUpdate("m2");
         assertThat(processor.process(webhook(300))).isEqualTo(PaymentWebhookResult.ALREADY_CONFIRMED);
         verify(payments, times(1)).sumSuccessfulPayments("i1");
     }
@@ -110,7 +92,7 @@ class PaymentWebhookProcessorTest {
     @Test void unknownVnPayOrderIsReportedWithoutMutation() {
         when(payments.findByTransactionReferenceForUpdate("123")).thenReturn(Optional.empty());
         assertThat(processor.process(webhook(300))).isEqualTo(PaymentWebhookResult.ORDER_NOT_FOUND);
-        verifyNoInteractions(invoices, missions);
+        verifyNoInteractions(invoices);
     }
 
     private VerifiedWebhook webhook(long amount) {

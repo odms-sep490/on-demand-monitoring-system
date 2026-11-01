@@ -1,20 +1,17 @@
 package com.ondemandmonitoring.mission.dto.request;
 
 import jakarta.validation.constraints.NotBlank;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
+import jakarta.validation.constraints.Size;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Getter
 @Setter
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-public class RemoveDeviceRequest {
+public class ReplaceDeviceRequest {
     @NotBlank(message = "deviceId is required")
     private String deviceId;
 
+    @NotBlank(message = "reason is required")
+    @Size(max = 500, message = "reason must be at most 500 characters")
     private String reason;
 }

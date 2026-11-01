@@ -15,9 +15,7 @@ import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.finance.repository.PaymentRepository;
 import com.ondemandmonitoring.finance.service.*;
 import com.ondemandmonitoring.finance.util.PaymentReferenceGenerator;
-import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.order.enums.LegalReviewStatus;
-import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -33,7 +31,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class PaymentPersistenceService implements IPaymentPersistenceService {
     private final InvoiceRepository invoices;
     private final PaymentRepository payments;
-    private final MissionRepository missions;
     private final AuthenticatedUserResolver currentUser;
     private final IMissionPaymentEligibilityService eligibility;
     private final PaymentReferenceGenerator referenceGenerator;

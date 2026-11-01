@@ -4,10 +4,16 @@ public enum MissionStatus {
 
     PLANNING,
 
-    /** Financial gate: operational work is blocked until the required deposit is verified. */
+    /** Existing finance workflow status; retained without changing payment behavior. */
     WAITING_DEPOSIT,
 
-    /** Mission planning was confirmed; resource preparation and crew response are in progress. */
+    /** Planning is finalized; operational work is blocked until payment is verified. */
+    PENDING_PAYMENT,
+
+    /** Payment was verified; resource checks and crew confirmation are in progress. */
+    PENDING_CONFIRMATION,
+
+    /** Every required crew member and device resource is ready. */
     READY,
 
     /** Required crew members accepted and the mission is scheduled for execution. */

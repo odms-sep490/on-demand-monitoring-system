@@ -2,7 +2,6 @@ package com.ondemandmonitoring.mission.dto.response;
 
 import com.ondemandmonitoring.mission.enums.MediaType;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
-import com.ondemandmonitoring.mission.enums.MissionResourcePrepareStatus;
 import com.ondemandmonitoring.mission.enums.FlightPermitStatus;
 import com.ondemandmonitoring.order.enums.OrderStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -28,8 +27,6 @@ public class MissionResponse {
 
     @Schema(description = "Mission lifecycle status", example = "PLANNING")
     MissionStatus status;
-
-    MissionResourcePrepareStatus resourcePrepareStatus;
 
     FlightPermitStatus flightPermitStatus;
     String flightPermitNote;

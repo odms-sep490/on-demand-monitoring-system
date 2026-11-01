@@ -26,6 +26,10 @@ public interface PaymentRepository extends JpaRepository<Payment, String> {
     @Query("select p from Payment p where p.transactionReference=:reference")
     Optional<Payment> findByTransactionReferenceForUpdate(@Param("reference") String reference);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Payment p where p.invoice.id=:invoiceId order by p.id")
+    List<Payment> findAllByInvoiceIdForUpdate(@Param("invoiceId") String invoiceId);
+
     Optional<Payment> findByTransactionReference(String reference);
     @Query("select p.invoice.order.id from Payment p where p.transactionReference=:reference")
     Optional<String> findOrderIdByTransactionReference(@Param("reference") String reference);

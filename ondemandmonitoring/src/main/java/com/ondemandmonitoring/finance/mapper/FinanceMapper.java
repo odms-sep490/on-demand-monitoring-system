@@ -30,7 +30,7 @@ public final class FinanceMapper {
                 quote.getPricingApprovedBy() == null ? null : quote.getPricingApprovedBy().getFullName(),
                 quote.getPricingApprovedAt(), quote.getPricingApprovalNote(), quote.getPricingRevision(),
                 quote.getPricingRiskFlags() == null ? java.util.List.of() : quote.getPricingRiskFlags(),
-                quote.getChecklistRevision(), quote.getChecklistGuidanceSnapshot());
+                quote.getChecklistRevision(), quote.getChecklistGuidanceSnapshot(), quote.getExpiresAt());
     }
 
     public static QuoteItemResponse quoteItem(QuoteItem item) {
@@ -59,15 +59,17 @@ public final class FinanceMapper {
         BigDecimal estimatedBase = quote.getTotalAmount().subtract(approvedAdditional);
         return new CustomerQuoteResponse(quote.getId(), quote.getOrder().getId(), quote.getQuoteVersion(), quote.getStatus(),
                 estimatedBase, approvedAdditional, quote.getTotalAmount(), true,
-                quote.getApprovedAt(), quote.getAcceptedAt(), List.copyOf(safeItems),
-                quote.getChecklistRevision(), quote.getChecklistGuidanceSnapshot());
+                quote.getApprovedAt(), quote.getAcceptedAt(), quote.getExpiresAt(), List.copyOf(safeItems),
+                quote.getChecklistRevision(), quote.getChecklistGuidanceSnapshot(),
+                quote.getOrder().getCancellationReason() == null ? null : quote.getOrder().getCancellationReason().name());
     }
 
     public static InvoiceResponse invoice(Invoice invoice, boolean finalPaymentAllowed) {
         return new InvoiceResponse(invoice.getId(), invoice.getInvoiceNumber(), invoice.getOrder().getId(),
                 invoice.getQuote().getId(), invoice.getTotalAmount(), invoice.getDepositAmount(),
                 invoice.getPaidAmount(), invoice.getRemainingAmount(), invoice.getStatus(), invoice.getIssuedAt(),
-                finalPaymentAllowed);
+                finalPaymentAllowed, invoice.getOrder().getDepositExpiresAt(),
+                invoice.getOrder().getCancellationReason() == null ? null : invoice.getOrder().getCancellationReason().name());
     }
 
     public static PaymentResponse payment(Payment payment) {

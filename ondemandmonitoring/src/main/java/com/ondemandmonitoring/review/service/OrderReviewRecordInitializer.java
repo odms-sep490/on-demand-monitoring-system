@@ -33,7 +33,8 @@ public class OrderReviewRecordInitializer implements CommandLineRunner {
         if (removed > 0) {
             log.info("Removed {} obsolete order-review records", removed);
         }
-        int created = orders.findByOrderStatusOrderByCreatedAtAsc(OrderStatus.PENDING).stream()
+        int created = orders.findByOrderStatusInOrderByCreatedAtAsc(
+                        java.util.List.of(OrderStatus.PENDING, OrderStatus.UNDER_REVIEW)).stream()
                 .mapToInt(this::initialize)
                 .sum();
         if (created > 0) {

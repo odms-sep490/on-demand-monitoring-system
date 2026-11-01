@@ -81,6 +81,22 @@ public class OrderService implements IOrderService {
     @Override
     @Transactional
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public OrderCreateResponse startReview(String orderId) {
+        Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
+        if (order.getOrderStatus() == OrderStatus.UNDER_REVIEW) {
+            return toResponse(order);
+        }
+        if (order.getOrderStatus() != OrderStatus.PENDING) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Only PENDING orders can enter review");
+        }
+        order.setOrderStatus(OrderStatus.UNDER_REVIEW);
+        return toResponse(orderRepository.save(order));
+    }
+
+    @Override
+    @Transactional
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public OrderCreateResponse approveOrder(String orderId) {
         Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
@@ -89,8 +105,8 @@ public class OrderService implements IOrderService {
             return toResponse(order);
         }
 
-        if (order.getOrderStatus() != OrderStatus.PENDING) {
-            throw new ApiException(ErrorCode.INVALID_REQUEST, "Only PENDING orders can be approved");
+        if (order.getOrderStatus() != OrderStatus.UNDER_REVIEW) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Only UNDER_REVIEW orders can be approved");
         }
         if (order.getLegalReviewStatus() != LegalReviewStatus.NOT_REQUIRED
                 && order.getLegalReviewStatus() != LegalReviewStatus.APPROVED
@@ -113,8 +129,8 @@ public class OrderService implements IOrderService {
     public OrderCreateResponse reviewFlightArea(String orderId, FlightAreaReviewRequest request) {
         Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
-        if (order.getOrderStatus() != OrderStatus.PENDING) {
-            throw new ApiException(ErrorCode.INVALID_REQUEST, "Only PENDING orders can be reviewed");
+        if (order.getOrderStatus() != OrderStatus.UNDER_REVIEW) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Only UNDER_REVIEW orders can be reviewed");
         }
         String reason = trimToNull(request.reason());
         String note = trimToNull(request.note());
@@ -145,7 +161,9 @@ public class OrderService implements IOrderService {
         Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
         // The permit may still be pending after the order was approved and invoiced.
-        if ((order.getOrderStatus() != OrderStatus.PENDING && order.getOrderStatus() != OrderStatus.APPROVED)
+        if ((order.getOrderStatus() != OrderStatus.PENDING
+                && order.getOrderStatus() != OrderStatus.UNDER_REVIEW
+                && order.getOrderStatus() != OrderStatus.APPROVED)
                 || order.getLegalReviewStatus() != LegalReviewStatus.PENDING_PERMIT) {
             throw new ApiException(ErrorCode.INVALID_REQUEST,
                     "Only an order pending external permit verification can be resolved");
@@ -414,8 +432,8 @@ public class OrderService implements IOrderService {
         Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
 
-        if (order.getOrderStatus() != OrderStatus.PENDING) {
-            throw new ApiException(ErrorCode.INVALID_REQUEST, "Only PENDING orders can be rejected");
+        if (order.getOrderStatus() != OrderStatus.UNDER_REVIEW) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Only UNDER_REVIEW orders can be rejected");
         }
 
         order.setOrderStatus(OrderStatus.REJECTED);
@@ -431,8 +449,8 @@ public class OrderService implements IOrderService {
         Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
 
-        if (order.getOrderStatus() != OrderStatus.PENDING) {
-            throw new ApiException(ErrorCode.INVALID_REQUEST, "Only PENDING orders can request more information");
+        if (order.getOrderStatus() != OrderStatus.UNDER_REVIEW) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Only UNDER_REVIEW orders can request more information");
         }
 
         order.setOrderStatus(OrderStatus.NEEDS_INFO);
@@ -504,6 +522,10 @@ public class OrderService implements IOrderService {
         User customer = authenticatedUserResolver.getCurrentUser();
         if (order.getCustomer() == null || !order.getCustomer().getId().equals(customer.getId()))
             throw new ApiException(ErrorCode.ACCESS_DENIED, "This order does not belong to the current customer");
+        if (order.getOrderStatus() == OrderStatus.UNDER_REVIEW) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "Order is under review and cannot be edited by the customer");
+        }
         if (order.getOrderStatus() != OrderStatus.PENDING && order.getOrderStatus() != OrderStatus.NEEDS_INFO
                 && order.getOrderStatus() != OrderStatus.APPROVED)
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Only unpaid Orders can be edited");
@@ -635,7 +657,8 @@ public class OrderService implements IOrderService {
     @Transactional(readOnly = true)
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public List<OrderCreateResponse> getPendingOrders() {
-        return toResponses(orderRepository.findByOrderStatusOrderByCreatedAtAsc(OrderStatus.PENDING));
+        return toResponses(orderRepository.findByOrderStatusInOrderByCreatedAtAsc(
+                java.util.List.of(OrderStatus.PENDING, OrderStatus.UNDER_REVIEW)));
     }
 
     @Override

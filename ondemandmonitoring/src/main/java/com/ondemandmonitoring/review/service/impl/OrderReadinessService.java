@@ -71,7 +71,7 @@ public class OrderReadinessService implements IOrderReadinessService {
         }
         Order order = orders.findByIdForUpdate(orderId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
-        if (order.getOrderStatus() != OrderStatus.PENDING) {
+        if (!OrderStatus.UNDER_REVIEW.equals(order.getOrderStatus())) {
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Order is no longer under review");
         }
         OrderReviewRecord record = records.findByOrderIdAndCode(orderId, code)

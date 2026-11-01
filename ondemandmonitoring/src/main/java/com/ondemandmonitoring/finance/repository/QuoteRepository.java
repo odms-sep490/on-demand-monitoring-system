@@ -31,6 +31,9 @@ public interface QuoteRepository extends JpaRepository<Quote, String> {
 
     long countByStatus(QuoteStatus status);
 
+    @Query("select q.id from Quote q where q.status='APPROVED' and q.expiresAt is not null and q.expiresAt <= :now order by q.expiresAt, q.id")
+    List<String> findExpiredApprovedIds(@Param("now") java.time.Instant now, Pageable pageable);
+
     @EntityGraph(attributePaths = "order")
     List<Quote> findByStatusInOrderByUpdatedAtDesc(Collection<QuoteStatus> statuses, Pageable pageable);
 }

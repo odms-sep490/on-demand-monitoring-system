@@ -291,8 +291,7 @@ public class MissionController {
     /**
      * PATCH /api/missions/{id}/accept
      * Staff confirms they accept the mission.
-     * Transitions: WAITING_OPERATOR_ACCEPTANCE → ASTAR_ENERGY_AWARE planning →
-     * SCHEDULED
+     * Staff confirms the assigned mission while it is READY.
      */
     @PatchMapping("/{id}/accept")
     @PreAuthorize("@missionAuthorizationService.canRespondToMission(#id)")
@@ -351,7 +350,7 @@ public class MissionController {
     /**
      * PATCH /api/missions/{id}/reject
      * Staff rejects the mission with a mandatory reason.
-     * Transitions: WAITING_OPERATOR_ACCEPTANCE → PLANNING
+     * The assignment is released for reassignment while the mission remains READY.
      */
     @PatchMapping("/{id}/reject")
     @PreAuthorize("@missionAuthorizationService.canRespondToMission(#id)")

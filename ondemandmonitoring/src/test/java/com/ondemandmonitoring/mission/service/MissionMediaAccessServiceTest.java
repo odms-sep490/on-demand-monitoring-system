@@ -54,7 +54,7 @@ class MissionMediaAccessServiceTest {
         var context = service.authorizeOperator("MS-001");
         assertThat(context.getId()).isEqualTo("mission-id");
         assertThat(context.isCaptureAllowed()).isTrue();
-        mission.setStatus(MissionStatus.WAITING_OPERATOR_ACCEPTANCE);
+        mission.setStatus(MissionStatus.READY);
         when(authorization.canUploadMissionMedia("mission-id")).thenReturn(false);
         assertThat(service.authorizeOperator("mission-id").isCaptureAllowed()).isFalse();
     }

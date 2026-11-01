@@ -77,7 +77,7 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
         if (!hasRole(user, RoleCode.STAFF) || !user.getId().equals(staffId)) return false;
         return findRuntimeMissionById(missionId).filter(mission ->
                 mission.getStatus() == MissionStatus.READY
-                        || mission.getStatus() == MissionStatus.WAITING_OPERATOR_ACCEPTANCE)
+                        || mission.getStatus() == MissionStatus.READY)
                 .map(mission -> ownAssignments(mission.getId(), user).stream()
                         .anyMatch(entry -> entry.getResponseStatus() == MissionStaffAssignmentStatus.PENDING))
                 .orElse(false);
@@ -94,7 +94,7 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
         if (!hasRole(user, RoleCode.STAFF)) return false;
         return findRuntimeMissionById(missionId)
                 .filter(mission -> mission.getStatus() == MissionStatus.READY
-                        || mission.getStatus() == MissionStatus.WAITING_OPERATOR_ACCEPTANCE)
+                        || mission.getStatus() == MissionStatus.READY)
                 .map(mission -> {
                     List<MissionStaffAssignment> crew = assignments
                             .findAllByMissionIdAndIsCurrentTrue(mission.getId()).stream()

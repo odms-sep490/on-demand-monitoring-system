@@ -406,9 +406,9 @@ class MissionServiceTest {
         }
 
         @Test
-        @DisplayName("1. acceptMission success when WAITING_OPERATOR_ACCEPTANCE")
+        @DisplayName("1. acceptMission success when READY")
         void acceptMission_success() {
-            Mission mission = buildMission("m-1", MissionStatus.WAITING_OPERATOR_ACCEPTANCE);
+            Mission mission = buildMission("m-1", MissionStatus.READY);
             when(missionRepository.findById("m-1")).thenReturn(Optional.of(mission));
             MissionStaffAssignment assignment = staffAssignment(mission, "op-01", "PENDING");
             when(missionStaffAssignmentRepository.findAllByMissionIdAndStaffIdAndIsCurrentTrueOrderByAssignedAtDesc("m-1", "op-01"))
@@ -422,7 +422,7 @@ class MissionServiceTest {
 
             MissionResponse result = missionService.acceptMission("m-1", "op-01");
 
-            assertThat(result.getStatus()).isEqualTo(MissionStatus.WAITING_OPERATOR_ACCEPTANCE);
+            assertThat(result.getStatus()).isEqualTo(MissionStatus.READY);
             verify(missionStaffAssignmentRepository).saveAll(any());
         }
 
@@ -471,7 +471,7 @@ class MissionServiceTest {
         @Test
         @DisplayName("4. acceptMission rejects wrong staff before planning")
         void acceptMission_wrongOperator_doesNotPlan() {
-            Mission mission = buildMission("m-operator", MissionStatus.WAITING_OPERATOR_ACCEPTANCE);
+            Mission mission = buildMission("m-operator", MissionStatus.READY);
             when(missionRepository.findById("m-operator")).thenReturn(Optional.of(mission));
 
             assertThatThrownBy(() -> missionService.acceptMission("m-operator", "op-other"))
@@ -480,9 +480,9 @@ class MissionServiceTest {
         }
 
         @Test
-        @DisplayName("8. rejectMission success when WAITING_OPERATOR_ACCEPTANCE")
+        @DisplayName("8. rejectMission success when READY")
         void rejectMission_success() {
-            Mission mission = buildMission("m-2", MissionStatus.WAITING_OPERATOR_ACCEPTANCE);
+            Mission mission = buildMission("m-2", MissionStatus.READY);
             MissionStaffAssignment assignment = staffAssignment(mission, "op-01", "PENDING");
             when(missionStaffAssignmentRepository.findAllByMissionIdAndStaffIdAndIsCurrentTrueOrderByAssignedAtDesc("m-2", "op-01"))
                     .thenReturn(List.of(assignment));

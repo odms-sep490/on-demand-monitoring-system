@@ -2,6 +2,7 @@ package com.ondemandmonitoring.mission.domain;
 
 import com.ondemandmonitoring.common.entity.BaseEntity;
 import com.ondemandmonitoring.order.domain.Order;
+import com.ondemandmonitoring.mission.enums.FlightPermitStatus;
 import com.ondemandmonitoring.order.enums.ExecutionPlanStatus;
 import jakarta.persistence.*;
 import jakarta.validation.Validation;
@@ -34,6 +35,7 @@ class OrderMultiMissionFoundationTest {
     @Test void newMissionFieldsAreNullableForUnchangedRuntime() {
         var mission = new Mission();
         assertNull(mission.getReplacesMissionId());
+        assertEquals(FlightPermitStatus.PENDING, mission.getFlightPermitStatus());
     }
 
     @Test void executionAssignmentIsMandatoryAndExistingIdentityRemains() throws Exception {

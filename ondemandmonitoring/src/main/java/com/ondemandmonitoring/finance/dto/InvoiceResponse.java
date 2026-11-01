@@ -8,4 +8,5 @@ public record InvoiceResponse(String id, String invoiceNumber, String orderId, S
                               BigDecimal totalAmount, BigDecimal depositAmount,
                               BigDecimal paidAmount, BigDecimal remainingAmount,
                               InvoiceStatus status, Instant issuedAt,
-                              boolean finalPaymentAllowed) {}
+                              boolean finalPaymentAllowed, Instant depositExpiresAt,
+                              String orderCancellationReason) {}

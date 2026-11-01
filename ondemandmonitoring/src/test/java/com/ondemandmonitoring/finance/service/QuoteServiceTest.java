@@ -12,6 +12,7 @@ import com.ondemandmonitoring.finance.dto.QuoteDraftRequest;
 import com.ondemandmonitoring.finance.enums.*;
 import com.ondemandmonitoring.finance.repository.*;
 import com.ondemandmonitoring.finance.service.impl.QuoteService;
+import com.ondemandmonitoring.finance.service.impl.CommercialExpirationSettingsService;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.mission.service.IMissionChecklistExecutionService;
 import com.ondemandmonitoring.order.domain.*;
@@ -30,6 +31,7 @@ import com.ondemandmonitoring.pricing.repository.ChecklistPricingAuditRepository
 import com.ondemandmonitoring.pricing.service.PricingEngine;
 import java.math.BigDecimal;
 import java.util.*;
+import java.time.Clock;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -45,14 +47,17 @@ class QuoteServiceTest {
     PricingEngine pricingEngine = mock(PricingEngine.class);
     PricingPolicyRepository pricingPolicies = mock(PricingPolicyRepository.class);
     ChecklistPricingAuditRepository pricingAudits = mock(ChecklistPricingAuditRepository.class);
+    CommercialExpirationSettingsService expirationSettings = mock(CommercialExpirationSettingsService.class);
     IOrderReadinessService readiness = mock(IOrderReadinessService.class);
     QuoteService service;
     Order order;
 
     @BeforeEach void setUp() {
         service = new QuoteService(orders, items, mock(OrderChecklistItemMapper.class), quotes, invoices, missions,
-                executions, users, new PaymentProperties(new BigDecimal("0.30")), deliveries,
-                readiness, pricingEngine, pricingPolicies, pricingAudits);
+                executions, users, new PaymentProperties(new BigDecimal("0.30")), expirationSettings, deliveries,
+                readiness, pricingEngine, pricingPolicies, pricingAudits, Clock.systemUTC());
+        when(expirationSettings.current()).thenReturn(new com.ondemandmonitoring.finance.dto.CommercialExpirationSettingsResponse(
+                48, 24, "system", java.time.Instant.EPOCH));
         order = new Order(); order.setId("o1"); order.setLegalReviewStatus(com.ondemandmonitoring.order.enums.LegalReviewStatus.NOT_REQUIRED); order.setOrderStatus(OrderStatus.PENDING);
         var catalog = new com.ondemandmonitoring.service.domain.Service(); catalog.setName("Building inspection");
         order.setService(catalog);
@@ -174,6 +179,8 @@ class QuoteServiceTest {
     }
 
     @Test void approvalWritesAnAuditWithServerCalculatedDifferenceAndAction() {
+        when(expirationSettings.current()).thenReturn(new com.ondemandmonitoring.finance.dto.CommercialExpirationSettingsResponse(
+                72, 24, "admin", java.time.Instant.EPOCH));
         User manager = user("m1", "Manager A"); when(users.getCurrentUser()).thenReturn(manager);
         var custom = item("custom", ChecklistReviewStatus.ADDITIONAL);
         custom.setSourceType(OrderChecklistSourceType.CUSTOMER_CUSTOM);
@@ -188,6 +195,8 @@ class QuoteServiceTest {
         service.approve("o1", "q1");
 
         assertThat(custom.getPricingStatus()).isEqualTo(com.ondemandmonitoring.order.enums.ChecklistPricingStatus.ADJUSTED_AND_APPROVED);
+        assertThat(quote.getExpiresAt()).isAfter(quote.getApprovedAt());
+        assertThat(quote.getExpiresAt()).isEqualTo(quote.getApprovedAt().plus(java.time.Duration.ofHours(72)));
 
         @SuppressWarnings("unchecked")
         var captured = (List<ChecklistPricingAudit>) mockingDetails(pricingAudits).getInvocations().stream()
@@ -325,7 +334,53 @@ class QuoteServiceTest {
                 .isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.QUOTE_NOT_APPROVED);
     }
 
+    @Test void retrievingAnIssuedQuoteKeepsItsSavedDeadlineAfterTheConfiguredTimeoutChanges() {
+        User customer = new User(); customer.setId("u1"); order.setCustomer(customer);
+        order.setOrderStatus(OrderStatus.APPROVED);
+        when(users.getCurrentUser()).thenReturn(customer);
+        Quote quote = new Quote(); quote.setId("q1"); quote.setOrder(order); quote.setQuoteVersion(1);
+        quote.setChecklistRevision(1); quote.setStatus(QuoteStatus.APPROVED);
+        quote.setTotalAmount(new BigDecimal("1000"));
+        java.time.Instant savedDeadline = java.time.Instant.parse("2026-11-02T00:00:00Z");
+        quote.setExpiresAt(savedDeadline);
+        when(orders.findById("o1")).thenReturn(Optional.of(order));
+        when(quotes.findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc(eq("o1"), any()))
+                .thenReturn(Optional.of(quote));
+        when(expirationSettings.current()).thenReturn(new com.ondemandmonitoring.finance.dto.CommercialExpirationSettingsResponse(
+                24, 24, "admin", savedDeadline));
+
+        service.getCurrentForCustomer("o1");
+
+        assertThat(quote.getExpiresAt()).isEqualTo(savedDeadline);
+        verify(expirationSettings, never()).current();
+    }
+
+    @Test void anAlreadyAcceptedQuoteDoesNotMoveItsSavedDepositDeadlineWhenSettingsChange() {
+        User customer = new User(); customer.setId("u1"); order.setCustomer(customer);
+        order.setDepositExpiresAt(java.time.Instant.parse("2026-11-01T12:00:00Z"));
+        when(users.getCurrentUser()).thenReturn(customer);
+        Quote quote = new Quote(); quote.setId("q1"); quote.setOrder(order);
+        quote.setStatus(QuoteStatus.ACCEPTED_BY_CUSTOMER);
+        quote.setTotalAmount(new BigDecimal("1000"));
+        when(quotes.findByIdForUpdate("q1")).thenReturn(Optional.of(quote));
+        Invoice invoice = new Invoice(); invoice.setId("i1"); invoice.setInvoiceNumber("INV-1");
+        invoice.setQuote(quote); invoice.setOrder(order); invoice.setTotalAmount(new BigDecimal("1000"));
+        invoice.setDepositAmount(new BigDecimal("300")); invoice.setPaidAmount(BigDecimal.ZERO);
+        invoice.setRemainingAmount(new BigDecimal("1000"));
+        when(invoices.findByQuoteId("q1")).thenReturn(Optional.of(invoice));
+        when(expirationSettings.current()).thenReturn(new com.ondemandmonitoring.finance.dto.CommercialExpirationSettingsResponse(
+                48, 12, "admin", java.time.Instant.EPOCH));
+        var savedDeadline = order.getDepositExpiresAt();
+
+        service.accept("o1", "q1");
+
+        assertThat(order.getDepositExpiresAt()).isEqualTo(savedDeadline);
+        verify(expirationSettings, never()).current();
+    }
+
     @Test void acceptingApprovedQuoteCreatesThirtyPercentInvoiceWithoutImplicitMission() {
+        when(expirationSettings.current()).thenReturn(new com.ondemandmonitoring.finance.dto.CommercialExpirationSettingsResponse(
+                48, 12, "admin", java.time.Instant.EPOCH));
         order.setOrderStatus(OrderStatus.APPROVED);
         User customer = new User(); customer.setId("u1"); order.setCustomer(customer); when(users.getCurrentUser()).thenReturn(customer);
         var preferred = new com.ondemandmonitoring.warehouse.domain.PreferredTime();
@@ -344,8 +399,24 @@ class QuoteServiceTest {
         assertThat(result.depositAmount()).isEqualByComparingTo("2550000");
         assertThat(result.remainingAmount()).isEqualByComparingTo("8500000");
         assertThat(quote.getStatus()).isEqualTo(QuoteStatus.ACCEPTED_BY_CUSTOMER);
+        assertThat(order.getDepositExpiresAt()).isAfter(quote.getAcceptedAt());
+        assertThat(order.getDepositExpiresAt()).isEqualTo(quote.getAcceptedAt().plus(java.time.Duration.ofHours(12)));
         verify(missions, never()).save(any());
         verifyNoInteractions(executions);
+    }
+
+    @Test void customerCannotAcceptAtOrAfterTheServerDeadline() {
+        order.setOrderStatus(OrderStatus.APPROVED);
+        User customer = new User(); customer.setId("u1"); order.setCustomer(customer); when(users.getCurrentUser()).thenReturn(customer);
+        Quote quote = new Quote(); quote.setId("q1"); quote.setOrder(order); quote.setStatus(QuoteStatus.APPROVED);
+        quote.setExpiresAt(java.time.Instant.EPOCH);
+        when(quotes.findByIdForUpdate("q1")).thenReturn(Optional.of(quote));
+        when(quotes.findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc("o1", List.of(QuoteStatus.APPROVED)))
+                .thenReturn(Optional.of(quote));
+        assertThatThrownBy(() -> service.accept("o1", "q1"))
+                .isInstanceOf(ApiException.class).hasMessageContaining("expired");
+        assertThat(quote.getStatus()).isEqualTo(QuoteStatus.APPROVED);
+        verify(invoices, never()).save(any());
     }
 
     private void prepareGuidance(OrderChecklistItem item, Quote quote) {

@@ -32,7 +32,7 @@ public class PaymentWebhookProcessor implements IPaymentWebhookService {
     public PaymentWebhookResult process(VerifiedWebhook webhook) {
         String orderId = payments.findOrderIdByTransactionReference(webhook.transactionReference()).orElse(null);
         if (orderId == null) return PaymentWebhookResult.ORDER_NOT_FOUND;
-        orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        var order = orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
         Payment payment = payments.findByTransactionReferenceForUpdate(webhook.transactionReference()).orElse(null);
         if (payment == null || payment.getProvider() != PaymentProvider.VNPAY) {
             return PaymentWebhookResult.ORDER_NOT_FOUND;
@@ -42,6 +42,14 @@ public class PaymentWebhookProcessor implements IPaymentWebhookService {
             return PaymentWebhookResult.INVALID_AMOUNT;
         }
         if (payment.getStatus() == PaymentStatus.SUCCESS) return PaymentWebhookResult.ALREADY_CONFIRMED;
+        if (payment.getStatus() == PaymentStatus.REQUIRES_REVIEW) return PaymentWebhookResult.ALREADY_CONFIRMED;
+        if (webhook.successful() && order.getOrderStatus() == com.ondemandmonitoring.order.enums.OrderStatus.CANCELLED) {
+            payment.setStatus(PaymentStatus.REQUIRES_REVIEW);
+            payment.setProviderTransactionId(webhook.providerTransactionId());
+            payment.setPaidAt(Instant.now());
+            payment.setFailureReason("Provider confirmed payment after order cancellation; manual refund/reconciliation required");
+            return PaymentWebhookResult.LATE_PAYMENT_RECORDED;
+        }
         if (payment.getStatus() == PaymentStatus.CANCELLED
                 || payment.getStatus() == PaymentStatus.REFUNDED
                 || payment.getStatus() == PaymentStatus.FAILED) {

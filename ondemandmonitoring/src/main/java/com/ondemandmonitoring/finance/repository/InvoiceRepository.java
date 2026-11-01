@@ -14,10 +14,21 @@ import java.util.List;
 public interface InvoiceRepository extends JpaRepository<Invoice, String> {
     Optional<Invoice> findByOrderId(String orderId);
     Optional<Invoice> findByQuoteId(String quoteId);
+    @Query("select i.order.id from Invoice i where i.id=:id")
+    Optional<String> findOrderIdById(@Param("id") String id);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select i from Invoice i where i.id=:id")
     Optional<Invoice> findByIdForUpdate(@Param("id") String id);
+
+    @Query("""
+            select i.id from Invoice i
+            where i.order.depositExpiresAt is not null and i.order.depositExpiresAt <= :now
+              and i.order.orderStatus='APPROVED' and i.status in ('ISSUED','PARTIALLY_PAID')
+            order by i.order.depositExpiresAt, i.id
+            """)
+    java.util.List<String> findExpiredDepositInvoiceIds(@Param("now") java.time.Instant now,
+            org.springframework.data.domain.Pageable pageable);
 
     @Query("""
             select count(i) from Invoice i

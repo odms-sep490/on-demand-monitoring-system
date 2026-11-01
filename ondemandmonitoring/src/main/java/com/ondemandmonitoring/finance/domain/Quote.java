@@ -20,6 +20,7 @@ import lombok.Setter;
         indexes = {
                 @Index(name = "ix_quotes_order_status", columnList = "order_id,status"),
                 @Index(name = "ix_quotes_status_updated", columnList = "status,updated_at"),
+                @Index(name = "ix_quotes_expiration_status", columnList = "expires_at,status"),
                 @Index(name = "ix_quotes_created", columnList = "created_at")})
 @Getter @Setter
 public class Quote extends BaseEntity {
@@ -83,6 +84,9 @@ public class Quote extends BaseEntity {
     private Instant approvedAt;
     @Column(name = "accepted_at")
     private Instant acceptedAt;
+    /** Fixed when the quote is issued. Null is the explicit legacy/no-auto-expiry policy. */
+    @Column(name = "expires_at")
+    private Instant expiresAt;
 
     @OneToMany(mappedBy = "quote", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("displayOrder ASC")

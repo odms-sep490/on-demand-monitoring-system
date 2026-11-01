@@ -66,7 +66,7 @@ public class ManagerDashboardService {
             EnumSet.of(MissionStatus.FAILED_PREFLIGHT, MissionStatus.FAILED);
     private static final Collection<MissionStatus> RESOURCE_PENDING = EnumSet.of(
             MissionStatus.PLANNING, MissionStatus.READY,
-            MissionStatus.WAITING_OPERATOR_ACCEPTANCE, MissionStatus.SCHEDULED);
+            MissionStatus.SCHEDULED);
     private static final Collection<MissionStatus> RECENT_ACTIVITY_MISSIONS = EnumSet.of(
             MissionStatus.SCHEDULED, MissionStatus.CONNECTED, MissionStatus.PREFLIGHT_CHECKING,
             MissionStatus.READY_TO_FLY, MissionStatus.FAILED_PREFLIGHT, MissionStatus.IN_FLIGHT,
@@ -99,7 +99,8 @@ public class ManagerDashboardService {
         Instant periodFrom = selected.from().atStartOfDay(BUSINESS_ZONE).toInstant();
         Instant periodTo = selected.to().plusDays(1).atStartOfDay(BUSINESS_ZONE).toInstant();
 
-        long pendingOrders = orders.countByOrderStatus(OrderStatus.PENDING);
+        long pendingOrders = orders.countByOrderStatus(OrderStatus.PENDING)
+                + orders.countByOrderStatus(OrderStatus.UNDER_REVIEW);
         long pendingPricing = checklistItems.countByPricingStatusAndSourceTypeIn(
                 ChecklistPricingStatus.NEEDS_MANAGER_REVIEW, CUSTOMER_ADDED);
         long waitingCustomer = quotes.countByStatus(QuoteStatus.APPROVED);
@@ -183,7 +184,9 @@ public class ManagerDashboardService {
                 .forEach(mission -> result.add(missionAction(mission, "HIGH", "RESOURCE_MISSING", "VIEW_MISSION")));
         invoices.findDepositPaymentIssues(PageRequest.of(0, PREVIEW_LIMIT))
                 .forEach(invoice -> result.add(paymentIssueAction(invoice)));
-        orders.findByOrderStatusOrderByCreatedAtAsc(OrderStatus.PENDING, PageRequest.of(0, PREVIEW_LIMIT))
+        orders.findByOrderStatusInOrderByCreatedAtAsc(
+                        List.of(OrderStatus.PENDING, OrderStatus.UNDER_REVIEW),
+                        PageRequest.of(0, PREVIEW_LIMIT))
                 .forEach(order -> result.add(orderAction(order)));
         orders.findQuoteReadyOrders(
                         List.of(OrderStatus.REJECTED, OrderStatus.CANCELLED, OrderStatus.COMPLETED),

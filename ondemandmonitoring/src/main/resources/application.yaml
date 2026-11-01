@@ -98,6 +98,9 @@ simulation:
 omss:
   payment:
     deposit-rate: ${OMSS_PAYMENT_DEPOSIT_RATE:0.30}
+    pending-payment-grace: ${OMSS_PENDING_PAYMENT_GRACE:30m}
+    expiration-batch-size: ${OMSS_EXPIRATION_BATCH_SIZE:100}
+    expiration-job-delay-ms: ${OMSS_EXPIRATION_JOB_DELAY_MS:60000}
 
 odms:
   result-retention:

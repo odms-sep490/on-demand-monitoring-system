@@ -36,7 +36,7 @@ public class Mission extends BaseEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "flight_permit_status", nullable = false, length = 30)
-    FlightPermitStatus flightPermitStatus = FlightPermitStatus.NOT_REQUESTED;
+    FlightPermitStatus flightPermitStatus = FlightPermitStatus.PENDING;
 
     @Column(name = "flight_permit_note", length = 1000)
     String flightPermitNote;

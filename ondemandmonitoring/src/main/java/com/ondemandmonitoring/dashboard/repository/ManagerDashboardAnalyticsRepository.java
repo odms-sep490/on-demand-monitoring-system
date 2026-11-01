@@ -73,7 +73,7 @@ public class ManagerDashboardAnalyticsRepository {
                 """
                 select case
                     when status in ('CREATED','WAITING_DEPOSIT','RESOURCE_ASSIGNING',
-                                    'WAITING_OPERATOR_ACCEPTANCE','PENDING_APPROVAL') then 'PLANNING'
+                                    'PENDING_APPROVAL') then 'PLANNING'
                     when status = 'READY' and resource_prepare_status = 'READY' then 'READY'
                     when status = 'READY' then 'PLANNING'
                     when status = 'SCHEDULED' then 'SCHEDULED'

@@ -204,7 +204,7 @@ public class MissionService implements IMissionService {
         Mission mission = missionRepository.findByIdWithOrder(missionId)
                 .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
         if (!Set.of(MissionStatus.PLANNING, MissionStatus.WAITING_DEPOSIT,
-                MissionStatus.WAITING_OPERATOR_ACCEPTANCE, MissionStatus.READY, MissionStatus.SCHEDULED)
+                MissionStatus.READY, MissionStatus.SCHEDULED)
                 .contains(mission.getStatus())) {
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
                     "Only a mission that has not entered preflight can be rescheduled");
@@ -379,6 +379,7 @@ public class MissionService implements IMissionService {
         Mission mission = new Mission();
         mission.setMissionCode(generateMissionCode());
         mission.setStatus(MissionStatus.PLANNING);
+        mission.setFlightPermitStatus(FlightPermitStatus.PENDING);
         mission.setOrder(order);
         mission.setScheduledStartAt(request.getScheduledStartAt()); mission.setScheduledEndAt(request.getScheduledEndAt());
         mission.setScopeLabel(scopeLabel);
@@ -1142,8 +1143,7 @@ public class MissionService implements IMissionService {
     }
 
     private void requireCrewConfirmationStatus(Mission mission) {
-        if (mission.getStatus() != MissionStatus.READY
-                && mission.getStatus() != MissionStatus.WAITING_OPERATOR_ACCEPTANCE) {
+        if (mission.getStatus() != MissionStatus.READY) {
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
                     "Mission must be waiting for crew confirmation, current: " + mission.getStatus());
         }

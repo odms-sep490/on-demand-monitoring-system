@@ -402,8 +402,9 @@ public class QuoteService implements IQuoteService {
         // Approval criteria: automatic checks + the manager's own answers.
         readiness.requireApprovable(orderId);
         Instant issuedAt = Instant.now(clock);
+        User approver = currentUser.getCurrentUser();
         quote.setStatus(QuoteStatus.APPROVED);
-        quote.setApprovedBy(currentUser.getCurrentUser());
+        quote.setApprovedBy(approver);
         quote.setApprovedAt(issuedAt);
         quote.setExpiresAt(issuedAt.plus(expirationSettings.current().quotationAcceptanceTimeout()));
         writeChecklistPricingAudits(quote, reviewed);
@@ -413,7 +414,7 @@ public class QuoteService implements IQuoteService {
             item.setPricingStatus(approved.compareTo(system) == 0
                     ? ChecklistPricingStatus.APPROVED : ChecklistPricingStatus.ADJUSTED_AND_APPROVED);
         });
-        if (order.getOrderStatus() == OrderStatus.PENDING) order.setOrderStatus(OrderStatus.APPROVED);
+        markOrderApprovedAfterQuote(order, approver, issuedAt);
         return FinanceMapper.quote(quote);
     }
 
@@ -431,7 +432,8 @@ public class QuoteService implements IQuoteService {
         if (quote.getAdjustmentRequestedBy() != null
                 && Objects.equals(quote.getAdjustmentRequestedBy().getId(), approver.getId()))
             throw new ApiException(ErrorCode.PRICING_SELF_APPROVAL_NOT_ALLOWED);
-        quote.setPricingApprovedBy(approver); quote.setPricingApprovedAt(Instant.now());
+        Instant reviewedAt = Instant.now(clock);
+        quote.setPricingApprovedBy(approver); quote.setPricingApprovedAt(reviewedAt);
         quote.setPricingApprovalNote(trimToNull(request.note()));
         if (!request.approved()) {
             quote.setPricingApprovalStatus(PricingApprovalStatus.REJECTED);
@@ -441,11 +443,20 @@ public class QuoteService implements IQuoteService {
         requireGuidanceSnapshot(order, quote, checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId));
         readiness.requireApprovable(orderId);
         quote.setPricingApprovalStatus(PricingApprovalStatus.APPROVED);
-        Instant issuedAt = Instant.now(clock);
+        Instant issuedAt = reviewedAt;
         quote.setStatus(QuoteStatus.APPROVED); quote.setApprovedBy(approver); quote.setApprovedAt(issuedAt);
         quote.setExpiresAt(issuedAt.plus(expirationSettings.current().quotationAcceptanceTimeout()));
-        if (order.getOrderStatus() == OrderStatus.PENDING) order.setOrderStatus(OrderStatus.APPROVED);
+        markOrderApprovedAfterQuote(order, approver, issuedAt);
         return FinanceMapper.quote(quote);
+    }
+
+    private void markOrderApprovedAfterQuote(Order order, User approver, Instant approvedAt) {
+        OrderStatus status = order.getOrderStatus();
+        if (status != OrderStatus.PENDING && status != OrderStatus.UNDER_REVIEW) return;
+
+        order.setOrderStatus(OrderStatus.APPROVED);
+        order.setReviewBy(approver);
+        order.setReviewAt(approvedAt);
     }
 
     @Transactional(readOnly = true)

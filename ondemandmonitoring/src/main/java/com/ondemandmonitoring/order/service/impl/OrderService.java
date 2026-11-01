@@ -715,9 +715,16 @@ public class OrderService implements IOrderService {
             applyPublishedGuidance(response, publishedGuidance.get(order.getId()));
             checklistSnapshots.enrichOrderResponse(order, response, false);
             if (order.getOrderStatus() == OrderStatus.APPROVED) {
-                response.setDepositSatisfied(invoiceRepository.findByOrderId(order.getId())
-                        .map(invoice -> invoice.getPaidAmount().compareTo(invoice.getDepositAmount()) >= 0)
-                        .orElse(false));
+                invoiceRepository.findByOrderId(order.getId()).ifPresentOrElse(invoice -> {
+                    response.setDepositSatisfied(
+                            invoice.getPaidAmount().compareTo(invoice.getDepositAmount()) >= 0);
+                    response.setInvoicePaidInFull(invoice.getStatus()
+                            == com.ondemandmonitoring.finance.enums.InvoiceStatus.PAID
+                            && invoice.getRemainingAmount().signum() == 0);
+                }, () -> {
+                    response.setDepositSatisfied(false);
+                    response.setInvoicePaidInFull(false);
+                });
             }
             return response;
         }).toList();

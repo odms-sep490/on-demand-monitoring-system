@@ -39,6 +39,7 @@ class AdditionalMissionCreationTest {
         order = new Order(); order.setId("o"); order.setOrderStatus(OrderStatus.APPROVED);
         order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED);
         when(orders.findById("o")).thenReturn(Optional.of(order));
+        when(orders.findByIdForUpdate("o")).thenReturn(Optional.of(order));
         request = new MissionCreateRequest(); request.setScopeLabel("Additional scope");
         request.setScheduledStartAt(Instant.parse("2026-11-01T01:00:00Z"));
         request.setScheduledEndAt(Instant.parse("2026-11-01T02:00:00Z")); request.setChecklistIds(List.of("i"));

@@ -6,13 +6,23 @@ import java.time.Instant;
 public record CommercialExpirationSettingsResponse(
         int quotationAcceptanceTimeoutHours,
         int depositPaymentTimeoutHours,
+        int finalPaymentTimeoutHours,
         String updatedBy,
         Instant updatedAt) {
+    public CommercialExpirationSettingsResponse(int quotationAcceptanceTimeoutHours,
+            int depositPaymentTimeoutHours, String updatedBy, Instant updatedAt) {
+        this(quotationAcceptanceTimeoutHours, depositPaymentTimeoutHours, 24, updatedBy, updatedAt);
+    }
+
     public Duration quotationAcceptanceTimeout() {
         return Duration.ofHours(quotationAcceptanceTimeoutHours);
     }
 
     public Duration depositPaymentTimeout() {
         return Duration.ofHours(depositPaymentTimeoutHours);
+    }
+
+    public Duration finalPaymentTimeout() {
+        return Duration.ofHours(finalPaymentTimeoutHours);
     }
 }

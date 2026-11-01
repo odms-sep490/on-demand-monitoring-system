@@ -77,7 +77,7 @@ class VnPayPaymentGatewayTest {
         VnPayPaymentGateway queryGateway = new VnPayPaymentGateway(properties, signer, restTemplate);
         String signedData = String.join("|", "response-1", "querydr", "00", "Success", "TESTCODE",
                 "123456", "30000000", "NCB", "20261007090000", "14587452", "01", "00",
-                "Query transaction 123456", "", "");
+                "Query transaction 123456");
         String body = """
                 {"vnp_ResponseId":"response-1","vnp_Command":"querydr","vnp_ResponseCode":"00",
                 "vnp_Message":"Success","vnp_TmnCode":"TESTCODE","vnp_TxnRef":"123456",

@@ -103,6 +103,8 @@ public class OrderCreateResponse {
     LegalReviewStatus legalReviewStatus;
     /** Customer-facing payment milestone for approved orders; null before approval. */
     Boolean depositSatisfied;
+    /** True when the order invoice has been paid in full. */
+    Boolean invoicePaidInFull;
     String flightAreaReviewReason;
     String flightAreaReviewNote;
     Boolean requestedScopeFeasible;

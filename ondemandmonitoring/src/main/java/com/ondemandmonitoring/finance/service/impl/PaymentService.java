@@ -18,10 +18,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
+import lombok.extern.slf4j.Slf4j;
 
 /** Orchestrates payment use cases without containing provider checksum details. */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class PaymentService implements IPaymentService {
     private final IPaymentPersistenceService persistence;
     private final IPaymentWebhookService webhookProcessor;
@@ -89,6 +91,15 @@ public class PaymentService implements IPaymentService {
             // QueryDR can briefly return "transaction not found" while VNPAY is
             // propagating a fresh payment. Keep PENDING so bounded polling can retry.
             return current;
+        } catch (ApiException exception) {
+            if (exception.getErrorCode() == ErrorCode.PAYMENT_WEBHOOK_INVALID) {
+                // Never treat an unverified QueryDR response as a payment failure or success.
+                // The verified IPN can still settle the payment, and the customer may retry.
+                log.warn("Rejected an unverified VNPAY QueryDR response for transaction {}; payment remains pending",
+                        transactionReference);
+                return current;
+            }
+            throw exception;
         }
         if (verified.successful() || isTerminalFailure(verified.transactionStatus())) {
             webhookProcessor.process(verified);
@@ -102,8 +113,16 @@ public class PaymentService implements IPaymentService {
         return webhookProcessor.process(verified);
     }
 
-    public VerifiedWebhook verifyVnPayReturn(Map<String, String> payload) {
-        return gateway.verifyWebhook(payload);
+    /**
+     * Verifies VNPAY's signed browser return. In non-production profiles this
+     * also settles the payment, since local development cannot receive VNPAY IPN.
+     */
+    public VerifiedWebhook processVerifiedVnPayReturn(Map<String, String> payload) {
+        VerifiedWebhook verified = gateway.verifyWebhook(payload);
+        if (environment.acceptsProfiles(Profiles.of("!prod"))) {
+            webhookProcessor.process(verified);
+        }
+        return verified;
     }
 
     private PaymentResponse create(String invoiceId, PaymentType type, String clientIp) {

@@ -28,5 +28,5 @@ public interface IPaymentService {
     int refreshOrderPayments(String orderId, String requestIp);
     List<PaymentResponse> list(String invoiceId);
     PaymentWebhookResult processVnPayWebhook(Map<String, String> payload);
-    VerifiedWebhook verifyVnPayReturn(Map<String, String> payload);
+    VerifiedWebhook processVerifiedVnPayReturn(Map<String, String> payload);
 }

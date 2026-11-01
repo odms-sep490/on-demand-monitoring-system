@@ -35,6 +35,8 @@ public interface PaymentRepository extends JpaRepository<Payment, String> {
     Optional<String> findOrderIdByTransactionReference(@Param("reference") String reference);
     boolean existsByTransactionReference(String reference);
     boolean existsByPaymentCode(Long paymentCode);
+    boolean existsByInvoiceIdAndPaymentTypeAndStatus(
+            String invoiceId, PaymentType paymentType, PaymentStatus status);
 
     @Query("select coalesce(sum(p.amount), 0) from Payment p where p.invoice.id=:invoiceId and p.status='SUCCESS' and p.paymentType<>'REFUND'")
     BigDecimal sumSuccessfulPayments(@Param("invoiceId") String invoiceId);

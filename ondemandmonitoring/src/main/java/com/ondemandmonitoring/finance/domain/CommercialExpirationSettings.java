@@ -10,7 +10,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/** Singleton values used only when a new quote or deposit deadline is assigned. */
+/** Singleton values used only when a new commercial deadline is assigned. */
 @Entity
 @Table(name = "commercial_expiration_settings")
 @Getter
@@ -28,6 +28,9 @@ public class CommercialExpirationSettings {
 
     @Column(name = "deposit_payment_timeout_hours", nullable = false)
     private int depositPaymentTimeoutHours = 24;
+
+    @Column(name = "final_payment_timeout_hours", nullable = false)
+    private int finalPaymentTimeoutHours = 24;
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.EPOCH;

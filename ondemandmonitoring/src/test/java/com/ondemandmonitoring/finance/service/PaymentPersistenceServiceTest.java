@@ -26,10 +26,14 @@ class PaymentPersistenceServiceTest {
     PaymentRepository payments = mock(PaymentRepository.class);
     AuthenticatedUserResolver users = mock(AuthenticatedUserResolver.class);
     PaymentReferenceGenerator references = mock(PaymentReferenceGenerator.class);
-    IDeliveryWorkflowService delivery = mock(IDeliveryWorkflowService.class);
+    com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService eligibility =
+            mock(com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService.class);
+    com.ondemandmonitoring.finance.service.impl.FinalPaymentDeadlineService finalPaymentDeadlines =
+            mock(com.ondemandmonitoring.finance.service.impl.FinalPaymentDeadlineService.class);
     com.ondemandmonitoring.order.repository.OrderRepository orders = mock(com.ondemandmonitoring.order.repository.OrderRepository.class);
     PaymentPersistenceService service = new PaymentPersistenceService(invoices, payments, users,
-            new MissionPaymentEligibilityService(), references, delivery, orders, java.time.Clock.systemUTC());
+            eligibility, finalPaymentDeadlines,
+            references, orders, java.time.Clock.systemUTC());
     Invoice invoice; User owner;
 
     @BeforeEach void setUp() {
@@ -42,6 +46,9 @@ class PaymentPersistenceServiceTest {
         when(invoices.findOrderIdById("i1")).thenReturn(Optional.of("o1"));
         when(orders.findByIdForUpdate("o1")).thenReturn(Optional.of(order));
         when(users.getCurrentUserId()).thenReturn("owner");
+        when(eligibility.isDepositSatisfied(invoice)).thenReturn(true);
+        when(finalPaymentDeadlines.assignIfEligible(invoice))
+                .thenReturn(java.time.Instant.now().plus(java.time.Duration.ofHours(24)));
         when(payments.findFirstByInvoiceIdAndPaymentTypeAndProviderAndStatusInOrderByCreatedAtDesc(
                 eq("i1"), any(), eq(PaymentProvider.VNPAY), any()))
                 .thenReturn(Optional.empty());
@@ -50,6 +57,7 @@ class PaymentPersistenceServiceTest {
     }
 
     @Test void depositAmountComesFromInvoice() {
+        when(eligibility.isDepositSatisfied(invoice)).thenReturn(false);
         PreparedPayment prepared = service.prepare("i1", PaymentType.DEPOSIT);
         assertThat(prepared.amount()).isEqualByComparingTo("300");
         verify(payments).saveAndFlush(argThat(payment -> payment.getAmount().compareTo(new BigDecimal("300")) == 0));
@@ -70,7 +78,7 @@ class PaymentPersistenceServiceTest {
         verify(payments, never()).saveAndFlush(any());
     }
 
-    @Test void finalPaymentUsesRemainingAmountAfterMissionCompletion() {
+    @Test void finalPaymentUsesRemainingAmountAfterResourceAssignmentEligibility() {
         invoice.setPaidAmount(new BigDecimal("300")); invoice.setRemainingAmount(new BigDecimal("700"));
         PreparedPayment prepared = service.prepare("i1", PaymentType.FINAL_PAYMENT);
         assertThat(prepared.amount()).isEqualByComparingTo("700");
@@ -80,12 +88,12 @@ class PaymentPersistenceServiceTest {
         when(users.getCurrentUserId()).thenReturn("intruder");
         assertThatThrownBy(() -> service.prepare("i1", PaymentType.FINAL_PAYMENT)).isInstanceOf(ApiException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.ACCESS_DENIED);
-        verifyNoInteractions(delivery);
+        verifyNoInteractions(eligibility);
         verify(payments, never()).saveAndFlush(any());
     }
 
-    @Test void finalPaymentIsBlockedBeforeMissionCompletion() {
-        doThrow(new ApiException(ErrorCode.FINAL_PAYMENT_NOT_ALLOWED)).when(delivery).requireFinalPaymentEligible("o1");
+    @Test void finalPaymentIsBlockedBeforeResourceAssignmentsAreReady() {
+        doThrow(new ApiException(ErrorCode.FINAL_PAYMENT_NOT_ALLOWED)).when(eligibility).requireFinalPaymentEligible(invoice);
         assertThatThrownBy(() -> service.prepare("i1", PaymentType.FINAL_PAYMENT)).isInstanceOf(ApiException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.FINAL_PAYMENT_NOT_ALLOWED);
     }

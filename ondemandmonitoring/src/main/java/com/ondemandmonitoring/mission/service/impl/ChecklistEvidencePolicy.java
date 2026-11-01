@@ -42,6 +42,7 @@ public class ChecklistEvidencePolicy {
     }
 
     public String ineligibilityReason(MediaAsset media, boolean finalApproval) {
+        if (media.getStorageStatus() != com.ondemandmonitoring.media.enums.MediaStorageStatus.AVAILABLE) return "MEDIA_NOT_VALIDATED";
         if (!isEligibleSource(media)) return "EVIDENCE_SOURCE_NOT_ELIGIBLE";
         if (!Set.of("IMAGE", "VIDEO").contains(media.getType() == null ? "" : media.getType())) return "EVIDENCE_TYPE_NOT_ELIGIBLE";
         if (media.getMediaStatus() == MediaStatus.REJECTED) return "MEDIA_REJECTED";
@@ -53,6 +54,7 @@ public class ChecklistEvidencePolicy {
     }
     public boolean attachable(MediaAsset media) {
         return isEligibleSource(media)
+                && media.getStorageStatus() == com.ondemandmonitoring.media.enums.MediaStorageStatus.AVAILABLE
                 && Set.of("IMAGE", "VIDEO").contains(media.getType() == null ? "" : media.getType())
                 && media.getMediaStatus() != null && media.getMediaStatus() != MediaStatus.REJECTED;
     }

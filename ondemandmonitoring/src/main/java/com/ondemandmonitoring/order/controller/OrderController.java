@@ -1,44 +1,56 @@
 package com.ondemandmonitoring.order.controller;
 
 import com.ondemandmonitoring.common.api.ApiResponse;
-import com.ondemandmonitoring.order.dto.request.OrderCreateRequest;
-import com.ondemandmonitoring.order.dto.request.OrderAdditionalInformationRequest;
+import com.ondemandmonitoring.common.exception.ApiException;
+import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.order.dto.request.FlightAreaReviewRequest;
 import com.ondemandmonitoring.order.dto.request.LegalReviewResolutionRequest;
+import com.ondemandmonitoring.order.dto.request.OrderAdditionalInformationRequest;
+import com.ondemandmonitoring.order.dto.request.OrderChecklistUpdateRequest;
+import com.ondemandmonitoring.order.dto.request.OrderCreateRequest;
+import com.ondemandmonitoring.order.dto.request.OrderCustomerUpdateRequest;
 import com.ondemandmonitoring.order.dto.request.PermitCancellationProposalRequest;
 import com.ondemandmonitoring.order.dto.response.OrderCreateResponse;
 import com.ondemandmonitoring.order.enums.OrderStatus;
+import com.ondemandmonitoring.order.service.IOrderChecklistUpdateService;
 import com.ondemandmonitoring.order.service.IOrderService;
-import com.ondemandmonitoring.common.exception.ApiException;
-import com.ondemandmonitoring.common.exception.ErrorCode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import lombok.AccessLevel;
-import lombok.RequiredArgsConstructor;
-import lombok.experimental.FieldDefaults;
+import java.util.List;
+import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PatchMapping;
-
-import java.util.List;
 
 @Tag(name = "Order Management", description = "APIs for creating and managing monitoring orders")
 @RestController
 @RequestMapping("/api/orders")
-@RequiredArgsConstructor
-@FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class OrderController {
 
-    IOrderService orderService;
+    private final IOrderService orderService;
+    private final IOrderChecklistUpdateService checklistUpdateService;
+
+    @Autowired
+    public OrderController(IOrderService orderService,
+            @Autowired(required = false) IOrderChecklistUpdateService checklistUpdateService) {
+        this.orderService = orderService;
+        this.checklistUpdateService = checklistUpdateService;
+    }
+
+    public OrderController(IOrderService orderService) {
+        this(orderService, null);
+    }
 
     @Operation(summary = "Create a new order", description = "Creates a new monitoring order after validating customer login, service existence, preferred time existence, media attributes, and location point inside zone polygon")
     @PreAuthorize("hasRole('CUSTOMER')")
@@ -49,6 +61,19 @@ public class OrderController {
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(ApiResponse.created("Order created successfully", response));
+    }
+
+    @Operation(summary = "Update order checklist", description = "Customer updates the order checklist before quote acceptance")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    @PutMapping("/{orderId}/checklist")
+    public ResponseEntity<ApiResponse<OrderCreateResponse>> updateOrderChecklist(
+            @PathVariable String orderId,
+            @Valid @RequestBody OrderChecklistUpdateRequest request) {
+        if (checklistUpdateService == null) {
+            throw new ApiException(ErrorCode.INTERNAL_SERVER_ERROR, "Checklist update service unavailable");
+        }
+        return ResponseEntity.ok(ApiResponse.ok("Order checklist updated successfully",
+                checklistUpdateService.updateChecklist(orderId, request)));
     }
 
     @Operation(summary = "Get my orders", description = "Customer views their own monitoring orders")
@@ -118,7 +143,7 @@ public class OrderController {
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<Void>> submitApproval(
             @PathVariable String orderId,
-            @RequestBody java.util.Map<String, String> body) {
+            @RequestBody Map<String, String> body) {
         String decision = body != null ? body.get("decision") : null;
         String reason = body != null ? body.get("reason") : null;
         String requestedUpdateScope = body != null ? body.get("requestedUpdateScope") : null;
@@ -153,7 +178,7 @@ public class OrderController {
     @PreAuthorize("hasRole('CUSTOMER')")
     public ResponseEntity<ApiResponse<OrderCreateResponse>> updateCustomerOrder(
             @PathVariable String orderId,
-            @Valid @RequestBody com.ondemandmonitoring.order.dto.request.OrderCustomerUpdateRequest request) {
+            @Valid @RequestBody OrderCustomerUpdateRequest request) {
         return ResponseEntity.ok(ApiResponse.ok("Order updated successfully",
                 orderService.updateCustomerOrder(orderId, request)));
     }
@@ -161,22 +186,22 @@ public class OrderController {
     @Operation(summary = "Get pending orders", description = "Manager views pending orders")
     @GetMapping("/pending")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
-    public ResponseEntity<ApiResponse<java.util.List<OrderCreateResponse>>> getPendingOrders() {
+    public ResponseEntity<ApiResponse<List<OrderCreateResponse>>> getPendingOrders() {
         return ResponseEntity.ok(ApiResponse.ok("Pending orders retrieved", orderService.getPendingOrders()));
     }
 
     @Operation(summary = "List all orders", description = "Manager views every order, newest first, optionally filtered by status")
     @GetMapping("/managed")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
-    public ResponseEntity<ApiResponse<java.util.List<OrderCreateResponse>>> getManagedOrders(
-            @org.springframework.web.bind.annotation.RequestParam(required = false) com.ondemandmonitoring.order.enums.OrderStatus status) {
+    public ResponseEntity<ApiResponse<List<OrderCreateResponse>>> getManagedOrders(
+            @RequestParam(required = false) OrderStatus status) {
         return ResponseEntity.ok(ApiResponse.ok("Orders retrieved", orderService.getManagedOrders(status)));
     }
 
     @Operation(summary = "Get approved orders", description = "Staff views approved orders that can be scheduled into missions")
     @GetMapping("/approved")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
-    public ResponseEntity<ApiResponse<java.util.List<OrderCreateResponse>>> getApprovedOrders() {
+    public ResponseEntity<ApiResponse<List<OrderCreateResponse>>> getApprovedOrders() {
         return ResponseEntity.ok(ApiResponse.ok("Approved orders retrieved", orderService.getApprovedOrders()));
     }
 }

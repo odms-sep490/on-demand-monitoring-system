@@ -15,7 +15,8 @@ import static org.mockito.Mockito.*;
 class MissionChecklistMaterializationTest {
     MissionChecklistAssignmentRepository assignments=mock(MissionChecklistAssignmentRepository.class);
     MissionChecklistExecutionRepository executions=mock(MissionChecklistExecutionRepository.class);
-    MissionChecklistMaterializationServiceImpl materializer=new MissionChecklistMaterializationServiceImpl(assignments,executions);
+    com.ondemandmonitoring.finance.service.IAcceptedChecklistGuidanceService acceptedGuidance=mock(com.ondemandmonitoring.finance.service.IAcceptedChecklistGuidanceService.class);
+    MissionChecklistMaterializationServiceImpl materializer=new MissionChecklistMaterializationServiceImpl(assignments,executions,acceptedGuidance);
     MissionChecklistScopeServiceImpl scope=new MissionChecklistScopeServiceImpl(assignments,executions);
     Mission mission; MissionChecklistExecution execution; MissionChecklistAssignment assignment;
     @BeforeEach void setup() {
@@ -32,6 +33,29 @@ class MissionChecklistMaterializationTest {
         execution.setUnableToVerifyReason("Preserve"); materializer.materialize(mission);
         verify(executions).saveAllAndFlush(argThat(rows->!rows.iterator().hasNext()));
         assertEquals("e",execution.getId()); assertEquals(7L,execution.getVersion()); assertEquals("Preserve",execution.getUnableToVerifyReason());
+    }
+    @Test void acceptedSnapshotMissingCustomItemBlocksMaterializationBeforeWrites() {
+        assignment.getOrderChecklistItem().setSourceType(com.ondemandmonitoring.order.enums.OrderChecklistSourceType.CUSTOMER_CUSTOM);
+        when(acceptedGuidance.findForOrder("o")).thenReturn(new com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot(1,List.of()));
+        invalidMaterialize();
+        verify(acceptedGuidance,times(1)).findForOrder("o");
+    }
+    @Test void legacyAcceptedQuoteAllowsCustomMaterialization() {
+        assignment.getOrderChecklistItem().setSourceType(com.ondemandmonitoring.order.enums.OrderChecklistSourceType.CUSTOMER_CUSTOM);
+        materializer.materialize(mission);
+        verify(executions).saveAllAndFlush(any());
+        verify(acceptedGuidance,times(1)).findForOrder("o");
+    }
+    @Test void acceptedCustomSnapshotAllowsCreationWithoutConsultingMutableDraft() {
+        var item=assignment.getOrderChecklistItem();
+        item.setSourceType(com.ondemandmonitoring.order.enums.OrderChecklistSourceType.CUSTOMER_CUSTOM);
+        item.setGuidanceVersion(99);
+        when(acceptedGuidance.findForOrder("o")).thenReturn(new com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot(1,List.of(
+                new com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot.Item("i",1,2,"Accepted",List.of("Step"),List.of("Input"),List.of("Output")))));
+        when(executions.findOrderedByMissionId("m")).thenReturn(List.of());
+        materializer.materialize(mission);
+        verify(executions).saveAllAndFlush(argThat(rows->rows.iterator().hasNext()));
+        verify(acceptedGuidance,times(1)).findForOrder("o");
     }
     @Test void createsOnlyMissingAssignmentUsingDefaultsAndHistoricalReference() {
         when(executions.findOrderedByMissionId("m")).thenReturn(List.of()); materializer.materialize(mission);

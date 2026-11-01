@@ -221,19 +221,6 @@ public class UploadFailureEventServiceImpl implements IUploadFailureEventService
         return accepted(event);
     }
 
-    private UploadFailureAckResponse alreadyRecorded(String eventKey, ReportUploadFailureRequest request) {
-        UploadFailureEvent existing = events.findByEventKey(eventKey).orElse(null);
-        return UploadFailureAckResponse.builder()
-                .durablyAccepted(true)
-                .duplicate(true)
-                // Still unprocessed means the Backend owns it and will retry; the client may delete.
-                .retryLater(existing == null || existing.getProcessedAt() == null)
-                .eventKey(eventKey)
-                .mediaId(existing != null ? existing.getMediaId() : request.getMediaId())
-                .category(existing != null ? existing.getCategory() : null)
-                .build();
-    }
-
     private UploadFailureAckResponse accepted(UploadFailureEvent event) {
         return acceptedWithStatus(event, null);
     }

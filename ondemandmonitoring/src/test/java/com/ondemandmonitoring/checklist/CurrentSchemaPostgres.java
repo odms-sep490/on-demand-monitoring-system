@@ -13,11 +13,7 @@ final class CurrentSchemaPostgres {
     static String sql(String filename, String schema) {
         if (!schema.matches("checklist_verify_[a-f0-9]{32}"))
             throw new IllegalArgumentException("Unsafe verification schema");
-        if (!filename.equals("bootstrap_after_hibernate.sql") && !filename.equals("verify_current_schema.sql")
-                && !filename.equals("add_checklist_evidence_requirements_v2.sql")
-                && !filename.equals("add_flexible_checklist_pricing.sql")
-                && !filename.equals("add_media_upload_failure_events.sql")
-                && !filename.equals("normalize_media_upload_failure_string_ids.sql"))
+        if (!filename.equals("bootstrap_after_hibernate.sql") && !filename.equals("verify_current_schema.sql"))
             throw new IllegalArgumentException("Only current schema resources are allowed");
         try {
             return new ClassPathResource("seeddata/migrations/" + filename)
@@ -33,23 +29,7 @@ final class CurrentSchemaPostgres {
         new JdbcTemplate(dataSource).execute(sql("bootstrap_after_hibernate.sql", schema));
     }
 
-    static void migrateEvidenceRequirementsV2(DataSource dataSource, String schema) {
-        new JdbcTemplate(dataSource).execute(sql("add_checklist_evidence_requirements_v2.sql", schema));
-    }
-
-    static void migrateFlexibleChecklistPricing(DataSource dataSource, String schema) {
-        new JdbcTemplate(dataSource).execute(sql("add_flexible_checklist_pricing.sql", schema));
-    }
-
     static void verify(DataSource dataSource, String schema) {
         new JdbcTemplate(dataSource).execute(sql("verify_current_schema.sql", schema));
-    }
-
-    static void migrationInCurrentTransaction(DataSource dataSource, String schema, String filename) {
-        if (!org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
-            throw new IllegalStateException("Historical schema rehearsal requires a rollback-only test transaction");
-        }
-        // The test owns the transaction, so the script must not commit the temporary historical schema.
-        new JdbcTemplate(dataSource).execute(sql(filename, schema).replace("BEGIN;", "").replace("COMMIT;", ""));
     }
 }

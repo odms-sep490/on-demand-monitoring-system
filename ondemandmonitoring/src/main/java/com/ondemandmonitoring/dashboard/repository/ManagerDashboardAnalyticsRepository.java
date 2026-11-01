@@ -47,8 +47,8 @@ public class ManagerDashboardAnalyticsRepository {
 
     public List<ManagerDashboardResponse.DistributionPoint> additionalServices(Instant from, Instant to) {
         return rows("""
-                select pricing_status, count(*) from order_checklist_items
-                where created_at >= :from and created_at < :to
+                select pricing_status, count(*) from order_checklist_items i join orders o on o.id = i.order_id
+                where i.created_at >= :from and i.created_at < :to and i.checklist_revision = o.checklist_revision
                   and source_type in ('CUSTOMER_SELECTED','CUSTOMER_CUSTOM')
                 group by pricing_status order by count(*) desc
                 """, from, to, null).stream().map(r -> new ManagerDashboardResponse.DistributionPoint(
@@ -59,8 +59,8 @@ public class ManagerDashboardAnalyticsRepository {
         Object[] r = rows("""
                 select count(*) filter (where pricing_status='APPROVED'),
                        count(*) filter (where pricing_status='ADJUSTED_AND_APPROVED')
-                from order_checklist_items
-                where created_at >= :from and created_at < :to
+                from order_checklist_items i join orders o on o.id = i.order_id
+                where i.created_at >= :from and i.created_at < :to and i.checklist_revision = o.checklist_revision
                   and source_type in ('CUSTOMER_SELECTED','CUSTOMER_CUSTOM')
                 """, from, to, null).getFirst();
         return new ManagerDashboardResponse.PriceAdjustmentSummary(

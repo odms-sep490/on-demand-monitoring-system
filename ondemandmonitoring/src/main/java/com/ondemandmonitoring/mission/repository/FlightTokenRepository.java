@@ -10,8 +10,6 @@ public interface FlightTokenRepository extends JpaRepository<FlightToken, String
 
     List<FlightToken> findByMissionId(String missionId);
 
-    Optional<FlightToken> findByMissionIdAndUsedFalseAndRevokedFalse(String missionId);
-
     List<FlightToken> findAllByMissionIdAndUsedFalseAndRevokedFalseOrderByIssuedAtDesc(String missionId);
 
     Optional<FlightToken> findByTokenValue(String tokenValue);

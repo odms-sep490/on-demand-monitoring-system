@@ -3,6 +3,9 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -10,6 +13,44 @@ from media_review import LocalMediaLibrary
 
 
 class LocalMediaLibraryTest(unittest.TestCase):
+    def test_rebind_and_duplicate_request_keep_one_transfer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            library = LocalMediaLibrary(Path(directory), "mission-1", "DRONE-01")
+            saved = library.capture_image(b"\xff\xd8\xfftest-jpeg")
+            started, release = Event(), Event()
+            def put(*_args):
+                started.set()
+                self.assertTrue(release.wait(3))
+            plan = {"mediaId": "media-1", "attemptId": "attempt-1",
+                    "uploadMethod": "PUT", "uploadUrl": "https://example.s3.amazonaws.com/file"}
+            with patch.object(library, "_put", side_effect=put) as upload:
+                with ThreadPoolExecutor(max_workers=2) as workers:
+                    first = workers.submit(library.transfer, saved["localMediaId"], plan)
+                    self.assertTrue(started.wait(3))
+                    with self.assertRaisesRegex(ValueError, "during upload"):
+                        library.discard(saved["localMediaId"])
+                    library.bind("mission-2", "DRONE-02")
+                    duplicate = workers.submit(library.transfer, saved["localMediaId"], plan)
+                    release.set()
+                    self.assertEqual({"parts": []}, first.result(timeout=3))
+                    self.assertEqual(first.result(), duplicate.result(timeout=3))
+                self.assertEqual(1, upload.call_count)
+            self.assertEqual("VALIDATING", library.get(saved["localMediaId"])["status"])
+            self.assertEqual("mission-1", library.get(saved["localMediaId"])["missionId"])
+            restarted = LocalMediaLibrary(Path(directory), "mission-2", "DRONE-02")
+            with patch.object(restarted, "_put") as upload:
+                self.assertEqual({"parts": []}, restarted.transfer(saved["localMediaId"], plan))
+                upload.assert_not_called()
+
+    def test_restart_recovers_abandoned_transfer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            library = LocalMediaLibrary(Path(directory), "mission-1", "DRONE-01")
+            saved = library.capture_image(b"\xff\xd8\xfftest-jpeg")
+            library.items[saved["localMediaId"]]["status"] = "UPLOADING"
+            library._persist()
+            restarted = LocalMediaLibrary(Path(directory), "mission-1", "DRONE-01")
+            self.assertEqual("UPLOAD_FAILED", restarted.get(saved["localMediaId"])["status"])
+
     def test_provenance_survives_restart_without_faking_legacy_source(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

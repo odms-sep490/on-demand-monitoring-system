@@ -24,7 +24,7 @@ public record ServicePricePreviewResponse(String serviceId, String serviceName, 
                 checklistSubtotal, total, complete, warnings, quotePending, addOns, 1);
     }
 
-    /** An order-level extra the customer asked for, priced by a policy rule (for example AI image analysis). */
+    /** An order-level extra the customer asked for, priced by a policy rule. */
     public record AddOn(String key, String description, BigDecimal amount) {}
 
 

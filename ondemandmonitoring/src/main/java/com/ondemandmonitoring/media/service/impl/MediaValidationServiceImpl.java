@@ -68,6 +68,14 @@ public class MediaValidationServiceImpl implements IMediaValidationService {
         }
 
         MediaUploadAttempt attempt = found.get();
+        if (captured.getStorageStatus() == MediaStorageStatus.DELETED
+                || captured.getStorageStatus() == MediaStorageStatus.DELETE_PENDING
+                || "ORPHAN_CLEANUP".equals(attempt.getFailureCode())) {
+            // A PUT started before expiry can arrive late. Never resurrect a removed object.
+            storage.delete(bucket, key);
+            recordEvent(eventKey, bucket, key);
+            return;
+        }
         // SQS and reconciliation can wait on the same row concurrently.
         if (inbox.existsByEventKey(eventKey)) {
             return;

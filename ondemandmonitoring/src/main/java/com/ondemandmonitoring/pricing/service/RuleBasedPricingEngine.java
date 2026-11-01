@@ -148,10 +148,6 @@ public class RuleBasedPricingEngine implements PricingEngine {
         }
     }
 
-    private void resource(List<PricingBreakdownItem> out, PricingPolicy policy, String key, Integer count) {
-        if (count != null && count > 0) keyed(policy, PricingCategory.RESOURCE, key)
-                .ifPresent(rule -> addFixed(out, rule, BigDecimal.valueOf(count)));
-    }
     private void applyRule(List<PricingBreakdownItem> out, PricingRule rule, BigDecimal value, BigDecimal base) {
         if (rule.getCalculationType() == PricingCalculationType.MANUAL_QUOTE)
             throw new ApiException(ErrorCode.CUSTOM_WORK_PRICING_INCOMPLETE, rule.getDescription());

@@ -17,6 +17,10 @@ public interface QuoteRepository extends JpaRepository<Quote, String> {
     @Query("select distinct q from Quote q left join fetch q.items where q.order.id=:orderId order by q.quoteVersion desc")
     List<Quote> findHistory(@Param("orderId") String orderId);
 
+    @Query("select q from Quote q where q.order.id in :orderIds and q.status in :statuses order by q.quoteVersion desc")
+    List<Quote> findGuidanceQuotesForOrders(@Param("orderIds") Collection<String> orderIds,
+            @Param("statuses") Collection<QuoteStatus> statuses);
+
     Optional<Quote> findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc(String orderId, Collection<QuoteStatus> statuses);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

@@ -83,6 +83,18 @@ class MediaValidationServiceImplTest {
                         org.mockito.ArgumentMatchers.anyString());
     }
 
+    @Test void lateObjectCreatedAfterCleanupIsDeletedWithoutPublishingOrValidating() {
+        var asset=new MediaAsset();asset.setId("removed");asset.setStorageStatus(com.ondemandmonitoring.media.enums.MediaStorageStatus.DELETED);
+        var attempt=new MediaUploadAttempt();attempt.setId("old-attempt");attempt.setMedia(asset);attempt.setStatus(UploadAttemptStatus.UPLOADED);
+        when(storage.bucket()).thenReturn("bucket");when(attempts.findMediaIdByStorageKey("staging/late.jpg")).thenReturn(Optional.of("removed"));
+        when(media.findByIdForUpdate("removed")).thenReturn(Optional.of(asset));when(attempts.findByStorageKeyForUpdate("staging/late.jpg")).thenReturn(Optional.of(attempt));
+        service.processObjectCreated("bucket","staging/late.jpg","late-event");
+        verify(storage).delete("bucket","staging/late.jpg");
+        verify(storage,never()).copy(any(),any(),any());verify(media,never()).save(any());
+        verify(inbox).save(any(StorageEventInbox.class));
+        org.mockito.Mockito.verifyNoInteractions(outbox);
+    }
+
     @Test
     void successfulValidationPersistsMissionAndBucketForLegacySchema() throws Exception {
         String bucket = "media-bucket";

@@ -343,12 +343,6 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                 || status == PreDeviceItemStatus.NOT_APPLICABLE;
     }
 
-    private boolean blocksFlight(PreDeviceItemStatus status) {
-        return status == PreDeviceItemStatus.FAILED || status == PreDeviceItemStatus.UNKNOWN
-                || status == PreDeviceItemStatus.PENDING
-                || status == PreDeviceItemStatus.CHECKING;
-    }
-
     private void refreshRunStatus(PersistedPreDeviceCheck run) {
         List<PersistedPreDeviceCheckItem> activeItems = run.getItems().stream()
                 .filter(i -> isActiveCheckType(i.getCheckType())).toList();

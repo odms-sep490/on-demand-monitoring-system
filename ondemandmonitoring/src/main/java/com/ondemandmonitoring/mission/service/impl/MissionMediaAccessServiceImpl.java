@@ -84,6 +84,11 @@ public class MissionMediaAccessServiceImpl implements IMissionMediaAccessService
     public MissionDeviceAssignment requireDeviceAssignment(String missionId, String deviceId) {
         requireAssignedDevice(missionId, deviceId);
         return deviceAssignments.findByMissionIdAndDeviceIdAndIsCurrentTrue(missionId, deviceId)
+                .or(() -> missions.findById(missionId).filter(m -> m.getStatus() == MissionStatus.COMPLETED)
+                    .flatMap(m -> deviceAssignments.findByMissionId(missionId).stream()
+                        .filter(a -> a.getDevice() != null && deviceId.equals(a.getDevice().getId())
+                                && a.getReleasedAt() != null && "MISSION_COMPLETE".equals(a.getReleaseReason()))
+                        .max(java.util.Comparator.comparing(MissionDeviceAssignment::getReleasedAt))))
                 .orElseThrow(() -> new ApiException(ErrorCode.INVALID_REQUEST,
                         "Device does not have a current assignment to this mission"));
     }

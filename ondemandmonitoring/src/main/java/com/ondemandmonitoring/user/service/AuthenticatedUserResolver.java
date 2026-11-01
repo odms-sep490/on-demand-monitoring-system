@@ -4,7 +4,6 @@ import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.user.domain.User;
 import com.ondemandmonitoring.user.repository.UserRepository;
-import java.util.UUID;
 
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -82,14 +81,6 @@ public class AuthenticatedUserResolver {
                                         "User not found with identifier: " + identifier
                                 ))
                 );
-    }
-
-    private UUID tryParseUuid(String value) {
-        try {
-            return UUID.fromString(value);
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
     }
 
     private ApiException unresolvedIdentity() {

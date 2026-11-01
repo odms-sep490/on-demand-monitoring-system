@@ -4,10 +4,12 @@ import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.device.domain.Device;
 import com.ondemandmonitoring.devicecheck.domain.PersistedPostDeviceCheck;
+import com.ondemandmonitoring.devicecheck.domain.PersistedPreDeviceCheck;
 import com.ondemandmonitoring.device.enums.DeviceStatus;
 import com.ondemandmonitoring.device.repository.DeviceRepository;
 import com.ondemandmonitoring.device.repository.MaintenanceTicketRepository;
 import com.ondemandmonitoring.devicecheck.repository.PersistedPostDeviceCheckRepository;
+import com.ondemandmonitoring.devicecheck.repository.PersistedPreDeviceCheckRepository;
 import com.ondemandmonitoring.devicecheck.service.IPreDeviceCheckCompletionService;
 import com.ondemandmonitoring.devicecheck.service.IPersistedPostDeviceCheckService;
 import com.ondemandmonitoring.mission.domain.DeviceConnection;
@@ -44,6 +46,9 @@ import com.ondemandmonitoring.role.enumeration.RoleCode;
 import com.ondemandmonitoring.user.domain.User;
 import com.ondemandmonitoring.user.service.IStaffDirectoryService;
 import com.ondemandmonitoring.userschedule.repository.UserScheduleRepository;
+import com.ondemandmonitoring.userschedule.domain.UserSchedule;
+import com.ondemandmonitoring.userschedule.enums.UserScheduleStatus;
+import com.ondemandmonitoring.userschedule.enums.UserScheduleType;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -75,6 +80,7 @@ class MissionServiceTest {
     DeviceConnectionRepository deviceConnectionRepository;
     ControlHandoverRepository controlHandoverRepository;
     PersistedPostDeviceCheckRepository postDeviceCheckRepository;
+    PersistedPreDeviceCheckRepository preDeviceCheckRepository;
     MaintenanceTicketRepository maintenanceTicketRepository;
     OrderRepository orderRepository;
     InvoiceRepository invoiceRepository;
@@ -104,6 +110,7 @@ class MissionServiceTest {
         deviceConnectionRepository = mock(DeviceConnectionRepository.class);
         controlHandoverRepository = mock(ControlHandoverRepository.class);
         postDeviceCheckRepository = mock(PersistedPostDeviceCheckRepository.class);
+        preDeviceCheckRepository = mock(PersistedPreDeviceCheckRepository.class);
         maintenanceTicketRepository = mock(MaintenanceTicketRepository.class);
         orderRepository = mock(OrderRepository.class);
         invoiceRepository = mock(InvoiceRepository.class);
@@ -163,10 +170,12 @@ class MissionServiceTest {
                 new com.ondemandmonitoring.mission.service.impl.ResourceReservationServiceImpl(
                         mock(org.springframework.jdbc.core.JdbcTemplate.class), resourceTimeLockRepository, userScheduleRepository, authenticatedUserResolver),
                 mock(com.ondemandmonitoring.device.repository.DeviceTelemetryRepository.class));
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                missionService, "preDeviceCheckRepository", preDeviceCheckRepository);
 
         when(missionRepository.findByIdForUpdate(anyString())).thenAnswer(call -> missionRepository.findById(call.getArgument(0)));
-        when(missionRepository.findOrderIdByMissionId(anyString())).thenAnswer(call -> missionRepository.findById(call.getArgument(0))
-                .map(m -> m.getOrder() == null ? "unit-order" : m.getOrder().getId()));
+        lenient().when(missionRepository.findOrderIdByMissionId(anyString()))
+                .thenReturn(Optional.of("unit-order"));
         when(orderRepository.findByIdForUpdate("unit-order")).thenReturn(Optional.of(new com.ondemandmonitoring.order.domain.Order()));
 
         when(missionMapper.toResponse(any())).thenAnswer(inv -> {
@@ -198,7 +207,7 @@ class MissionServiceTest {
     void creationDoesNotTreatUnrelatedDatabaseFailureAsDuplicate() {
         var request = MissionCreationServiceTest.request("order-1", java.util.UUID.randomUUID().toString(), 0);
         var failure = new org.springframework.dao.DataAccessResourceFailureException("Database unavailable");
-        when(orderRepository.findByIdForUpdate("order-1")).thenThrow(failure);
+        when(orderRepository.findById("order-1")).thenThrow(failure);
         assertThatThrownBy(() -> missionService.createMission("order-1", request)).isSameAs(failure);
         verifyNoInteractions(missionRepository);
     }
@@ -216,6 +225,8 @@ class MissionServiceTest {
     @Test
     void deviceOperationUsesExactChildMissionAndDoesNotTouchSibling() {
         var order = new com.ondemandmonitoring.order.domain.Order(); order.setId("order-1");
+        order.setExecutionPlanStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
+        order.setExecutionPlanRevision(1);
         var first = new Mission(); first.setId("m1"); first.setOrder(order);
         var sibling = new Mission(); sibling.setId("m2"); sibling.setOrder(order);
         when(missionRepository.findById("m1")).thenReturn(Optional.of(first));
@@ -229,6 +240,8 @@ class MissionServiceTest {
     @Test
     void telemetryWithExactMissionCannotReuseSiblingSessionOrOrderAlias() {
         var order = new com.ondemandmonitoring.order.domain.Order(); order.setId("order-1");
+        order.setExecutionPlanStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
+        order.setExecutionPlanRevision(1);
         var first = new Mission(); first.setId("m1"); first.setOrder(order);
         var second = new Mission(); second.setId("m2"); second.setOrder(order);
         var firstSession = new DeviceConnection(); firstSession.setMission(first);
@@ -293,6 +306,103 @@ class MissionServiceTest {
             assertThatThrownBy(() -> missionService.assignStaff("m-assign", request))
                     .isInstanceOf(ApiException.class)
                     .hasMessageContaining("PLANNING");
+        }
+
+        @Test
+        void assigningAdditionalRolesToOneStaffKeepsOneScheduleEntry() {
+            Mission mission = buildMission("m-multi-role", MissionStatus.PLANNING);
+            mission.setScheduledStartAt(Instant.now().plusSeconds(3600));
+            mission.setScheduledEndAt(Instant.now().plusSeconds(7200));
+            User staff = new User();
+            staff.setId("staff-1");
+            var existingRole = staffAssignment(mission, "staff-1", MissionStaffRole.PILOT, "PLANNING");
+            existingRole.setStaff(staff);
+            existingRole.setIsCurrent(false);
+            UserSchedule existingSchedule = UserSchedule.builder()
+                    .staff(staff)
+                    .startTime(mission.getScheduledStartAt())
+                    .endTime(mission.getScheduledEndAt())
+                    .scheduleType(UserScheduleType.MISSION)
+                    .referenceId(mission.getId())
+                    .status(UserScheduleStatus.SCHEDULED)
+                    .build();
+
+            when(missionRepository.findById("m-multi-role")).thenReturn(Optional.of(mission));
+            when(missionRepository.findOrderIdByMissionId("m-multi-role"))
+                    .thenReturn(Optional.of("order-m-multi-role"));
+            when(orderRepository.findById("order-m-multi-role"))
+                    .thenReturn(Optional.of(new com.ondemandmonitoring.order.domain.Order()));
+            when(staffDirectory.requireActiveStaff("staff-1")).thenReturn(staff);
+            when(missionStaffAssignmentRepository.findByMissionId("m-multi-role"))
+                    .thenReturn(List.of(existingRole));
+            when(userScheduleRepository.findByReferenceId("m-multi-role"))
+                    .thenReturn(List.of(existingSchedule));
+            when(userScheduleRepository.findByStaffId("staff-1"))
+                    .thenReturn(List.of(existingSchedule));
+            when(missionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            AssignStaffRequest request = AssignStaffRequest.builder()
+                    .staffId("staff-1")
+                    .assignedRoles(List.of("OPERATOR", "MAINTAINER", "INSPECTOR"))
+                    .build();
+            missionService.assignStaff("m-multi-role", request);
+
+            verify(missionStaffAssignmentRepository).saveAll(argThat(assignments -> {
+                var saved = new java.util.ArrayList<MissionStaffAssignment>();
+                assignments.forEach(saved::add);
+                return saved.size() == 3
+                        && saved.stream().allMatch(assignment ->
+                                assignment.getStaff().getId().equals("staff-1"))
+                        && saved.stream().map(MissionStaffAssignment::getAssignedRole).collect(
+                                java.util.stream.Collectors.toSet()).equals(java.util.EnumSet.of(
+                                        MissionStaffRole.OPERATOR,
+                                        MissionStaffRole.MAINTAINER,
+                                        MissionStaffRole.INSPECTOR));
+            }));
+            verify(userScheduleRepository, never()).save(any(UserSchedule.class));
+        }
+
+        @Test
+        void removingOneRoleDoesNotCancelScheduleWhileStaffKeepsAnotherRole() {
+            Mission mission = buildMission("m-multi-role-ready", MissionStatus.PLANNING);
+            User staff = new User();
+            staff.setId("staff-1");
+            MissionStaffAssignment pilot = staffAssignment(
+                    mission, "staff-1", MissionStaffRole.PILOT, "PENDING");
+            pilot.setId("pilot-assignment");
+            pilot.setStaff(staff);
+            MissionStaffAssignment operator = staffAssignment(
+                    mission, "staff-1", MissionStaffRole.OPERATOR, "PENDING");
+            operator.setStaff(staff);
+            UserSchedule schedule = UserSchedule.builder()
+                    .staff(staff)
+                    .startTime(Instant.now().plusSeconds(3600))
+                    .endTime(Instant.now().plusSeconds(7200))
+                    .scheduleType(UserScheduleType.MISSION)
+                    .referenceId(mission.getId())
+                    .status(UserScheduleStatus.SCHEDULED)
+                    .build();
+
+            when(missionRepository.findById("m-multi-role-ready")).thenReturn(Optional.of(mission));
+            when(missionRepository.findOrderIdByMissionId("m-multi-role-ready"))
+                    .thenReturn(Optional.of("order-m-multi-role-ready"));
+            when(orderRepository.findById("order-m-multi-role-ready"))
+                    .thenReturn(Optional.of(new com.ondemandmonitoring.order.domain.Order()));
+            when(missionStaffAssignmentRepository.findById("pilot-assignment"))
+                    .thenReturn(Optional.of(pilot));
+            when(missionStaffAssignmentRepository.findByMissionId("m-multi-role-ready"))
+                    .thenReturn(List.of(pilot, operator));
+            when(missionDeviceAssignmentRepository.findByMissionId("m-multi-role-ready"))
+                    .thenReturn(List.of());
+            when(userScheduleRepository.findByReferenceId("m-multi-role-ready"))
+                    .thenReturn(List.of(schedule));
+            when(missionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            missionService.removeStaff("m-multi-role-ready", "pilot-assignment");
+
+            verify(missionStaffAssignmentRepository).delete(pilot);
+            assertThat(operator.getIsCurrent()).isTrue();
+            assertThat(schedule.getStatus()).isEqualTo(UserScheduleStatus.SCHEDULED);
         }
 
         @Test
@@ -570,6 +680,10 @@ class MissionServiceTest {
             msa.setIsCurrent(true);
 
             when(missionRepository.findById("m-5")).thenReturn(Optional.of(mission));
+            PersistedPreDeviceCheck preflight = new PersistedPreDeviceCheck();
+            preflight.setStatus(com.ondemandmonitoring.devicecheck.enums.PreDeviceCheckStatus.PASSED);
+            when(preDeviceCheckRepository.findFirstByMissionIdOrderByCreatedAtDesc("m-5"))
+                    .thenReturn(Optional.of(preflight));
             msa.setAssignedRole(MissionStaffRole.OPERATOR);
             msa.setResponseStatus(MissionStaffAssignmentStatus.ACCEPTED);
             when(missionStaffAssignmentRepository.findAllByMissionIdAndStaffIdAndIsCurrentTrueOrderByAssignedAtDesc("m-5", "op-new"))
@@ -764,7 +878,10 @@ class MissionServiceTest {
         void incompleteBusinessChecklistBlocksAcceptanceWithoutReleasingReportingAssignments() {
             Mission mission = buildMission("m-business", MissionStatus.PENDING_REVIEW);
             var order = new com.ondemandmonitoring.order.domain.Order(); order.setId("o"); mission.setOrder(order);
+            order.setExecutionPlanStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
+            order.setExecutionPlanRevision(1);
             when(orderRepository.findByIdForUpdate("o")).thenReturn(Optional.of(order));
+            when(orderRepository.findById("o")).thenReturn(Optional.of(order));
             Device device = buildDevice("DEV-01", DeviceStatus.RETURNING);
             var deviceAssignment = new MissionDeviceAssignment(); deviceAssignment.setDevice(device);
             var staffAssignment = new MissionStaffAssignment();
@@ -788,7 +905,8 @@ class MissionServiceTest {
             when(itemRepository.findAllByOrderIdInOrderByDisplayOrderAscIdAsc(List.of("o"))).thenReturn(List.of(item));
             var checklist = new com.ondemandmonitoring.mission.service.impl.MissionChecklistExecutionServiceImpl(
                     missionRepository, mock(com.ondemandmonitoring.mission.service.IMissionChecklistScopeService.class), executionRepository, resultRepository, auth, authenticatedUserResolver,
-                    org.mapstruct.factory.Mappers.getMapper(com.ondemandmonitoring.mission.mapper.MissionChecklistExecutionMapper.class), com.ondemandmonitoring.mission.service.EvidenceTestFixture.emptyService());
+                    org.mapstruct.factory.Mappers.getMapper(com.ondemandmonitoring.mission.mapper.MissionChecklistExecutionMapper.class), com.ondemandmonitoring.mission.service.EvidenceTestFixture.emptyService(),
+                    mock(com.ondemandmonitoring.finance.service.IAcceptedChecklistGuidanceService.class));
             assertThat(checklist.isReadyForSubmission(mission)).isFalse();
             var results = new com.ondemandmonitoring.mission.service.impl.MissionResultService(
                     resultRepository, missionRepository, mock(com.ondemandmonitoring.media.repository.MediaAssetRepository.class),
@@ -952,7 +1070,11 @@ class MissionServiceTest {
         m.setStatus(status);
         m.setFlightPermitStatus(FlightPermitStatus.APPROVED);
         var order = new com.ondemandmonitoring.order.domain.Order(); order.setId("order-" + id);
+        order.setExecutionPlanStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
+        order.setExecutionPlanRevision(1);
         m.setOrder(order);
+        lenient().when(missionRepository.findOrderIdByMissionId(id)).thenReturn(Optional.of(order.getId()));
+        lenient().when(orderRepository.findById(order.getId())).thenReturn(Optional.of(order));
         lenient().when(orderRepository.findByIdForUpdate(order.getId())).thenReturn(Optional.of(order));
         return m;
     }
@@ -1022,6 +1144,7 @@ class MissionServiceTest {
         var order = new com.ondemandmonitoring.order.domain.Order(); order.setId("order");
         order.setOrderStatus(com.ondemandmonitoring.order.enums.OrderStatus.APPROVED); mission.setOrder(order);
         when(orderRepository.findByIdForUpdate(order.getId())).thenReturn(Optional.of(order));
+        when(orderRepository.findById(order.getId())).thenReturn(Optional.of(order));
         order.setExecutionPlanStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
         order.setExecutionPlanRevision(1);
         var device = buildDevice("device", DeviceStatus.RETURNING);
@@ -1076,7 +1199,8 @@ class MissionServiceTest {
         when(executions.saveAndFlush(any())).thenAnswer(call -> call.getArgument(0));
         var checklist = new com.ondemandmonitoring.mission.service.impl.MissionChecklistExecutionServiceImpl(
                 missionRepository, ScopeTestFixture.validScope(), executions, resultRepo, policy, authenticatedUserResolver,
-                org.mapstruct.factory.Mappers.getMapper(com.ondemandmonitoring.mission.mapper.MissionChecklistExecutionMapper.class), com.ondemandmonitoring.mission.service.EvidenceTestFixture.emptyService());
+                org.mapstruct.factory.Mappers.getMapper(com.ondemandmonitoring.mission.mapper.MissionChecklistExecutionMapper.class), com.ondemandmonitoring.mission.service.EvidenceTestFixture.emptyService(),
+                mock(com.ondemandmonitoring.finance.service.IAcceptedChecklistGuidanceService.class));
         var resultMapper = mock(com.ondemandmonitoring.mission.mapper.MissionResultMapper.class);
         var results = new com.ondemandmonitoring.mission.service.impl.MissionResultService(
                 resultRepo, missionRepository, mock(com.ondemandmonitoring.media.repository.MediaAssetRepository.class),
@@ -1100,18 +1224,24 @@ class MissionServiceTest {
         missionService.updatePostFlightStatus(mission.getId(), DeviceStatus.AVAILABLE, "Inspection passed");
         assertThat(mission.getStatus()).isEqualTo(MissionStatus.PENDING_REVIEW);
         assertThat(deviceAssignment.getReleasedAt()).isNull(); verify(resultRepo, never()).save(any());
-        // The inspector owns the final acceptance package, including the checklist assessment.
+        // The operator owns the reporting checklist; the inspector owns final acceptance.
         var operator = crew.stream().filter(entry -> entry.getAssignedRole() == MissionStaffRole.OPERATOR).findFirst().orElseThrow();
-        var checklistActor = crew.stream().filter(entry -> entry.getAssignedRole() == MissionStaffRole.INSPECTOR).findFirst().orElseThrow();
+        var checklistActor = operator;
         when(authenticatedUserResolver.getCurrentUser()).thenReturn(checklistActor.getStaff());
         when(authenticatedUserResolver.getCurrentUserId()).thenReturn(checklistActor.getStaff().getId());
         var update = new com.ondemandmonitoring.mission.dto.request.ChecklistExecutionUpdateRequest(); update.setExpectedVersion(0L);
         update.setExecutionStatus(com.ondemandmonitoring.mission.enums.ChecklistExecutionStatus.COMPLETED);
-        update.setAssessmentStatus(com.ondemandmonitoring.mission.enums.ChecklistAssessmentStatus.NON_COMPLIANT);
+        update.setAssessmentStatus(com.ondemandmonitoring.mission.enums.ChecklistAssessmentStatus.NOT_ASSESSED);
         checklist.update(mission.getId(), execution.getId(), update);
         assertThat(mission.getStatus()).isEqualTo(MissionStatus.PENDING_REVIEW);
         var inspector = crew.stream().filter(entry -> entry.getAssignedRole() == MissionStaffRole.INSPECTOR).findFirst().orElseThrow();
         when(authenticatedUserResolver.getCurrentUser()).thenReturn(inspector.getStaff());
+        when(authenticatedUserResolver.getCurrentUserId()).thenReturn(inspector.getStaff().getId());
+        var assessment = new com.ondemandmonitoring.mission.dto.request.ChecklistExecutionUpdateRequest();
+        assessment.setExpectedVersion(1L);
+        assessment.setExecutionStatus(com.ondemandmonitoring.mission.enums.ChecklistExecutionStatus.COMPLETED);
+        assessment.setAssessmentStatus(com.ondemandmonitoring.mission.enums.ChecklistAssessmentStatus.NON_COMPLIANT);
+        checklist.update(mission.getId(), execution.getId(), assessment);
         assertThat(policy.canCompleteMission(mission.getId())).isTrue(); missionService.completeMission(mission.getId());
         var result = resultRepo.findByMissionId(mission.getId()).orElseThrow();
         assertThat(result.getApprovalStatus()).isEqualTo(com.ondemandmonitoring.mission.enums.MissionResultApprovalStatus.DRAFT);

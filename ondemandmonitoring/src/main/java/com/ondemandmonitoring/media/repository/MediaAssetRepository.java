@@ -15,6 +15,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface MediaAssetRepository extends JpaRepository<MediaAsset, String> {
+        @Query("select m.id from MediaAsset m where m.orphanCleanupRequestedAt <= :before and m.storageStatus <> com.ondemandmonitoring.media.enums.MediaStorageStatus.DELETED order by m.orphanCleanupRequestedAt, m.id")
+        List<String> findOrphanCleanupCandidates(@Param("before") Instant before, Pageable pageable);
         @Query("""
                 select m.id from MediaAsset m
                 where m.mission.order.resultExpiresAt is not null
@@ -70,9 +72,6 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, String> 
         @Query("select m from MediaAsset m where m.mission.id in :missionIds and m.mediaStatus = :status order by m.capturedAt desc")
         List<MediaAsset> findByMissionIdInAndMediaStatusOrderByCapturedAtDesc(
                         List<String> missionIds, MediaStatus status);
-
-        @Query("select m from MediaAsset m where m.mission.id = :missionId and m.sourceType = :sourceType and m.createdAt >= :since order by m.createdAt desc")
-        List<MediaAsset> findRecentBySourceType(String missionId, String sourceType, java.time.Instant since);
 
         @Query("select m from MediaAsset m where m.mission.id = :missionId and m.type = :type order by m.capturedAt desc")
         List<MediaAsset> findByMissionIdAndTypeOrderByCapturedAtDesc(String missionId, String type);

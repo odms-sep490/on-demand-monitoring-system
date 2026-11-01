@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface MissionResultRepository extends JpaRepository<MissionResult, String> {
+    boolean existsByMediaFiles_Id(String mediaId);
     @Query("select r from MissionResult r where r.mission.id in :missionIds")
     java.util.List<MissionResult> findByMissionIds(@Param("missionIds") java.util.Collection<String> missionIds);
     @Query("select r.mission.id from MissionResult r where r.mission.id in :missionIds and r.approvalStatus = com.ondemandmonitoring.mission.enums.MissionResultApprovalStatus.APPROVED")

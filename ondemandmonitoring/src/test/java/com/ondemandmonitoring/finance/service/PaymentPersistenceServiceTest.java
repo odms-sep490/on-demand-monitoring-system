@@ -70,6 +70,14 @@ class PaymentPersistenceServiceTest {
         assertThat(prepared.amount()).isEqualByComparingTo("700");
     }
 
+    @Test void customerCannotUseFinalPaymentForAnotherCustomersInvoice() {
+        when(users.getCurrentUserId()).thenReturn("intruder");
+        assertThatThrownBy(() -> service.prepare("i1", PaymentType.FINAL_PAYMENT)).isInstanceOf(ApiException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.ACCESS_DENIED);
+        verifyNoInteractions(delivery);
+        verify(payments, never()).saveAndFlush(any());
+    }
+
     @Test void finalPaymentIsBlockedBeforeMissionCompletion() {
         doThrow(new ApiException(ErrorCode.FINAL_PAYMENT_NOT_ALLOWED)).when(delivery).requireFinalPaymentEligible("o1");
         assertThatThrownBy(() -> service.prepare("i1", PaymentType.FINAL_PAYMENT)).isInstanceOf(ApiException.class)

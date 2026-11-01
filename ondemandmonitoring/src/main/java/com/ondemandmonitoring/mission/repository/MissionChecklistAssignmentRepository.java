@@ -17,4 +17,6 @@ public interface MissionChecklistAssignmentRepository extends JpaRepository<Miss
 
     Optional<MissionChecklistAssignment> findByMissionIdAndOrderChecklistItemIdAndRemovedAtIsNull(
             String missionId, String orderChecklistItemId);
+
+    boolean existsByOrderIdAndRemovedAtIsNull(String orderId);
 }

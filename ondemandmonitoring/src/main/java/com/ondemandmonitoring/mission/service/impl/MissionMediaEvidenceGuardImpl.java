@@ -33,4 +33,9 @@ public class MissionMediaEvidenceGuardImpl implements IMissionMediaEvidenceGuard
     public void requireDeletable(String mediaId) {
         if (evidence.existsByMediaAsset_Id(mediaId)) throw new ApiException(ErrorCode.MEDIA_EVIDENCE_PROTECTED);
     }
+    @org.springframework.transaction.annotation.Transactional(readOnly = true, propagation = Propagation.MANDATORY)
+    public boolean hasEvidenceOrResultReferences(String mediaId) {
+        return evidence.existsByMediaAsset_IdAndDetachedAtIsNull(mediaId)
+                || results.existsByMediaFiles_Id(mediaId);
+    }
 }

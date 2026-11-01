@@ -44,9 +44,9 @@ public interface OrderRepository extends JpaRepository<Order, String> {
     @Query("""
             select count(o) from Order o
             where o.orderStatus not in :terminalStatuses
-              and exists (select i.id from OrderChecklistItem i where i.order = o)
-              and not exists (select i.id from OrderChecklistItem i where i.order = o and i.pricingStatus in :blockingStatuses)
-              and not exists (select q.id from Quote q where q.order = o and q.status in :activeQuoteStatuses)
+              and exists (select i.id from OrderChecklistItem i where i.order = o and i.checklistRevision = o.checklistRevision)
+              and not exists (select i.id from OrderChecklistItem i where i.order = o and i.checklistRevision = o.checklistRevision and i.pricingStatus in :blockingStatuses)
+              and not exists (select q.id from Quote q where q.order = o and q.checklistRevision = o.checklistRevision and q.status in :activeQuoteStatuses)
             """)
     long countQuoteReadyOrders(
             @Param("terminalStatuses") java.util.Collection<OrderStatus> terminalStatuses,
@@ -57,9 +57,9 @@ public interface OrderRepository extends JpaRepository<Order, String> {
     @Query("""
             select o from Order o
             where o.orderStatus not in :terminalStatuses
-              and exists (select i.id from OrderChecklistItem i where i.order = o)
-              and not exists (select i.id from OrderChecklistItem i where i.order = o and i.pricingStatus in :blockingStatuses)
-              and not exists (select q.id from Quote q where q.order = o and q.status in :activeQuoteStatuses)
+              and exists (select i.id from OrderChecklistItem i where i.order = o and i.checklistRevision = o.checklistRevision)
+              and not exists (select i.id from OrderChecklistItem i where i.order = o and i.checklistRevision = o.checklistRevision and i.pricingStatus in :blockingStatuses)
+              and not exists (select q.id from Quote q where q.order = o and q.checklistRevision = o.checklistRevision and q.status in :activeQuoteStatuses)
             order by o.createdAt asc
             """)
     Page<Order> findQuoteReadyOrders(

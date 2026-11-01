@@ -98,7 +98,8 @@ class MissionResultEvidencePolicyV2Test {
 
         executionService = new MissionChecklistExecutionServiceImpl(
                 missions, scope, executionRepo, results, auth, resolver,
-                Mappers.getMapper(MissionChecklistExecutionMapper.class), evidenceService);
+                Mappers.getMapper(MissionChecklistExecutionMapper.class), evidenceService,
+                mock(com.ondemandmonitoring.finance.service.IAcceptedChecklistGuidanceService.class));
 
         resultService = new MissionResultService(
                 results, missions, mediaRepo, mediaService,

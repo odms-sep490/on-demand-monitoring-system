@@ -34,7 +34,7 @@ class MediaAssetServiceTest {
                 mock(MediaAssetRepository.class),
                 mock(IMissionMediaAccessService.class), mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class));
 
-        assertThatThrownBy(() -> service.upload("DEVICE-01", null))
+        assertThatThrownBy(() -> service.upload("MISSION_001", "DEVICE-01", null, null))
                 .isInstanceOf(ApiException.class)
                 .hasMessage("Media file is required");
     }
@@ -51,7 +51,7 @@ class MediaAssetServiceTest {
         MultipartFile file = new org.springframework.mock.web.MockMultipartFile(
                 "file", "capture.txt", "text/plain", "not-an-image".getBytes());
 
-        assertThatThrownBy(() -> service.upload("DEVICE-01", file))
+        assertThatThrownBy(() -> service.upload("MISSION_001", "DEVICE-01", null, file))
                 .isInstanceOf(ApiException.class)
                 .hasMessage("Only PNG, JPEG, and MP4 media are allowed");
     }

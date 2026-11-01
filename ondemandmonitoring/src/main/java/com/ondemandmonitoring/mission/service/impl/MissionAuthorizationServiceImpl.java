@@ -40,7 +40,8 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
                 .filter(m -> results.findByMissionId(m.getId()).map(r -> r.getApprovalStatus() != com.ondemandmonitoring.mission.enums.MissionResultApprovalStatus.APPROVED
                         && r.getApprovalStatus() != com.ondemandmonitoring.mission.enums.MissionResultApprovalStatus.PENDING_MANAGER_APPROVAL).orElse(true))
                 .map(m -> hasEligibleInspectorAssignment(m, currentUser.getCurrentUser())
-                        || hasEligiblePilotAssignment(m, currentUser.getCurrentUser()))
+                        || hasEligiblePilotAssignment(m, currentUser.getCurrentUser())
+                        || canExecuteAsReportingCrew(m, currentUser.getCurrentUser()))
                 .orElse(false);
     }
 

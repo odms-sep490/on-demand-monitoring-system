@@ -21,6 +21,14 @@ public class CustomerOrderChecklistItemResponse {
     private java.util.List<String> executionSteps;
     private java.util.List<String> inputRequirements;
     private java.util.List<String> expectedOutputs;
+    /** Current order metadata; custom text is supplied separately from the quote snapshot. */
+    private long guidanceVersion;
+    private Long guidanceConfirmedVersion;
+    private String guidanceUpdatedById;
+    private java.time.Instant guidanceUpdatedAt;
+    private boolean guidanceReady;
+    private boolean canEditGuidance;
+    private String guidanceBlockedReason;
     private int displayOrder;
     private OrderChecklistSourceType sourceType;
     private ChecklistReviewStatus reviewStatus;
@@ -37,4 +45,7 @@ public class CustomerOrderChecklistItemResponse {
     private ChecklistPricingStatus pricingStatus;
     private boolean priceAvailable;
     private BigDecimal approvedPrice;
+    private boolean required;
+    private long checklistRevision;
+    private Long sourceChecklistVersion;
 }

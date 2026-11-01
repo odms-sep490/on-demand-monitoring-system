@@ -10,6 +10,8 @@ import com.ondemandmonitoring.mission.dto.response.MissionChecklistResponse;
 import com.ondemandmonitoring.mission.enums.ChecklistExecutionStatus;
 import com.ondemandmonitoring.mission.enums.MissionResultApprovalStatus;
 import com.ondemandmonitoring.mission.mapper.MissionChecklistExecutionMapper;
+import com.ondemandmonitoring.mission.mapper.MissionChecklistGuidanceContext;
+import com.ondemandmonitoring.finance.service.IAcceptedChecklistGuidanceService;
 import com.ondemandmonitoring.mission.repository.*;
 import com.ondemandmonitoring.mission.service.IMissionAuthorizationService;
 import com.ondemandmonitoring.mission.service.IMissionChecklistExecutionService;
@@ -33,6 +35,7 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
     private final AuthenticatedUserResolver currentUser;
     private final MissionChecklistExecutionMapper mapper;
     private final com.ondemandmonitoring.mission.service.IChecklistEvidenceService evidenceService;
+    private final IAcceptedChecklistGuidanceService acceptedGuidance;
 
     @Override
     @Transactional(readOnly = true)
@@ -45,8 +48,9 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
         if (!authorization.canViewMission(missionId)) throw new ApiException(ErrorCode.ACCESS_DENIED);
         var links = evidenceService.active(missionId);
         var actual = executions.findOrderedByMissionId(missionId);
+        var guidance = new MissionChecklistGuidanceContext(acceptedGuidance.findForOrder(mission.getOrder().getId()));
         var rows = actual.stream()
-                .map(e -> evidenceService.enrich(mapper.toResponse(e), e, links)).toList();
+                .map(e -> evidenceService.enrich(mapper.toResponse(e, guidance), e, links)).toList();
         boolean operational = scope.isMaterialized(mission) && operationalReady(mission, actual, links);
         boolean finalReady = operational && actual.stream().allMatch(e -> evidenceService.ready(e, links, true));
         var blockers = new java.util.LinkedHashSet<String>();
@@ -86,6 +90,8 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
         if (!ChecklistAssignmentIntegrity.matches(mission, execution))
             throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_INTEGRITY_INVALID);
         requireSameOrder(mission, execution.getOrderChecklistItem());
+        var guidance = new MissionChecklistGuidanceContext(acceptedGuidance.findForOrder(mission.getOrder().getId()));
+        guidance.resolve(execution.getOrderChecklistItem());
         if (!Objects.equals(execution.getOrderId(), mission.getOrder().getId()))
             throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_INTEGRITY_INVALID);
         if (request == null || request.getExpectedVersion() == null || request.getExpectedVersion() < 0
@@ -140,7 +146,7 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
             if (updated != 1) throw new ApiException(ErrorCode.CONCURRENT_UPDATE);
             MissionChecklistExecution updatedExecution = executions.findById(executionId)
                     .orElseThrow(() -> new ApiException(ErrorCode.CHECKLIST_EXECUTION_NOT_FOUND));
-            return evidenceService.enrich(mapper.toResponse(updatedExecution), updatedExecution, evidenceService.active(missionId));
+            return evidenceService.enrich(mapper.toResponse(updatedExecution, guidance), updatedExecution, evidenceService.active(missionId));
         } catch (org.springframework.dao.DataIntegrityViolationException | org.hibernate.exception.ConstraintViolationException exception) {
             throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_INTEGRITY_INVALID);
         }

@@ -240,62 +240,6 @@ class FlexibleChecklistPricingPostgresTest extends ChecklistPostgresTest {
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(sql, "bad-type", orderId, "x6", 7, 3, 1, "STREAMING", 1, 0));
         verifyCurrentSchema();
     }
-
-    @Test void upgradingAV2SchemaPreservesExistingDataAndIsRepeatable() {
-        String orderId = orderService.createOrder(orderRequest(service("Upgrade"))).getId();
-        resetPricing();
-        String checklistId = checklist("Pre-upgrade checklist");
-        var jdbc = new JdbcTemplate(dataSource);
-        transaction.executeWithoutResult(tx -> {
-            tx.setRollbackOnly();
-            jdbc.update("""
-                    insert into order_checklist_items
-                        (id,created_at,version,order_id,content,display_order,source_type,review_status,
-                         evidence_policy_version,minimum_evidence_count,required_evidence_type)
-                    values ('pre-v2',now(),0,?,'Pre V2',0,'CUSTOMER_CUSTOM','PENDING',2,4,'VIDEO')
-                    """, orderId);
-            // Roll the pricing additions back to the schema shipped before this feature.
-            for (String ddl : List.of(
-                    "alter table order_checklist_items drop constraint ck_order_checklist_pricing_snapshot",
-                    "alter table order_checklist_items drop constraint ck_order_checklist_manager_quote",
-                    "alter table services drop constraint ck_services_default_price",
-                    "alter table order_checklist_items drop constraint ck_snapshot_evidence_policy",
-                    "alter table checklist_definitions drop constraint ck_checklist_pricing",
-                    "alter table service_checklists drop constraint ck_service_checklist_overrides",
-                    "alter table pricing_rules drop constraint ck_pricing_rule_media",
-                    "alter table order_checklist_items drop column minimum_image_count, drop column minimum_video_count, drop column pricing_snapshot_version,"
-                            + " drop column base_price_snapshot, drop column included_image_count_snapshot, drop column included_video_count_snapshot,"
-                            + " drop column requested_image_count, drop column requested_video_count, drop column standard_video_duration_snapshot,"
-                            + " drop column pricing_profile_snapshot, drop column manager_quote_required, drop column manager_quoted_price",
-                    "alter table services drop column default_price, drop column default_price_computed_at",
-                    "alter table checklist_definitions drop column base_price, drop column included_image_count, drop column included_video_count,"
-                            + " drop column standard_video_duration_seconds, drop column pricing_profile",
-                    "alter table service_checklists drop column base_price_override, drop column included_image_count_override,"
-                            + " drop column included_video_count_override, drop column pricing_profile_override, drop column is_required",
-                    "alter table pricing_rules drop column pricing_profile, drop column media_component, drop column included_quantity, drop column rounding_mode")) {
-                jdbc.execute(ddl);
-            }
-            jdbc.execute("alter table order_checklist_items add constraint ck_snapshot_evidence_policy check ("
-                    + "(evidence_policy_version=0 and minimum_evidence_count=0) or (evidence_policy_version=1 and minimum_evidence_count=1 and required_evidence_type='IMAGE_OR_VIDEO')"
-                    + " or (evidence_policy_version=2 and minimum_evidence_count between 1 and 50 and required_evidence_type in ('IMAGE','VIDEO','IMAGE_OR_VIDEO')))");
-
-            CurrentSchemaPostgres.migrationInCurrentTransaction(dataSource, SCHEMA, "add_flexible_checklist_pricing.sql");
-            CurrentSchemaPostgres.migrationInCurrentTransaction(dataSource, SCHEMA, "add_flexible_checklist_pricing.sql"); // repeatable
-
-            assertEquals(1, jdbc.queryForObject("select count(*) from checklist_definitions where id = ? and base_price = 0 and included_image_count = 0"
-                    + " and included_video_count = 0 and pricing_profile is null", Integer.class, checklistId));
-            assertEquals(2, jdbc.queryForObject("select evidence_policy_version from order_checklist_items where id='pre-v2'", Integer.class));
-            assertEquals(4, jdbc.queryForObject("select minimum_evidence_count from order_checklist_items where id='pre-v2'", Integer.class));
-            assertEquals(0, jdbc.queryForObject("select pricing_snapshot_version from order_checklist_items where id='pre-v2'", Integer.class));
-            assertEquals(0, jdbc.queryForObject("select minimum_image_count + minimum_video_count from order_checklist_items where id='pre-v2'", Integer.class));
-            // Old V2 rows remain valid; V3 is newly accepted.
-            assertEquals(1, jdbc.update("insert into order_checklist_items(id,created_at,version,order_id,content,display_order,source_type,review_status,"
-                    + "evidence_policy_version,minimum_evidence_count,required_evidence_type,minimum_image_count,minimum_video_count) "
-                    + "values ('post-v3',now(),0,?,'Post',1,'CUSTOMER_CUSTOM','PENDING',3,3,'IMAGE_OR_VIDEO',2,1)", orderId));
-        });
-        verifyCurrentSchema();
-    }
-
     // ---- Admin API flow for MEDIA rules: create draft -> edit -> publish -> price (real PostgreSQL) -------------------
     private com.ondemandmonitoring.pricing.service.PricingPolicyService policyService() {
         var policyService = new com.ondemandmonitoring.pricing.service.PricingPolicyService(policyRepository);

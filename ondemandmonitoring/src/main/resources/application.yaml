@@ -71,6 +71,11 @@ app:
   seed:
     demo-drones: ${APP_SEED_DEMO_DRONES:false}
   media:
+    orphan-cleanup:
+      enabled: ${APP_MEDIA_ORPHAN_CLEANUP_ENABLED:true}
+      delay-seconds: ${APP_MEDIA_ORPHAN_CLEANUP_DELAY_SECONDS:300}
+      upload-grace-seconds: ${APP_MEDIA_ORPHAN_CLEANUP_UPLOAD_GRACE_SECONDS:900}
+      fixed-delay-ms: ${APP_MEDIA_ORPHAN_CLEANUP_FIXED_DELAY_MS:60000}
     max-image-bytes: ${MEDIA_MAX_IMAGE_BYTES:26214400}
     max-video-bytes: ${MEDIA_MAX_VIDEO_BYTES:1073741824}
     sqs:

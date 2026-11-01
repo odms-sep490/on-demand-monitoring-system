@@ -23,8 +23,9 @@ class MissionChecklistAssignmentServiceTest {
     MissionChecklistAssignmentRepository assignments=mock(MissionChecklistAssignmentRepository.class);
     MissionChecklistExecutionRepository executions=mock(MissionChecklistExecutionRepository.class);
     AuthenticatedUserResolver actor=mock(AuthenticatedUserResolver.class);
+    com.ondemandmonitoring.finance.service.IAcceptedChecklistGuidanceService acceptedGuidance=mock(com.ondemandmonitoring.finance.service.IAcceptedChecklistGuidanceService.class);
     MissionChecklistAssignmentServiceImpl service=new MissionChecklistAssignmentServiceImpl(orders,missions,items,assignments,executions,actor,
-            org.mapstruct.factory.Mappers.getMapper(MissionChecklistAssignmentMapper.class));
+            org.mapstruct.factory.Mappers.getMapper(MissionChecklistAssignmentMapper.class),acceptedGuidance);
     Order order; Mission mission; OrderChecklistItem item;
     @BeforeEach void setup() {
         order=new Order(); order.setId("o"); order.setExecutionPlanRevision(2);
@@ -46,6 +47,26 @@ class MissionChecklistAssignmentServiceTest {
         verify(assignments).saveAllAndFlush(argThat(rows->rows.iterator().hasNext() && rows.iterator().next().getDisplayOrder()==0));
     }
     @Test void duplicateSelectionRejectedBeforeDiff() { error(ErrorCode.CHECKLIST_ASSIGNMENT_DUPLICATE,()->service.replace("m",request("i","i"))); }
+    @Test void acceptedSnapshotMissingCustomItemRejectsSelectionBeforeDiff() {
+        item.setSourceType(com.ondemandmonitoring.order.enums.OrderChecklistSourceType.CUSTOMER_CUSTOM);
+        when(acceptedGuidance.findForOrder("o")).thenReturn(new com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot(1,List.of()));
+        error(ErrorCode.CHECKLIST_EXECUTION_INTEGRITY_INVALID,()->service.replace("m",request("i")));
+        verify(orders,never()).saveAndFlush(any());
+        verify(items,never()).saveAll(any());
+    }
+    @Test void legacyAcceptedQuoteAllowsCustomSelection() {
+        item.setSourceType(com.ondemandmonitoring.order.enums.OrderChecklistSourceType.CUSTOMER_CUSTOM);
+        assertEquals(3,service.replace("m",request("i")).revision());
+        verify(acceptedGuidance,times(1)).findForOrder("o");
+    }
+    @Test void acceptedCustomSnapshotAllowsSelectionEvenWhenDraftVersionDiffers() {
+        item.setSourceType(com.ondemandmonitoring.order.enums.OrderChecklistSourceType.CUSTOMER_CUSTOM);
+        item.setGuidanceVersion(99);
+        when(acceptedGuidance.findForOrder("o")).thenReturn(new com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot(1,List.of(
+                new com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot.Item("i",1,2,"Accepted",List.of("Step"),List.of("Input"),List.of("Output")))));
+        assertEquals(3,service.replace("m",request("i")).revision());
+        verify(acceptedGuidance,times(1)).findForOrder("o");
+    }
     @Test void staleRevisionRejectedBeforeDiff() { order.setExecutionPlanRevision(3); error(ErrorCode.EXECUTION_PLAN_REVISION_CONFLICT,()->service.replace("m",request("i"))); }
     @Test void crossOrderSelectionRejectedBeforeDiff() {
         var foreign=new Order(); foreign.setId("other"); item.setOrder(foreign);

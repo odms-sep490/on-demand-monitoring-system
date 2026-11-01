@@ -2,7 +2,6 @@ package com.ondemandmonitoring.mission.service.impl;
 
 import com.ondemandmonitoring.device.enums.DeviceStatus;
 import com.ondemandmonitoring.mission.enums.FlightPermitStatus;
-import com.ondemandmonitoring.mission.enums.MissionResourcePrepareStatus;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
@@ -71,7 +70,9 @@ public class FlightPermitResourceReleaseJob {
                     .filter(schedule -> schedule.getStatus() != UserScheduleStatus.COMPLETED)
                     .forEach(schedule -> schedule.setStatus(UserScheduleStatus.CANCELLED));
 
-            mission.setResourcePrepareStatus(MissionResourcePrepareStatus.PLANNING);
+            if (mission.getStatus() == MissionStatus.READY) {
+                mission.setStatus(MissionStatus.PENDING_CONFIRMATION);
+            }
             mission.setFlightPermitResourcesReleasedAt(now);
             log.info("Released mission {} resources after rejected permit hold expired", mission.getId());
         }

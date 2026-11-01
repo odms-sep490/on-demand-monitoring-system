@@ -9,9 +9,7 @@ import com.ondemandmonitoring.finance.enums.*;
 import com.ondemandmonitoring.finance.gateway.VerifiedWebhook;
 import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.finance.repository.PaymentRepository;
-import com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService;
 import com.ondemandmonitoring.finance.service.IPaymentWebhookService;
-import com.ondemandmonitoring.mission.repository.MissionRepository;
 import java.math.BigDecimal;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
@@ -23,8 +21,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class PaymentWebhookProcessor implements IPaymentWebhookService {
     private final PaymentRepository payments;
     private final InvoiceRepository invoices;
-    private final MissionRepository missions;
-    private final IMissionPaymentEligibilityService eligibility;
     private final IDeliveryWorkflowService deliveryWorkflow;
     private final com.ondemandmonitoring.order.repository.OrderRepository orders;
 
@@ -78,11 +74,6 @@ public class PaymentWebhookProcessor implements IPaymentWebhookService {
         invoice.setRemainingAmount(invoice.getTotalAmount().subtract(paid).max(BigDecimal.ZERO));
         invoice.setStatus(paid.signum() == 0 ? InvoiceStatus.ISSUED
                 : paid.compareTo(invoice.getTotalAmount()) >= 0 ? InvoiceStatus.PAID : InvoiceStatus.PARTIALLY_PAID);
-        for (String missionId : missions.findIdsByOrderIdOrderById(invoice.getOrder().getId()).stream().sorted().toList()) {
-            var mission = missions.findByIdForUpdate(missionId)
-                    .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
-            eligibility.unlockIfEligible(invoice, mission);
-        }
         if (payment.getPaymentType() == PaymentType.FINAL_PAYMENT && invoice.getStatus() == InvoiceStatus.PAID) {
             deliveryWorkflow.confirmFinalPayment(invoice.getOrder().getId());
         }

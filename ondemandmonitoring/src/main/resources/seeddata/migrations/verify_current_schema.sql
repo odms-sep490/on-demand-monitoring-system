@@ -4,6 +4,11 @@
 BEGIN READ ONLY;
 SET LOCAL search_path = public, pg_catalog;
 DO $$ DECLARE e record; actual text; keys text[]; predicate text; meta record; BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='missions'
+        AND column_name='resource_prepare_status') THEN
+        RAISE EXCEPTION 'Obsolete column exists: missions.resource_prepare_status';
+    END IF;
     FOREACH actual IN ARRAY ARRAY['postgis','vector','btree_gist'] LOOP
         IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname=actual AND extnamespace='public'::regnamespace)
             THEN RAISE EXCEPTION 'Required public extension missing: %',actual; END IF;

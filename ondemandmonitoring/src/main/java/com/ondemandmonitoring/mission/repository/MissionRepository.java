@@ -33,6 +33,10 @@ public interface MissionRepository extends JpaRepository<Mission, String>, JpaSp
     /** Order aggregate query; never use an Order ID as exact Mission identity. */
     List<Mission> findAllByOrderIdOrderByScheduledStartAtAscIdAsc(String orderId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select m from Mission m where m.order.id = :orderId order by m.id")
+    List<Mission> findAllByOrderIdForUpdateOrderById(@Param("orderId") String orderId);
+
     @Query("select m.id from Mission m where m.order.id = :orderId order by m.id")
     List<String> findIdsByOrderIdOrderById(@Param("orderId") String orderId);
 

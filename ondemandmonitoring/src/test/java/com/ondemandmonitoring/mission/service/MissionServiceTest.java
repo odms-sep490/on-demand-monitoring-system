@@ -25,6 +25,7 @@ import com.ondemandmonitoring.mission.enums.MissionStaffRole;
 import com.ondemandmonitoring.mission.enums.FlightPermitStatus;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
+import com.ondemandmonitoring.mission.enums.MissionDeviceAssignmentStatus;
 import com.ondemandmonitoring.mission.mapper.FlightTokenMapper;
 import com.ondemandmonitoring.mission.mapper.MissionMapper;
 import com.ondemandmonitoring.mission.repository.ControlHandoverRepository;
@@ -223,6 +224,82 @@ class MissionServiceTest {
     }
 
     @Test
+    void paymentConfirmationOpensResourceConfirmationForEveryMissionOfOrder() {
+        Mission first = buildMission("payment-ready-1", MissionStatus.PENDING_PAYMENT);
+        Mission second = buildMission("payment-ready-2", MissionStatus.PENDING_PAYMENT);
+        second.setOrder(first.getOrder());
+        String orderId = first.getOrder().getId();
+        when(missionRepository.findAllByOrderIdForUpdateOrderById(orderId)).thenReturn(List.of(first, second));
+        when(missionRepository.saveAllAndFlush(anyList())).thenAnswer(call -> call.getArgument(0));
+
+        List<MissionResponse> result = missionService.transitionToPendingConfirmation(orderId);
+
+        assertThat(result).extracting(MissionResponse::getStatus)
+                .containsExactly(MissionStatus.PENDING_CONFIRMATION, MissionStatus.PENDING_CONFIRMATION);
+        verify(missionRepository).saveAllAndFlush(List.of(first, second));
+    }
+
+    @Test
+    void paymentConfirmationDoesNotPartiallyUpdateOrderWhenOneMissionHasInvalidStatus() {
+        Mission first = buildMission("payment-atomic-1", MissionStatus.PENDING_PAYMENT);
+        Mission second = buildMission("payment-atomic-2", MissionStatus.READY);
+        second.setOrder(first.getOrder());
+        String orderId = first.getOrder().getId();
+        when(missionRepository.findAllByOrderIdForUpdateOrderById(orderId)).thenReturn(List.of(first, second));
+
+        assertThatThrownBy(() -> missionService.transitionToPendingConfirmation(orderId))
+                .isInstanceOf(ApiException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.MISSION_STATUS_INVALID);
+
+        assertThat(first.getStatus()).isEqualTo(MissionStatus.PENDING_PAYMENT);
+        assertThat(second.getStatus()).isEqualTo(MissionStatus.READY);
+        verify(missionRepository, never()).saveAllAndFlush(anyList());
+    }
+
+    @Test
+    void acceptingLastCrewWithCurrentMainDeviceMakesMissionReadyBeforePrecheck() {
+        Mission mission = buildMission("resource-ready", MissionStatus.PENDING_CONFIRMATION);
+        var crew = java.util.Arrays.stream(MissionStaffRole.values())
+                .map(role -> staffAssignment(mission, role.name(), role,
+                        role == MissionStaffRole.PILOT ? "PENDING" : "ACCEPTED"))
+                .toList();
+        MissionDeviceAssignment device = new MissionDeviceAssignment();
+        device.setMission(mission);
+        device.setDevice(new com.ondemandmonitoring.device.domain.Device());
+        device.setDeviceRole(com.ondemandmonitoring.mission.enums.DeviceRole.MAIN);
+        device.setIsCurrent(true);
+        device.setCheckupStatus(MissionDeviceAssignmentStatus.PENDING);
+        when(missionRepository.findById("resource-ready")).thenReturn(Optional.of(mission));
+        when(missionStaffAssignmentRepository.findAllByMissionIdAndStaffIdAndIsCurrentTrueOrderByAssignedAtDesc(
+                "resource-ready", MissionStaffRole.PILOT.name())).thenReturn(List.of(crew.getFirst()));
+        when(missionStaffAssignmentRepository.findByMissionId("resource-ready")).thenReturn(crew);
+        when(missionDeviceAssignmentRepository.findByMissionId("resource-ready")).thenReturn(List.of(device));
+        when(missionRepository.save(mission)).thenReturn(mission);
+
+        MissionResponse result = missionService.acceptMission(
+                "resource-ready", MissionStaffRole.PILOT.name());
+
+        assertThat(result.getStatus()).isEqualTo(MissionStatus.READY);
+    }
+
+    @Test
+    void startWorkflowMovesReadyMissionToScheduled() {
+        Mission mission = buildMission("workflow-ready", MissionStatus.READY);
+        var crew = java.util.Arrays.stream(MissionStaffRole.values())
+                .map(role -> staffAssignment(mission, role.name(), role, "ACCEPTED"))
+                .toList();
+        when(missionRepository.findById("workflow-ready")).thenReturn(Optional.of(mission));
+        when(missionStaffAssignmentRepository.findAllByMissionIdAndIsCurrentTrue("workflow-ready"))
+                .thenReturn(crew);
+        when(missionRepository.save(mission)).thenReturn(mission);
+
+        MissionResponse result = missionService.startMissionWorkflow("workflow-ready");
+
+        assertThat(result.getStatus()).isEqualTo(MissionStatus.SCHEDULED);
+        assertThat(mission.getActualStartAt()).isNotNull();
+    }
+
+    @Test
     void deviceOperationUsesExactChildMissionAndDoesNotTouchSibling() {
         var order = new com.ondemandmonitoring.order.domain.Order(); order.setId("order-1");
         order.setExecutionPlanStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
@@ -408,7 +485,7 @@ class MissionServiceTest {
         @Test
         @DisplayName("1. acceptMission success when READY")
         void acceptMission_success() {
-            Mission mission = buildMission("m-1", MissionStatus.READY);
+            Mission mission = buildMission("m-1", MissionStatus.PENDING_CONFIRMATION);
             when(missionRepository.findById("m-1")).thenReturn(Optional.of(mission));
             MissionStaffAssignment assignment = staffAssignment(mission, "op-01", "PENDING");
             when(missionStaffAssignmentRepository.findAllByMissionIdAndStaffIdAndIsCurrentTrueOrderByAssignedAtDesc("m-1", "op-01"))
@@ -422,13 +499,13 @@ class MissionServiceTest {
 
             MissionResponse result = missionService.acceptMission("m-1", "op-01");
 
-            assertThat(result.getStatus()).isEqualTo(MissionStatus.READY);
+            assertThat(result.getStatus()).isEqualTo(MissionStatus.PENDING_CONFIRMATION);
             verify(missionStaffAssignmentRepository).saveAll(any());
         }
 
         @Test
         void oneStaffCanAcceptAllAssignedRolesAndWaitForInspectorStart() {
-            Mission mission = buildMission("m-solo", MissionStatus.READY);
+            Mission mission = buildMission("m-solo", MissionStatus.PENDING_CONFIRMATION);
             var assignments = java.util.Arrays.stream(MissionStaffRole.values())
                     .map(role -> staffAssignment(mission, "seed-staff-1", role, "PENDING"))
                     .toList();
@@ -442,7 +519,7 @@ class MissionServiceTest {
 
             MissionResponse result = missionService.acceptMission("m-solo", "seed-staff-1");
 
-            assertThat(result.getStatus()).isEqualTo(MissionStatus.READY);
+            assertThat(result.getStatus()).isEqualTo(MissionStatus.PENDING_CONFIRMATION);
             assertThat(assignments).allMatch(entry -> entry.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED);
             verify(missionStaffAssignmentRepository).saveAll(assignments);
         }
@@ -471,7 +548,7 @@ class MissionServiceTest {
         @Test
         @DisplayName("4. acceptMission rejects wrong staff before planning")
         void acceptMission_wrongOperator_doesNotPlan() {
-            Mission mission = buildMission("m-operator", MissionStatus.READY);
+            Mission mission = buildMission("m-operator", MissionStatus.PENDING_CONFIRMATION);
             when(missionRepository.findById("m-operator")).thenReturn(Optional.of(mission));
 
             assertThatThrownBy(() -> missionService.acceptMission("m-operator", "op-other"))
@@ -482,7 +559,7 @@ class MissionServiceTest {
         @Test
         @DisplayName("8. rejectMission success when READY")
         void rejectMission_success() {
-            Mission mission = buildMission("m-2", MissionStatus.READY);
+            Mission mission = buildMission("m-2", MissionStatus.PENDING_CONFIRMATION);
             MissionStaffAssignment assignment = staffAssignment(mission, "op-01", "PENDING");
             when(missionStaffAssignmentRepository.findAllByMissionIdAndStaffIdAndIsCurrentTrueOrderByAssignedAtDesc("m-2", "op-01"))
                     .thenReturn(List.of(assignment));
@@ -491,7 +568,7 @@ class MissionServiceTest {
 
             MissionResponse result = missionService.rejectMission("m-2", "op-01", "Trùng lịch cá nhân");
 
-            assertThat(result.getStatus()).isEqualTo(MissionStatus.READY);
+            assertThat(result.getStatus()).isEqualTo(MissionStatus.PENDING_CONFIRMATION);
             verify(missionStaffAssignmentRepository).saveAll(any());
         }
 
@@ -1111,7 +1188,7 @@ class MissionServiceTest {
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = {"released", "inactive", "historical"})
     void unusableAcceptedCrewMustNotScheduleMission(String state) {
-        var mission = buildMission("crew-invalid", MissionStatus.READY);
+        var mission = buildMission("crew-invalid", MissionStatus.PENDING_CONFIRMATION);
         var crew = java.util.Arrays.stream(MissionStaffRole.values())
                 .map(role -> staffAssignment(mission, role.name(), role, "ACCEPTED")).toList();
         var operator = crew.stream().filter(entry -> entry.getAssignedRole() == MissionStaffRole.OPERATOR)
@@ -1133,7 +1210,7 @@ class MissionServiceTest {
         when(missionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         assertThat(missionService.acceptMission("crew-invalid", "PILOT").getStatus())
-                .isEqualTo(MissionStatus.READY);
+                .isEqualTo(MissionStatus.PENDING_CONFIRMATION);
         assertThat((Boolean) org.springframework.test.util.ReflectionTestUtils.invokeMethod(
                 missionService, "hasRequiredCrewAssigned", "crew-invalid")).isFalse();
     }

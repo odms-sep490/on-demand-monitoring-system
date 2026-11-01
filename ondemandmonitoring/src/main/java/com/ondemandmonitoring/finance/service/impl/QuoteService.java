@@ -515,7 +515,6 @@ public class QuoteService implements IQuoteService {
         invoice.setStatus(InvoiceStatus.ISSUED);
         invoice.setIssuedAt(now);
         Invoice saved = invoices.save(invoice);
-        ensureWaitingDepositMission(order);
         return invoiceResponse(saved);
     }
 
@@ -724,21 +723,6 @@ public class QuoteService implements IQuoteService {
         line.setUnitPrice(vnd(unitPrice)); line.setAmount(vnd(unitPrice));
         line.setOrderChecklistItem(checklistItem); line.setDisplayOrder(displayOrder);
         return line;
-    }
-
-    private void ensureWaitingDepositMission(Order order) {
-        // Quote acceptance creates the invoice, not a hidden unassigned Mission.
-        // Manager planning remains the only creator/materializer in the 1:N model.
-        for (String id : missions.findIdsByOrderIdOrderById(order.getId()).stream().sorted().toList()) {
-            Mission mission = missions.findByIdForUpdate(id)
-                    .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
-            if (mission.getStatus() == MissionStatus.CANCELLED) continue;
-            if (mission.getStatus() == MissionStatus.PLANNING) {
-                mission.setStatus(MissionStatus.WAITING_DEPOSIT);
-            } else if (mission.getStatus() != MissionStatus.WAITING_DEPOSIT) {
-                throw new ApiException(ErrorCode.MISSION_STATUS_INVALID, "Existing mission has already entered execution");
-            }
-        }
     }
 
     private Order orderForCustomerQuote(String orderId) {

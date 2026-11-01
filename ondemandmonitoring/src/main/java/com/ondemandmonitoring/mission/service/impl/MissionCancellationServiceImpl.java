@@ -44,7 +44,6 @@ public class MissionCancellationServiceImpl implements IMissionCancellationServi
         MissionCancellationGuard.requireAllowed(orderId, order, mission, request.expectedPlanRevision(), results, missions);
 
         mission.setStatus(MissionStatus.CANCELLED);
-        mission.setResourcePrepareStatus(MissionResourcePrepareStatus.CANCELLED);
         mission.setCancellationAt(Instant.now()); mission.setCancelledBy(actor.getCurrentUserId());
         mission.setCancellationReason(request.reason().strip());
         order.setExecutionPlanRevision(order.getExecutionPlanRevision() + 1);
@@ -53,8 +52,7 @@ public class MissionCancellationServiceImpl implements IMissionCancellationServi
 
         if (checklistAssignmentStatusSync != null) checklistAssignmentStatusSync.syncForMission(mission);
         
-        return new MissionCancellationResponse(missionId, mission.getStatus(), mission.getResourcePrepareStatus(),
-                order.getExecutionPlanRevision(),
+        return new MissionCancellationResponse(missionId, mission.getStatus(), order.getExecutionPlanRevision(),
                 mission.getCancellationAt(), mission.getCancelledBy(), mission.getCancellationReason());
     }
 }

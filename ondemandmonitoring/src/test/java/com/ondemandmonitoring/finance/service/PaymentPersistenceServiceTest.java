@@ -13,9 +13,6 @@ import com.ondemandmonitoring.finance.repository.*;
 import com.ondemandmonitoring.finance.service.impl.MissionPaymentEligibilityService;
 import com.ondemandmonitoring.finance.service.impl.PaymentPersistenceService;
 import com.ondemandmonitoring.finance.util.PaymentReferenceGenerator;
-import com.ondemandmonitoring.mission.domain.Mission;
-import com.ondemandmonitoring.mission.enums.MissionStatus;
-import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.user.domain.User;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
@@ -27,12 +24,11 @@ import org.junit.jupiter.api.Test;
 class PaymentPersistenceServiceTest {
     InvoiceRepository invoices = mock(InvoiceRepository.class);
     PaymentRepository payments = mock(PaymentRepository.class);
-    MissionRepository missions = mock(MissionRepository.class);
     AuthenticatedUserResolver users = mock(AuthenticatedUserResolver.class);
     PaymentReferenceGenerator references = mock(PaymentReferenceGenerator.class);
     IDeliveryWorkflowService delivery = mock(IDeliveryWorkflowService.class);
     com.ondemandmonitoring.order.repository.OrderRepository orders = mock(com.ondemandmonitoring.order.repository.OrderRepository.class);
-    PaymentPersistenceService service = new PaymentPersistenceService(invoices, payments, missions, users,
+    PaymentPersistenceService service = new PaymentPersistenceService(invoices, payments, users,
             new MissionPaymentEligibilityService(), references, delivery, orders, java.time.Clock.systemUTC());
     Invoice invoice; User owner;
 

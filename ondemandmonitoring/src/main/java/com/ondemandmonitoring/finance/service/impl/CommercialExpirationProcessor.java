@@ -68,7 +68,7 @@ public class CommercialExpirationProcessor {
         Instant now = Instant.now(clock);
         if (now.isBefore(order.getDepositExpiresAt())) return false;
 
-        // Keep lock order identical to PaymentWebhookProcessor: order, payments, invoice, missions.
+        // Lock the commercial aggregate in deterministic order before applying expiration.
         List<Payment> lockedPayments = payments.findAllByInvoiceIdForUpdate(invoiceId);
         Invoice invoice = invoices.findByIdForUpdate(invoiceId).orElse(null);
         if (invoice == null || invoice.getStatus() == InvoiceStatus.CANCELLED
@@ -122,7 +122,6 @@ public class CommercialExpirationProcessor {
         order.setOrderStatus(OrderStatus.CANCELLED);
         affected.forEach(mission -> {
             mission.setStatus(MissionStatus.CANCELLED);
-            mission.setResourcePrepareStatus(com.ondemandmonitoring.mission.enums.MissionResourcePrepareStatus.CANCELLED);
             mission.setCancellationAt(now);
             mission.setCancelledBy(SYSTEM_ACTOR);
             mission.setCancellationReason(reason.name());

@@ -36,7 +36,7 @@ public class VnPayCallbackService implements IVnPayCallbackService {
     public String buildReturnRedirect(Map<String, String> parameters) {
         String target = properties.frontendResultUrl();
         try {
-            var verified = paymentService.verifyVnPayReturn(parameters);
+            var verified = paymentService.processVerifiedVnPayReturn(parameters);
             if (!verified.successful()) target = target.replace("#payment/result", "#payment/cancel");
             return target + separator(target) + "transactionReference=" + verified.transactionReference();
         } catch (RuntimeException exception) {

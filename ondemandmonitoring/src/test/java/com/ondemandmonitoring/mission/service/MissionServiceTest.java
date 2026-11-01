@@ -19,6 +19,7 @@ import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import com.ondemandmonitoring.mission.domain.MissionStaffAssignment;
 import com.ondemandmonitoring.mission.dto.request.AssignDeviceRequest;
 import com.ondemandmonitoring.mission.dto.request.AssignStaffRequest;
+import com.ondemandmonitoring.mission.dto.request.ReplaceDeviceRequest;
 import com.ondemandmonitoring.mission.dto.response.FlightTokenResponse;
 import com.ondemandmonitoring.mission.dto.response.MissionResponse;
 import com.ondemandmonitoring.mission.enums.MissionStaffRole;
@@ -208,7 +209,7 @@ class MissionServiceTest {
     void creationDoesNotTreatUnrelatedDatabaseFailureAsDuplicate() {
         var request = MissionCreationServiceTest.request("order-1", java.util.UUID.randomUUID().toString(), 0);
         var failure = new org.springframework.dao.DataAccessResourceFailureException("Database unavailable");
-        when(orderRepository.findById("order-1")).thenThrow(failure);
+        when(orderRepository.findByIdForUpdate("order-1")).thenThrow(failure);
         assertThatThrownBy(() -> missionService.createMission("order-1", request)).isSameAs(failure);
         verifyNoInteractions(missionRepository);
     }
@@ -231,6 +232,8 @@ class MissionServiceTest {
         String orderId = first.getOrder().getId();
         when(missionRepository.findAllByOrderIdForUpdateOrderById(orderId)).thenReturn(List.of(first, second));
         when(missionRepository.saveAllAndFlush(anyList())).thenAnswer(call -> call.getArgument(0));
+        when(missionPaymentEligibilityService.isFinalPaymentConfirmed(any())).thenReturn(true);
+        when(missionPaymentEligibilityService.isResourceAssignmentReady(any())).thenReturn(true);
 
         List<MissionResponse> result = missionService.transitionToPendingConfirmation(orderId);
 
@@ -246,6 +249,7 @@ class MissionServiceTest {
         second.setOrder(first.getOrder());
         String orderId = first.getOrder().getId();
         when(missionRepository.findAllByOrderIdForUpdateOrderById(orderId)).thenReturn(List.of(first, second));
+        when(missionPaymentEligibilityService.isFinalPaymentConfirmed(any())).thenReturn(true);
 
         assertThatThrownBy(() -> missionService.transitionToPendingConfirmation(orderId))
                 .isInstanceOf(ApiException.class)
@@ -254,6 +258,46 @@ class MissionServiceTest {
         assertThat(first.getStatus()).isEqualTo(MissionStatus.PENDING_PAYMENT);
         assertThat(second.getStatus()).isEqualTo(MissionStatus.READY);
         verify(missionRepository, never()).saveAllAndFlush(anyList());
+    }
+
+    @Test
+    void paymentConfirmationRejectsTheWholeOrderWhenOneAssignmentIsNoLongerValid() {
+        Mission first = buildMission("payment-assignment-1", MissionStatus.PENDING_PAYMENT);
+        Mission second = buildMission("payment-assignment-2", MissionStatus.PENDING_PAYMENT);
+        second.setOrder(first.getOrder());
+        String orderId = first.getOrder().getId();
+        when(missionRepository.findAllByOrderIdForUpdateOrderById(orderId)).thenReturn(List.of(first, second));
+        when(missionPaymentEligibilityService.isFinalPaymentConfirmed(any())).thenReturn(true);
+        when(missionPaymentEligibilityService.isResourceAssignmentReady(first)).thenReturn(true);
+        when(missionPaymentEligibilityService.isResourceAssignmentReady(second)).thenReturn(false);
+
+        assertThatThrownBy(() -> missionService.transitionToPendingConfirmation(orderId))
+                .isInstanceOf(ApiException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.FINAL_PAYMENT_NOT_ALLOWED);
+        assertThat(first.getStatus()).isEqualTo(MissionStatus.PENDING_PAYMENT);
+        assertThat(second.getStatus()).isEqualTo(MissionStatus.PENDING_PAYMENT);
+        verify(missionRepository, never()).saveAllAndFlush(anyList());
+    }
+
+    @Test
+    void paymentConfirmationRetryLeavesAdvancedAndCancelledMissionsUntouched() {
+        Mission confirming = buildMission("payment-retry-confirming", MissionStatus.PENDING_CONFIRMATION);
+        Mission completed = buildMission("payment-retry-completed", MissionStatus.COMPLETED);
+        Mission cancelled = buildMission("payment-retry-cancelled", MissionStatus.CANCELLED);
+        completed.setOrder(confirming.getOrder());
+        cancelled.setOrder(confirming.getOrder());
+        String orderId = confirming.getOrder().getId();
+        when(missionRepository.findAllByOrderIdForUpdateOrderById(orderId))
+                .thenReturn(List.of(confirming, completed, cancelled));
+        when(missionRepository.saveAllAndFlush(anyList())).thenAnswer(call -> call.getArgument(0));
+        when(missionPaymentEligibilityService.isFinalPaymentConfirmed(any())).thenReturn(true);
+
+        missionService.transitionToPendingConfirmation(orderId);
+
+        assertThat(confirming.getStatus()).isEqualTo(MissionStatus.PENDING_CONFIRMATION);
+        assertThat(completed.getStatus()).isEqualTo(MissionStatus.COMPLETED);
+        assertThat(cancelled.getStatus()).isEqualTo(MissionStatus.CANCELLED);
+        verify(missionPaymentEligibilityService, never()).isResourceAssignmentReady(any());
     }
 
     @Test
@@ -1134,6 +1178,28 @@ class MissionServiceTest {
                     .isInstanceOf(ApiException.class)
                     .hasMessageContaining("MAINTENANCE");
         }
+
+        @Test
+        @DisplayName("Resource changes are blocked while final payment is in progress")
+        void resourceChanges_blockedDuringActiveFinalPayment() {
+            Mission mission = buildMission("m-active-final-payment", MissionStatus.PLANNING);
+            String orderId = mission.getOrder().getId();
+            when(missionPaymentEligibilityService.hasActiveFinalPayment(orderId)).thenReturn(true);
+
+            AssignDeviceRequest assignment = new AssignDeviceRequest();
+            assignment.setDeviceId("device-1");
+            ReplaceDeviceRequest replacement = new ReplaceDeviceRequest();
+            replacement.setDeviceId("device-2");
+            replacement.setReason("Equipment change");
+
+            assertThatThrownBy(() -> missionService.assignDevice(mission.getId(), assignment))
+                    .isInstanceOf(ApiException.class)
+                    .extracting("errorCode").isEqualTo(ErrorCode.ACTIVE_PAYMENT_EXISTS);
+            assertThatThrownBy(() -> missionService.replaceDevice(mission.getId(), "assignment-1", replacement))
+                    .isInstanceOf(ApiException.class)
+                    .extracting("errorCode").isEqualTo(ErrorCode.ACTIVE_PAYMENT_EXISTS);
+            verify(missionRepository, never()).findByIdForUpdate(mission.getId());
+        }
     }
 
     // =========================================================================
@@ -1147,12 +1213,21 @@ class MissionServiceTest {
         m.setStatus(status);
         m.setFlightPermitStatus(FlightPermitStatus.APPROVED);
         var order = new com.ondemandmonitoring.order.domain.Order(); order.setId("order-" + id);
+        order.setOrderStatus(com.ondemandmonitoring.order.enums.OrderStatus.APPROVED);
         order.setExecutionPlanStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
         order.setExecutionPlanRevision(1);
         m.setOrder(order);
         lenient().when(missionRepository.findOrderIdByMissionId(id)).thenReturn(Optional.of(order.getId()));
         lenient().when(orderRepository.findById(order.getId())).thenReturn(Optional.of(order));
         lenient().when(orderRepository.findByIdForUpdate(order.getId())).thenReturn(Optional.of(order));
+        var quote = new com.ondemandmonitoring.finance.domain.Quote();
+        quote.setStatus(com.ondemandmonitoring.finance.enums.QuoteStatus.ACCEPTED_BY_CUSTOMER);
+        var invoice = new com.ondemandmonitoring.finance.domain.Invoice();
+        invoice.setOrder(order); invoice.setQuote(quote);
+        invoice.setStatus(com.ondemandmonitoring.finance.enums.InvoiceStatus.PAID);
+        invoice.setPaidAmount(new java.math.BigDecimal("100"));
+        invoice.setTotalAmount(new java.math.BigDecimal("100")); invoice.setRemainingAmount(java.math.BigDecimal.ZERO);
+        lenient().when(invoiceRepository.findByOrderId(order.getId())).thenReturn(Optional.of(invoice));
         return m;
     }
 

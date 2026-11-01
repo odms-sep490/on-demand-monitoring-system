@@ -38,7 +38,7 @@ class ExecutionPlanFinalizeTest {
         order = new Order(); order.setId("o"); order.setExecutionPlanRevision(3); order.setOrderStatus(OrderStatus.APPROVED);
         first = mission("a"); second = mission("b");
         selection = List.of(assignment(first, "i1"), assignment(second, "i2"));
-        when(orders.findById("o")).thenReturn(Optional.of(order));
+        when(orders.findByIdForUpdate("o")).thenReturn(Optional.of(order));
         when(missions.findIdsByOrderIdOrderById("o")).thenReturn(List.of("b", "a"));
         when(missions.findById("a")).thenReturn(Optional.of(first));
         when(missions.findById("b")).thenReturn(Optional.of(second));
@@ -72,7 +72,7 @@ class ExecutionPlanFinalizeTest {
     @Test void finalizationRequiresResourcesAndCoverageButNotFinanceGeometryOrDates() {
         finalizePlan();
         var sequence = inOrder(orders, missions, materializer);
-        sequence.verify(orders).findById("o");
+        sequence.verify(orders).findByIdForUpdate("o");
         sequence.verify(missions).findIdsByOrderIdOrderById("o");
         sequence.verify(missions).findById("a"); sequence.verify(missions).findById("b");
         sequence.verify(materializer).materialize(first); sequence.verify(materializer).materialize(second);

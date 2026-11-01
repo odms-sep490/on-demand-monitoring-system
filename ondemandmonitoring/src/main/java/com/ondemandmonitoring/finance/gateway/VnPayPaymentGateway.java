@@ -198,9 +198,12 @@ public class VnPayPaymentGateway implements PaymentGateway, PaymentStatusGateway
                 value(response, "vnp_Amount"), value(response, "vnp_BankCode"),
                 value(response, "vnp_PayDate"), value(response, "vnp_TransactionNo"),
                 value(response, "vnp_TransactionType"), value(response, "vnp_TransactionStatus"),
-                value(response, "vnp_OrderInfo"), value(response, "vnp_PromotionCode"),
-                value(response, "vnp_PromotionAmount"));
-        if (!signer.verifyRaw(signedData, response.get("vnp_SecureHash"))) {
+                value(response, "vnp_OrderInfo"));
+        String signedDataWithPromotions = signedData + "|" + value(response, "vnp_PromotionCode")
+                + "|" + value(response, "vnp_PromotionAmount");
+        String signature = response.get("vnp_SecureHash");
+        if (!signer.verifyRaw(signedData, signature)
+                && !signer.verifyRaw(signedDataWithPromotions, signature)) {
             throw invalid("Invalid VNPAY QueryDR signature");
         }
     }

@@ -2,7 +2,6 @@ package com.ondemandmonitoring.finance.service.impl;
 
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
-import com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService;
 import com.ondemandmonitoring.finance.domain.Invoice;
 import com.ondemandmonitoring.finance.domain.Payment;
 import com.ondemandmonitoring.finance.dto.PaymentResponse;
@@ -33,8 +32,8 @@ public class PaymentPersistenceService implements IPaymentPersistenceService {
     private final PaymentRepository payments;
     private final AuthenticatedUserResolver currentUser;
     private final IMissionPaymentEligibilityService eligibility;
+    private final FinalPaymentDeadlineService finalPaymentDeadlines;
     private final PaymentReferenceGenerator referenceGenerator;
-    private final IDeliveryWorkflowService deliveryWorkflow;
     private final com.ondemandmonitoring.order.repository.OrderRepository orders;
     private final Clock clock;
 
@@ -53,7 +52,8 @@ public class PaymentPersistenceService implements IPaymentPersistenceService {
         if (invoice.getStatus() == InvoiceStatus.PAID || invoice.getRemainingAmount().signum() == 0) {
             throw new ApiException(ErrorCode.INVOICE_ALREADY_PAID);
         }
-        if (invoice.getStatus() == InvoiceStatus.CANCELLED || invoice.getStatus() == InvoiceStatus.REFUNDED) {
+        if (invoice.getStatus() == InvoiceStatus.CANCELLED || invoice.getStatus() == InvoiceStatus.REFUNDED
+                || invoice.getStatus() == InvoiceStatus.OVERDUE) {
             throw new ApiException(ErrorCode.INVOICE_NOT_PAYABLE);
         }
         if (type == PaymentType.DEPOSIT && invoice.getOrder().getDepositExpiresAt() != null
@@ -64,7 +64,14 @@ public class PaymentPersistenceService implements IPaymentPersistenceService {
             throw new ApiException(ErrorCode.DEPOSIT_ALREADY_SATISFIED);
         }
         if (type == PaymentType.FINAL_PAYMENT) {
-            deliveryWorkflow.requireFinalPaymentEligible(invoice.getOrder().getId());
+            eligibility.requireFinalPaymentEligible(invoice);
+            var finalDeadline = finalPaymentDeadlines.assignIfEligible(invoice);
+            if (finalDeadline == null) {
+                throw new ApiException(ErrorCode.INVOICE_NOT_PAYABLE, "Final payment deadline is unavailable");
+            }
+            if (!Instant.now(clock).isBefore(finalDeadline)) {
+                throw new ApiException(ErrorCode.INVOICE_NOT_PAYABLE, "Final payment deadline has expired");
+            }
         }
         var active = payments.findFirstByInvoiceIdAndPaymentTypeAndProviderAndStatusInOrderByCreatedAtDesc(
                 invoiceId, type, PaymentProvider.VNPAY,

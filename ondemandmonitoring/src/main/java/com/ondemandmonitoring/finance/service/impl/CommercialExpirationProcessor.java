@@ -96,6 +96,34 @@ public class CommercialExpirationProcessor {
         return true;
     }
 
+    /** Mark the final balance overdue only after any already-open payment attempt has settled or failed. */
+    @Transactional
+    public boolean expireFinalPayment(String invoiceId) {
+        Invoice candidate = invoices.findById(invoiceId).orElse(null);
+        if (candidate == null) return false;
+        Order order = orders.findByIdForUpdate(candidate.getOrder().getId()).orElse(null);
+        if (order == null || (order.getOrderStatus() != OrderStatus.APPROVED
+                && order.getOrderStatus() != OrderStatus.IN_PROGRESS)
+                || order.getFinalPaymentExpiresAt() == null) return false;
+        Instant now = Instant.now(clock);
+        if (now.isBefore(order.getFinalPaymentExpiresAt())) return false;
+
+        List<Payment> lockedPayments = payments.findAllByInvoiceIdForUpdate(invoiceId);
+        Invoice invoice = invoices.findByIdForUpdate(invoiceId).orElse(null);
+        if (invoice == null || invoice.getStatus() == InvoiceStatus.CANCELLED
+                || invoice.getStatus() == InvoiceStatus.PAID || invoice.getStatus() == InvoiceStatus.REFUNDED
+                || invoice.getRemainingAmount() == null || invoice.getRemainingAmount().signum() <= 0)
+            return false;
+        boolean finalPaymentInFlight = lockedPayments.stream()
+                .filter(payment -> payment.getPaymentType() == PaymentType.FINAL_PAYMENT)
+                .anyMatch(payment -> payment.getStatus() == PaymentStatus.PENDING
+                        || payment.getStatus() == PaymentStatus.PROCESSING);
+        if (finalPaymentInFlight) return false;
+
+        invoice.setStatus(InvoiceStatus.OVERDUE);
+        return true;
+    }
+
     /** Null means an operational/resource inconsistency that must be handled manually, never force-cancelled. */
     private List<Mission> cancellableMissions(String orderId) {
         List<Mission> result = new java.util.ArrayList<>();

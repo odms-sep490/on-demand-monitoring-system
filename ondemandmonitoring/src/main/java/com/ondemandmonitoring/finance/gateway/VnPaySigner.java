@@ -38,13 +38,13 @@ public class VnPaySigner {
     public boolean verifyRaw(String data, String receivedSignature) {
         if (receivedSignature == null || receivedSignature.isBlank()) return false;
         return MessageDigest.isEqual(signRaw(data).getBytes(StandardCharsets.US_ASCII),
-                receivedSignature.toLowerCase().getBytes(StandardCharsets.US_ASCII));
+                receivedSignature.trim().toLowerCase(java.util.Locale.ROOT).getBytes(StandardCharsets.US_ASCII));
     }
 
     public boolean verify(Map<String, String> parameters, String receivedSignature) {
         if (receivedSignature == null || receivedSignature.isBlank()) return false;
         byte[] expected = sign(parameters).getBytes(StandardCharsets.US_ASCII);
-        byte[] received = receivedSignature.toLowerCase().getBytes(StandardCharsets.US_ASCII);
+        byte[] received = receivedSignature.trim().toLowerCase(java.util.Locale.ROOT).getBytes(StandardCharsets.US_ASCII);
         return MessageDigest.isEqual(expected, received);
     }
 

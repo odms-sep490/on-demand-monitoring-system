@@ -18,6 +18,7 @@ public class CommercialExpirationJob {
     private final QuoteRepository quotes;
     private final InvoiceRepository invoices;
     private final CommercialExpirationProcessor processor;
+    private final FinalPaymentDeadlineService finalPaymentDeadlines;
     private final PaymentProperties properties;
     private final Clock clock;
 
@@ -27,6 +28,8 @@ public class CommercialExpirationJob {
         var page = PageRequest.of(0, properties.expirationBatchSize());
         quotes.findExpiredApprovedIds(now, page).forEach(id -> processQuote(id));
         invoices.findExpiredDepositInvoiceIds(now, page).forEach(id -> processInvoice(id));
+        invoices.findCandidatesMissingFinalPaymentDeadline(page).forEach(id -> assignFinalPaymentDeadline(id));
+        invoices.findExpiredFinalPaymentInvoiceIds(now, page).forEach(id -> processFinalPayment(id));
     }
 
     private void processQuote(String id) {
@@ -37,5 +40,15 @@ public class CommercialExpirationJob {
     private void processInvoice(String id) {
         try { processor.expireDeposit(id); }
         catch (RuntimeException exception) { log.error("Could not expire deposit invoice {}", id, exception); }
+    }
+
+    private void processFinalPayment(String id) {
+        try { processor.expireFinalPayment(id); }
+        catch (RuntimeException exception) { log.error("Could not expire final-payment invoice {}", id, exception); }
+    }
+
+    private void assignFinalPaymentDeadline(String id) {
+        try { finalPaymentDeadlines.assignIfEligible(id); }
+        catch (RuntimeException exception) { log.error("Could not assign final-payment deadline for invoice {}", id, exception); }
     }
 }

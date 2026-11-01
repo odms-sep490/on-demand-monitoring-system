@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import com.ondemandmonitoring.finance.domain.*;
-import com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService;
 import com.ondemandmonitoring.finance.enums.*;
 import com.ondemandmonitoring.finance.gateway.VerifiedWebhook;
 import com.ondemandmonitoring.finance.repository.*;
@@ -18,9 +17,10 @@ import org.junit.jupiter.api.Test;
 class PaymentWebhookProcessorTest {
     PaymentRepository payments = mock(PaymentRepository.class);
     InvoiceRepository invoices = mock(InvoiceRepository.class);
-    IDeliveryWorkflowService delivery = mock(IDeliveryWorkflowService.class);
+    com.ondemandmonitoring.mission.service.IMissionService missions =
+            mock(com.ondemandmonitoring.mission.service.IMissionService.class);
     com.ondemandmonitoring.order.repository.OrderRepository orders = mock(com.ondemandmonitoring.order.repository.OrderRepository.class);
-    PaymentWebhookProcessor processor = new PaymentWebhookProcessor(payments, invoices, delivery, orders);
+    PaymentWebhookProcessor processor = new PaymentWebhookProcessor(payments, invoices, missions, orders);
     Payment payment; Invoice invoice;
 
     @BeforeEach void setUp() {
@@ -75,7 +75,57 @@ class PaymentWebhookProcessorTest {
         processor.process(webhook(700));
         assertThat(invoice.getStatus()).isEqualTo(InvoiceStatus.PAID);
         assertThat(invoice.getRemainingAmount()).isEqualByComparingTo("0");
-        verify(delivery).confirmFinalPayment("o1");
+        verify(missions).transitionToPendingConfirmation("o1");
+    }
+
+    @Test void partialFinalPaymentDoesNotOpenMissionConfirmation() {
+        invoice.setPaidAmount(new BigDecimal("300")); payment.setAmount(new BigDecimal("200"));
+        payment.setPaymentType(PaymentType.FINAL_PAYMENT);
+        when(payments.sumSuccessfulPayments("i1")).thenReturn(new BigDecimal("500"));
+        processor.process(webhook(200));
+        assertThat(invoice.getStatus()).isEqualTo(InvoiceStatus.PARTIALLY_PAID);
+        verifyNoInteractions(missions);
+    }
+
+    @Test void missionActivationFailureDoesNotUndoVerifiedPayment() {
+        invoice.setPaidAmount(new BigDecimal("300")); payment.setAmount(new BigDecimal("700"));
+        payment.setPaymentType(PaymentType.FINAL_PAYMENT);
+        when(payments.sumSuccessfulPayments("i1")).thenReturn(new BigDecimal("1000"));
+        doThrow(new RuntimeException("mission store unavailable"))
+                .when(missions).transitionToPendingConfirmation("o1");
+
+        assertThat(processor.process(webhook(700))).isEqualTo(PaymentWebhookResult.PROCESSED);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
+        assertThat(invoice.getStatus()).isEqualTo(InvoiceStatus.PAID);
+    }
+
+    @Test void fullFinalPaymentSchedulesMissionActivationAfterSettlementCommit() {
+        invoice.setPaidAmount(new BigDecimal("300")); payment.setAmount(new BigDecimal("700"));
+        payment.setPaymentType(PaymentType.FINAL_PAYMENT);
+        when(payments.sumSuccessfulPayments("i1")).thenReturn(new BigDecimal("1000"));
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        try {
+            processor.process(webhook(700));
+            verifyNoInteractions(missions);
+            org.springframework.transaction.support.TransactionSynchronizationManager
+                    .getSynchronizations().forEach(
+                            org.springframework.transaction.support.TransactionSynchronization::afterCommit);
+            verify(missions).transitionToPendingConfirmation("o1");
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test void duplicateFullFinalPaymentRetriesActivationWithoutCreditingAgain() {
+        payment.setStatus(PaymentStatus.SUCCESS);
+        payment.setPaymentType(PaymentType.FINAL_PAYMENT);
+        invoice.setStatus(InvoiceStatus.PAID);
+        invoice.setPaidAmount(invoice.getTotalAmount());
+        invoice.setRemainingAmount(BigDecimal.ZERO);
+
+        assertThat(processor.process(webhook(300))).isEqualTo(PaymentWebhookResult.ALREADY_CONFIRMED);
+        verify(missions).transitionToPendingConfirmation("o1");
+        verify(payments, never()).sumSuccessfulPayments(anyString());
     }
 
     @Test void successfulLateIpnIsRecordedForReviewWithoutReopeningCancelledOrder() {

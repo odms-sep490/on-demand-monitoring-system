@@ -3,6 +3,8 @@ package com.ondemandmonitoring.flightpermit.service.impl;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.devicecheck.service.IPersistedPreDeviceCheckService;
+import com.ondemandmonitoring.finance.enums.InvoiceStatus;
+import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.flightpermit.service.IFlightPermitService;
 import com.ondemandmonitoring.flightpermit.domain.FlightPermit;
 import com.ondemandmonitoring.flightpermit.repository.FlightPermitRepository;
@@ -35,6 +37,7 @@ public class FlightPermitServiceImpl implements IFlightPermitService {
     MissionRepository missionRepository;
     FlightPermitRepository flightPermitRepository;
     OrderRepository orderRepository;
+    InvoiceRepository invoiceRepository;
     MissionMapper missionMapper;
     AuthenticatedUserResolver authenticatedUserResolver;
     IPersistedPreDeviceCheckService persistedPreDeviceCheckService;
@@ -45,6 +48,15 @@ public class FlightPermitServiceImpl implements IFlightPermitService {
     public MissionResponse updateFlightPermit(String missionId, FlightPermitUpdateRequest request) {
         Mission mission = missionRepository.findByIdWithOrder(missionId)
                 .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
+        var invoice = invoiceRepository.findByOrderId(mission.getOrder().getId())
+                .orElseThrow(() -> new ApiException(ErrorCode.INVALID_REQUEST,
+                        "Flight permit updates require the order invoice to be paid in full"));
+        if (invoice.getStatus() != InvoiceStatus.PAID
+                || invoice.getRemainingAmount() == null
+                || invoice.getRemainingAmount().signum() > 0) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "Flight permit updates require the order invoice to be paid in full");
+        }
         FlightPermit permit = flightPermitRepository.findByMissionId(missionId)
                 .orElseGet(() -> FlightPermit.pendingFor(mission));
         if (Set.of(MissionStatus.IN_PROGRESS, MissionStatus.AWAITING_REVIEW, MissionStatus.PENDING_REVIEW,

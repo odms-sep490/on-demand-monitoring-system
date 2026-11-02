@@ -57,15 +57,8 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     private final IResultRetentionAccessService retentionAccess;
     private final AuthenticatedUserResolver currentUser;
     private final com.ondemandmonitoring.order.service.IOrderExecutionCompletionPolicy completionPolicy;
-
-    /** Compatibility constructor for focused unit tests and non-Spring callers. */
-    public DeliveryWorkflowServiceImpl(OrderDeliveryRepository deliveries, OrderRepository orders,
-            MissionRepository missions, MissionResultRepository missionResults, InvoiceRepository invoices,
-            MediaAssetRepository media, IMediaObjectStorage storage, AuthenticatedUserResolver currentUser,
-            com.ondemandmonitoring.order.service.IOrderExecutionCompletionPolicy completionPolicy) {
-        this(deliveries, orders, missions, missionResults, invoices, media, storage,
-                new ResultRetentionAccessServiceImpl(java.time.Clock.systemUTC()), currentUser, completionPolicy);
-    }
+    private final ResultReviewRoundPublisher reviewRoundPublisher;
+    private final com.ondemandmonitoring.delivery.repository.ResultReviewRoundRepository reviewRounds;
 
     @Override
     @Transactional
@@ -103,7 +96,8 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
             return initialized;
         });
         if (delivery.getStatus() != DeliveryStatus.READY_FOR_MANAGER_REVIEW
-                && delivery.getStatus() != DeliveryStatus.REVISION_REQUESTED) {
+                && delivery.getStatus() != DeliveryStatus.REVISION_REQUESTED
+                && !(delivery.getStatus() == DeliveryStatus.CUSTOMER_REVIEW && delivery.getCurrentReviewRoundId() == null)) {
             throw new ApiException(ErrorCode.INVALID_DELIVERY_STATE);
         }
         List<MediaAsset> assets = assets(effective);
@@ -119,6 +113,9 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         assets.forEach(asset -> asset.setPreviewSelected(selected.contains(asset.getId())));
         media.saveAll(assets);
         Instant now = Instant.now();
+        var order = delivery.getOrder();
+        var round = reviewRoundPublisher.publish(order, delivery, effective, selected, now, currentUser.getCurrentUser());
+        delivery.setCurrentReviewRoundId(round.getId());
         delivery.setStatus(DeliveryStatus.CUSTOMER_REVIEW);
         delivery.setDeliveryNotes(trim(request.notes()));
         delivery.setPreviewReleasedAt(now);
@@ -130,13 +127,19 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
 
     @Override
     @Transactional
-    public DeliveryResponse acceptResult(String orderId) {
+    public DeliveryResponse acceptResult(String orderId, String expectedReviewRoundId, Long expectedRoundVersion) {
         assertOwner(orderId);
         List<Mission> effective = completedMissions(orderId);
         OrderDelivery delivery = locked(orderId);
-        if (delivery.getStatus() == DeliveryStatus.FINAL_PAYMENT_PENDING && delivery.getCustomerAcceptedAt() != null) {
+        var round = delivery.getCurrentReviewRoundId() == null ? null : reviewRounds.findByIdForUpdate(delivery.getCurrentReviewRoundId()).orElse(null);
+        if (round == null || expectedReviewRoundId == null || expectedRoundVersion == null
+                || !round.getId().equals(expectedReviewRoundId))
+            throw new ApiException(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED);
+        if (delivery.getStatus() == DeliveryStatus.FINAL_PAYMENT_PENDING && delivery.getCustomerAcceptedAt() != null
+                && round.getStatus() == com.ondemandmonitoring.delivery.enums.ResultReviewRoundStatus.ACCEPTED)
             return response(delivery, effective, List.of(), false);
-        }
+        if (!Objects.equals(round.getVersion(), expectedRoundVersion))
+            throw new ApiException(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED);
         if (delivery.getStatus() != DeliveryStatus.CUSTOMER_REVIEW) {
             throw new ApiException(delivery.getCustomerAcceptedAt() != null
                     ? ErrorCode.RESULT_ALREADY_ACCEPTED : ErrorCode.RESULT_NOT_READY_FOR_REVIEW);
@@ -145,27 +148,14 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         if (invoice.getStatus() == InvoiceStatus.PAID) throw new ApiException(ErrorCode.INVOICE_ALREADY_PAID);
         delivery.setCustomerAcceptedAt(Instant.now());
         delivery.setStatus(DeliveryStatus.FINAL_PAYMENT_PENDING);
+        round.setStatus(com.ondemandmonitoring.delivery.enums.ResultReviewRoundStatus.ACCEPTED);
         return response(delivery, effective, List.of(), false);
     }
 
     @Override
     @Transactional
     public DeliveryResponse requestRevision(String orderId, RevisionRequest request) {
-        assertOwner(orderId);
-        List<Mission> effective = completedMissions(orderId);
-        OrderDelivery delivery = locked(orderId);
-        if (delivery.getStatus() != DeliveryStatus.CUSTOMER_REVIEW) throw new ApiException(ErrorCode.REVISION_NOT_ALLOWED);
-        if (request.mediaAssetIds() != null && !request.mediaAssetIds().isEmpty()) {
-            Set<String> ids = new HashSet<>(request.mediaAssetIds());
-            boolean invalid = assets(effective).stream()
-                    .filter(a -> ids.contains(a.getId())).count() != ids.size();
-            if (invalid) throw new ApiException(ErrorCode.MEDIA_ACCESS_DENIED);
-        }
-        delivery.setStatus(DeliveryStatus.REVISION_REQUESTED);
-        delivery.setRevisionReason(request.reason().trim());
-        delivery.setRevisionRequestedAt(Instant.now());
-        delivery.setRevisionCount(delivery.getRevisionCount() + 1);
-        return response(delivery, effective, List.of(), false);
+        throw new ApiException(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED);
     }
 
     @Override

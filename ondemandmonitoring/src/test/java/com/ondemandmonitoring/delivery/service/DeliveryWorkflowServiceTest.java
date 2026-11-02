@@ -11,6 +11,9 @@ import com.ondemandmonitoring.delivery.dto.request.ReleasePreviewRequest;
 import com.ondemandmonitoring.delivery.dto.request.RevisionRequest;
 import com.ondemandmonitoring.delivery.enums.DeliveryStatus;
 import com.ondemandmonitoring.delivery.repository.OrderDeliveryRepository;
+import com.ondemandmonitoring.delivery.domain.ResultReviewRound;
+import com.ondemandmonitoring.delivery.repository.ResultReviewRoundRepository;
+import com.ondemandmonitoring.delivery.service.impl.ResultReviewRoundPublisher;
 import com.ondemandmonitoring.delivery.service.impl.DeliveryWorkflowServiceImpl;
 import com.ondemandmonitoring.finance.domain.Invoice;
 import com.ondemandmonitoring.finance.domain.Quote;
@@ -48,8 +51,12 @@ class DeliveryWorkflowServiceTest {
     IMediaObjectStorage storage = mock(IMediaObjectStorage.class);
     AuthenticatedUserResolver users = mock(AuthenticatedUserResolver.class);
     com.ondemandmonitoring.order.service.IOrderExecutionCompletionPolicy completion = mock(com.ondemandmonitoring.order.service.IOrderExecutionCompletionPolicy.class);
+    ResultReviewRoundPublisher reviewPublisher = mock(ResultReviewRoundPublisher.class);
+    ResultReviewRoundRepository reviewRounds = mock(ResultReviewRoundRepository.class);
     DeliveryWorkflowServiceImpl service = new DeliveryWorkflowServiceImpl(
-            deliveries, orders, missions, missionResults, invoices, media, storage, users, completion);
+            deliveries, orders, missions, missionResults, invoices, media, storage,
+            new com.ondemandmonitoring.media.service.impl.ResultRetentionAccessServiceImpl(java.time.Clock.systemUTC()),
+            users, completion, reviewPublisher, reviewRounds);
     User customer; Order order; Mission mission; Invoice invoice; OrderDelivery delivery;
 
     @BeforeEach void setUp() {
@@ -62,6 +69,9 @@ class DeliveryWorkflowServiceTest {
         invoice.setTotalAmount(new BigDecimal("8500000")); invoice.setPaidAmount(new BigDecimal("2550000"));
         invoice.setRemainingAmount(new BigDecimal("5950000"));
         delivery = new OrderDelivery(); delivery.setOrder(order); delivery.setStatus(DeliveryStatus.CUSTOMER_REVIEW);
+        delivery.setCurrentReviewRoundId("round");
+        ResultReviewRound round = new ResultReviewRound(); round.setId("round"); round.setVersion(2L);
+        when(reviewRounds.findByIdForUpdate("round")).thenReturn(Optional.of(round));
         when(users.getCurrentUser()).thenReturn(customer); when(users.getCurrentUserId()).thenReturn(customer.getId());
         when(orders.findById("order")).thenReturn(Optional.of(order));
         when(orders.findByIdForUpdate("order")).thenReturn(Optional.of(order));
@@ -79,12 +89,25 @@ class DeliveryWorkflowServiceTest {
     }
 
     @Test void customerAcceptanceEnablesFinalPaymentButDoesNotPayOrCompleteOrder() {
-        var result = service.acceptResult("order");
+        var result = service.acceptResult("order", "round", 2L);
         assertThat(result.deliveryStatus()).isEqualTo(DeliveryStatus.FINAL_PAYMENT_PENDING);
         assertThat(delivery.getCustomerAcceptedAt()).isNotNull();
         assertThat(invoice.getStatus()).isEqualTo(InvoiceStatus.PARTIALLY_PAID);
         assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.IN_PROGRESS);
         assertThatCode(() -> service.requireFinalPaymentEligible("order")).doesNotThrowAnyException();
+    }
+
+    @Test void acceptanceRetryWithOriginalRoundVersionIsIdempotentAfterVersionIncrement() {
+        service.acceptResult("order", "round", 2L);
+        delivery.setStatus(DeliveryStatus.FINAL_PAYMENT_PENDING);
+        var acceptedAt = delivery.getCustomerAcceptedAt();
+        var round = reviewRounds.findByIdForUpdate("round").orElseThrow();
+        round.setVersion(3L);
+
+        var retry = service.acceptResult("order", "round", 2L);
+
+        assertThat(retry.deliveryStatus()).isEqualTo(DeliveryStatus.FINAL_PAYMENT_PENDING);
+        assertThat(delivery.getCustomerAcceptedAt()).isEqualTo(acceptedAt);
     }
 
     @Test void finalPaymentIsRejectedBeforeExplicitAcceptance() {
@@ -93,11 +116,11 @@ class DeliveryWorkflowServiceTest {
                 .isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.FINAL_PAYMENT_NOT_ALLOWED);
     }
 
-    @Test void revisionRequestBlocksFinalPayment() {
-        service.requestRevision("order", new RevisionRequest("North side is unclear", List.of()));
-        assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.REVISION_REQUESTED);
-        assertThat(delivery.getRevisionCount()).isEqualTo(1);
-        assertThatThrownBy(() -> service.requireFinalPaymentEligible("order")).isInstanceOf(ApiException.class);
+    @Test void legacyRevisionPayloadRequiresRefreshingTheResultReview() {
+        assertThatThrownBy(() -> service.requestRevision("order", new RevisionRequest(null, null, null, null, List.of())))
+                .isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED);
+        assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.CUSTOMER_REVIEW);
+        assertThat(delivery.getRevisionCount()).isZero();
     }
 
     @Test void managerSelectsApprovedPreviewAssets() {
@@ -107,6 +130,9 @@ class DeliveryWorkflowServiceTest {
         MediaAsset excluded = asset("excluded", MediaStatus.AVAILABLE);
         when(media.findByMissionIdOrderByCapturedAtDesc("mission")).thenReturn(List.of(selected, excluded));
         when(storage.createPresignedGetUrl(anyString(), anyString())).thenReturn("https://signed-preview");
+        when(reviewPublisher.publish(any(), any(), anyList(), anySet(), any(), any())).thenAnswer(call -> {
+            var round = new ResultReviewRound(); round.setId("round-new"); return round;
+        });
         service.releasePreview("order", new ReleasePreviewRequest(List.of("selected"), "QA passed"));
         assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.CUSTOMER_REVIEW);
         assertThat(selected.isPreviewSelected()).isTrue(); assertThat(excluded.isPreviewSelected()).isFalse();
@@ -127,10 +153,29 @@ class DeliveryWorkflowServiceTest {
         when(users.getCurrentUser()).thenReturn(user("manager", RoleCode.MANAGER));
         when(media.findByMissionIdOrderByCapturedAtDesc("mission")).thenReturn(List.of(asset("selected", MediaStatus.AVAILABLE)));
         when(storage.createPresignedGetUrl(anyString(), anyString())).thenReturn("https://example.test/preview");
+        when(reviewPublisher.publish(any(), any(), anyList(), anySet(), any(), any())).thenAnswer(call -> {
+            var round = new ResultReviewRound(); round.setId("round-new"); return round;
+        });
         var response = service.releasePreview("order", new ReleasePreviewRequest(List.of("selected"), null));
         assertThat(response.deliveryStatus()).isEqualTo(DeliveryStatus.CUSTOMER_REVIEW);
         verify(deliveries).save(any(OrderDelivery.class));
         verify(completion).completeIfReady(any());
+    }
+
+    @Test void legacyCustomerReviewWithoutRoundCanBeRepublishedByManager() {
+        delivery.setStatus(DeliveryStatus.CUSTOMER_REVIEW);
+        delivery.setCurrentReviewRoundId(null);
+        when(users.getCurrentUser()).thenReturn(user("manager", RoleCode.MANAGER));
+        when(media.findByMissionIdOrderByCapturedAtDesc("mission")).thenReturn(List.of(asset("selected", MediaStatus.AVAILABLE)));
+        when(reviewPublisher.publish(any(), any(), anyList(), anySet(), any(), any())).thenAnswer(call -> {
+            var round = new ResultReviewRound(); round.setId("migrated-round"); return round;
+        });
+
+        var response = service.releasePreview("order", new ReleasePreviewRequest(List.of("selected"), "Republish legacy review"));
+
+        assertThat(response.deliveryStatus()).isEqualTo(DeliveryStatus.CUSTOMER_REVIEW);
+        assertThat(delivery.getCurrentReviewRoundId()).isEqualTo("migrated-round");
+        verify(reviewPublisher).publish(any(), any(), anyList(), anySet(), any(), any());
     }
 
     @Test void originalsRequirePaidInvoiceAndManagerRelease() {

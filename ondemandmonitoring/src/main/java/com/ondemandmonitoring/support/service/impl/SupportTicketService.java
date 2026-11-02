@@ -13,6 +13,7 @@ import com.ondemandmonitoring.support.repository.SupportFaqArticleRepository;
 import com.ondemandmonitoring.support.repository.SupportFaqFeedbackRepository;
 import com.ondemandmonitoring.support.service.ISupportTicketService;
 import com.ondemandmonitoring.support.service.ISupportAuthorizationService;
+import com.ondemandmonitoring.support.enums.SupportTicketKind;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import com.ondemandmonitoring.user.service.IStaffDirectoryService;
 import com.ondemandmonitoring.user.domain.User;
@@ -47,8 +48,9 @@ public class SupportTicketService implements ISupportTicketService {
     @PreAuthorize("hasRole('CUSTOMER')")
     public SupportTicketDto createTicket(CreateSupportTicketRequest req) {
         User customer = currentUser.getCurrentUser();
-        long count = ticketRepository.count() + 1;
-        String ticketCode = String.format("TKT-2026-%04d", count);
+        // Random, high-entropy code generation is safe across concurrent app
+        // instances. The database unique constraint remains the final guard.
+        String ticketCode = generateTicketCode();
 
         SupportCustomerTicket ticket = new SupportCustomerTicket();
         ticket.setTicketCode(ticketCode);
@@ -79,6 +81,35 @@ public class SupportTicketService implements ISupportTicketService {
         }
 
         return mapToDto(saved);
+    }
+
+    /** Creates a structured result-review ticket within the caller's REQUIRED transaction. */
+    @Transactional
+    public SupportCustomerTicket createResultRevisionTicket(User customer, String orderId, String description) {
+        String ticketCode = generateTicketCode();
+        SupportCustomerTicket ticket = new SupportCustomerTicket();
+        ticket.setTicketCode(ticketCode);
+        ticket.setCustomerId(customer.getId());
+        ticket.setCustomerName(customer.getFullName());
+        ticket.setOrderId(orderId);
+        ticket.setMissionId(null);
+        ticket.setCategory("RESULTS");
+        ticket.setTicketKind(SupportTicketKind.RESULT_REVISION);
+        ticket.setSubject("Yêu cầu chỉnh sửa kết quả");
+        ticket.setDescription(description);
+        ticket.setPriority("NORMAL");
+        ticket.setStatus("OPEN");
+        ticket.setOpenedAt(Instant.now());
+        SupportCustomerTicket saved = ticketRepository.save(ticket);
+        SupportCustomerMessage initial = new SupportCustomerMessage();
+        initial.setTicketId(saved.getId());
+        initial.setSenderId(customer.getId());
+        initial.setSenderName(customer.getFullName());
+        initial.setSenderRole("CUSTOMER");
+        initial.setContent(description);
+        initial.setCreatedAt(saved.getOpenedAt());
+        messageRepository.save(initial);
+        return saved;
     }
 
     @Override
@@ -343,5 +374,10 @@ public class SupportTicketService implements ISupportTicketService {
                 .attachmentUrl(m.getAttachmentUrl())
                 .createdAt(m.getCreatedAt())
                 .build();
+    }
+
+    private String generateTicketCode() {
+        return "TKT-" + java.time.Year.now(java.time.ZoneOffset.UTC).getValue()
+                + "-" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
     }
 }

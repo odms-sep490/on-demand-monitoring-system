@@ -22,7 +22,7 @@ public interface IDeliveryWorkflowService {
     DeliveryResponse previews(String orderId);
     DeliveryResponse originals(String orderId);
     DeliveryResponse releasePreview(String orderId, ReleasePreviewRequest request);
-    DeliveryResponse acceptResult(String orderId);
+    DeliveryResponse acceptResult(String orderId, String expectedReviewRoundId, Long expectedRoundVersion);
     DeliveryResponse requestRevision(String orderId, RevisionRequest request);
     DeliveryResponse releaseOriginals(String orderId);
 }

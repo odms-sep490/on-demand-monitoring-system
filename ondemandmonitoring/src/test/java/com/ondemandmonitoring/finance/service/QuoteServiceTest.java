@@ -115,9 +115,8 @@ class QuoteServiceTest {
         assertThat(service.getPricingReview("o1").basePackagePrice()).isZero();
     }
 
-    @Test void pricingReviewUsesOrderPriceSnapshotInsteadOfCurrentCatalogPrice() {
+    @Test void pricingReviewUsesPricingEngineBreakdownInsteadOfCurrentCatalogPrice() {
         User customer = new User(); customer.setFullName("Customer"); order.setCustomer(customer);
-        order.setServiceBasePriceSnapshot(new BigDecimal("2800000"));
         order.getService().setBasePrice(new BigDecimal("9900000"));
         when(orders.findById("o1")).thenReturn(Optional.of(order));
         when(items.findAllByOrderIdOrderByDisplayOrderAscIdAsc("o1")).thenReturn(List.of());

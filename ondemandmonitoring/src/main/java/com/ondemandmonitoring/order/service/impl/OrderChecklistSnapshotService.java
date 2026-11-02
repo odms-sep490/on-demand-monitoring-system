@@ -259,7 +259,6 @@ public class OrderChecklistSnapshotService implements IOrderChecklistSnapshotSer
                 && ServicePriceResolver.UNPRICED.equals(servicePrices.resolveOrLegacy(service).source())
                 && entities.stream().noneMatch(e -> e.getSourceType() == OrderChecklistSourceType.CUSTOMER_CUSTOM))
             throw new ApiException(ErrorCode.SERVICE_NOT_PRICED);
-        order.setServiceBasePriceSnapshot(null);
         List<OrderChecklistItem> saved = snapshots.saveAllAndFlush(entities);
         applySystemPrices(order, saved);
         order.setChecklistSnapshotAt(Instant.now());

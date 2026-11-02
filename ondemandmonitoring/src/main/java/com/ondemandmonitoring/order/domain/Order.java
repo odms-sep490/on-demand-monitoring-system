@@ -89,9 +89,6 @@ public class Order extends BaseEntity {
     @Column(name = "title", nullable = false)
     private String title;
 
-    @Column(name = "service_base_price_snapshot", precision = 19, scale = 0)
-    private BigDecimal serviceBasePriceSnapshot;
-
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "service_id", nullable = false)
     private Service service;

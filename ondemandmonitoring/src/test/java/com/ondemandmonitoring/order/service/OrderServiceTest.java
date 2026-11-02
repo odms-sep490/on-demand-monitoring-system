@@ -221,7 +221,6 @@ class OrderServiceTest {
         assertEquals("ord-123", response.getId());
         assertEquals("Survey Forest", response.getTitle());
         assertEquals(OrderStatus.PENDING, response.getOrderStatus());
-        org.junit.jupiter.api.Assertions.assertNull(response.getServiceBasePriceSnapshot());
         assertEquals(106.7005, response.getLongitude());
         assertEquals(10.7765, response.getLatitude());
         assertEquals(300.0, response.getRadiusM());

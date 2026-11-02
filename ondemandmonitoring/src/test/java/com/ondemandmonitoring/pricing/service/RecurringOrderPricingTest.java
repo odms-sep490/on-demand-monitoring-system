@@ -123,11 +123,13 @@ class RecurringOrderPricingTest {
         assertThat(PricingOccurrences.of(order(OrderRecurrenceType.NONE, 9))).isEqualTo(1);
     }
 
-    @Test void ordersPricedBeforeThisRuleKeepTheirSingleVisitPrice() {
-        policy(includedImage("50000"));
+    @Test void legacyOrdersUseTheCatalogBaseAndKeepTheirSingleVisitPrice() {
+        policy(includedImage("50000"), fixed(PricingCategory.CHECKLIST, "BASIC", "250000"));
         Order legacy = order(OrderRecurrenceType.MONTHLY, 3);
-        legacy.setServiceBasePriceSnapshot(new BigDecimal("1000000"));
-        var result = engine.calculate(legacy, List.of(item()));
+        legacy.getService().setBasePrice(new BigDecimal("1000000"));
+        OrderChecklistItem legacyItem = item();
+        legacyItem.setPricingSnapshotVersion(0);
+        var result = engine.calculate(legacy, List.of(legacyItem));
         assertThat(result.systemCalculatedAmount()).isEqualByComparingTo("1250000");
     }
 

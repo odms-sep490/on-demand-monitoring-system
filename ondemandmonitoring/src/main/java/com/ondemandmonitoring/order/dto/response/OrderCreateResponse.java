@@ -12,7 +12,6 @@ import com.ondemandmonitoring.order.enums.OrderWeatherFallback;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import lombok.AccessLevel;
@@ -47,7 +46,6 @@ public class OrderCreateResponse {
     String title;
     String serviceId;
     String serviceName;
-    BigDecimal serviceBasePriceSnapshot;
     String description;
     OrderUsagePurpose usagePurpose;
     com.ondemandmonitoring.order.enums.OrderFlightPurpose flightPurpose;

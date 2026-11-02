@@ -56,11 +56,11 @@ public class   DeviceConnectionService implements IDeviceConnectionService {
         MissionRuntimeGate.requireOperationalCommandsAllowed(mission);
         String resolvedMissionId = mission.getId();
 
-        if (mission.getStatus() != MissionStatus.PLANNING
+        if (mission.getStatus() != MissionStatus.PENDING_CONFIRMATION
                 && mission.getStatus() != MissionStatus.READY
                 && mission.getStatus() != MissionStatus.IN_PROGRESS) {
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
-                    "Mission must be PLANNING or READY before pairing with device, current: "
+                    "Mission must be awaiting confirmation, READY, or IN_PROGRESS before pairing with device, current: "
                             + mission.getStatus());
         }
 
@@ -81,7 +81,7 @@ public class   DeviceConnectionService implements IDeviceConnectionService {
                     "Mission has no current staff assignment: " + resolvedMissionId);
         }
 
-        if (mission.getStatus() == MissionStatus.PLANNING || mission.getStatus() == MissionStatus.READY) {
+        if (mission.getStatus() == MissionStatus.PENDING_CONFIRMATION || mission.getStatus() == MissionStatus.READY) {
             device.setStatus(DeviceStatus.PREFLIGHT);
         }
         deviceRepository.save(device);
@@ -205,7 +205,7 @@ public class   DeviceConnectionService implements IDeviceConnectionService {
         Mission mission = getMissionByIdOrThrow(deviceAssignment.getMission().getId());
         MissionRuntimeGate.requireOperationalCommandsAllowed(mission);
         requireRuntime(mission);
-        if (mission.getStatus() != MissionStatus.PLANNING
+        if (mission.getStatus() != MissionStatus.PENDING_CONFIRMATION
                 && mission.getStatus() != MissionStatus.READY
                 && mission.getStatus() != MissionStatus.IN_PROGRESS) {
             throw new ApiException(
@@ -226,7 +226,7 @@ public class   DeviceConnectionService implements IDeviceConnectionService {
                 || deviceAssignment.getStatus() == MissionDeviceAssignmentStatus.CONNECTION_LOST) {
             deviceAssignment.setStatus(MissionDeviceAssignmentStatus.CONNECTED);
         }
-        if (mission.getStatus() == MissionStatus.PLANNING || mission.getStatus() == MissionStatus.READY) {
+        if (mission.getStatus() == MissionStatus.PENDING_CONFIRMATION || mission.getStatus() == MissionStatus.READY) {
             device.setStatus(DeviceStatus.PREFLIGHT);
             deviceRepository.save(device);
         }
@@ -258,7 +258,7 @@ public class   DeviceConnectionService implements IDeviceConnectionService {
         }
 
         List<MissionStatus> telemetryStatuses = List.of(
-                MissionStatus.PLANNING,
+                MissionStatus.PENDING_CONFIRMATION,
                 MissionStatus.READY,
                 MissionStatus.IN_PROGRESS);
         List<MissionDeviceAssignment> assignmentsById =

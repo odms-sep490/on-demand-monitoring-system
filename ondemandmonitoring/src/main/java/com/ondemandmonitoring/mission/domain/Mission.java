@@ -2,7 +2,6 @@ package com.ondemandmonitoring.mission.domain;
 
 import com.ondemandmonitoring.common.entity.BaseEntity;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
-import com.ondemandmonitoring.mission.enums.MissionResourcePrepareStatus;
 import com.ondemandmonitoring.flightpermit.domain.FlightPermit;
 import com.ondemandmonitoring.mission.enums.MissionRescheduleReason;
 import com.ondemandmonitoring.order.domain.Order;
@@ -29,10 +28,6 @@ public class Mission extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 50)
     MissionStatus status;
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "resource_prepare_status", nullable = false, length = 30)
-    MissionResourcePrepareStatus resourcePrepareStatus = MissionResourcePrepareStatus.PLANNING;
 
     @OneToOne(mappedBy = "mission", fetch = FetchType.LAZY,
             cascade = CascadeType.ALL, orphanRemoval = true)

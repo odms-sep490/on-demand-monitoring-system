@@ -112,9 +112,9 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                         ErrorCode.MISSION_NOT_FOUND,
                         "Mission not found: " + missionId));
         requireOperationalCommandsAllowed(mission);
-        if (mission.getStatus() != MissionStatus.PLANNING) {
+        if (mission.getStatus() != MissionStatus.PENDING_CONFIRMATION) {
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
-                    "Preflight inspection requires a mission in PLANNING.");
+                    "Preflight inspection requires staff-confirmation stage after payment.");
         }
 
         DeviceConnection connection = connectionRepository

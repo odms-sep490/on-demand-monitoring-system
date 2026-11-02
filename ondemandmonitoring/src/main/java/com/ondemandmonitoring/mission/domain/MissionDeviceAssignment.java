@@ -2,7 +2,6 @@ package com.ondemandmonitoring.mission.domain;
 
 import com.ondemandmonitoring.common.entity.BaseEntity;
 import com.ondemandmonitoring.device.domain.Device;
-import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.enums.MissionDeviceAssignmentStatus;
 import com.ondemandmonitoring.mission.enums.MissionDeviceCheckStatus;
 import com.ondemandmonitoring.mission.enums.DeviceRole;
@@ -69,5 +68,9 @@ public class MissionDeviceAssignment extends BaseEntity {
 
     @Column(name = "release_reason", length = 500)
     String releaseReason;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "replaced_by_assignment_id")
+    MissionDeviceAssignment replacementAssignment;
 
 }

@@ -63,12 +63,13 @@ public class CommercialExpirationProcessor {
         Invoice candidate = invoices.findById(invoiceId).orElse(null);
         if (candidate == null) return false;
         Order order = orders.findByIdForUpdate(candidate.getOrder().getId()).orElse(null);
-        if (order == null || order.getOrderStatus() != OrderStatus.APPROVED
+        if (order == null || (order.getOrderStatus() != OrderStatus.WAITING_DEPOSIT
+                && order.getOrderStatus() != OrderStatus.APPROVED)
                 || order.getDepositExpiresAt() == null) return false;
         Instant now = Instant.now(clock);
         if (now.isBefore(order.getDepositExpiresAt())) return false;
 
-        // Keep lock order identical to PaymentWebhookProcessor: order, payments, invoice, missions.
+        // Lock the commercial aggregate in deterministic order before applying expiration.
         List<Payment> lockedPayments = payments.findAllByInvoiceIdForUpdate(invoiceId);
         Invoice invoice = invoices.findByIdForUpdate(invoiceId).orElse(null);
         if (invoice == null || invoice.getStatus() == InvoiceStatus.CANCELLED
@@ -96,6 +97,34 @@ public class CommercialExpirationProcessor {
         return true;
     }
 
+    /** Mark the final balance overdue only after any already-open payment attempt has settled or failed. */
+    @Transactional
+    public boolean expireFinalPayment(String invoiceId) {
+        Invoice candidate = invoices.findById(invoiceId).orElse(null);
+        if (candidate == null) return false;
+        Order order = orders.findByIdForUpdate(candidate.getOrder().getId()).orElse(null);
+        if (order == null || (order.getOrderStatus() != OrderStatus.APPROVED
+                && order.getOrderStatus() != OrderStatus.IN_PROGRESS)
+                || order.getFinalPaymentExpiresAt() == null) return false;
+        Instant now = Instant.now(clock);
+        if (now.isBefore(order.getFinalPaymentExpiresAt())) return false;
+
+        List<Payment> lockedPayments = payments.findAllByInvoiceIdForUpdate(invoiceId);
+        Invoice invoice = invoices.findByIdForUpdate(invoiceId).orElse(null);
+        if (invoice == null || invoice.getStatus() == InvoiceStatus.CANCELLED
+                || invoice.getStatus() == InvoiceStatus.PAID || invoice.getStatus() == InvoiceStatus.REFUNDED
+                || invoice.getRemainingAmount() == null || invoice.getRemainingAmount().signum() <= 0)
+            return false;
+        boolean finalPaymentInFlight = lockedPayments.stream()
+                .filter(payment -> payment.getPaymentType() == PaymentType.FINAL_PAYMENT)
+                .anyMatch(payment -> payment.getStatus() == PaymentStatus.PENDING
+                        || payment.getStatus() == PaymentStatus.PROCESSING);
+        if (finalPaymentInFlight) return false;
+
+        invoice.setStatus(InvoiceStatus.OVERDUE);
+        return true;
+    }
+
     /** Null means an operational/resource inconsistency that must be handled manually, never force-cancelled. */
     private List<Mission> cancellableMissions(String orderId) {
         List<Mission> result = new java.util.ArrayList<>();
@@ -103,8 +132,7 @@ public class CommercialExpirationProcessor {
             Mission mission = missions.findByIdForUpdate(id).orElse(null);
             if (mission == null) return null;
             if (mission.getStatus() == MissionStatus.CANCELLED) continue;
-            if ((mission.getStatus() != MissionStatus.PLANNING && mission.getStatus() != MissionStatus.WAITING_DEPOSIT)
-                    || missions.hasUnsafeCancellationResources(id)) {
+            if (mission.getStatus() != MissionStatus.PLANNING || missions.hasUnsafeCancellationResources(id)) {
                 log.error("Refusing commercial timeout for order {}: mission {} is {} or owns active resources",
                         orderId, id, mission.getStatus());
                 return null;
@@ -122,7 +150,6 @@ public class CommercialExpirationProcessor {
         order.setOrderStatus(OrderStatus.CANCELLED);
         affected.forEach(mission -> {
             mission.setStatus(MissionStatus.CANCELLED);
-            mission.setResourcePrepareStatus(com.ondemandmonitoring.mission.enums.MissionResourcePrepareStatus.CANCELLED);
             mission.setCancellationAt(now);
             mission.setCancelledBy(SYSTEM_ACTOR);
             mission.setCancellationReason(reason.name());

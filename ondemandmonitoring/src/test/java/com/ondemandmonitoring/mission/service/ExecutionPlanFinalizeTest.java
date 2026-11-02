@@ -38,7 +38,7 @@ class ExecutionPlanFinalizeTest {
         order = new Order(); order.setId("o"); order.setExecutionPlanRevision(3); order.setOrderStatus(OrderStatus.APPROVED);
         first = mission("a"); second = mission("b");
         selection = List.of(assignment(first, "i1"), assignment(second, "i2"));
-        when(orders.findById("o")).thenReturn(Optional.of(order));
+        when(orders.findByIdForUpdate("o")).thenReturn(Optional.of(order));
         when(missions.findIdsByOrderIdOrderById("o")).thenReturn(List.of("b", "a"));
         when(missions.findById("a")).thenReturn(Optional.of(first));
         when(missions.findById("b")).thenReturn(Optional.of(second));
@@ -50,10 +50,10 @@ class ExecutionPlanFinalizeTest {
 
     Mission mission(String id) {
         var m = new Mission(); m.setId(id); m.setOrder(order); m.setStatus(MissionStatus.PLANNING);
-        when(staff.findAllByMissionIdAndIsCurrentTrue(id)).thenReturn(Arrays.stream(MissionStaffRole.values())
+        when(staff.findByMissionId(id)).thenReturn(Arrays.stream(MissionStaffRole.values())
                 .map(role -> MissionStaffAssignment.builder().mission(m).staff(new User()).assignedRole(role)
                         .responseStatus(MissionStaffAssignmentStatus.PENDING).build()).toList());
-        when(devices.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc(id)).thenReturn(List.of(
+        when(devices.findByMissionId(id)).thenReturn(List.of(
                 MissionDeviceAssignment.builder().mission(m).device(new Device()).isCurrent(true).deviceRole(DeviceRole.MAIN).build()));
         return m;
     }
@@ -72,31 +72,31 @@ class ExecutionPlanFinalizeTest {
     @Test void finalizationRequiresResourcesAndCoverageButNotFinanceGeometryOrDates() {
         finalizePlan();
         var sequence = inOrder(orders, missions, materializer);
-        sequence.verify(orders).findById("o");
+        sequence.verify(orders).findByIdForUpdate("o");
         sequence.verify(missions).findIdsByOrderIdOrderById("o");
         sequence.verify(missions).findById("a"); sequence.verify(missions).findById("b");
         sequence.verify(materializer).materialize(first); sequence.verify(materializer).materialize(second);
         assertEquals(ExecutionPlanStatus.FINALIZED, order.getExecutionPlanStatus());
         assertEquals(4, order.getExecutionPlanRevision());
         assertEquals("manager", order.getExecutionPlanFinalizedBy()); assertNotNull(order.getExecutionPlanFinalizedAt());
-        assertEquals(MissionStatus.READY, first.getStatus());
-        assertEquals(MissionStatus.READY, second.getStatus());
+        assertEquals(MissionStatus.PENDING_PAYMENT, first.getStatus());
+        assertEquals(MissionStatus.PENDING_PAYMENT, second.getStatus());
     }
 
     @Test void missingCrewOnAnyMissionPreventsEveryMaterialization() {
-        when(staff.findAllByMissionIdAndIsCurrentTrue("b")).thenReturn(List.of());
+        when(staff.findByMissionId("b")).thenReturn(List.of());
         error(ErrorCode.INVALID_REQUEST, this::finalizePlan);
         verifyNoInteractions(materializer); assertEquals(ExecutionPlanStatus.DRAFT, order.getExecutionPlanStatus());
     }
 
     @Test void supportDeviceDoesNotSatisfyMainRequirement() {
-        when(devices.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc("b")).thenReturn(List.of(
+        when(devices.findByMissionId("b")).thenReturn(List.of(
                 MissionDeviceAssignment.builder().device(new Device()).deviceRole(DeviceRole.SUPPORT).build()));
         error(ErrorCode.INVALID_REQUEST, this::finalizePlan); verifyNoInteractions(materializer);
     }
 
     @Test void releasedOrRejectedCrewDoesNotCount() {
-        var crew = staff.findAllByMissionIdAndIsCurrentTrue("a");
+        var crew = staff.findByMissionId("a");
         crew.getFirst().setResponseStatus(MissionStaffAssignmentStatus.REJECTED);
         error(ErrorCode.INVALID_REQUEST, this::finalizePlan);
         crew.getFirst().setResponseStatus(MissionStaffAssignmentStatus.PENDING); crew.getFirst().setReleasedAt(java.time.Instant.now());

@@ -78,26 +78,29 @@ class DeliveryWorkflowServiceTest {
         when(storage.presignedUrlExpiresSeconds()).thenReturn(600L);
     }
 
-    @Test void customerAcceptanceEnablesFinalPaymentButDoesNotPayOrCompleteOrder() {
+    @Test void customerCanAcceptResultsWithoutASecondPaymentPrompt() {
         var result = service.acceptResult("order");
         assertThat(result.deliveryStatus()).isEqualTo(DeliveryStatus.FINAL_PAYMENT_PENDING);
         assertThat(delivery.getCustomerAcceptedAt()).isNotNull();
-        assertThat(invoice.getStatus()).isEqualTo(InvoiceStatus.PARTIALLY_PAID);
         assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.IN_PROGRESS);
-        assertThatCode(() -> service.requireFinalPaymentEligible("order")).doesNotThrowAnyException();
     }
 
-    @Test void finalPaymentIsRejectedBeforeExplicitAcceptance() {
-        delivery.setStatus(DeliveryStatus.CUSTOMER_REVIEW);
-        assertThatThrownBy(() -> service.requireFinalPaymentEligible("order"))
-                .isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.FINAL_PAYMENT_NOT_ALLOWED);
+    @Test void customerAcceptanceAfterFullPaymentMovesDirectlyToDelivery() {
+        invoice.setStatus(InvoiceStatus.PAID);
+        invoice.setPaidAmount(invoice.getTotalAmount()); invoice.setRemainingAmount(BigDecimal.ZERO);
+        var result = service.acceptResult("order");
+        assertThat(result.deliveryStatus()).isEqualTo(DeliveryStatus.READY_FOR_DELIVERY);
+        assertThat(delivery.getCustomerAcceptedAt()).isNotNull();
+        assertThat(delivery.getFinalPaymentConfirmedAt()).isNull();
+        assertThat(invoice.getStatus()).isEqualTo(InvoiceStatus.PAID);
+        assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.IN_PROGRESS);
     }
 
-    @Test void revisionRequestBlocksFinalPayment() {
+    @Test void revisionRequestLeavesResultReviewOpenWithoutChangingPaymentState() {
         service.requestRevision("order", new RevisionRequest("North side is unclear", List.of()));
         assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.REVISION_REQUESTED);
         assertThat(delivery.getRevisionCount()).isEqualTo(1);
-        assertThatThrownBy(() -> service.requireFinalPaymentEligible("order")).isInstanceOf(ApiException.class);
+        assertThat(invoice.getStatus()).isEqualTo(InvoiceStatus.PARTIALLY_PAID);
     }
 
     @Test void managerSelectsApprovedPreviewAssets() {

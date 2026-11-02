@@ -6,7 +6,7 @@ import com.ondemandmonitoring.delivery.dto.response.DeliveryResponse;
 import java.util.List;
 
 /**
- * Coordinates result review, final payment eligibility, and media release.
+ * Coordinates result review and media release after the Order payment gate.
  *
  * <p>Implementations must preserve the delivery state machine and verify access
  * before exposing preview or original media.</p>
@@ -14,8 +14,6 @@ import java.util.List;
 public interface IDeliveryWorkflowService {
     void markProcessing(String orderId);
     void markReadyForManagerReview(String orderId);
-    void confirmFinalPayment(String orderId);
-    void requireFinalPaymentEligible(String orderId);
     void requireOriginalAccess(String orderId);
     List<String> originalAccessibleMissionIds(List<String> missionIds);
     DeliveryResponse get(String orderId);

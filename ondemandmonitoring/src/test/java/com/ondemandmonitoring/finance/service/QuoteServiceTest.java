@@ -5,7 +5,6 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
-import com.ondemandmonitoring.delivery.repository.OrderDeliveryRepository;
 import com.ondemandmonitoring.finance.config.PaymentProperties;
 import com.ondemandmonitoring.finance.domain.*;
 import com.ondemandmonitoring.finance.dto.QuoteDraftRequest;
@@ -43,7 +42,8 @@ class QuoteServiceTest {
     MissionRepository missions = mock(MissionRepository.class);
     AuthenticatedUserResolver users = mock(AuthenticatedUserResolver.class);
     IMissionChecklistExecutionService executions = mock(IMissionChecklistExecutionService.class);
-    OrderDeliveryRepository deliveries = mock(OrderDeliveryRepository.class);
+    com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService paymentEligibility =
+            mock(com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService.class);
     PricingEngine pricingEngine = mock(PricingEngine.class);
     PricingPolicyRepository pricingPolicies = mock(PricingPolicyRepository.class);
     ChecklistPricingAuditRepository pricingAudits = mock(ChecklistPricingAuditRepository.class);
@@ -54,7 +54,8 @@ class QuoteServiceTest {
 
     @BeforeEach void setUp() {
         service = new QuoteService(orders, items, mock(OrderChecklistItemMapper.class), quotes, invoices, missions,
-                executions, users, new PaymentProperties(new BigDecimal("0.30")), expirationSettings, deliveries,
+                executions, users, new PaymentProperties(new BigDecimal("0.30")), expirationSettings,
+                mock(com.ondemandmonitoring.finance.service.impl.FinalPaymentDeadlineService.class), paymentEligibility,
                 readiness, pricingEngine, pricingPolicies, pricingAudits, Clock.systemUTC());
         when(expirationSettings.current()).thenReturn(new com.ondemandmonitoring.finance.dto.CommercialExpirationSettingsResponse(
                 48, 24, "system", java.time.Instant.EPOCH));

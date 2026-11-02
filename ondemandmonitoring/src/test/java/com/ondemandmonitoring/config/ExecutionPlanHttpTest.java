@@ -24,18 +24,17 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringJUnitConfig(classes={SecurityConfig.class,ActiveAccountFilter.class,GlobalExceptionHandler.class,
-        MissionController.class,MissionChecklistAssignmentController.class,ExecutionPlanController.class,MissionCancellationController.class,MissionAuthorizationHttpTest.Beans.class,ExecutionPlanHttpTest.Beans.class})
+        MissionController.class,MissionChecklistAssignmentController.class,ExecutionPlanController.class,MissionAuthorizationHttpTest.Beans.class,ExecutionPlanHttpTest.Beans.class})
 @WebAppConfiguration
 class ExecutionPlanHttpTest {
     @Autowired WebApplicationContext context;
     @Autowired AuthenticatedUserResolver resolver;
     @Autowired IMissionChecklistAssignmentService selection;
     @Autowired IExecutionPlanService plan;
-    @Autowired IMissionCancellationService cancellation;
     @Autowired IMissionService missions;
     MockMvc mvc;
     @BeforeEach void prepare() {
-        reset(resolver,selection,plan,cancellation,missions);
+        reset(resolver,selection,plan,missions);
         when(resolver.getCurrentUser()).thenReturn(User.builder().isActive(true).role(Role.builder().code(RoleCode.MANAGER).active(true).build()).build());
         mvc=MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
     }
@@ -78,7 +77,6 @@ class ExecutionPlanHttpTest {
     }
 
     @Configuration static class Beans {
-        @Bean IMissionCancellationService cancellation() { return mock(IMissionCancellationService.class); }
         @Bean IMissionChecklistAssignmentService selection() {return mock(IMissionChecklistAssignmentService.class);}
         @Bean IExecutionPlanService plan() {return mock(IExecutionPlanService.class);}
     }
@@ -98,7 +96,7 @@ class ExecutionPlanHttpTest {
                         .andExpect(status().isOk());
             }
         }
-        verify(cancellation,times(2)).cancel(eq("m"),any());
+        verify(missions,times(2)).cancelMission("m","Weather");
     }
     @Test void missionConfirmationAndDeletionRequireManagerAdmin() throws Exception {
         for (String role : List.of("CUSTOMER", "STAFF")) {

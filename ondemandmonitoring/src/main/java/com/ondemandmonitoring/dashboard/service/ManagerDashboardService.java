@@ -64,7 +64,8 @@ public class ManagerDashboardService {
             MissionStatus.PENDING_REVIEW);
     private static final Collection<MissionStatus> MISSION_ISSUES = EnumSet.of(MissionStatus.FAILED);
     private static final Collection<MissionStatus> RESOURCE_PENDING = EnumSet.of(
-            MissionStatus.PLANNING, MissionStatus.READY);
+            MissionStatus.PLANNING, MissionStatus.PENDING_PAYMENT,
+            MissionStatus.PENDING_CONFIRMATION, MissionStatus.READY);
     private static final Collection<MissionStatus> RECENT_ACTIVITY_MISSIONS = EnumSet.allOf(MissionStatus.class);
 
     private final OrderRepository orders;

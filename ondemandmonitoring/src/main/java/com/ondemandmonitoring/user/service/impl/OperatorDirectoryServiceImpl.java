@@ -10,12 +10,9 @@ import com.ondemandmonitoring.user.domain.User;
 import com.ondemandmonitoring.user.dto.response.AvailableOperatorResponse;
 import com.ondemandmonitoring.user.repository.UserRepository;
 import com.ondemandmonitoring.user.service.IOperatorDirectoryService;
-import com.ondemandmonitoring.userschedule.domain.UserSchedule;
 import com.ondemandmonitoring.userschedule.repository.UserScheduleRepository;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -57,14 +54,9 @@ public class OperatorDirectoryServiceImpl implements IOperatorDirectoryService {
         var ids = users.stream().map(User::getId).toList();
         Set<String> conflicts = mission == null ? Set.of() : resourceTimeLockRepository.findConflictingResourceIds(
                 ids, mission.getId(), mission.getScheduledStartAt(), mission.getScheduledEndAt());
-        Map<String, List<UserSchedule>> schedules = mission == null ? Map.of() : userScheduleRepository.findByStaffIdIn(ids)
-                .stream().collect(Collectors.groupingBy(s -> s.getStaff().getId()));
         Mission targetMission = mission;
         return users.stream()
-                .filter(user -> targetMission == null || (!conflicts.contains(user.getId())
-                        && !com.ondemandmonitoring.mission.service.impl.ReservationWindowPolicy.staffHasConflict(
-                                schedules.getOrDefault(user.getId(), List.of()), targetMission.getId(),
-                                targetMission.getScheduledStartAt(), targetMission.getScheduledEndAt())))
+                .filter(user -> targetMission == null || !conflicts.contains(user.getId()))
                 .map(user -> AvailableOperatorResponse.builder()
                         .id(user.getId())
                         .fullName(user.getFullName())

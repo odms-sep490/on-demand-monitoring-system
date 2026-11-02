@@ -10,6 +10,8 @@ import com.ondemandmonitoring.media.dto.response.MediaAssetResponse;
 import com.ondemandmonitoring.media.mapper.MediaAssetMapper;
 import com.ondemandmonitoring.mission.dto.request.AssignDeviceRequest;
 import com.ondemandmonitoring.mission.dto.request.AssignStaffRequest;
+import com.ondemandmonitoring.mission.dto.request.ReplaceDeviceRequest;
+import com.ondemandmonitoring.mission.dto.request.ReplaceStaffRequest;
 import com.ondemandmonitoring.mission.dto.request.MissionFailRequest;
 import com.ondemandmonitoring.mission.dto.request.MissionRejectRequest;
 import com.ondemandmonitoring.mission.dto.request.MissionUpdateRequest;
@@ -17,12 +19,14 @@ import com.ondemandmonitoring.mission.dto.request.PostFlightStatusRequest;
 import com.ondemandmonitoring.mission.dto.request.FlightPermitUpdateRequest;
 import com.ondemandmonitoring.mission.dto.response.MissionPlanResponse;
 import com.ondemandmonitoring.mission.dto.response.MissionResponse;
+import com.ondemandmonitoring.mission.dto.response.MissionResourceReplacementResponse;
 import com.ondemandmonitoring.mission.dto.response.MissionTelemetryReadinessResponse;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.service.IMissionMediaUploadService;
 import com.ondemandmonitoring.mission.service.IMissionService;
 import com.ondemandmonitoring.flightpermit.service.IFlightPermitService;
 import com.ondemandmonitoring.mission.dto.request.MissionCreateRequest;
+import com.ondemandmonitoring.mission.dto.request.MissionCancelRequest;
 import jakarta.validation.Valid;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -61,11 +65,8 @@ public class MissionController {
     IFlightPermitService flightPermitService;
     IMissionMediaUploadService missionMediaUploadService;
     MediaAssetMapper mediaAssetMapper;
-
-    // ------------------------------------------------------------------
-    // Query
-    // ------------------------------------------------------------------
-
+    
+    // CRUD – Create, Read, Update, Delete - before mission is confirmed (draft)
     @PostMapping("/{orderId}")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<MissionResponse>> createMission(
@@ -83,26 +84,7 @@ public class MissionController {
         return ResponseEntity.status(201).body(ApiResponse.ok(missionService.createAdditionalMission(orderId, request)));
     }
 
-    @PostMapping("/{missionId}/confirm-planning")
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
-    public ApiResponse<MissionResponse> confirm(@PathVariable String missionId) {
-        return ApiResponse.ok(missionService.confirmMissionPlanning(missionId));
-    }
-
-    @DeleteMapping("/{missionId}")
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
-    public ResponseEntity<Void> deleteDraft(@PathVariable String missionId) {
-        missionService.deleteDraftMission(missionId);
-        return ResponseEntity.noContent().build();
-    }
-
-    @GetMapping("/all")
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
-    public ResponseEntity<ApiResponse<List<MissionResponse>>> listAll() {
-        return ResponseEntity.ok(ApiResponse.ok(missionService.getAllMissions()));
-    }
-
-    @PutMapping("/{id}")
+        @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<MissionResponse>> updateMission(
             @PathVariable String id,
@@ -110,6 +92,38 @@ public class MissionController {
         MissionResponse response = missionService.updateMission(id, request);
         return ResponseEntity.ok(ApiResponse.ok("Cập nhật mission thành công", response));
     }
+    
+    @DeleteMapping("/{missionId}")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<Void> deleteDraft(@PathVariable String missionId) {
+        missionService.deleteDraftMission(missionId);
+        return ResponseEntity.noContent().build();
+    }
+
+    // Confirm mission planning - use for when order planning is  ready for execution
+    @PostMapping("/{missionId}/confirm-planning")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ApiResponse<MissionResponse> confirm(@PathVariable String missionId) {
+        return ApiResponse.ok(missionService.confirmMissionPlanning(missionId));
+    }
+
+    @PostMapping("/{missionId}/cancel")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ApiResponse<MissionResponse> cancelMission(
+            @PathVariable String missionId,
+            @Valid @RequestBody(required = false) MissionCancelRequest request) {
+        String reason = request == null ? null : request.reason();
+        return ApiResponse.ok("Mission cancelled", missionService.cancelMission(missionId, reason));
+    }
+
+
+
+    @GetMapping("/all")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<List<MissionResponse>>> listAll() {
+        return ResponseEntity.ok(ApiResponse.ok(missionService.getAllMissions()));
+    }
+
 
     /**
      * GET /api/missions?staffId={id}
@@ -187,7 +201,7 @@ public class MissionController {
     // F2 – Manager Assignment (Flow 2)
     // ------------------------------------------------------------------
 
-    @PostMapping("/{id}/assign-device")
+    @PostMapping("/{id}/device-assignments")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<MissionResponse>> assignDevice(
             @PathVariable String id,
@@ -196,16 +210,26 @@ public class MissionController {
         return ResponseEntity.ok(ApiResponse.ok("Gán thiết bị cho mission thành công", response));
     }
 
-    @PostMapping("/{id}/remove-device")
+    @DeleteMapping("/{id}/device-assignments/{assignmentId}")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<MissionResponse>> removeDevice(
             @PathVariable String id,
-            @Valid @RequestBody com.ondemandmonitoring.mission.dto.request.RemoveDeviceRequest request) {
-        MissionResponse response = missionService.removeDevice(id, request);
+            @PathVariable String assignmentId) {
+        MissionResponse response = missionService.removeDevice(id, assignmentId);
         return ResponseEntity.ok(ApiResponse.ok("Gỡ thiết bị khỏi mission thành công", response));
     }
 
-    @PostMapping("/{id}/assign-staff")
+    @PutMapping("/{id}/device-assignments/{assignmentId}/resource")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<MissionResponse>> replaceDevice(
+            @PathVariable String id,
+            @PathVariable String assignmentId,
+            @Valid @RequestBody ReplaceDeviceRequest request) {
+        MissionResponse response = missionService.replaceDevice(id, assignmentId, request);
+        return ResponseEntity.ok(ApiResponse.ok("Thay thiết bị cho mission thành công", response));
+    }
+
+    @PostMapping("/{id}/staff-assignments")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<MissionResponse>> assignStaff(
             @PathVariable String id,
@@ -214,13 +238,30 @@ public class MissionController {
         return ResponseEntity.ok(ApiResponse.ok("Gán staff cho mission thành công", response));
     }
 
-    @PostMapping("/{id}/remove-staff")
+    @DeleteMapping("/{id}/staff-assignments/{assignmentId}")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<MissionResponse>> removeStaff(
             @PathVariable String id,
-            @Valid @RequestBody com.ondemandmonitoring.mission.dto.request.RemoveStaffRequest request) {
-        MissionResponse response = missionService.removeStaff(id, request);
+            @PathVariable String assignmentId) {
+        MissionResponse response = missionService.removeStaff(id, assignmentId);
         return ResponseEntity.ok(ApiResponse.ok("Gỡ staff khỏi mission thành công", response));
+    }
+
+    @PutMapping("/{id}/staff-assignments/{staffId}/resource")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<MissionResponse>> replaceStaff(
+            @PathVariable String id,
+            @PathVariable String staffId,
+            @Valid @RequestBody ReplaceStaffRequest request) {
+        MissionResponse response = missionService.replaceStaff(id, staffId, request);
+        return ResponseEntity.ok(ApiResponse.ok("Thay staff cho mission thành công", response));
+    }
+
+    @GetMapping("/{id}/resource-replacements")
+    @PreAuthorize("@missionAuthorizationService.canViewMission(#id)")
+    public ResponseEntity<ApiResponse<List<MissionResourceReplacementResponse>>> getResourceReplacementHistory(
+            @PathVariable String id) {
+        return ResponseEntity.ok(ApiResponse.ok(missionService.getResourceReplacementHistory(id)));
     }
 
     @PatchMapping("/{id}/flight-permit")
@@ -252,7 +293,7 @@ public class MissionController {
     /**
      * PATCH /api/missions/{id}/accept
      * Staff confirms they accept the mission.
-     * Staff accepts the assigned mission while it is PLANNING.
+     * Staff accepts the assigned mission after final payment, while it is PENDING_CONFIRMATION.
      */
     @PatchMapping("/{id}/accept")
     @PreAuthorize("@missionAuthorizationService.canRespondToMission(#id)")

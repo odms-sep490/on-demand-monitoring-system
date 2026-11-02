@@ -3,10 +3,13 @@ package com.ondemandmonitoring.mission.service;
 import com.ondemandmonitoring.devicecheck.dto.response.PreDeviceCheckResponse;
 import com.ondemandmonitoring.mission.dto.request.AssignDeviceRequest;
 import com.ondemandmonitoring.mission.dto.request.AssignStaffRequest;
+import com.ondemandmonitoring.mission.dto.request.ReplaceDeviceRequest;
+import com.ondemandmonitoring.mission.dto.request.ReplaceStaffRequest;
 import com.ondemandmonitoring.mission.dto.request.MissionUpdateRequest;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.dto.response.MissionPlanResponse;
 import com.ondemandmonitoring.mission.dto.response.MissionResponse;
+import com.ondemandmonitoring.mission.dto.response.MissionResourceReplacementResponse;
 import com.ondemandmonitoring.mission.dto.response.MissionTelemetryReadinessResponse;
 import com.ondemandmonitoring.common.api.PageResponse;
 import com.ondemandmonitoring.device.enums.DeviceStatus;
@@ -30,6 +33,11 @@ public interface IMissionService {
 
     MissionResponse confirmMissionPlanning(String missionId);
 
+    /** Opens resource confirmation for every Mission of an Order after final payment. */
+    List<MissionResponse> transitionToPendingConfirmation(String orderId);
+
+    MissionResponse cancelMission(String missionId, String reason);
+
     void deleteDraftMission(String missionId);
 
 
@@ -40,11 +48,17 @@ public interface IMissionService {
 
     MissionResponse assignDevice(String missionId, AssignDeviceRequest request);
 
-    MissionResponse removeDevice(String missionId, com.ondemandmonitoring.mission.dto.request.RemoveDeviceRequest request);
+    MissionResponse removeDevice(String missionId, String assignmentId);
+
+    MissionResponse replaceDevice(String missionId, String assignmentId, ReplaceDeviceRequest request);
 
     MissionResponse assignStaff(String missionId, AssignStaffRequest request);
 
-    MissionResponse removeStaff(String missionId, com.ondemandmonitoring.mission.dto.request.RemoveStaffRequest request);
+    MissionResponse removeStaff(String missionId, String assignmentId);
+
+    MissionResponse replaceStaff(String missionId, String staffId, ReplaceStaffRequest request);
+
+    List<MissionResourceReplacementResponse> getResourceReplacementHistory(String missionId);
 
     List<MissionResponse> getAllMissions();
     /**

@@ -52,7 +52,7 @@ class MissionAuthorizationServiceTest {
 
     @Test
     void pendingCrewCanRespondButCannotExecuteOrRespondOnBehalfOfAnotherUser() {
-        mission.setStatus(MissionStatus.READY);
+        mission.setStatus(MissionStatus.PENDING_CONFIRMATION);
         assign(MissionStaffRole.PILOT, MissionStaffAssignmentStatus.PENDING);
         assertThat(policy.canRespondToMission("mission-1")).isTrue();
         assertThat(policy.canRespondToMission("mission-1", "staff-2")).isFalse();

@@ -5,7 +5,6 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.ondemandmonitoring.common.exception.*;
-import com.ondemandmonitoring.delivery.repository.OrderDeliveryRepository;
 import com.ondemandmonitoring.finance.config.PaymentProperties;
 import com.ondemandmonitoring.finance.domain.*;
 import com.ondemandmonitoring.finance.dto.*;
@@ -57,7 +56,8 @@ class QuoteGuidanceServiceTest {
                 48, 24, "system", java.time.Instant.EPOCH));
         service = new QuoteService(orders, items, mapper, quotes, invoices, missions,
                 mock(IMissionChecklistExecutionService.class), users, new PaymentProperties(new BigDecimal("0.30")),
-                expirationSettings, mock(OrderDeliveryRepository.class), readiness, pricingEngine,
+                expirationSettings, mock(com.ondemandmonitoring.finance.service.impl.FinalPaymentDeadlineService.class),
+                mock(com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService.class), readiness, pricingEngine,
                 mock(PricingPolicyRepository.class), mock(ChecklistPricingAuditRepository.class), java.time.Clock.systemUTC());
         order = new Order(); order.setId("o1"); order.setChecklistRevision(2); order.setOrderStatus(OrderStatus.APPROVED);
         order.setLegalReviewStatus(LegalReviewStatus.NOT_REQUIRED);

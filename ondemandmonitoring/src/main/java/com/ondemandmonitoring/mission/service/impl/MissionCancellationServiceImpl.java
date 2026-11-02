@@ -33,10 +33,10 @@ public class MissionCancellationServiceImpl implements IMissionCancellationServi
     @Transactional
     public MissionCancellationResponse cancel(String missionId, MissionCancelRequest request) {
         boolean manager = authorization == null || authorization.canManageMissions();
-        if (request == null || (manager && request.expectedPlanRevision() == null)
-                || (request.expectedPlanRevision() != null && request.expectedPlanRevision() < 0)
+        if (request == null || request.expectedPlanRevision() == null || request.expectedPlanRevision() < 0
                 || request.reason() == null || request.reason().isBlank() || request.reason().length() > 1000)
             throw new ApiException(ErrorCode.INVALID_REQUEST);
+
         String orderId = missions.findOrderIdByMissionId(missionId)
                 .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
         var order = orders.findByIdForUpdate(orderId).or(() -> orders.findById(orderId))
@@ -45,19 +45,17 @@ public class MissionCancellationServiceImpl implements IMissionCancellationServi
                 .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
         if (!manager && (authorization == null || !authorization.canCancelMission(missionId)))
             throw new ApiException(ErrorCode.MISSION_CANCELLATION_NOT_ALLOWED);
-        long expectedRevision = request.expectedPlanRevision() == null
-                ? order.getExecutionPlanRevision()
-                : request.expectedPlanRevision();
-        MissionCancellationGuard.requireAllowed(orderId, order, mission, expectedRevision, results, missions);
+        MissionCancellationGuard.requireAllowed(orderId, order, mission, request.expectedPlanRevision(), results, missions);
         mission.setStatus(MissionStatus.CANCELLED);
-        mission.setResourcePrepareStatus(MissionResourcePrepareStatus.CANCELLED);
         mission.setCancellationAt(Instant.now()); mission.setCancelledBy(actor.getCurrentUserId());
         mission.setCancellationReason(request.reason().strip());
         order.setExecutionPlanRevision(order.getExecutionPlanRevision() + 1);
+
         missions.saveAndFlush(mission); orders.saveAndFlush(order);
+
         if (checklistAssignmentStatusSync != null) checklistAssignmentStatusSync.syncForMission(mission);
-        return new MissionCancellationResponse(missionId, mission.getStatus(), mission.getResourcePrepareStatus(),
-                order.getExecutionPlanRevision(),
+        
+        return new MissionCancellationResponse(missionId, mission.getStatus(), order.getExecutionPlanRevision(),
                 mission.getCancellationAt(), mission.getCancelledBy(), mission.getCancellationReason());
     }
 }

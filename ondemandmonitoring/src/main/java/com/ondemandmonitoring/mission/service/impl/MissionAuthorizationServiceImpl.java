@@ -90,7 +90,7 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
         User user = currentUser.getCurrentUser();
         if (!hasRole(user, RoleCode.STAFF) || !user.getId().equals(staffId)) return false;
         return findRuntimeMissionById(missionId).filter(mission ->
-                mission.getStatus() == MissionStatus.PLANNING)
+                mission.getStatus() == MissionStatus.PENDING_CONFIRMATION)
                 .map(mission -> ownAssignments(mission.getId(), user).stream()
                         .anyMatch(entry -> entry.getResponseStatus() == MissionStaffAssignmentStatus.PENDING))
                 .orElse(false);
@@ -182,7 +182,7 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
 
     /** Keep device connection and preflight closed until the full assigned crew accepts. */
     private boolean crewAcceptedBeforePreflight(Mission mission) {
-        if (mission.getStatus() != MissionStatus.PLANNING) return true;
+        if (mission.getStatus() != MissionStatus.PENDING_CONFIRMATION) return true;
         List<MissionStaffAssignment> crew = assignments.findByMissionId(mission.getId()).stream()
                 .filter(entry -> Boolean.TRUE.equals(entry.getIsCurrent()) && entry.getReleasedAt() == null)
                 .toList();
@@ -306,7 +306,7 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
     private boolean canPerform(String missionId, MissionStaffRole task) {
         User user = currentUser.getCurrentUser();
         if (!hasRole(user, RoleCode.STAFF)) return false;
-        return findRuntimeMissionById(missionId).filter(mission -> mission.getStatus() != MissionStatus.WAITING_DEPOSIT)
+        return findRuntimeMissionById(missionId).filter(mission -> mission.getStatus() != MissionStatus.PENDING_PAYMENT)
                 .filter(mission -> !TERMINAL_STATUSES.contains(mission.getStatus()))
                 .map(mission -> {
                     List<MissionStaffAssignment> crew = assignments.findAllByMissionIdAndIsCurrentTrue(mission.getId());

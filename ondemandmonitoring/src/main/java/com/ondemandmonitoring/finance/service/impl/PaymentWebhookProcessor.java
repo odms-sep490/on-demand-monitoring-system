@@ -2,30 +2,31 @@ package com.ondemandmonitoring.finance.service.impl;
 
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
-import com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService;
 import com.ondemandmonitoring.finance.domain.Invoice;
 import com.ondemandmonitoring.finance.domain.Payment;
 import com.ondemandmonitoring.finance.enums.*;
 import com.ondemandmonitoring.finance.gateway.VerifiedWebhook;
 import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.finance.repository.PaymentRepository;
-import com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService;
 import com.ondemandmonitoring.finance.service.IPaymentWebhookService;
-import com.ondemandmonitoring.mission.repository.MissionRepository;
+import com.ondemandmonitoring.mission.service.IMissionService;
+import com.ondemandmonitoring.order.enums.OrderStatus;
 import java.math.BigDecimal;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class PaymentWebhookProcessor implements IPaymentWebhookService {
     private final PaymentRepository payments;
     private final InvoiceRepository invoices;
-    private final MissionRepository missions;
-    private final IMissionPaymentEligibilityService eligibility;
-    private final IDeliveryWorkflowService deliveryWorkflow;
+    private final IMissionService missions;
     private final com.ondemandmonitoring.order.repository.OrderRepository orders;
 
     @Transactional
@@ -41,7 +42,19 @@ public class PaymentWebhookProcessor implements IPaymentWebhookService {
                 || payment.getAmount().compareTo(webhook.amount()) != 0) {
             return PaymentWebhookResult.INVALID_AMOUNT;
         }
-        if (payment.getStatus() == PaymentStatus.SUCCESS) return PaymentWebhookResult.ALREADY_CONFIRMED;
+        if (payment.getStatus() == PaymentStatus.SUCCESS) {
+            if (payment.getPaymentType() == PaymentType.FINAL_PAYMENT
+                    || payment.getPaymentType() == PaymentType.DEPOSIT) {
+                Invoice settled = invoices.findByIdForUpdate(payment.getInvoice().getId())
+                        .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
+                if (payment.getPaymentType() == PaymentType.DEPOSIT && isDepositSatisfied(settled)
+                        && order.getOrderStatus() == OrderStatus.WAITING_DEPOSIT) {
+                    order.setOrderStatus(OrderStatus.APPROVED);
+                }
+                if (isFullyPaid(settled)) transitionAfterSettlement(settled.getOrder().getId());
+            }
+            return PaymentWebhookResult.ALREADY_CONFIRMED;
+        }
         if (payment.getStatus() == PaymentStatus.REQUIRES_REVIEW) return PaymentWebhookResult.ALREADY_CONFIRMED;
         if (webhook.successful() && order.getOrderStatus() == com.ondemandmonitoring.order.enums.OrderStatus.CANCELLED) {
             payment.setStatus(PaymentStatus.REQUIRES_REVIEW);
@@ -78,14 +91,44 @@ public class PaymentWebhookProcessor implements IPaymentWebhookService {
         invoice.setRemainingAmount(invoice.getTotalAmount().subtract(paid).max(BigDecimal.ZERO));
         invoice.setStatus(paid.signum() == 0 ? InvoiceStatus.ISSUED
                 : paid.compareTo(invoice.getTotalAmount()) >= 0 ? InvoiceStatus.PAID : InvoiceStatus.PARTIALLY_PAID);
-        for (String missionId : missions.findIdsByOrderIdOrderById(invoice.getOrder().getId()).stream().sorted().toList()) {
-            var mission = missions.findByIdForUpdate(missionId)
-                    .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
-            eligibility.unlockIfEligible(invoice, mission);
+        if (payment.getPaymentType() == PaymentType.DEPOSIT && isDepositSatisfied(invoice)
+                && order.getOrderStatus() == OrderStatus.WAITING_DEPOSIT) {
+            order.setOrderStatus(OrderStatus.APPROVED);
         }
-        if (payment.getPaymentType() == PaymentType.FINAL_PAYMENT && invoice.getStatus() == InvoiceStatus.PAID) {
-            deliveryWorkflow.confirmFinalPayment(invoice.getOrder().getId());
-        }
+        if (payment.getPaymentType() == PaymentType.FINAL_PAYMENT && isFullyPaid(invoice))
+            transitionAfterSettlement(invoice.getOrder().getId());
         return PaymentWebhookResult.PROCESSED;
+    }
+
+    private static boolean isFullyPaid(Invoice invoice) {
+        return invoice.getStatus() == InvoiceStatus.PAID && invoice.getRemainingAmount() != null
+                && invoice.getRemainingAmount().signum() == 0;
+    }
+
+    private static boolean isDepositSatisfied(Invoice invoice) {
+        return invoice.getPaidAmount() != null && invoice.getDepositAmount() != null
+                && invoice.getPaidAmount().compareTo(invoice.getDepositAmount()) >= 0;
+    }
+
+    /** Financial settlement commits first; mission state is a separately retryable side effect. */
+    private void transitionAfterSettlement(String orderId) {
+        Runnable activation = () -> {
+            try {
+                missions.transitionToPendingConfirmation(orderId);
+            } catch (RuntimeException exception) {
+                log.warn("Final payment is recorded but Mission activation remains pending for Order {}; recovery will retry",
+                        orderId, exception);
+            }
+        };
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            activation.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                activation.run();
+            }
+        });
     }
 }

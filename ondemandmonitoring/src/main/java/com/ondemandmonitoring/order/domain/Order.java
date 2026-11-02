@@ -48,6 +48,7 @@ import org.locationtech.jts.geom.Polygon;
 @Table(name = "orders", indexes = {
         @jakarta.persistence.Index(name = "ix_orders_status_created", columnList = "order_status,created_at"),
         @jakarta.persistence.Index(name = "ix_orders_deposit_expiration", columnList = "deposit_expires_at,order_status"),
+        @jakarta.persistence.Index(name = "ix_orders_final_payment_expiration", columnList = "final_payment_expires_at,order_status"),
         @jakarta.persistence.Index(name = "ix_orders_created", columnList = "created_at")})
 @Getter
 @Setter
@@ -243,6 +244,10 @@ public class Order extends BaseEntity {
     /** Commercial deadline assigned once at quote acceptance; configuration changes never move it. */
     @Column(name = "deposit_expires_at")
     private Instant depositExpiresAt;
+
+    /** Commercial deadline assigned once when the final balance first becomes payable. */
+    @Column(name = "final_payment_expires_at")
+    private Instant finalPaymentExpiresAt;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "cancellation_reason", length = 40)

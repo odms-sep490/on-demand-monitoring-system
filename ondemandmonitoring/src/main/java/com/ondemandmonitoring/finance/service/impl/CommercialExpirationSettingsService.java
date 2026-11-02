@@ -28,6 +28,7 @@ public class CommercialExpirationSettingsService {
     public static final int MAX_TIMEOUT_HOURS = 8760;
     private static final int DEFAULT_QUOTATION_HOURS = 48;
     private static final int DEFAULT_DEPOSIT_HOURS = 24;
+    private static final int DEFAULT_FINAL_PAYMENT_HOURS = 24;
     private static final Pattern COGNITO_SUB_PATTERN =
             Pattern.compile("[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}");
 
@@ -41,26 +42,31 @@ public class CommercialExpirationSettingsService {
         return settingsRepository.findById(CommercialExpirationSettings.DEFAULT_ID)
                 .map(this::response)
                 .orElseGet(() -> new CommercialExpirationSettingsResponse(
-                        DEFAULT_QUOTATION_HOURS, DEFAULT_DEPOSIT_HOURS, "system", null));
+                        DEFAULT_QUOTATION_HOURS, DEFAULT_DEPOSIT_HOURS, DEFAULT_FINAL_PAYMENT_HOURS,
+                        "system", null));
     }
 
     @Transactional
     public CommercialExpirationSettingsResponse update(CommercialExpirationSettingsRequest request, String actor) {
         validate(request.quotationAcceptanceTimeoutHours());
         validate(request.depositPaymentTimeoutHours());
+        validate(request.finalPaymentTimeoutHours());
         String normalizedActor = actor == null || actor.isBlank() ? "unknown" : actor;
         CommercialExpirationSettings settings = settingsRepository
                 .findByIdForUpdate(CommercialExpirationSettings.DEFAULT_ID)
                 .orElseGet(() -> defaultSettings(normalizedActor));
         Instant changedAt = Instant.now(clock);
-        List<CommercialExpirationSettingsAudit> audits = new ArrayList<>(2);
+        List<CommercialExpirationSettingsAudit> audits = new ArrayList<>(3);
         recordChange(audits, "quotationAcceptanceTimeoutHours", settings.getQuotationAcceptanceTimeoutHours(),
                 request.quotationAcceptanceTimeoutHours(), normalizedActor, changedAt);
         recordChange(audits, "depositPaymentTimeoutHours", settings.getDepositPaymentTimeoutHours(),
                 request.depositPaymentTimeoutHours(), normalizedActor, changedAt);
+        recordChange(audits, "finalPaymentTimeoutHours", settings.getFinalPaymentTimeoutHours(),
+                request.finalPaymentTimeoutHours(), normalizedActor, changedAt);
         if (!audits.isEmpty()) {
             settings.setQuotationAcceptanceTimeoutHours(request.quotationAcceptanceTimeoutHours());
             settings.setDepositPaymentTimeoutHours(request.depositPaymentTimeoutHours());
+            settings.setFinalPaymentTimeoutHours(request.finalPaymentTimeoutHours());
             settings.setUpdatedBy(normalizedActor);
             settings.setUpdatedAt(changedAt);
             settingsRepository.save(settings);
@@ -111,6 +117,7 @@ public class CommercialExpirationSettingsService {
         settings.setId(CommercialExpirationSettings.DEFAULT_ID);
         settings.setQuotationAcceptanceTimeoutHours(DEFAULT_QUOTATION_HOURS);
         settings.setDepositPaymentTimeoutHours(DEFAULT_DEPOSIT_HOURS);
+        settings.setFinalPaymentTimeoutHours(DEFAULT_FINAL_PAYMENT_HOURS);
         settings.setUpdatedBy(actor);
         settings.setUpdatedAt(Instant.now(clock));
         return settings;
@@ -118,7 +125,8 @@ public class CommercialExpirationSettingsService {
 
     private CommercialExpirationSettingsResponse response(CommercialExpirationSettings settings) {
         return new CommercialExpirationSettingsResponse(settings.getQuotationAcceptanceTimeoutHours(),
-                settings.getDepositPaymentTimeoutHours(), settings.getUpdatedBy(), settings.getUpdatedAt());
+                settings.getDepositPaymentTimeoutHours(), settings.getFinalPaymentTimeoutHours(),
+                settings.getUpdatedBy(), settings.getUpdatedAt());
     }
 
     private void validate(Integer hours) {

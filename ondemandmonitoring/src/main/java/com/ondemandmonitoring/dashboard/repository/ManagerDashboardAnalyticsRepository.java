@@ -71,10 +71,19 @@ public class ManagerDashboardAnalyticsRepository {
         @SuppressWarnings("unchecked")
         List<Object[]> values = entityManager.createNativeQuery(
                 """
-                select status as stage, count(*)
-                from missions
-                group by status
-                order by count(*) desc
+                select case
+                    when status in ('CREATED', 'PENDING_PAYMENT',
+                                    'PENDING_CONFIRMATION', 'RESOURCE_ASSIGNING', 'PENDING_APPROVAL') then 'PLANNING'
+                    when status = 'READY' then 'READY'
+                    when status = 'SCHEDULED' then 'SCHEDULED'
+                    when status in ('CONNECTED', 'PREFLIGHT_CHECKING', 'READY_TO_FLY') then 'READY'
+                    when status in ('IN_FLIGHT', 'IN_PROGRESS') then 'IN_FLIGHT'
+                    when status in ('RETURNING', 'POSTFLIGHT_CHECKING', 'PENDING_REVIEW') then 'RETURNING'
+                    when status = 'COMPLETED' then 'COMPLETED'
+                    when status in ('FAILED', 'FAILED_PREFLIGHT') then 'FAILED'
+                    else 'CANCELLED' end as stage,
+                    count(*)
+                from missions group by stage order by count(*) desc
                 """).getResultList();
         return values.stream().map(r -> new ManagerDashboardResponse.DistributionPoint(
                 String.valueOf(r[0]), ((Number) r[1]).longValue())).toList();

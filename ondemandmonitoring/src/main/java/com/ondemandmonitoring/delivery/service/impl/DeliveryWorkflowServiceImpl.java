@@ -135,17 +135,20 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         assertOwner(orderId);
         List<Mission> effective = completedMissions(orderId);
         OrderDelivery delivery = locked(orderId);
+        Invoice invoice = invoice(orderId);
         if (delivery.getStatus() == DeliveryStatus.FINAL_PAYMENT_PENDING && delivery.getCustomerAcceptedAt() != null) {
+            if (isInvoiceFullyPaid(invoice)) delivery.setStatus(DeliveryStatus.READY_FOR_DELIVERY);
             return response(delivery, effective, List.of(), false);
         }
         if (delivery.getStatus() != DeliveryStatus.CUSTOMER_REVIEW) {
             throw new ApiException(delivery.getCustomerAcceptedAt() != null
                     ? ErrorCode.RESULT_ALREADY_ACCEPTED : ErrorCode.RESULT_NOT_READY_FOR_REVIEW);
         }
-        Invoice invoice = invoice(orderId);
-        if (invoice.getStatus() == InvoiceStatus.PAID) throw new ApiException(ErrorCode.INVOICE_ALREADY_PAID);
         delivery.setCustomerAcceptedAt(Instant.now());
-        delivery.setStatus(DeliveryStatus.FINAL_PAYMENT_PENDING);
+        // New workflow pays before mission execution. Keep a legacy unpaid
+        // acceptance reviewable without reopening payment from this screen.
+        delivery.setStatus(isInvoiceFullyPaid(invoice)
+                ? DeliveryStatus.READY_FOR_DELIVERY : DeliveryStatus.FINAL_PAYMENT_PENDING);
         return response(delivery, effective, List.of(), false);
     }
 
@@ -171,38 +174,6 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
 
     @Override
     @Transactional
-    public void confirmFinalPayment(String orderId) {
-        orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-        OrderDelivery delivery = locked(orderId);
-        if (delivery.getStatus() == DeliveryStatus.READY_FOR_DELIVERY
-                || delivery.getStatus() == DeliveryStatus.DELIVERED) return;
-        if (delivery.getStatus() != DeliveryStatus.FINAL_PAYMENT_PENDING) {
-            throw new ApiException(ErrorCode.INVALID_DELIVERY_STATE);
-        }
-        delivery.setStatus(DeliveryStatus.PAYMENT_CONFIRMED);
-        delivery.setFinalPaymentConfirmedAt(Instant.now());
-        delivery.setStatus(DeliveryStatus.READY_FOR_DELIVERY);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public void requireFinalPaymentEligible(String orderId) {
-        List<Mission> effective = effectiveMissions(orderId);
-        if (effective.isEmpty() || effective.stream().anyMatch(m -> m.getStatus() != MissionStatus.COMPLETED))
-            throw new ApiException(ErrorCode.FINAL_PAYMENT_NOT_ALLOWED);
-        OrderDelivery delivery = deliveries.findByOrderId(orderId)
-                .orElseThrow(() -> new ApiException(ErrorCode.FINAL_PAYMENT_NOT_ALLOWED));
-        Invoice invoice = invoice(orderId);
-        boolean valid = !effective.isEmpty()
-                && delivery.getStatus() == DeliveryStatus.FINAL_PAYMENT_PENDING
-                && delivery.getCustomerAcceptedAt() != null
-                && invoice.getQuote().getStatus() == QuoteStatus.ACCEPTED_BY_CUSTOMER
-                && invoice.getStatus() != InvoiceStatus.PAID && invoice.getRemainingAmount().signum() > 0;
-        if (!valid) throw new ApiException(ErrorCode.FINAL_PAYMENT_NOT_ALLOWED);
-    }
-
-    @Override
-    @Transactional
     public DeliveryResponse releaseOriginals(String orderId) {
         List<Mission> effective = completedMissions(orderId);
         Invoice invoice = invoice(orderId);
@@ -211,6 +182,12 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         if (delivery.getStatus() == DeliveryStatus.DELIVERED) {
             return response(delivery, effective, assets(effective).stream()
                     .filter(a -> a.getMediaStatus() == MediaStatus.AVAILABLE).toList(), true);
+        }
+        // Legacy deliveries accepted before the assignment-first payment gate
+        // can proceed after an external reconciliation updates the invoice.
+        if (delivery.getStatus() == DeliveryStatus.FINAL_PAYMENT_PENDING
+                && delivery.getCustomerAcceptedAt() != null) {
+            delivery.setStatus(DeliveryStatus.READY_FOR_DELIVERY);
         }
         if (delivery.getStatus() != DeliveryStatus.READY_FOR_DELIVERY) throw new ApiException(ErrorCode.DELIVERY_NOT_READY);
         List<MediaAsset> assets = assets(effective).stream()
@@ -335,6 +312,10 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     }
     private Invoice invoice(String orderId) {
         return invoices.findByOrderId(orderId).orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
+    }
+    private static boolean isInvoiceFullyPaid(Invoice invoice) {
+        return invoice.getStatus() == InvoiceStatus.PAID && invoice.getRemainingAmount() != null
+                && invoice.getRemainingAmount().signum() == 0;
     }
     private void assertOwner(String orderId) {
         Order order = orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));

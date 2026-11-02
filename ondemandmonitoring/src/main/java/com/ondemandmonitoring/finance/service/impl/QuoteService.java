@@ -2,8 +2,6 @@ package com.ondemandmonitoring.finance.service.impl;
 
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
-import com.ondemandmonitoring.delivery.enums.DeliveryStatus;
-import com.ondemandmonitoring.delivery.repository.OrderDeliveryRepository;
 import com.ondemandmonitoring.finance.config.PaymentProperties;
 import com.ondemandmonitoring.finance.domain.*;
 import com.ondemandmonitoring.finance.dto.*;
@@ -13,6 +11,7 @@ import com.ondemandmonitoring.finance.repository.QuoteRepository;
 import com.ondemandmonitoring.finance.mapper.FinanceMapper;
 import com.ondemandmonitoring.finance.service.IQuoteService;
 import com.ondemandmonitoring.finance.event.QuoteApprovedEvent;
+import com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
@@ -63,7 +62,8 @@ public class QuoteService implements IQuoteService {
     private final AuthenticatedUserResolver currentUser;
     private final PaymentProperties paymentProperties;
     private final CommercialExpirationSettingsService expirationSettings;
-    private final OrderDeliveryRepository deliveries;
+    private final FinalPaymentDeadlineService finalPaymentDeadlines;
+    private final IMissionPaymentEligibilityService paymentEligibility;
     private final IOrderReadinessService readiness;
     private final PricingEngine pricingEngine;
     private final PricingPolicyRepository pricingPolicies;
@@ -522,7 +522,7 @@ public class QuoteService implements IQuoteService {
         invoice.setStatus(InvoiceStatus.ISSUED);
         invoice.setIssuedAt(now);
         Invoice saved = invoices.save(invoice);
-        ensureWaitingDepositMission(order);
+        order.setOrderStatus(OrderStatus.WAITING_DEPOSIT);
         return invoiceResponse(saved);
     }
 
@@ -535,7 +535,7 @@ public class QuoteService implements IQuoteService {
         }
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public InvoiceResponse getInvoiceByOrder(String orderId) {
         assertOwnerOrManager(orderId);
         return invoices.findByOrderId(orderId).map(this::invoiceResponse)
@@ -543,11 +543,9 @@ public class QuoteService implements IQuoteService {
     }
 
     private InvoiceResponse invoiceResponse(Invoice invoice) {
-        boolean finalPaymentAllowed = deliveries.findByOrderId(invoice.getOrder().getId())
-                .map(delivery -> delivery.getStatus() == DeliveryStatus.FINAL_PAYMENT_PENDING
-                        && delivery.getCustomerAcceptedAt() != null)
-                .orElse(false);
-        return FinanceMapper.invoice(invoice, finalPaymentAllowed);
+        var finalPaymentExpiresAt = finalPaymentDeadlines.assignIfEligible(invoice);
+        boolean deadlineOpen = finalPaymentExpiresAt != null && Instant.now(clock).isBefore(finalPaymentExpiresAt);
+        return FinanceMapper.invoice(invoice, deadlineOpen && paymentEligibility.isFinalPaymentEligible(invoice));
     }
 
     /**
@@ -731,21 +729,6 @@ public class QuoteService implements IQuoteService {
         line.setUnitPrice(vnd(unitPrice)); line.setAmount(vnd(unitPrice));
         line.setOrderChecklistItem(checklistItem); line.setDisplayOrder(displayOrder);
         return line;
-    }
-
-    private void ensureWaitingDepositMission(Order order) {
-        // Quote acceptance creates the invoice, not a hidden unassigned Mission.
-        // Manager planning remains the only creator/materializer in the 1:N model.
-        for (String id : missions.findIdsByOrderIdOrderById(order.getId()).stream().sorted().toList()) {
-            Mission mission = missions.findByIdForUpdate(id)
-                    .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
-            if (mission.getStatus() == MissionStatus.CANCELLED) continue;
-            if (mission.getStatus() == MissionStatus.PLANNING) {
-                mission.setStatus(MissionStatus.WAITING_DEPOSIT);
-            } else if (mission.getStatus() != MissionStatus.WAITING_DEPOSIT) {
-                throw new ApiException(ErrorCode.MISSION_STATUS_INVALID, "Existing mission has already entered execution");
-            }
-        }
     }
 
     private Order orderForCustomerQuote(String orderId) {

@@ -57,9 +57,9 @@ public class PreDeviceCheckCompletionServiceImpl implements IPreDeviceCheckCompl
         boolean alreadyReady = mission.getStatus() == MissionStatus.READY
                 && assignment.getStatus() == MissionDeviceAssignmentStatus.READY_TO_FLY
                 && assignment.getCheckupStatus() == MissionDeviceCheckStatus.PASSED;
-        if (mission.getStatus() != MissionStatus.PLANNING && !alreadyReady) {
+        if (mission.getStatus() != MissionStatus.PENDING_CONFIRMATION && !alreadyReady) {
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
-                    "Preflight completion requires PLANNING, or an already-passed READY mission.");
+                    "Preflight completion requires PENDING_CONFIRMATION, or an already-passed READY mission.");
         }
         if (deviceId == null || deviceId.isBlank() || !assignedDevice.getId().equals(deviceId)) {
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Device does not match the mission assignment");

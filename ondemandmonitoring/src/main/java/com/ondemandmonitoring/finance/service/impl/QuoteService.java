@@ -511,7 +511,6 @@ public class QuoteService implements IQuoteService {
         quote.setAcceptedAt(now);
         // Deposit progress belongs to the invoice. Accepting a quote leaves the order approved;
         // mission creation is gated by the invoice's deposit status.
-        order.setDepositExpiresAt(now.plus(expirationSettings.current().depositPaymentTimeout()));
         Invoice invoice = new Invoice();
         invoice.setInvoiceNumber("INV-" + LocalDate.now(BUSINESS_ZONE).getYear() + "-"
                 + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
@@ -524,6 +523,7 @@ public class QuoteService implements IQuoteService {
         invoice.setStatus(InvoiceStatus.ISSUED);
         invoice.setDepositStatus(DepositStatus.WAITING_DEPOSIT);
         invoice.setIssuedAt(now);
+        invoice.setDepositExpiresAt(now.plus(expirationSettings.current().depositPaymentTimeout()));
         Invoice saved = invoices.save(invoice);
         return invoiceResponse(saved);
     }

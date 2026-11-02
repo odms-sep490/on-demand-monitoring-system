@@ -69,8 +69,8 @@ public final class FinanceMapper {
                 invoice.getQuote().getId(), invoice.getTotalAmount(), invoice.getDepositAmount(),
                 invoice.getPaidAmount(), invoice.getRemainingAmount(), invoice.getStatus(),
                 invoice.effectiveDepositStatus(), invoice.getIssuedAt(),
-                finalPaymentAllowed, invoice.getOrder().getDepositExpiresAt(),
-                invoice.getOrder().getFinalPaymentExpiresAt(),
+                finalPaymentAllowed, invoice.getDepositExpiresAt(),
+                invoice.getFinalPaymentExpiresAt(),
                 invoice.getOrder().getCancellationReason() == null ? null : invoice.getOrder().getCancellationReason().name());
     }
 

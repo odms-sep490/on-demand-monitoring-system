@@ -17,7 +17,9 @@ import lombok.Setter;
         @UniqueConstraint(name = "uk_invoice_quote", columnNames = "quote_id")},
         indexes = {
                 @Index(name = "ix_invoices_status", columnList = "status"),
-                @Index(name = "ix_invoices_deposit_status", columnList = "deposit_status")
+                @Index(name = "ix_invoices_deposit_status", columnList = "deposit_status"),
+                @Index(name = "ix_invoices_deposit_expiration", columnList = "deposit_expires_at,status"),
+                @Index(name = "ix_invoices_final_payment_expiration", columnList = "final_payment_expires_at,status")
         })
 @Getter @Setter
 public class Invoice extends BaseEntity {
@@ -45,6 +47,14 @@ public class Invoice extends BaseEntity {
     private DepositStatus depositStatus = DepositStatus.WAITING_DEPOSIT;
     @Column(name = "issued_at", nullable = false)
     private Instant issuedAt;
+
+    /** Commercial deadline assigned once at quote acceptance; configuration changes never move it. */
+    @Column(name = "deposit_expires_at")
+    private Instant depositExpiresAt;
+
+    /** Commercial deadline assigned once when the final balance first becomes payable. */
+    @Column(name = "final_payment_expires_at")
+    private Instant finalPaymentExpiresAt;
 
     @PrePersist
     @PreUpdate

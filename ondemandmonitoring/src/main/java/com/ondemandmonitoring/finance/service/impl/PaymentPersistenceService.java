@@ -56,8 +56,8 @@ public class PaymentPersistenceService implements IPaymentPersistenceService {
                 || invoice.getStatus() == InvoiceStatus.OVERDUE) {
             throw new ApiException(ErrorCode.INVOICE_NOT_PAYABLE);
         }
-        if (type == PaymentType.DEPOSIT && invoice.getOrder().getDepositExpiresAt() != null
-                && !Instant.now(clock).isBefore(invoice.getOrder().getDepositExpiresAt())) {
+        if (type == PaymentType.DEPOSIT && invoice.getDepositExpiresAt() != null
+                && !Instant.now(clock).isBefore(invoice.getDepositExpiresAt())) {
             throw new ApiException(ErrorCode.INVOICE_NOT_PAYABLE, "Deposit payment deadline has expired");
         }
         if (type == PaymentType.DEPOSIT && eligibility.isDepositSatisfied(invoice)) {

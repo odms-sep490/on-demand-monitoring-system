@@ -72,7 +72,7 @@ class PaymentPersistenceServiceTest {
     }
 
     @Test void depositCannotBeStartedAtOrAfterCommercialDeadline() {
-        invoice.getOrder().setDepositExpiresAt(java.time.Instant.EPOCH);
+        invoice.setDepositExpiresAt(java.time.Instant.EPOCH);
         assertThatThrownBy(() -> service.prepare("i1", PaymentType.DEPOSIT))
                 .isInstanceOf(ApiException.class).hasMessageContaining("deadline has expired");
         verify(payments, never()).saveAndFlush(any());

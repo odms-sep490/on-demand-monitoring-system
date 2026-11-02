@@ -357,7 +357,6 @@ class QuoteServiceTest {
 
     @Test void anAlreadyAcceptedQuoteDoesNotMoveItsSavedDepositDeadlineWhenSettingsChange() {
         User customer = new User(); customer.setId("u1"); order.setCustomer(customer);
-        order.setDepositExpiresAt(java.time.Instant.parse("2026-11-01T12:00:00Z"));
         when(users.getCurrentUser()).thenReturn(customer);
         Quote quote = new Quote(); quote.setId("q1"); quote.setOrder(order);
         quote.setStatus(QuoteStatus.ACCEPTED_BY_CUSTOMER);
@@ -367,14 +366,15 @@ class QuoteServiceTest {
         invoice.setQuote(quote); invoice.setOrder(order); invoice.setTotalAmount(new BigDecimal("1000"));
         invoice.setDepositAmount(new BigDecimal("300")); invoice.setPaidAmount(BigDecimal.ZERO);
         invoice.setRemainingAmount(new BigDecimal("1000"));
+        invoice.setDepositExpiresAt(java.time.Instant.parse("2026-11-01T12:00:00Z"));
         when(invoices.findByQuoteId("q1")).thenReturn(Optional.of(invoice));
         when(expirationSettings.current()).thenReturn(new com.ondemandmonitoring.finance.dto.CommercialExpirationSettingsResponse(
                 48, 12, "admin", java.time.Instant.EPOCH));
-        var savedDeadline = order.getDepositExpiresAt();
+        var savedDeadline = invoice.getDepositExpiresAt();
 
         service.accept("o1", "q1");
 
-        assertThat(order.getDepositExpiresAt()).isEqualTo(savedDeadline);
+        assertThat(invoice.getDepositExpiresAt()).isEqualTo(savedDeadline);
         verify(expirationSettings, never()).current();
     }
 
@@ -399,8 +399,8 @@ class QuoteServiceTest {
         assertThat(result.depositAmount()).isEqualByComparingTo("2550000");
         assertThat(result.remainingAmount()).isEqualByComparingTo("8500000");
         assertThat(quote.getStatus()).isEqualTo(QuoteStatus.ACCEPTED_BY_CUSTOMER);
-        assertThat(order.getDepositExpiresAt()).isAfter(quote.getAcceptedAt());
-        assertThat(order.getDepositExpiresAt()).isEqualTo(quote.getAcceptedAt().plus(java.time.Duration.ofHours(12)));
+        assertThat(result.depositExpiresAt()).isAfter(quote.getAcceptedAt());
+        assertThat(result.depositExpiresAt()).isEqualTo(quote.getAcceptedAt().plus(java.time.Duration.ofHours(12)));
         verify(missions, never()).save(any());
         verifyNoInteractions(executions);
     }

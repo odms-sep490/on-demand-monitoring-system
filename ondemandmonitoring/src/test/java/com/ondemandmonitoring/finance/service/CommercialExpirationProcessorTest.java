@@ -70,7 +70,7 @@ class CommercialExpirationProcessorTest {
     }
 
     @Test void unpaidDepositExpiresAndCancelsPendingAttemptAfterGrace() {
-        order.setDepositExpiresAt(NOW.minus(Duration.ofMinutes(31)));
+        invoice.setDepositExpiresAt(NOW.minus(Duration.ofMinutes(31)));
         Payment pending = payment(PaymentStatus.PENDING, new BigDecimal("300"));
         when(payments.findAllByInvoiceIdForUpdate("i1")).thenReturn(List.of(pending));
         assertThat(processor.expireDeposit("i1")).isTrue();
@@ -80,7 +80,7 @@ class CommercialExpirationProcessorTest {
     }
 
     @Test void inFlightPaymentGetsBoundedReconciliationGrace() {
-        order.setDepositExpiresAt(NOW.minus(Duration.ofMinutes(10)));
+        invoice.setDepositExpiresAt(NOW.minus(Duration.ofMinutes(10)));
         Payment pending = payment(PaymentStatus.PROCESSING, new BigDecimal("300"));
         when(payments.findAllByInvoiceIdForUpdate("i1")).thenReturn(List.of(pending));
         assertThat(processor.expireDeposit("i1")).isFalse();
@@ -88,7 +88,7 @@ class CommercialExpirationProcessorTest {
     }
 
     @Test void confirmedDepositAlwaysWinsOverExpiration() {
-        order.setDepositExpiresAt(NOW.minus(Duration.ofHours(2)));
+        invoice.setDepositExpiresAt(NOW.minus(Duration.ofHours(2)));
         when(payments.findAllByInvoiceIdForUpdate("i1"))
                 .thenReturn(List.of(payment(PaymentStatus.SUCCESS, new BigDecimal("300"))));
         assertThat(processor.expireDeposit("i1")).isFalse();
@@ -103,7 +103,7 @@ class CommercialExpirationProcessorTest {
 
     @Test void legacyNullDeadlineIsExplicitlyIgnored() {
         quote.setExpiresAt(null);
-        order.setDepositExpiresAt(null);
+        invoice.setDepositExpiresAt(null);
         assertThat(processor.expireQuote("q1")).isFalse();
         assertThat(processor.expireDeposit("i1")).isFalse();
     }

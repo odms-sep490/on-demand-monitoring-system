@@ -25,7 +25,6 @@ public interface OrderMapper {
     @Mapping(target = "service", ignore = true)
     @Mapping(target = "pricingPolicyId", ignore = true)
     @Mapping(target = "pricingPolicyVersion", ignore = true)
-    @Mapping(target = "systemCalculatedAmount", ignore = true)
     @Mapping(target = "preferredTime", ignore = true)
     @Mapping(target = "orderStatus", ignore = true)
     @Mapping(target = "flightCompliance", ignore = true)

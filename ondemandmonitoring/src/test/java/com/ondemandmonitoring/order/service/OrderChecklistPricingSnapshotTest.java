@@ -307,6 +307,5 @@ class OrderChecklistPricingSnapshotTest {
 
         assertEquals(new BigDecimal("450000"), first.getSystemCalculatedPrice());
         assertEquals(new BigDecimal("200000"), second.getSystemCalculatedPrice());
-        assertEquals(new BigDecimal("650000"), order.getSystemCalculatedAmount());
     }
 }

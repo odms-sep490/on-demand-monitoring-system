@@ -289,12 +289,8 @@ public class OrderChecklistSnapshotService implements IOrderChecklistSnapshotSer
 
     public void applySystemPrices(Order order, List<OrderChecklistItem> items) {
         if (pricingEngine == null) return;
-        if (items.isEmpty()) {
-            order.setSystemCalculatedAmount(BigDecimal.ZERO);
-            return;
-        }
+        if (items.isEmpty()) return;
         var calculated = pricingEngine.calculate(order, items);
-        order.setSystemCalculatedAmount(calculated.systemCalculatedAmount());
         Map<String, BigDecimal> calculatedByItem = new HashMap<>();
         calculated.items().stream().filter(line -> line.orderChecklistItemId() != null)
                 .forEach(line -> calculatedByItem.merge(line.orderChecklistItemId(), line.amount(), BigDecimal::add));

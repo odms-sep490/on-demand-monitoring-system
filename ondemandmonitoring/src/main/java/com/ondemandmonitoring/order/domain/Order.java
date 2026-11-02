@@ -27,7 +27,6 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -77,10 +76,6 @@ public class Order extends BaseEntity {
 
     @Column(name = "pricing_policy_version")
     private Integer pricingPolicyVersion;
-
-    /** Authoritative system calculation at the latest create/update recalculation; never trusted from the client. */
-    @Column(name = "system_calculated_amount", precision = 19, scale = 0)
-    private BigDecimal systemCalculatedAmount;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)

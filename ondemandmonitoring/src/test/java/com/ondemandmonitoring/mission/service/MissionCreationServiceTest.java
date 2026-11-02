@@ -48,7 +48,7 @@ class MissionCreationServiceTest {
     @Test void newCreationCopiesScopeAndIncrementsOnlyPublicPlanRevision() {
         var r=request(); order.setVersion(7L);
         var created = fixture.missionService.createMission("o", r);
-        assertNotNull(created); assertEquals(1, order.getExecutionPlanRevision()); assertEquals(7L, order.getVersion());
+        assertNotNull(created); assertEquals(1, order.getExecutionPlan().getRevision()); assertEquals(7L, order.getVersion());
         var captor=org.mockito.ArgumentCaptor.forClass(Mission.class);
         verify(fixture.missionRepository).saveAndFlush(captor.capture());
         var m=captor.getValue(); assertEquals(MissionStatus.PLANNING, m.getStatus());
@@ -63,7 +63,7 @@ class MissionCreationServiceTest {
         error(ErrorCode.INVOICE_NOT_PAYABLE, () -> fixture.missionService.createMission("o", request()));
         verify(fixture.missionRepository, never()).saveAndFlush(any());
     }
-    @Test void finalizedPlanRejectsNewKey() {order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED); error(ErrorCode.EXECUTION_PLAN_NOT_DRAFT,()->fixture.missionService.createMission("o", request()));}
+    @Test void finalizedPlanRejectsNewKey() {order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED); error(ErrorCode.EXECUTION_PLAN_NOT_DRAFT,()->fixture.missionService.createMission("o", request()));}
     @ParameterizedTest @EnumSource(value=OrderStatus.class,names={"COMPLETED","CANCELLED","REJECTED","IN_PROGRESS","PENDING"})
     void nonApprovedOrderRejectsNewKey(OrderStatus state) {order.setOrderStatus(state); error(ErrorCode.INVALID_REQUEST,()->fixture.missionService.createMission("o", request()));}
     @Test void validatesScheduleBoundsAndSingleDay() {

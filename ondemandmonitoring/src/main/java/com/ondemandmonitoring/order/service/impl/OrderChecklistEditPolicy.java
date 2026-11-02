@@ -68,7 +68,7 @@ public class OrderChecklistEditPolicy {
                 return EditCapability.blocked("NEEDS_INFO_SCOPE_RESTRICTED", ErrorCode.ORDER_CHECKLIST_EDIT_LOCKED);
             }
         }
-        if (order.getExecutionPlanStatus() == ExecutionPlanStatus.FINALIZED || order.getExecutionPlanRevision() > 0) {
+        if (order.getExecutionPlan().getStatus() == ExecutionPlanStatus.FINALIZED || order.getExecutionPlan().getRevision() > 0) {
             return EditCapability.blocked("EXECUTION_STARTED", ErrorCode.ORDER_CHECKLIST_EDIT_LOCKED);
         }
 

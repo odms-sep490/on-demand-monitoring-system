@@ -530,9 +530,9 @@ public class QuoteService implements IQuoteService {
 
     private static void requireLegalReady(Order order) {
         // PENDING_PERMIT: the manager may proceed on experience while the permit is verified outside the system.
-        if (order.getLegalReviewStatus() != LegalReviewStatus.NOT_REQUIRED
-                && order.getLegalReviewStatus() != LegalReviewStatus.APPROVED
-                && order.getLegalReviewStatus() != LegalReviewStatus.PENDING_PERMIT) {
+        if (order.getFlightAreaReview().getLegalReviewStatus() != LegalReviewStatus.NOT_REQUIRED
+                && order.getFlightAreaReview().getLegalReviewStatus() != LegalReviewStatus.APPROVED
+                && order.getFlightAreaReview().getLegalReviewStatus() != LegalReviewStatus.PENDING_PERMIT) {
             throw new ApiException(ErrorCode.ORDER_LEGAL_REVIEW_NOT_READY);
         }
     }

@@ -32,7 +32,7 @@ class OrderExecutionCompletionPolicyTest {
             return ids.stream().map(results::findByMissionId).flatMap(Optional::stream).toList();
         });
         order = new Order(); order.setId("o"); order.setOrderStatus(OrderStatus.IN_PROGRESS);
-        order.setExecutionPlanStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
+        order.getExecutionPlan().setStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
         first = mission("a"); second = mission("b");
         when(orders.findByIdForUpdate("o")).thenReturn(Optional.of(order));
         when(missions.findIdsByOrderIdOrderById("o")).thenReturn(List.of("a", "b"));
@@ -63,7 +63,7 @@ class OrderExecutionCompletionPolicyTest {
     }
     @Test void twoApprovedMissionsComplete() { assertTrue(evaluate()); assertEquals(OrderStatus.COMPLETED, order.getOrderStatus()); }
     @Test void draftPlanBlocksEvenWhenLegacyMissionsAndResultsAreCompleteAndReady() {
-        order.setExecutionPlanStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.DRAFT);
+        order.getExecutionPlan().setStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.DRAFT);
         assertTrue(com.ondemandmonitoring.mission.service.impl.MissionRuntimeGate.isStructurallyFinalized(first));
         assertTrue(com.ondemandmonitoring.mission.service.impl.MissionRuntimeGate.isStructurallyFinalized(second));
         assertTrue(checklist.isReadyForFinalApproval(first));

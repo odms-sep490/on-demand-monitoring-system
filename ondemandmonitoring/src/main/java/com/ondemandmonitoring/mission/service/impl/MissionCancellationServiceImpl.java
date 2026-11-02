@@ -48,18 +48,18 @@ public class MissionCancellationServiceImpl implements IMissionCancellationServi
         // Older operator clients only send the reason. Resolve their revision under the order lock;
         // clients that send a revision still get the stale-plan guard.
         long expectedPlanRevision = request.expectedPlanRevision() == null
-                ? order.getExecutionPlanRevision() : request.expectedPlanRevision();
+                ? order.getExecutionPlan().getRevision() : request.expectedPlanRevision();
         MissionCancellationGuard.requireAllowed(orderId, order, mission, expectedPlanRevision, results, missions);
         mission.setStatus(MissionStatus.CANCELLED);
         mission.setCancellationAt(Instant.now()); mission.setCancelledBy(actor.getCurrentUserId());
         mission.setCancellationReason(request.reason().strip());
-        order.setExecutionPlanRevision(order.getExecutionPlanRevision() + 1);
+        order.getExecutionPlan().setRevision(order.getExecutionPlan().getRevision() + 1);
 
         missions.saveAndFlush(mission); orders.saveAndFlush(order);
 
         if (checklistAssignmentStatusSync != null) checklistAssignmentStatusSync.syncForMission(mission);
         
-        return new MissionCancellationResponse(missionId, mission.getStatus(), order.getExecutionPlanRevision(),
+        return new MissionCancellationResponse(missionId, mission.getStatus(), order.getExecutionPlan().getRevision(),
                 mission.getCancellationAt(), mission.getCancelledBy(), mission.getCancellationReason());
     }
 }

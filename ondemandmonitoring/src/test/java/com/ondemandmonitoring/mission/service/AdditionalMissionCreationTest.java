@@ -37,7 +37,7 @@ class AdditionalMissionCreationTest {
     @BeforeEach void setup() {
         mocks = MockitoAnnotations.openMocks(this);
         order = new Order(); order.setId("o"); order.setOrderStatus(OrderStatus.APPROVED);
-        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED);
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED);
         when(orders.findById("o")).thenReturn(Optional.of(order));
         when(orders.findByIdForUpdate("o")).thenReturn(Optional.of(order));
         request = new MissionCreateRequest(); request.setScopeLabel("Additional scope");
@@ -54,13 +54,13 @@ class AdditionalMissionCreationTest {
         service.createAdditionalMission("o", request);
         verify(missions).saveAndFlush(argThat(m -> m.getStatus() == MissionStatus.PLANNING && m.getReplacesMissionId() == null));
         verify(selection).replace(eq("new"), argThat(r -> r.items().getFirst().orderChecklistItemId().equals("i")));
-        assertEquals(ExecutionPlanStatus.FINALIZED, order.getExecutionPlanStatus());
+        assertEquals(ExecutionPlanStatus.FINALIZED, order.getExecutionPlan().getStatus());
     }
 
     @Test void additionalEndpointRejectsDraftOrderAndNormalEndpointRejectsFinalizedOrder() {
         assertEquals(ErrorCode.EXECUTION_PLAN_NOT_DRAFT,
                 assertThrows(ApiException.class, () -> service.createMission("o", request)).getErrorCode());
-        order.setExecutionPlanStatus(ExecutionPlanStatus.DRAFT);
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.DRAFT);
         assertEquals(ErrorCode.EXECUTION_PLAN_NOT_FINALIZED,
                 assertThrows(ApiException.class, () -> service.createAdditionalMission("o", request)).getErrorCode());
         verify(missions, never()).saveAndFlush(any());

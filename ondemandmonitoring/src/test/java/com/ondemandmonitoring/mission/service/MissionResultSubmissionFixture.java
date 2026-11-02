@@ -62,8 +62,8 @@ public final class MissionResultSubmissionFixture {
 
     public void prepare(Scenario scenario) {
         reset(missions, assignments, results, resolver, checklist, completion);
-        var order = new Order(); order.setId("order-1"); order.setExecutionPlanRevision(2);
-        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED);
+        var order = new Order(); order.setId("order-1"); order.getExecutionPlan().setRevision(2);
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED);
         mission = mission("mission-1", order);
         var sibling = mission("mission-2", order);
         crew = new ArrayList<>();

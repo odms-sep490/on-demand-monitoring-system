@@ -108,9 +108,9 @@ public class OrderService implements IOrderService {
         if (order.getOrderStatus() != OrderStatus.UNDER_REVIEW) {
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Only UNDER_REVIEW orders can be approved");
         }
-        if (order.getLegalReviewStatus() != LegalReviewStatus.NOT_REQUIRED
-                && order.getLegalReviewStatus() != LegalReviewStatus.APPROVED
-                && order.getLegalReviewStatus() != LegalReviewStatus.PENDING_PERMIT) {
+        if (order.getFlightAreaReview().getLegalReviewStatus() != LegalReviewStatus.NOT_REQUIRED
+                && order.getFlightAreaReview().getLegalReviewStatus() != LegalReviewStatus.APPROVED
+                && order.getFlightAreaReview().getLegalReviewStatus() != LegalReviewStatus.PENDING_PERMIT) {
             throw new ApiException(ErrorCode.INVALID_REQUEST,
                     "Order legal review is not ready for approval");
         }
@@ -143,14 +143,14 @@ public class OrderService implements IOrderService {
         if (request.status() == LegalReviewStatus.REJECTED && reason == null) {
             throw new ApiException(ErrorCode.INVALID_REQUEST, "A reason is required for an unsuitable area");
         }
-        order.setLegalReviewStatus(request.status());
-        order.setFlightAreaReviewReason(reason);
-        order.setFlightAreaReviewNote(note);
+        order.getFlightAreaReview().setLegalReviewStatus(request.status());
+        order.getFlightAreaReview().setFlightAreaReviewReason(reason);
+        order.getFlightAreaReview().setFlightAreaReviewNote(note);
         if (request.requestedScopeFeasible() != null) {
-            order.setRequestedScopeFeasible(request.requestedScopeFeasible());
+            order.getFlightAreaReview().setRequestedScopeFeasible(request.requestedScopeFeasible());
         }
-        order.setFlightAreaReviewedBy(authenticatedUserResolver.getCurrentUser());
-        order.setFlightAreaReviewedAt(Instant.now());
+        order.getFlightAreaReview().setFlightAreaReviewedBy(authenticatedUserResolver.getCurrentUser());
+        order.getFlightAreaReview().setFlightAreaReviewedAt(Instant.now());
         return toResponse(orderRepository.save(order));
     }
 
@@ -164,7 +164,7 @@ public class OrderService implements IOrderService {
         if ((order.getOrderStatus() != OrderStatus.PENDING
                 && order.getOrderStatus() != OrderStatus.UNDER_REVIEW
                 && order.getOrderStatus() != OrderStatus.APPROVED)
-                || order.getLegalReviewStatus() != LegalReviewStatus.PENDING_PERMIT) {
+                || order.getFlightAreaReview().getLegalReviewStatus() != LegalReviewStatus.PENDING_PERMIT) {
             throw new ApiException(ErrorCode.INVALID_REQUEST,
                     "Only an order pending external permit verification can be resolved");
         }
@@ -172,12 +172,12 @@ public class OrderService implements IOrderService {
                 && request.status() != LegalReviewStatus.REJECTED) {
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Resolution must be APPROVED or REJECTED");
         }
-        order.setLegalReviewStatus(request.status());
-        order.setFlightAreaReviewNote(trimToNull(request.note()));
-        order.setFlightAreaReviewedBy(authenticatedUserResolver.getCurrentUser());
-        order.setFlightAreaReviewedAt(Instant.now());
+        order.getFlightAreaReview().setLegalReviewStatus(request.status());
+        order.getFlightAreaReview().setFlightAreaReviewNote(trimToNull(request.note()));
+        order.getFlightAreaReview().setFlightAreaReviewedBy(authenticatedUserResolver.getCurrentUser());
+        order.getFlightAreaReview().setFlightAreaReviewedAt(Instant.now());
         if (request.status() == LegalReviewStatus.REJECTED) {
-            order.setFlightAreaReviewReason("Permit verification was rejected");
+            order.getFlightAreaReview().setFlightAreaReviewReason("Permit verification was rejected");
         }
         return toResponse(orderRepository.save(order));
     }
@@ -195,14 +195,14 @@ public class OrderService implements IOrderService {
             throw new ApiException(ErrorCode.INVALID_REQUEST,
                     "A cancellation proposal cannot be created for a terminal order");
         }
-        if (order.getLegalReviewStatus() != LegalReviewStatus.REJECTED) {
+        if (order.getFlightAreaReview().getLegalReviewStatus() != LegalReviewStatus.REJECTED) {
             throw new ApiException(ErrorCode.INVALID_REQUEST,
                     "A permit cancellation proposal requires a rejected permit");
         }
-        order.setFlightAreaReviewReason("PERMIT_REJECTED_ORDER_CANCELLED");
-        order.setFlightAreaReviewNote(request.reason().trim());
-        order.setFlightAreaReviewedBy(authenticatedUserResolver.getCurrentUser());
-        order.setFlightAreaReviewedAt(Instant.now());
+        order.getFlightAreaReview().setFlightAreaReviewReason("PERMIT_REJECTED_ORDER_CANCELLED");
+        order.getFlightAreaReview().setFlightAreaReviewNote(request.reason().trim());
+        order.getFlightAreaReview().setFlightAreaReviewedBy(authenticatedUserResolver.getCurrentUser());
+        order.getFlightAreaReview().setFlightAreaReviewedAt(Instant.now());
         order.setOrderStatus(OrderStatus.CANCELLED);
         order.setCancellationReason(com.ondemandmonitoring.order.enums.OrderCancellationReason.PERMIT_REJECTED);
         order.setCancelledAt(Instant.now());
@@ -334,17 +334,17 @@ public class OrderService implements IOrderService {
         order.setPoint(location);
         order.setTargetArea(targetArea);
         order.setOrderStatus(OrderStatus.PENDING);
-        order.setPermitStatus(permitStatus);
-        order.setPermitRequired(permitStatus != OrderPermitStatus.NONE);
-        order.setPermitZoneName(null);
-        order.setMonitoringAuthorizationConfirmed(true);
-        order.setMonitoringAuthorizationDocuments(authorizationDocuments);
+        order.getFlightCompliance().setPermitStatus(permitStatus);
+        order.getFlightCompliance().setPermitRequired(permitStatus != OrderPermitStatus.NONE);
+        order.getFlightCompliance().setPermitZoneName(null);
+        order.getFlightCompliance().setMonitoringAuthorizationConfirmed(true);
+        order.getFlightCompliance().setMonitoringAuthorizationDocuments(authorizationDocuments);
         if (permitStatus != OrderPermitStatus.HAVE_PERMIT) {
-            order.setPermitNumber(null);
+            order.getFlightCompliance().setPermitNumber(null);
         }
         if (permitStatus != OrderPermitStatus.HAVE_PERMIT) {
-            order.setPermitExpiresOn(null);
-            order.setPermitDocuments(null);
+            order.getFlightCompliance().setPermitExpiresOn(null);
+            order.getFlightCompliance().setPermitDocuments(null);
         }
         order.setRecurrenceType(recurrenceType);
         if (recurrenceType == OrderRecurrenceType.NONE) {
@@ -483,24 +483,24 @@ public class OrderService implements IOrderService {
         if (request.siteContactPhone() != null) order.setSiteContactPhone(request.siteContactPhone());
         if (request.accessNotes() != null) order.setAccessNotes(request.accessNotes());
         if (request.monitoringRelationship() != null) {
-            order.setMonitoringRelationship(request.monitoringRelationship());
+            order.getFlightCompliance().setMonitoringRelationship(request.monitoringRelationship());
         }
         if (request.monitoringAuthorizationConfirmed() != null) {
-            order.setMonitoringAuthorizationConfirmed(request.monitoringAuthorizationConfirmed());
+            order.getFlightCompliance().setMonitoringAuthorizationConfirmed(request.monitoringAuthorizationConfirmed());
         }
         if (request.monitoringAuthorizationDocuments() != null
                 && !request.monitoringAuthorizationDocuments().isEmpty()) {
             List<OrderAuthorizationDocument> uploaded =
                     validateAuthorizationDocuments(request.monitoringAuthorizationDocuments());
             List<OrderAuthorizationDocument> combined = new ArrayList<>(
-                    order.getMonitoringAuthorizationDocuments() == null
-                            ? List.of() : order.getMonitoringAuthorizationDocuments());
+                    order.getFlightCompliance().getMonitoringAuthorizationDocuments() == null
+                            ? List.of() : order.getFlightCompliance().getMonitoringAuthorizationDocuments());
             combined.addAll(uploaded);
             if (combined.size() > 10) {
                 throw new ApiException(ErrorCode.INVALID_REQUEST,
                         "At most 10 authorization documents are allowed");
             }
-            order.setMonitoringAuthorizationDocuments(combined);
+            order.getFlightCompliance().setMonitoringAuthorizationDocuments(combined);
         }
         order.setDescription((order.getDescription() == null ? "" : order.getDescription().strip())
                 + "\n\nThông tin khách bổ sung: " + request.information().strip());
@@ -592,11 +592,11 @@ public class OrderService implements IOrderService {
         if (request.siteContactName() != null) order.setSiteContactName(request.siteContactName().strip());
         if (request.siteContactPhone() != null) order.setSiteContactPhone(request.siteContactPhone().strip());
         if (request.accessNotes() != null) order.setAccessNotes(request.accessNotes().strip());
-        if (request.monitoringRelationship() != null) order.setMonitoringRelationship(request.monitoringRelationship());
-        if (request.monitoringAuthorizationConfirmed() != null) order.setMonitoringAuthorizationConfirmed(request.monitoringAuthorizationConfirmed());
-        if (request.permitStatus() != null) order.setPermitStatus(request.permitStatus());
-        if (request.permitNumber() != null) order.setPermitNumber(request.permitNumber().strip());
-        if (request.permitExpiresOn() != null) order.setPermitExpiresOn(request.permitExpiresOn());
+        if (request.monitoringRelationship() != null) order.getFlightCompliance().setMonitoringRelationship(request.monitoringRelationship());
+        if (request.monitoringAuthorizationConfirmed() != null) order.getFlightCompliance().setMonitoringAuthorizationConfirmed(request.monitoringAuthorizationConfirmed());
+        if (request.permitStatus() != null) order.getFlightCompliance().setPermitStatus(request.permitStatus());
+        if (request.permitNumber() != null) order.getFlightCompliance().setPermitNumber(request.permitNumber().strip());
+        if (request.permitExpiresOn() != null) order.getFlightCompliance().setPermitExpiresOn(request.permitExpiresOn());
         if (request.preferredDateFrom() != null) order.setPreferredDateFrom(request.preferredDateFrom());
         if (request.preferredDateTo() != null) order.setPreferredDateTo(request.preferredDateTo());
         if (order.getPreferredDateFrom() != null && order.getPreferredDateTo() != null
@@ -638,14 +638,14 @@ public class OrderService implements IOrderService {
         if (submittingLocationCorrection) {
             // The previous legal review belongs to the old coordinates and must
             // never be shown as the verdict for the newly submitted area.
-            order.setLegalReviewStatus(LegalReviewStatus.NOT_REVIEWED);
-            order.setRequestedScopeFeasible(null);
-            order.setFlightAreaReviewReason(null);
-            order.setFlightAreaReviewNote(null);
-            order.setFlightAreaReviewedBy(null);
-            order.setFlightAreaReviewedAt(null);
-            order.setPermitRequired(null);
-            order.setPermitZoneName(null);
+            order.getFlightAreaReview().setLegalReviewStatus(LegalReviewStatus.NOT_REVIEWED);
+            order.getFlightAreaReview().setRequestedScopeFeasible(null);
+            order.getFlightAreaReview().setFlightAreaReviewReason(null);
+            order.getFlightAreaReview().setFlightAreaReviewNote(null);
+            order.getFlightAreaReview().setFlightAreaReviewedBy(null);
+            order.getFlightAreaReview().setFlightAreaReviewedAt(null);
+            order.getFlightCompliance().setPermitRequired(null);
+            order.getFlightCompliance().setPermitZoneName(null);
             reviewRecords.reopenFailed(order, "Khách hàng đã cập nhật lại khu vực giám sát");
         }
         Order saved = orderRepository.save(order);

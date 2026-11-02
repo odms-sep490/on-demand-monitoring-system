@@ -60,7 +60,7 @@ class QuoteGuidanceServiceTest {
                 mock(com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService.class), readiness, pricingEngine,
                 mock(PricingPolicyRepository.class), mock(ChecklistPricingAuditRepository.class), java.time.Clock.systemUTC());
         order = new Order(); order.setId("o1"); order.setChecklistRevision(2); order.setOrderStatus(OrderStatus.APPROVED);
-        order.setLegalReviewStatus(LegalReviewStatus.NOT_REQUIRED);
+        order.getFlightAreaReview().setLegalReviewStatus(LegalReviewStatus.NOT_REQUIRED);
         item = new OrderChecklistItem(); item.setId("i1"); item.setOrder(order); item.setChecklistRevision(2);
         item.setSourceType(OrderChecklistSourceType.CUSTOMER_CUSTOM); item.setReviewStatus(ChecklistReviewStatus.ADDITIONAL);
         manager = new User(); manager.setId("manager"); Role role = new Role(); role.setCode(RoleCode.MANAGER); manager.setRole(role);

@@ -24,7 +24,7 @@ SET LOCAL search_path = public, pg_catalog;
 
 -- Fail before any DDL. Do not manufacture an incomplete substitute JPA schema.
 DO $$ DECLARE t text; occupied boolean; BEGIN
-    FOREACH t IN ARRAY ARRAY['orders','missions','order_checklist_items',
+    FOREACH t IN ARRAY ARRAY['orders','order_execution_plans','order_flight_compliance','order_flight_area_reviews','missions','order_checklist_items',
         'mission_checklist_assignments','mission_checklist_executions',
         'mission_checklist_evidence','drone_media','mission_results',
         'resource_time_locks','mission_device_assignments','users','services','checklist_definitions'] LOOP
@@ -32,7 +32,7 @@ DO $$ DECLARE t text; occupied boolean; BEGIN
             RAISE EXCEPTION 'Hibernate prerequisite missing: public.%', t;
         END IF;
     END LOOP;
-    FOREACH t IN ARRAY ARRAY['orders','missions','order_checklist_items',
+    FOREACH t IN ARRAY ARRAY['orders','order_execution_plans','order_flight_compliance','order_flight_area_reviews','missions','order_checklist_items',
         'mission_checklist_assignments','mission_checklist_executions',
         'mission_checklist_evidence','drone_media','mission_results',
         'resource_time_locks','mission_device_assignments'] LOOP
@@ -40,7 +40,8 @@ DO $$ DECLARE t text; occupied boolean; BEGIN
         IF occupied THEN RAISE EXCEPTION 'Fresh bootstrap refused: public.% has runtime data', t; END IF;
     END LOOP;
 END $$;
-LOCK TABLE public.orders, public.missions, public.order_checklist_items,
+LOCK TABLE public.orders, public.order_execution_plans, public.order_flight_compliance, public.order_flight_area_reviews,
+    public.missions, public.order_checklist_items,
     public.mission_checklist_assignments, public.mission_checklist_executions,
     public.mission_checklist_evidence, public.drone_media, public.mission_results,
     public.resource_time_locks, public.mission_device_assignments IN ACCESS EXCLUSIVE MODE;
@@ -91,8 +92,8 @@ ALTER TABLE public.order_checklist_items ALTER COLUMN minimum_evidence_count SET
 ALTER TABLE public.order_checklist_items ALTER COLUMN required_evidence_type SET DEFAULT 'IMAGE_OR_VIDEO';
 
 -- SECTION 1: Current multi-Mission identity and planning invariants.
-ALTER TABLE public.orders ALTER COLUMN execution_plan_status SET DEFAULT 'DRAFT';
-ALTER TABLE public.orders ALTER COLUMN execution_plan_revision SET DEFAULT 0;
+ALTER TABLE public.order_execution_plans ALTER COLUMN status SET DEFAULT 'DRAFT';
+ALTER TABLE public.order_execution_plans ALTER COLUMN revision SET DEFAULT 0;
 
 -- Expected definitions are parsed by PostgreSQL itself: on rerun compare the
 -- existing constraint with a short-lived duplicate, then discard the duplicate.
@@ -100,8 +101,8 @@ ALTER TABLE public.orders ALTER COLUMN execution_plan_revision SET DEFAULT 0;
 DO $$ DECLARE entry record; actual text; expected text; BEGIN
     FOR entry IN SELECT * FROM (VALUES
         ('services','ck_services_base_price_positive','CHECK (base_price > 0)'),
-        ('orders','ck_order_execution_plan',
-         'CHECK (execution_plan_status IN (''DRAFT'',''FINALIZED'') AND execution_plan_revision >= 0 AND (execution_plan_status <> ''FINALIZED'' OR (execution_plan_revision > 0 AND execution_plan_finalized_at IS NOT NULL)) AND (execution_plan_finalized_by IS NULL OR execution_plan_finalized_at IS NOT NULL) AND ((execution_plan_amended_at IS NULL AND execution_plan_amended_by IS NULL AND execution_plan_amendment_reason IS NULL) OR (execution_plan_amended_at IS NOT NULL AND execution_plan_amended_by IS NOT NULL AND execution_plan_amendment_reason IS NOT NULL AND length(trim(execution_plan_amendment_reason)) > 0)))'),
+        ('order_execution_plans','ck_order_execution_plan',
+         'CHECK (status IN (''DRAFT'',''FINALIZED'') AND revision >= 0 AND (status <> ''FINALIZED'' OR (revision > 0 AND finalized_at IS NOT NULL)) AND (finalized_by IS NULL OR finalized_at IS NOT NULL))'),
         ('missions','uk_mission_id_order','UNIQUE (id, order_id)'),
         ('order_checklist_items','uk_checklist_item_id_order','UNIQUE (id, order_id)'),
         ('missions','ck_mission_foundation',

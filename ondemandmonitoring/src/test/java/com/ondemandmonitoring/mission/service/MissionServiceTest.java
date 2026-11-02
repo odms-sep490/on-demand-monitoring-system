@@ -326,8 +326,8 @@ class MissionServiceTest {
     @Test
     void deviceOperationUsesExactChildMissionAndDoesNotTouchSibling() {
         var order = new com.ondemandmonitoring.order.domain.Order(); order.setId("order-1");
-        order.setExecutionPlanStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
-        order.setExecutionPlanRevision(1);
+        order.getExecutionPlan().setStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
+        order.getExecutionPlan().setRevision(1);
         var first = new Mission(); first.setId("m1"); first.setOrder(order);
         var sibling = new Mission(); sibling.setId("m2"); sibling.setOrder(order);
         when(missionRepository.findById("m1")).thenReturn(Optional.of(first));
@@ -341,8 +341,8 @@ class MissionServiceTest {
     @Test
     void telemetryWithExactMissionCannotReuseSiblingSessionOrOrderAlias() {
         var order = new com.ondemandmonitoring.order.domain.Order(); order.setId("order-1");
-        order.setExecutionPlanStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
-        order.setExecutionPlanRevision(1);
+        order.getExecutionPlan().setStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
+        order.getExecutionPlan().setRevision(1);
         var first = new Mission(); first.setId("m1"); first.setOrder(order);
         var second = new Mission(); second.setId("m2"); second.setOrder(order);
         var firstSession = new DeviceConnection(); firstSession.setMission(first);
@@ -819,8 +819,8 @@ class MissionServiceTest {
         @DisplayName("startMission is blocked until the flight permit is approved")
         void startMission_withoutApprovedPermit_throws() {
             Mission mission = buildMission("m-no-permit", MissionStatus.READY_TO_FLY);
-            mission.getOrder().setExecutionPlanStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
-            mission.getOrder().setExecutionPlanRevision(1L);
+            mission.getOrder().getExecutionPlan().setStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
+            mission.getOrder().getExecutionPlan().setRevision(1L);
             FlightPermit.pendingFor(mission).setStatus(FlightPermitStatus.PENDING);
             when(missionRepository.findById("m-no-permit")).thenReturn(Optional.of(mission));
 
@@ -833,8 +833,8 @@ class MissionServiceTest {
         @DisplayName("startMission succeeds after permit and preflight are ready")
         void startMission_successAfterPreflight() {
             Mission mission = buildMission("m-7", MissionStatus.SCHEDULED);
-            mission.getOrder().setExecutionPlanStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
-            mission.getOrder().setExecutionPlanRevision(1L);
+            mission.getOrder().getExecutionPlan().setStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
+            mission.getOrder().getExecutionPlan().setRevision(1L);
             Device device = buildDevice("DEV-01", DeviceStatus.PREFLIGHT);
             MissionDeviceAssignment mda = new MissionDeviceAssignment();
             mda.setMission(mission);
@@ -919,8 +919,8 @@ class MissionServiceTest {
         void incompleteBusinessChecklistBlocksAcceptanceWithoutReleasingReportingAssignments() {
             Mission mission = buildMission("m-business", MissionStatus.PENDING_REVIEW);
             var order = new com.ondemandmonitoring.order.domain.Order(); order.setId("o"); mission.setOrder(order);
-            order.setExecutionPlanStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
-            order.setExecutionPlanRevision(1);
+            order.getExecutionPlan().setStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
+            order.getExecutionPlan().setRevision(1);
             when(orderRepository.findByIdForUpdate("o")).thenReturn(Optional.of(order));
             when(orderRepository.findById("o")).thenReturn(Optional.of(order));
             Device device = buildDevice("DEV-01", DeviceStatus.RETURNING);
@@ -1134,8 +1134,8 @@ class MissionServiceTest {
         FlightPermit.pendingFor(m).setStatus(FlightPermitStatus.APPROVED);
         var order = new com.ondemandmonitoring.order.domain.Order(); order.setId("order-" + id);
         order.setOrderStatus(com.ondemandmonitoring.order.enums.OrderStatus.APPROVED);
-        order.setExecutionPlanStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
-        order.setExecutionPlanRevision(1);
+        order.getExecutionPlan().setStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
+        order.getExecutionPlan().setRevision(1);
         m.setOrder(order);
         lenient().when(missionRepository.findOrderIdByMissionId(id)).thenReturn(Optional.of(order.getId()));
         lenient().when(orderRepository.findById(order.getId())).thenReturn(Optional.of(order));
@@ -1217,8 +1217,8 @@ class MissionServiceTest {
         order.setOrderStatus(com.ondemandmonitoring.order.enums.OrderStatus.APPROVED); mission.setOrder(order);
         when(orderRepository.findByIdForUpdate(order.getId())).thenReturn(Optional.of(order));
         when(orderRepository.findById(order.getId())).thenReturn(Optional.of(order));
-        order.setExecutionPlanStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
-        order.setExecutionPlanRevision(1);
+        order.getExecutionPlan().setStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
+        order.getExecutionPlan().setRevision(1);
         var device = buildDevice("device", DeviceStatus.RETURNING);
         var deviceAssignment = new MissionDeviceAssignment(); deviceAssignment.setDevice(device); deviceAssignment.setIsCurrent(true);
         var crew = java.util.Arrays.stream(MissionStaffRole.values()).map(role -> {

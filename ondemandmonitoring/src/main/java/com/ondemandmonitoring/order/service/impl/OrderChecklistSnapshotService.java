@@ -315,8 +315,8 @@ public class OrderChecklistSnapshotService implements IOrderChecklistSnapshotSer
         response.setChecklistEditBlockedReason(capability.blockedReason());
 
         if (includeItemRequiredMetadata
-                && order.getExecutionPlanStatus() != ExecutionPlanStatus.FINALIZED
-                && order.getExecutionPlanRevision() == 0
+                && order.getExecutionPlan().getStatus() != ExecutionPlanStatus.FINALIZED
+                && order.getExecutionPlan().getRevision() == 0
                 && response.getChecklistItems() != null
                 && !response.getChecklistItems().isEmpty()
                 && order.getService() != null

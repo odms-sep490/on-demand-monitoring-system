@@ -108,7 +108,7 @@ class MissionResultEvidencePolicyV2Test {
 
         order = new Order();
         order.setId("order-1");
-        order.setExecutionPlanRevision(1L);
+        order.getExecutionPlan().setRevision(1L);
 
         mission = new Mission();
         mission.setId("mission-1");

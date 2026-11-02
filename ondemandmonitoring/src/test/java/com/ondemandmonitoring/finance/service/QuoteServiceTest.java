@@ -59,7 +59,7 @@ class QuoteServiceTest {
                 readiness, pricingEngine, pricingPolicies, pricingAudits, Clock.systemUTC());
         when(expirationSettings.current()).thenReturn(new com.ondemandmonitoring.finance.dto.CommercialExpirationSettingsResponse(
                 48, 24, "system", java.time.Instant.EPOCH));
-        order = new Order(); order.setId("o1"); order.setLegalReviewStatus(com.ondemandmonitoring.order.enums.LegalReviewStatus.NOT_REQUIRED); order.setOrderStatus(OrderStatus.PENDING);
+        order = new Order(); order.setId("o1"); order.getFlightAreaReview().setLegalReviewStatus(com.ondemandmonitoring.order.enums.LegalReviewStatus.NOT_REQUIRED); order.setOrderStatus(OrderStatus.PENDING);
         var catalog = new com.ondemandmonitoring.service.domain.Service(); catalog.setName("Building inspection");
         order.setService(catalog);
         when(orders.findByIdForUpdate("o1")).thenReturn(Optional.of(order));

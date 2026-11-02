@@ -70,11 +70,11 @@ class OrderMultiMissionFoundationJpaPostgresTest extends OrderMissionPostgresTes
             var mission = missions.findById(missionId).orElseThrow();
             assertNull(mission.getReplacesMissionId());
             var persistedOrder = orders.findById(order.getId()).orElseThrow();
-            assertEquals(ExecutionPlanStatus.DRAFT, persistedOrder.getExecutionPlanStatus());
+            assertEquals(ExecutionPlanStatus.DRAFT, persistedOrder.getExecutionPlan().getStatus());
             long oldVersion = persistedOrder.getVersion();
-            persistedOrder.setExecutionPlanRevision(42); orders.saveAndFlush(persistedOrder);
+            persistedOrder.getExecutionPlan().setRevision(42); orders.saveAndFlush(persistedOrder);
             assertEquals(oldVersion + 1, persistedOrder.getVersion());
-            assertEquals(42, persistedOrder.getExecutionPlanRevision());
+            assertEquals(42, persistedOrder.getExecutionPlan().getRevision());
             assertEquals(OrderStatus.APPROVED, persistedOrder.getOrderStatus());
         });
     }

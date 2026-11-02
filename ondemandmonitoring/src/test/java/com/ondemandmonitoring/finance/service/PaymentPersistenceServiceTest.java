@@ -38,7 +38,7 @@ class PaymentPersistenceServiceTest {
 
     @BeforeEach void setUp() {
         owner = new User(); owner.setId("owner");
-        Order order = new Order(); order.setId("o1"); order.setCustomer(owner); order.setLegalReviewStatus(com.ondemandmonitoring.order.enums.LegalReviewStatus.NOT_REQUIRED);
+        Order order = new Order(); order.setId("o1"); order.setCustomer(owner); order.getFlightAreaReview().setLegalReviewStatus(com.ondemandmonitoring.order.enums.LegalReviewStatus.NOT_REQUIRED);
         invoice = new Invoice(); invoice.setId("i1"); invoice.setOrder(order); invoice.setStatus(InvoiceStatus.ISSUED);
         invoice.setTotalAmount(new BigDecimal("1000")); invoice.setDepositAmount(new BigDecimal("300"));
         invoice.setPaidAmount(BigDecimal.ZERO); invoice.setRemainingAmount(new BigDecimal("1000"));

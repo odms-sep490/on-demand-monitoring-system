@@ -44,7 +44,7 @@ class MissionPlanningServiceTest {
         org.springframework.test.util.ReflectionTestUtils.setField(service, "orderChecklistItemRepository", items);
         org.springframework.test.util.ReflectionTestUtils.setField(service, "checklistMaterializationService", materializer);
         order = new Order(); order.setId("o"); order.setOrderStatus(OrderStatus.APPROVED);
-        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED); order.setExecutionPlanRevision(5);
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED); order.getExecutionPlan().setRevision(5);
         mission = new Mission(); mission.setId("m"); mission.setOrder(order); mission.setStatus(MissionStatus.PLANNING);
         var item = new OrderChecklistItem(); item.setId("i"); item.setOrder(order); item.setAssignmentStatus(ChecklistAssignmentStatus.ASSIGNED);
         assignment = new MissionChecklistAssignment(); assignment.setId("a"); assignment.setMission(mission);
@@ -81,14 +81,14 @@ class MissionPlanningServiceTest {
         verify(materializer).materialize(mission);
         assertEquals(MissionStatus.PENDING_PAYMENT, mission.getStatus());
         assertEquals(MissionStatus.IN_FLIGHT, sibling.getStatus());
-        assertEquals(ExecutionPlanStatus.FINALIZED, order.getExecutionPlanStatus());
-        assertEquals(6, order.getExecutionPlanRevision());
+        assertEquals(ExecutionPlanStatus.FINALIZED, order.getExecutionPlan().getStatus());
+        assertEquals(6, order.getExecutionPlan().getRevision());
     }
 
     @Test void confirmRejectsDraftOrderAndMissingChecklistWithoutWrites() {
-        order.setExecutionPlanStatus(ExecutionPlanStatus.DRAFT);
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.DRAFT);
         error(ErrorCode.EXECUTION_PLAN_NOT_FINALIZED, () -> service.confirmMissionPlanning("m"));
-        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED);
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED);
         when(assignments.findByMissionIdAndRemovedAtIsNullOrderByDisplayOrderAscIdAsc("m")).thenReturn(List.of());
         error(ErrorCode.CHECKLIST_COVERAGE_INCOMPLETE, () -> service.confirmMissionPlanning("m"));
         verifyNoInteractions(materializer); verify(missions, never()).saveAndFlush(any());
@@ -105,7 +105,7 @@ class MissionPlanningServiceTest {
     }
 
     @Test void deletingDraftCleansChildrenAndUnassignsChecklistBeforeDeletingParent() {
-        order.setExecutionPlanStatus(ExecutionPlanStatus.DRAFT);
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.DRAFT);
         when(staff.findByMissionId("m")).thenReturn(List.of());
         when(devices.findByMissionId("m")).thenReturn(List.of());
         when(assignments.findByMissionId("m")).thenReturn(List.of(assignment));
@@ -114,7 +114,7 @@ class MissionPlanningServiceTest {
         when(schedules.findByReferenceId("m")).thenReturn(List.of(missionSchedule, leave));
         service.deleteDraftMission("m");
         assertEquals(ChecklistAssignmentStatus.UNASSIGNED, assignment.getOrderChecklistItem().getAssignmentStatus());
-        assertEquals(6, order.getExecutionPlanRevision());
+        assertEquals(6, order.getExecutionPlan().getRevision());
         var sequence = inOrder(resources, assignments, schedules, locks, staff, devices, missions);
         verifyNoInteractions(resources);
         sequence.verify(assignments).deleteAll(List.of(assignment));
@@ -126,7 +126,7 @@ class MissionPlanningServiceTest {
 
     @Test void cannotDeleteFinalizedOrExecutedMission() {
         error(ErrorCode.EXECUTION_PLAN_NOT_DRAFT, () -> service.deleteDraftMission("m"));
-        order.setExecutionPlanStatus(ExecutionPlanStatus.DRAFT); mission.setStatus(MissionStatus.IN_FLIGHT);
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.DRAFT); mission.setStatus(MissionStatus.IN_FLIGHT);
         error(ErrorCode.MISSION_STATUS_INVALID, () -> service.deleteDraftMission("m"));
         mission.setStatus(MissionStatus.PLANNING);
         when(executions.findOrderedByMissionId("m")).thenReturn(List.of(new MissionChecklistExecution()));

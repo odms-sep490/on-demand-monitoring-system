@@ -59,8 +59,8 @@ class MissionPaymentEligibilityServiceTest {
         var order = new Order();
         order.setId("o1");
         order.setOrderStatus(OrderStatus.APPROVED);
-        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED);
-        order.setLegalReviewStatus(LegalReviewStatus.NOT_REQUIRED);
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED);
+        order.getFlightAreaReview().setLegalReviewStatus(LegalReviewStatus.NOT_REQUIRED);
         Quote quote = new Quote(); quote.setStatus(QuoteStatus.ACCEPTED_BY_CUSTOMER);
         invoice = new Invoice(); invoice.setId("i1"); invoice.setOrder(order); invoice.setQuote(quote);
         invoice.setTotalAmount(new BigDecimal("1000")); invoice.setDepositAmount(new BigDecimal("300"));

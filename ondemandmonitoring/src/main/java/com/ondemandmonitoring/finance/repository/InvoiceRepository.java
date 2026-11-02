@@ -51,7 +51,7 @@ public interface InvoiceRepository extends JpaRepository<Invoice, String> {
     @Query("""
             select i.id from Invoice i
             where i.order.finalPaymentExpiresAt is null
-              and i.order.executionPlanStatus = 'FINALIZED'
+              and i.order.executionPlan.status = 'FINALIZED'
               and i.order.orderStatus in ('APPROVED','IN_PROGRESS')
               and i.quote.status = 'ACCEPTED_BY_CUSTOMER'
               and i.paidAmount >= i.depositAmount and i.remainingAmount > 0

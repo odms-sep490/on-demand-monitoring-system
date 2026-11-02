@@ -127,8 +127,8 @@ public class MissionMapperHelper {
         }
         var staffId = getStaffId(mission);
         response.staffId(staffId).operatorId(staffId);
-        if (mission.getOrder() != null && mission.getOrder().getExecutionPlanFinalizedBy() != null) {
-            userRepository.findById(mission.getOrder().getExecutionPlanFinalizedBy()).ifPresent(manager ->
+        if (mission.getOrder() != null && mission.getOrder().getExecutionPlan().getFinalizedBy() != null) {
+            userRepository.findById(mission.getOrder().getExecutionPlan().getFinalizedBy()).ifPresent(manager ->
                     response.managerName(manager.getFullName())
                             .managerEmail(manager.getEmail())
                             .managerPhone(manager.getPhoneNumber()));

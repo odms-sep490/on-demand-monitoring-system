@@ -280,11 +280,11 @@ public class MissionService implements IMissionService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
         if (additional) {
-            if (order.getExecutionPlanStatus() != ExecutionPlanStatus.FINALIZED)
+            if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.FINALIZED)
                 throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_FINALIZED);
             if (order.getOrderStatus() != OrderStatus.APPROVED && order.getOrderStatus() != OrderStatus.IN_PROGRESS)
                 throw new ApiException(ErrorCode.INVALID_REQUEST, "Order must be APPROVED or IN_PROGRESS");
-        } else if (order.getExecutionPlanStatus() != ExecutionPlanStatus.DRAFT) {
+        } else if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.DRAFT) {
             throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_DRAFT);
         }
         validatePlanningSchedule(request.getScheduledStartAt(), request.getScheduledEndAt(), order);
@@ -316,7 +316,7 @@ public class MissionService implements IMissionService {
     public MissionResponse confirmMissionPlanning(String missionId) {
         var order = getMissionOrder(missionId);
         var mission = getMissionForOrder(missionId, order);
-        if (order.getExecutionPlanStatus() != ExecutionPlanStatus.FINALIZED)
+        if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.FINALIZED)
             throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_FINALIZED);
         requireOpenOrder(order);
         if (mission.getStatus() == MissionStatus.PENDING_PAYMENT) {
@@ -349,7 +349,7 @@ public class MissionService implements IMissionService {
                 a.setIsCurrent(true);
             }
         });
-        order.setExecutionPlanRevision(order.getExecutionPlanRevision() + 1);
+        order.getExecutionPlan().setRevision(order.getExecutionPlan().getRevision() + 1);
         orderRepository.saveAndFlush(order);
         return missionMapper.toResponse(missionRepository.saveAndFlush(mission));
     }
@@ -458,7 +458,7 @@ public class MissionService implements IMissionService {
     public void deleteDraftMission(String missionId) {
         var order = getMissionOrder(missionId);
         var mission = getMissionForOrder(missionId, order);
-        if (order.getExecutionPlanStatus() != ExecutionPlanStatus.DRAFT)
+        if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.DRAFT)
             throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_DRAFT);
         if (mission.getStatus() != MissionStatus.PLANNING || mission.getActualStartAt() != null
                 || !missionChecklistExecutionRepository.findOrderedByMissionId(missionId).isEmpty())
@@ -482,7 +482,7 @@ public class MissionService implements IMissionService {
         missionStaffAssignmentRepository.deleteAll(crew); missionStaffAssignmentRepository.flush();
         missionDeviceAssignmentRepository.deleteAll(equipment); missionDeviceAssignmentRepository.flush();
         missionRepository.delete(mission); missionRepository.flush();
-        order.setExecutionPlanRevision(order.getExecutionPlanRevision() + 1);
+        order.getExecutionPlan().setRevision(order.getExecutionPlan().getRevision() + 1);
         orderRepository.saveAndFlush(order);
     }
 
@@ -503,7 +503,7 @@ public class MissionService implements IMissionService {
     }
 
     private void requireRevisionAvailable(Order order) {
-        if (order.getExecutionPlanRevision() == Long.MAX_VALUE) throw new ApiException(ErrorCode.EXECUTION_PLAN_REVISION_CONFLICT);
+        if (order.getExecutionPlan().getRevision() == Long.MAX_VALUE) throw new ApiException(ErrorCode.EXECUTION_PLAN_REVISION_CONFLICT);
     }
 
     private void requirePlanningReady(Mission mission) {
@@ -538,7 +538,7 @@ public class MissionService implements IMissionService {
                 .toList();
         checklistAssignmentService.replace(mission.getId(),
                 new com.ondemandmonitoring.mission.dto.request.ChecklistAssignmentSelectionRequest(
-                        order.getExecutionPlanRevision(), items));
+                        order.getExecutionPlan().getRevision(), items));
     }
 
     private void validatePlanningSchedule(Instant start, Instant end, Order order) {
@@ -1137,8 +1137,8 @@ public class MissionService implements IMissionService {
         Order order = orderRepository.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
         Mission mission = missionRepository.findById(missionId).orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
         if (!orderId.equals(mission.getOrder().getId())) throw new ApiException(ErrorCode.CHECKLIST_ASSIGNMENT_CROSS_ORDER);
-        if ((order.getExecutionPlanStatus() != ExecutionPlanStatus.DRAFT
-                && order.getExecutionPlanStatus() != ExecutionPlanStatus.FINALIZED)
+        if ((order.getExecutionPlan().getStatus() != ExecutionPlanStatus.DRAFT
+                && order.getExecutionPlan().getStatus() != ExecutionPlanStatus.FINALIZED)
                 || mission.getStatus() != MissionStatus.PLANNING
                 || MissionRuntimeGate.isStructurallyFinalized(mission))
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,

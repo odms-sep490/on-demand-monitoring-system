@@ -184,10 +184,10 @@ class OperatorAcceptAutoPlanningE2ETest {
         checklistItem = orderChecklistItemRepository.saveAndFlush(checklistItem);
 
         checklistAssignmentService.replace(created.getId(), new ChecklistAssignmentSelectionRequest(
-                order.getExecutionPlanRevision(),
+                order.getExecutionPlan().getRevision(),
                 java.util.List.of(new ChecklistAssignmentSelectionRequest.Item(checklistItem.getId()))));
         executionPlanService.finalizePlan(order.getId(), new ExecutionPlanFinalizeRequest(
-                order.getExecutionPlanRevision(), true));
+                order.getExecutionPlan().getRevision(), true));
 
         AssignDeviceRequest deviceRequest = new AssignDeviceRequest();
         deviceRequest.setDeviceId(device.getId());

@@ -49,7 +49,7 @@ public class OrderExecutionCompletionPolicy implements IOrderExecutionCompletion
     public boolean completeIfReady(LockedExecution execution) {
         var order = execution.order();
         // Legacy runtime compatibility must never imply aggregate plan finalization.
-        if (order.getExecutionPlanStatus() != ExecutionPlanStatus.FINALIZED) return false;
+        if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.FINALIZED) return false;
         if (order.getOrderStatus() != OrderStatus.APPROVED && order.getOrderStatus() != OrderStatus.IN_PROGRESS
                 && order.getOrderStatus() != OrderStatus.COMPLETED) return false;
         var effective = execution.missions().stream().filter(ExecutionPlanCoverageService::effective).toList();

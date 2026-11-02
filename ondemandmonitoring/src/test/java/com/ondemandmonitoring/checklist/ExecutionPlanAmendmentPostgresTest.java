@@ -110,12 +110,11 @@ class ExecutionPlanAmendmentPostgresTest extends OrderAggregateCompletionPostgre
         error(ErrorCode.MISSION_STATUS_INVALID, () -> missionService.confirmMissionPlanning(third));
     }
 
-    @Test void cancellationDoesNotRequireSafeStopAndPreservesExecutionHistory() {
+    @Test void cancellationPreservesExecutionHistory() {
         fixture(); var before = history(first);
         jdbc.update("update missions set status='IN_FLIGHT' where id=?", first);
         cancel(first);
         assertEquals("CANCELLED", state(first)); assertEquals(before, history(first));
-        assertNull(jdbc.queryForObject("select safe_stop_status from missions where id=?", String.class, first));
         assertEquals("Weather requires another flight", jdbc.queryForObject("select cancellation_reason from missions where id=?", String.class, first));
     }
 
@@ -178,9 +177,9 @@ class ExecutionPlanAmendmentPostgresTest extends OrderAggregateCompletionPostgre
                 return com.ondemandmonitoring.mission.dto.response.MissionResponse.builder().id(mission.getId())
                         .missionCode(mission.getMissionCode()).status(mission.getStatus()).build();
             });
-            return new MissionService(missions, null, null, mapper, null, null, null, null, null, null,
+            return new MissionService(missions, null, mapper, null, null, null, null, null, null,
                     orders, null, OrderMissionPostgresTest.paidInvoices(), OrderMissionPostgresTest.paidEligibility(),
-                    null, null, null, null, null, null, actor,
+                    null, null, null, null, null, actor,
                     mock(com.ondemandmonitoring.userschedule.repository.UserScheduleRepository.class), devices, staff,
                     mock(ResourceTimeLockRepository.class), executions, selection, mock(IResourceReservationService.class), null);
         }

@@ -84,7 +84,10 @@ public class WeatherPreflightService {
                 forecast.temperatureC(),
                 forecast.relativeHumidityPercent(),
                 advisories,
-                Instant.now(clock));
+                Instant.now(clock),
+                false,
+                null,
+                null);
     }
 
     private static List<String> advisories(

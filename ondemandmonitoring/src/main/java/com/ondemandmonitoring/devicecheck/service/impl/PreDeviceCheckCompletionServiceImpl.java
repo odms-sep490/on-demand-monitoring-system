@@ -12,16 +12,17 @@ import com.ondemandmonitoring.devicecheck.repository.PersistedPreDeviceCheckRepo
 import com.ondemandmonitoring.devicecheck.service.IPreDeviceCheckCompletionService;
 import com.ondemandmonitoring.weather.domain.MissionWeatherCheck;
 import com.ondemandmonitoring.weather.repository.MissionWeatherCheckRepository;
-import com.ondemandmonitoring.mission.domain.FlightToken;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
+import com.ondemandmonitoring.mission.enums.MissionDeviceAssignmentStatus;
+import com.ondemandmonitoring.mission.enums.MissionDeviceCheckStatus;
+import com.ondemandmonitoring.mission.enums.DeviceRole;
 import com.ondemandmonitoring.mission.enums.MissionStaffRole;
 import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
 import com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.mission.repository.MissionStaffAssignmentRepository;
-import com.ondemandmonitoring.mission.service.IFlightTokenService;
 import org.springframework.security.access.prepost.PreAuthorize;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -37,7 +38,6 @@ public class PreDeviceCheckCompletionServiceImpl implements IPreDeviceCheckCompl
     private final MissionStaffAssignmentRepository missionStaffAssignmentRepository;
     private final PersistedPreDeviceCheckRepository preDeviceCheckRepository;
     private final MissionWeatherCheckRepository missionWeatherCheckRepository;
-    private final IFlightTokenService flightTokenService;
     private final PreDeviceCheckCompletionMapper preDeviceCheckCompletionMapper;
 
     @Override
@@ -49,33 +49,41 @@ public class PreDeviceCheckCompletionServiceImpl implements IPreDeviceCheckCompl
                         ErrorCode.MISSION_NOT_FOUND,
                         "Mission not found: " + missionId));
         com.ondemandmonitoring.mission.service.impl.MissionRuntimeGate.requireOperationalCommandsAllowed(mission);
-        if (mission.getStatus() != MissionStatus.CONNECTED
-                && mission.getStatus() != MissionStatus.PREFLIGHT_CHECKING
-                && mission.getStatus() != MissionStatus.READY_TO_FLY) {
-            throw new ApiException(ErrorCode.MISSION_STATUS_INVALID, "Mission is not eligible for preflight completion");
-        }
-        Device assignedDevice = getCurrentDevice(mission.getId());
+        MissionDeviceAssignment assignment = getCurrentMainAssignment(mission.getId());
+        Device assignedDevice = assignment == null ? null : assignment.getDevice();
         if (assignedDevice == null || assignedDevice.getId() == null) {
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Mission has no assigned deviceId");
+        }
+        boolean alreadyReady = mission.getStatus() == MissionStatus.READY
+                && assignment.getStatus() == MissionDeviceAssignmentStatus.READY_TO_FLY
+                && assignment.getCheckupStatus() == MissionDeviceCheckStatus.PASSED;
+        if (mission.getStatus() != MissionStatus.PLANNING && !alreadyReady) {
+            throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
+                    "Preflight completion requires PLANNING, or an already-passed READY mission.");
         }
         if (deviceId == null || deviceId.isBlank() || !assignedDevice.getId().equals(deviceId)) {
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Device does not match the mission assignment");
         }
 
-        String staffId = getAcceptedPilotId(mission.getId());
-        if (staffId == null || staffId.isBlank()) {
-            throw new ApiException(ErrorCode.INVALID_REQUEST, "Mission chưa có pilot nhận nhiệm vụ để được cấp quyền bay.");
+        if (!hasAcceptedPilot(mission.getId())) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "Mission chưa có pilot nhận nhiệm vụ để hoàn tất kiểm tra trước chuyến bay.");
         }
 
         PersistedPreDeviceCheck persistedPreDeviceCheck = requirePassedPersistedPreDevice(mission.getId());
-        FlightToken token = flightTokenService.issueFlightToken(mission.getId(), assignedDevice.getId(), staffId);
-        mission.setStatus(MissionStatus.READY_TO_FLY);
-        missionRepository.save(mission);
+        if (assignment.getStatus() != MissionDeviceAssignmentStatus.PREFLIGHT_CHECKING
+                && assignment.getStatus() != MissionDeviceAssignmentStatus.READY_TO_FLY) {
+            throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
+                    "The assigned device must complete its preflight inspection before takeoff.");
+        }
+        assignment.setStatus(MissionDeviceAssignmentStatus.READY_TO_FLY);
+        assignment.setCheckupStatus(MissionDeviceCheckStatus.PASSED);
+        missionDeviceAssignmentRepository.save(assignment);
         MissionWeatherCheck weatherCheck = missionWeatherCheckRepository
                 .findFirstByMissionIdOrderByCreatedAtDesc(mission.getId())
                 .orElse(null);
 
-        return preDeviceCheckCompletionMapper.toResponse(mission, assignedDevice, persistedPreDeviceCheck, token, weatherCheck);
+        return preDeviceCheckCompletionMapper.toResponse(mission, assignedDevice, persistedPreDeviceCheck, weatherCheck);
     }
 
     private PersistedPreDeviceCheck requirePassedPersistedPreDevice(String missionId) {
@@ -84,7 +92,7 @@ public class PreDeviceCheckCompletionServiceImpl implements IPreDeviceCheckCompl
                 .orElseThrow(() -> new ApiException(
                         ErrorCode.INVALID_REQUEST,
                         "No persisted pre-device run found. Run the real pre-device checklist first."));
-        if (run.getStatus() != PreDeviceCheckStatus.PASSED) {
+        if (run.getStatus() == PreDeviceCheckStatus.CANCELLED) {
             throw new ApiException(
                     ErrorCode.INVALID_REQUEST,
                     "Latest persisted pre-device is not passed: " + run.getStatus());
@@ -96,28 +104,25 @@ public class PreDeviceCheckCompletionServiceImpl implements IPreDeviceCheckCompl
         if (hasNonPassingItem) {
             throw new ApiException(
                     ErrorCode.INVALID_REQUEST,
-                    "Every required pre-flight item must pass before a flight token can be issued.");
+                    "Every required pre-flight item must pass before the mission can be marked ready to fly.");
         }
         return run;
     }
 
-    private Device getCurrentDevice(String missionId) {
-        return missionDeviceAssignmentRepository.findFirstByMissionIdOrderByCreatedAtDesc(missionId)
-                .map(MissionDeviceAssignment::getDevice)
-                .orElse(null);
+    private MissionDeviceAssignment getCurrentMainAssignment(String missionId) {
+        return missionDeviceAssignmentRepository
+                .findAllByMissionIdAndDeviceRoleAndIsCurrentTrueOrderByCreatedAtDesc(missionId, DeviceRole.MAIN)
+                .stream().findFirst().orElse(null);
     }
 
-    private String getAcceptedPilotId(String missionId) {
+    private boolean hasAcceptedPilot(String missionId) {
         return missionStaffAssignmentRepository
                 .findAllByMissionIdAndAssignedRoleAndIsCurrentTrue(missionId,
                         MissionStaffRole.PILOT)
                 .stream()
                 .filter(entry -> entry.getResponseStatus() ==
                         MissionStaffAssignmentStatus.ACCEPTED)
-                .findFirst()
-                .map(assignment -> assignment.getStaff() != null && assignment.getStaff().getId() != null
-                        ? assignment.getStaff().getId().toString()
-                        : null)
-                .orElse(null);
+                .anyMatch(assignment -> assignment.getStaff() != null
+                        && assignment.getStaff().getId() != null);
     }
 }

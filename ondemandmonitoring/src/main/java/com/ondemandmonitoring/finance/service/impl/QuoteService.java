@@ -12,6 +12,7 @@ import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.finance.repository.QuoteRepository;
 import com.ondemandmonitoring.finance.mapper.FinanceMapper;
 import com.ondemandmonitoring.finance.service.IQuoteService;
+import com.ondemandmonitoring.finance.event.QuoteApprovedEvent;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
@@ -43,6 +44,7 @@ import java.math.RoundingMode;
 import java.time.*;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -66,6 +68,7 @@ public class QuoteService implements IQuoteService {
     private final PricingEngine pricingEngine;
     private final PricingPolicyRepository pricingPolicies;
     private final ChecklistPricingAuditRepository pricingAudits;
+    private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -415,6 +418,8 @@ public class QuoteService implements IQuoteService {
                     ? ChecklistPricingStatus.APPROVED : ChecklistPricingStatus.ADJUSTED_AND_APPROVED);
         });
         markOrderApprovedAfterQuote(order, approver, issuedAt);
+        eventPublisher.publishEvent(new QuoteApprovedEvent(
+                order.getCustomer().getId(), orderId, quoteId, issuedAt));
         return FinanceMapper.quote(quote);
     }
 
@@ -447,6 +452,8 @@ public class QuoteService implements IQuoteService {
         quote.setStatus(QuoteStatus.APPROVED); quote.setApprovedBy(approver); quote.setApprovedAt(issuedAt);
         quote.setExpiresAt(issuedAt.plus(expirationSettings.current().quotationAcceptanceTimeout()));
         markOrderApprovedAfterQuote(order, approver, issuedAt);
+        eventPublisher.publishEvent(new QuoteApprovedEvent(
+                order.getCustomer().getId(), orderId, quoteId, issuedAt));
         return FinanceMapper.quote(quote);
     }
 

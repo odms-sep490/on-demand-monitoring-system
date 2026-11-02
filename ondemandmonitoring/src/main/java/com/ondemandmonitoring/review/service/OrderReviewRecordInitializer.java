@@ -27,12 +27,6 @@ public class OrderReviewRecordInitializer implements CommandLineRunner {
     @Override
     @Transactional
     public void run(String... args) {
-        long removed = records.deleteByCode(ReviewCriterionCode.PRICE_REASONABLE)
-                + records.deleteByCode(ReviewCriterionCode.FLIGHT_SCALE)
-                + records.deleteByCode(ReviewCriterionCode.SENSITIVE_AREA);
-        if (removed > 0) {
-            log.info("Removed {} obsolete order-review records", removed);
-        }
         int created = orders.findByOrderStatusInOrderByCreatedAtAsc(
                         java.util.List.of(OrderStatus.PENDING, OrderStatus.UNDER_REVIEW)).stream()
                 .mapToInt(this::initialize)

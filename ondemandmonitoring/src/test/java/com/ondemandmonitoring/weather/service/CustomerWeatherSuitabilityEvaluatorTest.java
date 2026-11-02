@@ -62,6 +62,15 @@ class CustomerWeatherSuitabilityEvaluatorTest {
     }
 
     @Test
+    void drizzleIsNeverMarkedGoodEvenWhenOtherMetricsAreFavorable() {
+        for (int weatherCode : List.of(51, 53, 55, 56, 57)) {
+            var result = evaluator.evaluate(10.0, 8.0, 12.0, 20000.0, weatherCode);
+            assertEquals(WeatherSuitability.CAUTION, result.suitability());
+            assertEquals(List.of("DRIZZLE"), result.warnings());
+        }
+    }
+
+    @Test
     void missingValuesAreIgnored() {
         var result = evaluator.evaluate(null, null, null, null, null);
         assertEquals(WeatherSuitability.GOOD, result.suitability());

@@ -1,11 +1,11 @@
-package com.ondemandmonitoring.mission.service.impl;
+package com.ondemandmonitoring.flightpermit.job;
 
 import com.ondemandmonitoring.device.enums.DeviceStatus;
 import com.ondemandmonitoring.mission.enums.FlightPermitStatus;
 import com.ondemandmonitoring.mission.enums.MissionResourcePrepareStatus;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository;
-import com.ondemandmonitoring.mission.repository.MissionRepository;
+import com.ondemandmonitoring.flightpermit.repository.FlightPermitRepository;
 import com.ondemandmonitoring.mission.repository.MissionStaffAssignmentRepository;
 import com.ondemandmonitoring.mission.repository.ResourceTimeLockRepository;
 import com.ondemandmonitoring.userschedule.enums.UserScheduleStatus;
@@ -22,13 +22,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Component
 @RequiredArgsConstructor
 public class FlightPermitResourceReleaseJob {
-
     private static final Set<MissionStatus> NON_RELEASABLE = Set.of(
-            MissionStatus.IN_FLIGHT, MissionStatus.IN_PROGRESS, MissionStatus.RETURNING,
-            MissionStatus.POSTFLIGHT_CHECKING, MissionStatus.PENDING_REVIEW,
+            MissionStatus.READY, MissionStatus.IN_PROGRESS, MissionStatus.AWAITING_REVIEW,
+            MissionStatus.PENDING_REVIEW,
             MissionStatus.COMPLETED, MissionStatus.FAILED, MissionStatus.CANCELLED);
 
-    private final MissionRepository missions;
+    private final FlightPermitRepository flightPermits;
     private final MissionDeviceAssignmentRepository deviceAssignments;
     private final MissionStaffAssignmentRepository staffAssignments;
     private final ResourceTimeLockRepository locks;
@@ -38,12 +37,12 @@ public class FlightPermitResourceReleaseJob {
     @Transactional
     public void releaseExpiredPermitHolds() {
         Instant now = Instant.now();
-        for (var mission : missions
-                .findByFlightPermitStatusAndFlightPermitResourceHoldUntilLessThanEqualAndFlightPermitResourcesReleasedAtIsNull(
+        for (var permit : flightPermits
+                .findByStatusAndResourceHoldUntilLessThanEqualAndResourcesReleasedAtIsNull(
                         FlightPermitStatus.REJECTED, now)) {
-            if (NON_RELEASABLE.contains(mission.getStatus())) {
-                continue;
-            }
+            var mission = permit.getMission();
+            if (NON_RELEASABLE.contains(mission.getStatus())) continue;
+
             deviceAssignments.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc(mission.getId())
                     .forEach(assignment -> {
                         assignment.setIsCurrent(false);
@@ -72,7 +71,7 @@ public class FlightPermitResourceReleaseJob {
                     .forEach(schedule -> schedule.setStatus(UserScheduleStatus.CANCELLED));
 
             mission.setResourcePrepareStatus(MissionResourcePrepareStatus.PLANNING);
-            mission.setFlightPermitResourcesReleasedAt(now);
+            permit.setResourcesReleasedAt(now);
             log.info("Released mission {} resources after rejected permit hold expired", mission.getId());
         }
     }

@@ -21,6 +21,7 @@ import com.ondemandmonitoring.mission.dto.response.MissionTelemetryReadinessResp
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.service.IMissionMediaUploadService;
 import com.ondemandmonitoring.mission.service.IMissionService;
+import com.ondemandmonitoring.flightpermit.service.IFlightPermitService;
 import com.ondemandmonitoring.mission.dto.request.MissionCreateRequest;
 import jakarta.validation.Valid;
 import lombok.AccessLevel;
@@ -57,6 +58,7 @@ import java.time.ZoneId;
 public class MissionController {
 
     IMissionService missionService;
+    IFlightPermitService flightPermitService;
     IMissionMediaUploadService missionMediaUploadService;
     MediaAssetMapper mediaAssetMapper;
 
@@ -228,7 +230,7 @@ public class MissionController {
             @Valid @RequestBody FlightPermitUpdateRequest request) {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Cập nhật giấy phép bay thành công",
-                missionService.updateFlightPermit(id, request)));
+                flightPermitService.updateFlightPermit(id, request)));
     }
 
     @PatchMapping("/{id}/schedule")
@@ -250,7 +252,7 @@ public class MissionController {
     /**
      * PATCH /api/missions/{id}/accept
      * Staff confirms they accept the mission.
-     * Staff confirms the assigned mission while it is READY.
+     * Staff accepts the assigned mission while it is PLANNING.
      */
     @PatchMapping("/{id}/accept")
     @PreAuthorize("@missionAuthorizationService.canRespondToMission(#id)")
@@ -267,14 +269,6 @@ public class MissionController {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Mission accepted successfully",
                 missionService.acceptCurrentStaffMission(id)));
-    }
-
-    @PostMapping("/{id}/start-operation")
-    @PreAuthorize("@missionAuthorizationService.canStartMission(#id)")
-    public ResponseEntity<ApiResponse<MissionResponse>> startOperation(@PathVariable String id) {
-        return ResponseEntity.ok(ApiResponse.ok(
-                "Mission workflow started; Operator may connect GCS",
-                missionService.startMissionWorkflow(id)));
     }
 
     @PatchMapping("/{id}/accept-staff")
@@ -324,7 +318,7 @@ public class MissionController {
     /**
      * POST /api/missions/{id}/connect
      * Confirm telemetry link with GCS app (powerOnAndPairWithGCSApp).
-     * Transitions: SCHEDULED -> CONNECTED
+     * Connects the assigned device after all assigned staff have accepted.
      */
     @PostMapping("/{id}/connect")
     @PreAuthorize("@missionAuthorizationService.canOperatePayload(#id)")
@@ -422,21 +416,19 @@ public class MissionController {
     // ------------------------------------------------------------------
 
     /**
-     * POST /api/missions/{id}/start
-     * Staff clicks "Press Takeoff". Validates Flight Access Token.
+     * POST /api/missions/{id}/start-operation
+     * Staff starts the mission after preflight and control handover.
      */
-    @PostMapping("/{id}/start")
-    @PreAuthorize("@missionAuthorizationService.canControlFlight(#id)")
-    public ResponseEntity<ApiResponse<MissionResponse>> start(
-            @PathVariable String id,
-            @RequestParam(required = false) String tokenValue) {
-        MissionResponse response = missionService.startMission(id, tokenValue);
-        return ResponseEntity.ok(ApiResponse.ok("Takeoff confirmed – mission IN_FLIGHT", response));
+    @PostMapping("/{id}/start-operation")
+    @PreAuthorize("@missionAuthorizationService.canStartMission(#id)")
+    public ResponseEntity<ApiResponse<MissionResponse>> start(@PathVariable String id) {
+        MissionResponse response = missionService.startMission(id);
+        return ResponseEntity.ok(ApiResponse.ok("Mission started – status is IN_PROGRESS", response));
     }
 
     /** POST /api/missions/{id}/return – device heads back, RETURNING */
     @PostMapping("/{id}/return")
-    @PreAuthorize("@missionAuthorizationService.canControlFlight(#id) or @missionAuthorizationService.canTerminateFlight(#id)")
+    @PreAuthorize("@missionAuthorizationService.canControlFlight(#id)")
     public ResponseEntity<ApiResponse<MissionResponse>> markReturning(@PathVariable String id) {
         MissionResponse response = missionService.markReturning(id);
         return ResponseEntity.ok(ApiResponse.ok("device đang quay trở về", response));
@@ -444,7 +436,7 @@ public class MissionController {
 
     /** POST /api/missions/{id}/post-device or /postflight – device landed, POSTFLIGHT_CHECKING */
     @PostMapping({"/{id}/post-device", "/{id}/postflight"})
-    @PreAuthorize("@missionAuthorizationService.canControlFlight(#id) or @missionAuthorizationService.canTerminateFlight(#id) or @missionAuthorizationService.canPrepareSafeStopPostflight(#id)")
+    @PreAuthorize("@missionAuthorizationService.canControlFlight(#id)")
     public ResponseEntity<ApiResponse<MissionResponse>> startPostflight(@PathVariable String id) {
         MissionResponse response = missionService.startPostDeviceChecking(id);
         return ResponseEntity.ok(ApiResponse.ok("Bắt đầu kiểm tra sau bay", response));

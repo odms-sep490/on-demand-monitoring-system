@@ -71,20 +71,10 @@ public class ManagerDashboardAnalyticsRepository {
         @SuppressWarnings("unchecked")
         List<Object[]> values = entityManager.createNativeQuery(
                 """
-                select case
-                    when status in ('CREATED','WAITING_DEPOSIT','RESOURCE_ASSIGNING',
-                                    'PENDING_APPROVAL') then 'PLANNING'
-                    when status = 'READY' and resource_prepare_status = 'READY' then 'READY'
-                    when status = 'READY' then 'PLANNING'
-                    when status = 'SCHEDULED' then 'SCHEDULED'
-                    when status in ('CONNECTED','PREFLIGHT_CHECKING','READY_TO_FLY') then 'READY'
-                    when status in ('IN_FLIGHT','IN_PROGRESS') then 'IN_FLIGHT'
-                    when status in ('RETURNING','POSTFLIGHT_CHECKING','PENDING_REVIEW') then 'RETURNING'
-                    when status = 'COMPLETED' then 'COMPLETED'
-                    when status in ('FAILED','FAILED_PREFLIGHT') then 'FAILED'
-                    else 'CANCELLED' end as stage,
-                    count(*)
-                from missions group by stage order by count(*) desc
+                select status as stage, count(*)
+                from missions
+                group by status
+                order by count(*) desc
                 """).getResultList();
         return values.stream().map(r -> new ManagerDashboardResponse.DistributionPoint(
                 String.valueOf(r[0]), ((Number) r[1]).longValue())).toList();
@@ -94,9 +84,9 @@ public class ManagerDashboardAnalyticsRepository {
         return rows("""
                 select date_trunc(:bucket, timezone('Asia/Ho_Chi_Minh', coalesce(completed_at, updated_at)))::date,
                        count(*) filter (where status='COMPLETED'),
-                       count(*) filter (where status in ('FAILED','FAILED_PREFLIGHT'))
+                       count(*) filter (where status = 'FAILED')
                 from missions
-                where status in ('COMPLETED','FAILED','FAILED_PREFLIGHT')
+                where status in ('COMPLETED','FAILED')
                   and coalesce(completed_at, updated_at) >= :from
                   and coalesce(completed_at, updated_at) < :to
                 group by 1 order by 1

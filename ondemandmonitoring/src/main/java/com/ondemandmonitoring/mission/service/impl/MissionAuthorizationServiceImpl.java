@@ -5,16 +5,22 @@ import com.ondemandmonitoring.mission.domain.MissionStaffAssignment;
 import com.ondemandmonitoring.mission.enums.MissionStaffRole;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
+import com.ondemandmonitoring.mission.enums.DeviceRole;
+import com.ondemandmonitoring.mission.enums.MissionDeviceAssignmentStatus;
+import com.ondemandmonitoring.mission.repository.ControlHandoverRepository;
+import com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.mission.repository.MissionStaffAssignmentRepository;
 import com.ondemandmonitoring.mission.service.IMissionAuthorizationService;
 import com.ondemandmonitoring.role.enumeration.RoleCode;
 import com.ondemandmonitoring.user.domain.User;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
+import com.ondemandmonitoring.weather.repository.MissionWeatherCheckRepository;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,16 +29,24 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class MissionAuthorizationServiceImpl implements IMissionAuthorizationService {
     private static final Set<MissionStatus> TERMINAL_STATUSES = Set.of(
-            MissionStatus.COMPLETED, MissionStatus.FAILED, MissionStatus.CANCELLED);
+            MissionStatus.AWAITING_REVIEW, MissionStatus.PENDING_REVIEW, MissionStatus.COMPLETED,
+            MissionStatus.FAILED, MissionStatus.CANCELLED);
     private static final Set<MissionStatus> PILOT_UPLOAD_STATUSES = Set.of(
-            MissionStatus.READY_TO_FLY, MissionStatus.IN_FLIGHT, MissionStatus.IN_PROGRESS,
-            MissionStatus.RETURNING, MissionStatus.POSTFLIGHT_CHECKING,
-            MissionStatus.PENDING_REVIEW, MissionStatus.COMPLETED);
+            MissionStatus.IN_PROGRESS);
+    private static final Set<MissionStaffRole> REQUIRED_OPERATIONAL_CREW = Set.of(
+            MissionStaffRole.PILOT, MissionStaffRole.OPERATOR,
+            MissionStaffRole.MAINTAINER, MissionStaffRole.INSPECTOR);
     private final MissionStaffAssignmentRepository assignments;
     private final MissionRepository missions;
     private final AuthenticatedUserResolver currentUser;
     private final com.ondemandmonitoring.mission.repository.MissionResultRepository results;
     private final com.ondemandmonitoring.mission.service.IMissionChecklistScopeService checklistScope;
+    @Autowired
+    private MissionDeviceAssignmentRepository deviceAssignments;
+    @Autowired
+    private ControlHandoverRepository handovers;
+    @Autowired
+    private MissionWeatherCheckRepository weatherChecks;
 
     @Override
     public boolean canAttachChecklistEvidence(String missionId) {
@@ -76,8 +90,7 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
         User user = currentUser.getCurrentUser();
         if (!hasRole(user, RoleCode.STAFF) || !user.getId().equals(staffId)) return false;
         return findRuntimeMissionById(missionId).filter(mission ->
-                mission.getStatus() == MissionStatus.READY
-                        || mission.getStatus() == MissionStatus.READY)
+                mission.getStatus() == MissionStatus.PLANNING)
                 .map(mission -> ownAssignments(mission.getId(), user).stream()
                         .anyMatch(entry -> entry.getResponseStatus() == MissionStaffAssignmentStatus.PENDING))
                 .orElse(false);
@@ -91,10 +104,9 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
     @Override
     public boolean canStartMission(String missionId) {
         User user = currentUser.getCurrentUser();
-        if (!hasRole(user, RoleCode.STAFF)) return false;
+        if (!hasRole(user, RoleCode.STAFF) || deviceAssignments == null || handovers == null) return false;
         return findRuntimeMissionById(missionId)
-                .filter(mission -> mission.getStatus() == MissionStatus.READY
-                        || mission.getStatus() == MissionStatus.READY)
+                .filter(mission -> mission.getStatus() == MissionStatus.READY)
                 .map(mission -> {
                     List<MissionStaffAssignment> crew = assignments
                             .findAllByMissionIdAndIsCurrentTrue(mission.getId()).stream()
@@ -110,7 +122,18 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
                             entry.getAssignedRole() == MissionStaffRole.INSPECTOR
                                     && entry.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED
                                     && user.getId().equals(entry.getStaff().getId()));
-                    return inspector
+                    boolean mainDeviceReady = deviceAssignments
+                            .findAllByMissionIdAndDeviceRoleAndIsCurrentTrueOrderByCreatedAtDesc(
+                                    mission.getId(), DeviceRole.MAIN)
+                            .stream()
+                            .anyMatch(assignment -> assignment.getReleasedAt() == null
+                                    && assignment.getDevice() != null
+                                    && assignment.getStatus() == MissionDeviceAssignmentStatus.READY_TO_FLY);
+                    boolean controlHandedOver = handovers
+                            .findTopByStaffAssignment_Mission_IdAndStatusOrderByConfirmedAtDesc(
+                                    mission.getId(), "CONFIRMED")
+                            .isPresent();
+                    return inspector && mainDeviceReady && controlHandedOver
                             && acceptedRoles.containsAll(Set.of(MissionStaffRole.PILOT,
                                     MissionStaffRole.OPERATOR, MissionStaffRole.MAINTAINER,
                                     MissionStaffRole.INSPECTOR))
@@ -120,46 +143,66 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
     }
 
     @Override
+    public boolean canCancelMission(String missionId) {
+        User user = currentUser.getCurrentUser();
+        if (!hasRole(user, RoleCode.STAFF)) return false;
+        return findRuntimeMissionById(missionId)
+                .filter(mission -> mission.getStatus() == MissionStatus.READY
+                        && mission.getActualStartAt() == null
+                        && mission.getActualEndAt() == null)
+                .filter(mission -> !latestWeatherWasAccepted(mission.getId()))
+                .filter(mission -> hasEligibleInspectorAssignment(mission, user))
+                .isPresent();
+    }
+
+    private boolean latestWeatherWasAccepted(String missionId) {
+        return weatherChecks != null
+                && weatherChecks.findFirstByMissionIdOrderByCreatedAtDesc(missionId)
+                        .map(check -> Boolean.TRUE.equals(check.getInspectorAccepted()))
+                        .orElse(false);
+    }
+
+    @Override
     public boolean canControlFlight(String missionId) {
         return normalOperationAllowed(missionId) && canPerform(missionId, MissionStaffRole.PILOT);
     }
 
-    @Override
-    public boolean canTerminateFlight(String missionId) {
-        return findRuntimeMissionById(missionId)
-                .filter(MissionRuntimeGate::hasActiveSafeStop)
-                .filter(m -> m.getSafeStopRequestedAt() != null && m.getSafeStopConfirmedAt() == null
-                        && m.getSafeStopCleanedAt() == null)
-                .filter(m -> Set.of(MissionStatus.CONNECTED, MissionStatus.PREFLIGHT_CHECKING,
-                        MissionStatus.READY_TO_FLY, MissionStatus.IN_FLIGHT, MissionStatus.IN_PROGRESS,
-                        MissionStatus.RETURNING).contains(m.getStatus()))
-                .map(m -> canPerform(m.getId(), MissionStaffRole.PILOT)).orElse(false);
-    }
-
     private boolean normalOperationAllowed(String missionId) {
-        return findRuntimeMissionById(missionId).filter(m -> !MissionRuntimeGate.hasActiveSafeStop(m)).isPresent();
-    }
-
-    @Override
-    public boolean canPrepareSafeStopPostflight(String missionId) {
-        // Close out a historical ground confirmation, not a flight or session recovery.
-        return findRuntimeMissionById(missionId).filter(MissionRuntimeGate::allowsConfirmedGroundPostflight)
-                .map(m -> canPerform(m.getId(), MissionStaffRole.PILOT)).orElse(false);
+        return findRuntimeMissionById(missionId).isPresent();
     }
 
     @Override
     public boolean canOperatePayload(String missionId) {
-        return normalOperationAllowed(missionId) && canPerform(missionId, MissionStaffRole.OPERATOR);
+        return findRuntimeMissionById(missionId)
+                .filter(this::crewAcceptedBeforePreflight)
+                .filter(mission -> mission.getActualEndAt() == null)
+                .map(mission -> canPerform(mission.getId(), MissionStaffRole.OPERATOR))
+                .orElse(false);
+    }
+
+    /** Keep device connection and preflight closed until the full assigned crew accepts. */
+    private boolean crewAcceptedBeforePreflight(Mission mission) {
+        if (mission.getStatus() != MissionStatus.PLANNING) return true;
+        List<MissionStaffAssignment> crew = assignments.findByMissionId(mission.getId()).stream()
+                .filter(entry -> Boolean.TRUE.equals(entry.getIsCurrent()) && entry.getReleasedAt() == null)
+                .toList();
+        Set<MissionStaffRole> acceptedRoles = crew.stream()
+                .filter(entry -> entry.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED)
+                .map(MissionStaffAssignment::getAssignedRole)
+                .collect(java.util.stream.Collectors.toSet());
+        return !crew.isEmpty()
+                && crew.stream().allMatch(entry ->
+                        entry.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED)
+                && acceptedRoles.containsAll(REQUIRED_OPERATIONAL_CREW);
     }
 
     @Override
     public boolean canExecuteMonitoringChecklist(String missionId) {
         User user = currentUser.getCurrentUser();
         if (!hasRole(user, RoleCode.STAFF)) return false;
-        return findRuntimeMissionById(missionId).filter(mission -> Set.of(MissionStatus.READY_TO_FLY,
-                MissionStatus.IN_FLIGHT,
-                MissionStatus.IN_PROGRESS, MissionStatus.RETURNING, MissionStatus.POSTFLIGHT_CHECKING,
-                MissionStatus.PENDING_REVIEW, MissionStatus.COMPLETED).contains(mission.getStatus())).map(mission -> {
+        return findRuntimeMissionById(missionId)
+                .filter(mission -> mission.getStatus() == MissionStatus.IN_PROGRESS)
+                .map(mission -> {
                     return hasEligiblePilotAssignment(mission, user)
                             || canExecuteAsReportingCrew(mission, user);
                 }).orElse(false);
@@ -167,7 +210,7 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
 
     private boolean canExecuteAsReportingCrew(Mission mission, User user) {
         if (!hasRole(user, RoleCode.STAFF)) return false;
-        boolean completed = mission.getStatus() == MissionStatus.COMPLETED;
+        boolean completed = mission.getStatus() == MissionStatus.COMPLETED || mission.getCompletedAt() != null;
         // Operational completion releases current assignments. Only the final accepted crew
         // released by successful completion can finish the business report afterwards.
         List<MissionStaffAssignment> usable = assignments.findByMissionId(mission.getId()).stream()
@@ -190,8 +233,25 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
     }
 
     @Override
+    public boolean canAssessMonitoringChecklist(String missionId) {
+        User user = currentUser.getCurrentUser();
+        if (!hasRole(user, RoleCode.STAFF)) return false;
+        return findRuntimeMissionById(missionId)
+                .filter(mission -> mission.getActualEndAt() != null)
+                .filter(mission -> mission.getStatus() == MissionStatus.IN_PROGRESS
+                        || mission.getStatus() == MissionStatus.COMPLETED)
+                .map(mission -> hasEligibleInspectorAssignment(mission, user))
+                .orElse(false);
+    }
+
+    @Override
     public boolean canMaintainDevice(String missionId) {
-        return canPerform(missionId, MissionStaffRole.MAINTAINER);
+        // Postflight records actualEndAt before inspector acceptance. Keep the assigned
+        // maintainer authorized while the mission is still active; canPerform rejects
+        // terminal missions, including those already submitted for manager review.
+        return findRuntimeMissionById(missionId)
+                .map(mission -> canPerform(missionId, MissionStaffRole.MAINTAINER))
+                .orElse(false);
     }
 
     @Override
@@ -204,11 +264,11 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
         User user = currentUser.getCurrentUser();
         if (!hasRole(user, RoleCode.STAFF)) return false;
         return findRuntimeMissionById(missionId)
-                .map(mission -> ((mission.getStatus() == MissionStatus.PENDING_REVIEW
-                        || mission.getStatus() == MissionStatus.COMPLETED)
-                        && hasEligibleInspectorAssignment(mission, user))
+                .map(mission -> (mission.getStatus() == MissionStatus.IN_PROGRESS
+                                && mission.getActualEndAt() != null
+                                && hasEligibleInspectorAssignment(mission, user))
                         || (PILOT_UPLOAD_STATUSES.contains(mission.getStatus())
-                        && hasEligiblePilotAssignment(mission, user)))
+                                && hasEligiblePilotAssignment(mission, user)))
                 .orElse(false);
     }
 
@@ -217,7 +277,8 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
         User user = currentUser.getCurrentUser();
         if (!hasRole(user, RoleCode.STAFF)) return false;
         return findRuntimeMissionById(missionId)
-                .filter(mission -> PILOT_UPLOAD_STATUSES.contains(mission.getStatus()))
+                .filter(mission -> mission.getStatus() == MissionStatus.IN_PROGRESS
+                        && mission.getActualEndAt() != null)
                 .map(mission -> hasEligibleInspectorAssignment(mission, user))
                 .orElse(false);
     }
@@ -225,7 +286,8 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
     @Override
     public boolean canCompleteMission(String missionId) {
         return findRuntimeMissionById(missionId)
-                .filter(mission -> mission.getStatus() == MissionStatus.PENDING_REVIEW)
+                .filter(mission -> mission.getStatus() == MissionStatus.IN_PROGRESS
+                        && mission.getActualEndAt() != null && mission.getCompletedAt() == null)
                 .map(mission -> hasEligibleInspectorAssignment(mission, currentUser.getCurrentUser())).orElse(false);
     }
 
@@ -234,7 +296,8 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
         // The inspector owns the final acceptance package. Pilot/operator finish the flight
         // and upload data; the inspector reviews everything and submits once to the manager.
         return findRuntimeMissionById(missionId)
-                .filter(mission -> mission.getStatus() == MissionStatus.PENDING_REVIEW
+                .filter(mission -> (mission.getStatus() == MissionStatus.IN_PROGRESS
+                            && mission.getCompletedAt() != null)
                         || mission.getStatus() == MissionStatus.COMPLETED)
                 .map(mission -> hasEligibleInspectorAssignment(mission, currentUser.getCurrentUser()))
                 .orElse(false);
@@ -277,7 +340,7 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
                         && entry.getAssignedRole() == role
                         && entry.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED
                         && Boolean.TRUE.equals(entry.getIsCurrent())
-                        && (mission.getStatus() == MissionStatus.COMPLETED
+                        && (mission.getStatus() == MissionStatus.COMPLETED || mission.getCompletedAt() != null
                             ? entry.getReleasedAt() != null && "MISSION_COMPLETE".equals(entry.getReleaseReason())
                             : entry.getReleasedAt() == null));
     }

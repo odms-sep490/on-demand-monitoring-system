@@ -3,12 +3,9 @@ package com.ondemandmonitoring.weather.controller;
 import com.ondemandmonitoring.common.api.ApiResponse;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
-import com.ondemandmonitoring.devicecheck.dto.response.PersistedPreDeviceCheckResponse;
-import com.ondemandmonitoring.devicecheck.enums.PreDeviceCheckType;
-import com.ondemandmonitoring.devicecheck.enums.PreDeviceItemStatus;
-import com.ondemandmonitoring.devicecheck.service.IPersistedPreDeviceCheckService;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
+import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import com.ondemandmonitoring.weather.domain.MissionWeatherCheck;
 import com.ondemandmonitoring.weather.dto.WeatherPreflightCheckRequest;
 import com.ondemandmonitoring.weather.dto.WeatherPreflightCheckResponse;
@@ -18,10 +15,13 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Arrays;
 import java.util.List;
+import java.time.Instant;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -38,8 +38,8 @@ public class WeatherPreflightController {
 
     private final MissionRepository missionRepository;
     private final MissionWeatherCheckRepository weatherCheckRepository;
-    private final IPersistedPreDeviceCheckService preDeviceChecks;
     private final WeatherPreflightService weatherPreflightService;
+    private final AuthenticatedUserResolver currentUser;
 
     @Operation(
             summary = "Check current weather before takeoff",
@@ -52,7 +52,8 @@ public class WeatherPreflightController {
         double longitude = request != null && request.longitude() != null
                 ? request.longitude() : DEFAULT_LONGITUDE;
         String missionId = request == null ? null : request.missionId();
-        String deviceId = request == null ? null : request.deviceId();
+        // Weather is mission-wide readiness, independent from the device check run.
+        String deviceId = null;
 
         WeatherPreflightCheckResponse response = weatherPreflightService.checkCurrent(
                 missionId, deviceId, latitude, longitude);
@@ -63,7 +64,6 @@ public class WeatherPreflightController {
                             ErrorCode.RESOURCE_NOT_FOUND, "Mission not found: " + missionId));
             MissionWeatherCheck saved = toEntity(mission, response);
             response = toResponse(weatherCheckRepository.save(saved));
-            persistPreDeviceWeatherResult(missionId, response.status(), response.summary());
         }
 
         return ResponseEntity.ok(ApiResponse.ok("Current weather preflight checked", response));
@@ -78,6 +78,29 @@ public class WeatherPreflightController {
                 weatherCheckRepository.findFirstByMissionIdOrderByCreatedAtDesc(missionId)
                         .map(WeatherPreflightController::toResponse)
                         .orElse(null)));
+    }
+
+    @Operation(summary = "Inspector accepts the latest safe weather check")
+    @PostMapping("/missions/{missionId}/checks/{checkId}/accept")
+    @PreAuthorize("@missionAuthorizationService.canStartMission(#missionId)")
+    public ResponseEntity<ApiResponse<WeatherPreflightCheckResponse>> acceptLatest(
+            @PathVariable("missionId") String missionId,
+            @PathVariable("checkId") String checkId) {
+        MissionWeatherCheck check = weatherCheckRepository
+                .findFirstByMissionIdOrderByCreatedAtDesc(missionId)
+                .filter(latest -> latest.getId().equals(checkId))
+                .filter(latest -> latest.getCheckedAt() != null
+                        && latest.getCheckedAt().isAfter(Instant.now().minusSeconds(15 * 60L)))
+                .filter(latest -> Boolean.TRUE.equals(latest.getSafeToFly()))
+                .orElseThrow(() -> new ApiException(ErrorCode.INVALID_REQUEST,
+                        "Thời tiết phải an toàn và được kiểm tra trong vòng 15 phút trước khi xác nhận."));
+
+        check.setInspectorAccepted(true);
+        check.setInspectorAcceptedBy(currentUser.getCurrentUserId());
+        check.setInspectorAcceptedAt(Instant.now());
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Weather conditions accepted by inspector",
+                toResponse(weatherCheckRepository.save(check))));
     }
 
     private static MissionWeatherCheck toEntity(
@@ -97,6 +120,7 @@ public class WeatherPreflightController {
         entity.setHumidityPercent(response.humidityPercent());
         entity.setAdvisories(String.join("\n", response.advisories()));
         entity.setCheckedAt(response.checkedAt());
+        entity.setInspectorAccepted(false);
         return entity;
     }
 
@@ -118,19 +142,10 @@ public class WeatherPreflightController {
                 check.getTemperatureC(),
                 check.getHumidityPercent(),
                 advisories,
-                check.getCheckedAt());
+                check.getCheckedAt(),
+                Boolean.TRUE.equals(check.getInspectorAccepted()),
+                check.getInspectorAcceptedBy(),
+                check.getInspectorAcceptedAt());
     }
 
-    private void persistPreDeviceWeatherResult(String missionId, String weatherStatus, String summary) {
-        PersistedPreDeviceCheckResponse current = preDeviceChecks.current(missionId);
-        if (current == null) {
-            return;
-        }
-        boolean blocksFlight = "FAIL".equalsIgnoreCase(weatherStatus);
-        preDeviceChecks.recordSystemResult(
-                current.getId(),
-                PreDeviceCheckType.WEATHER_CONDITIONS.code(),
-                blocksFlight ? PreDeviceItemStatus.FAILED : PreDeviceItemStatus.PASSED,
-                summary);
-    }
 }

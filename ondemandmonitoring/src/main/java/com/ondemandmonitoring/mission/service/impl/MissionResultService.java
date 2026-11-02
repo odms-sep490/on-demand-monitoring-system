@@ -74,8 +74,9 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
         MissionRuntimeGate.requireFinalizedStructure(mission);
         checklistExecutionService.requireMaterialized(mission);
         if (!authorization.canSubmitMissionResult(missionId)) throw new ApiException(ErrorCode.ACCESS_DENIED);
-        if (mission.getStatus() != MissionStatus.COMPLETED)
-            throw new ApiException(ErrorCode.MISSION_STATUS_INVALID, "Complete operational mission before submitting results");
+        if (mission.getStatus() != MissionStatus.IN_PROGRESS || mission.getCompletedAt() == null)
+            throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
+                    "Complete mission acceptance before submitting results to the Manager");
         checklistExecutionService.requireReadyForSubmission(mission);
         MissionResult result = missionResultRepository.findByMissionId(missionId)
                 .orElseGet(() -> {
@@ -88,6 +89,8 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
                 || result.getApprovalStatus() == MissionResultApprovalStatus.PENDING_MANAGER_APPROVAL)
             throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_LOCKED);
         applyRequest(result, mission, request);
+        mission.setStatus(MissionStatus.AWAITING_REVIEW);
+        missionRepository.save(mission);
         return toResponse(missionResultRepository.save(result));
     }
 
@@ -124,8 +127,11 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
         MissionRuntimeGate.requireFinalizedStructure(result.getMission());
         checklistExecutionService.requireMaterialized(result.getMission());
         checklistExecutionService.requireReadyForFinalApproval(result.getMission());
-        if (result.getMission().getStatus() != MissionStatus.COMPLETED)
-            throw new ApiException(ErrorCode.MISSION_STATUS_INVALID);
+        if (result.getMission().getStatus() != MissionStatus.AWAITING_REVIEW
+                && result.getMission().getStatus() != MissionStatus.PENDING_REVIEW
+                && result.getMission().getStatus() != MissionStatus.COMPLETED)
+            throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
+                    "Mission result must be submitted before manager approval");
         boolean unfinishedMediaReview = mediaAssetRepository
                 .findByMissionIdOrderByCapturedAtDesc(result.getMission().getId()).stream()
                 .filter(asset -> asset.getOrphanCleanupRequestedAt() == null
@@ -143,6 +149,8 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
         result.setRejectedAt(null);
         result.setReviewedBy(currentUser.getCurrentUserId());
         result.setReviewNote(request == null ? null : request.getNote());
+        result.getMission().setStatus(MissionStatus.COMPLETED);
+        missionRepository.saveAndFlush(result.getMission());
         attachMissionMedia(result, result.getMission().getId());
         var saved = missionResultRepository.saveAndFlush(result);
         completionPolicy.completeIfReady(aggregate);
@@ -212,6 +220,8 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
         result.setApprovedAt(null);
         result.setReviewedBy(currentUser.getCurrentUserId());
         result.setReviewNote(request == null ? null : request.getNote());
+        result.getMission().setStatus(MissionStatus.IN_PROGRESS);
+        missionRepository.save(result.getMission());
         return toResponse(missionResultRepository.save(result));
     }
 

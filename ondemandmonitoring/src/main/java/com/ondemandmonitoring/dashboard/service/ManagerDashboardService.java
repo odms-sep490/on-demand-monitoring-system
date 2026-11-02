@@ -18,6 +18,7 @@ import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import com.ondemandmonitoring.mission.domain.MissionStaffAssignment;
 import com.ondemandmonitoring.mission.enums.MissionStaffRole;
+import com.ondemandmonitoring.mission.enums.MissionDeviceAssignmentStatus;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
@@ -59,19 +60,12 @@ public class ManagerDashboardService {
     private static final Collection<OrderChecklistSourceType> CUSTOMER_ADDED =
             EnumSet.of(OrderChecklistSourceType.CUSTOMER_SELECTED, OrderChecklistSourceType.CUSTOMER_CUSTOM);
     private static final Collection<MissionStatus> ACTIVE_MISSIONS = EnumSet.of(
-            MissionStatus.SCHEDULED, MissionStatus.CONNECTED, MissionStatus.PREFLIGHT_CHECKING,
-            MissionStatus.READY_TO_FLY, MissionStatus.IN_FLIGHT, MissionStatus.IN_PROGRESS,
-            MissionStatus.RETURNING, MissionStatus.POSTFLIGHT_CHECKING);
-    private static final Collection<MissionStatus> MISSION_ISSUES =
-            EnumSet.of(MissionStatus.FAILED_PREFLIGHT, MissionStatus.FAILED);
+            MissionStatus.READY, MissionStatus.IN_PROGRESS, MissionStatus.AWAITING_REVIEW,
+            MissionStatus.PENDING_REVIEW);
+    private static final Collection<MissionStatus> MISSION_ISSUES = EnumSet.of(MissionStatus.FAILED);
     private static final Collection<MissionStatus> RESOURCE_PENDING = EnumSet.of(
-            MissionStatus.PLANNING, MissionStatus.READY,
-            MissionStatus.SCHEDULED);
-    private static final Collection<MissionStatus> RECENT_ACTIVITY_MISSIONS = EnumSet.of(
-            MissionStatus.SCHEDULED, MissionStatus.CONNECTED, MissionStatus.PREFLIGHT_CHECKING,
-            MissionStatus.READY_TO_FLY, MissionStatus.FAILED_PREFLIGHT, MissionStatus.IN_FLIGHT,
-            MissionStatus.IN_PROGRESS, MissionStatus.RETURNING, MissionStatus.POSTFLIGHT_CHECKING,
-            MissionStatus.COMPLETED, MissionStatus.FAILED, MissionStatus.CANCELLED);
+            MissionStatus.PLANNING, MissionStatus.READY);
+    private static final Collection<MissionStatus> RECENT_ACTIVITY_MISSIONS = EnumSet.allOf(MissionStatus.class);
 
     private final OrderRepository orders;
     private final OrderChecklistItemRepository checklistItems;
@@ -129,10 +123,10 @@ public class ManagerDashboardService {
 
         Instant startOfToday = LocalDate.now(clock).atStartOfDay(BUSINESS_ZONE).toInstant();
         var missionOverview = new ManagerDashboardResponse.MissionOverview(
-                missions.countByStatus(MissionStatus.SCHEDULED),
-                missions.countByStatus(MissionStatus.READY_TO_FLY),
-                missions.countByStatusIn(List.of(MissionStatus.IN_FLIGHT, MissionStatus.IN_PROGRESS)),
-                missions.countByStatus(MissionStatus.RETURNING),
+                missions.countByStatus(MissionStatus.READY),
+                deviceAssignments.countCurrentMainMissionsByStatus(MissionDeviceAssignmentStatus.READY_TO_FLY),
+                missions.countByStatus(MissionStatus.IN_PROGRESS),
+                deviceAssignments.countCurrentMainMissionsByStatus(MissionDeviceAssignmentStatus.RETURNING),
                 missions.countByStatusAndCompletedAtGreaterThanEqual(MissionStatus.COMPLETED, startOfToday),
                 missionIssues + resourceIssues);
 

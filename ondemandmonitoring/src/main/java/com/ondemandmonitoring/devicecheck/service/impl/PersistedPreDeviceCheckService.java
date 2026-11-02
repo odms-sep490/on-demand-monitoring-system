@@ -25,7 +25,12 @@ import com.ondemandmonitoring.weather.domain.MissionWeatherCheck;
 import com.ondemandmonitoring.weather.repository.MissionWeatherCheckRepository;
 import com.ondemandmonitoring.devicecheck.repository.PersistedPreDeviceCheckRepository;
 import com.ondemandmonitoring.mission.domain.Mission;
+import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
+import com.ondemandmonitoring.mission.enums.DeviceRole;
+import com.ondemandmonitoring.mission.enums.MissionDeviceAssignmentStatus;
+import com.ondemandmonitoring.mission.enums.MissionDeviceCheckStatus;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
+import com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
 import java.time.Instant;
 import java.util.Arrays;
@@ -66,6 +71,7 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
             PreDeviceCheckType.AIRCRAFT_HANDOVER,
             PreDeviceCheckType.MAINTENANCE_STATUS,
             PreDeviceCheckType.MANAGEMENT_CONNECTION,
+            PreDeviceCheckType.WEATHER_CONDITIONS,
             PreDeviceCheckType.MEDIA_STORAGE);
 
     private static final List<PreDeviceCheckType> CHECKS = Arrays.stream(PreDeviceCheckType.values())
@@ -79,7 +85,8 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
             "low_battery_protection", "flight_geofence", "emergency_landing",
             "flight_route", "flight_limits", "mission_energy", "landing_destination",
             "rental_booking", "aircraft_permission", "aircraft_handover",
-            "maintenance_status", "management_connection", "media_storage");
+            "maintenance_status", "management_connection", "media_storage",
+            "weather_conditions");
     private static final Set<String> CONNECTION_MANUAL_FALLBACK_TYPES = Set.of(
             "aircraft_connection", "command_link", "flight_controller",
             "aircraft_readiness", "monitoring_connection");
@@ -90,6 +97,7 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
 
     private final PersistedPreDeviceCheckRepository runRepository;
     private final MissionRepository missionRepository;
+    private final MissionDeviceAssignmentRepository missionDeviceAssignmentRepository;
     private final DeviceConnectionRepository connectionRepository;
     private final DeviceTelemetryRepository telemetryRepository;
     private final AuthenticatedUserResolver authenticatedUserResolver;
@@ -104,10 +112,29 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                         ErrorCode.MISSION_NOT_FOUND,
                         "Mission not found: " + missionId));
         requireOperationalCommandsAllowed(mission);
-        if (mission.getStatus() != MissionStatus.CONNECTED
-                && mission.getStatus() != MissionStatus.PREFLIGHT_CHECKING) {
-            throw new ApiException(ErrorCode.MISSION_STATUS_INVALID, "Pre-device inspection requires a connected mission");
+        if (mission.getStatus() != MissionStatus.PLANNING) {
+            throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
+                    "Preflight inspection requires a mission in PLANNING.");
         }
+
+        DeviceConnection connection = connectionRepository
+                .findTopByMissionIdAndConnectionStatusOrderByConnectedAtDesc(missionId, "CONNECTED")
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND,
+                        "No active device connection found for mission: " + missionId));
+        MissionDeviceAssignment assignment = missionDeviceAssignmentRepository
+                .findByMissionIdAndDeviceIdAndIsCurrentTrue(missionId, connection.getDevice().getId())
+                .filter(candidate -> candidate.getDeviceRole() == DeviceRole.MAIN)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND,
+                        "The connected device is not the current main device assigned to this mission."));
+        if (assignment.getStatus() != MissionDeviceAssignmentStatus.CONNECTED
+                && assignment.getStatus() != MissionDeviceAssignmentStatus.PREFLIGHT_CHECKING
+                && assignment.getStatus() != MissionDeviceAssignmentStatus.READY_TO_FLY
+                && assignment.getStatus() != MissionDeviceAssignmentStatus.FAILED) {
+            throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
+                    "The assigned device is not eligible for preflight inspection.");
+        }
+        assignment.setStatus(MissionDeviceAssignmentStatus.PREFLIGHT_CHECKING);
+        assignment.setCheckupStatus(MissionDeviceCheckStatus.CHECKING);
 
         PersistedPreDeviceCheck activeRun = runRepository
                 .findFirstByMissionIdOrderByCreatedAtDesc(missionId)
@@ -128,9 +155,6 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
         run.setFailedChecks(0);
         run.setStartedAt(Instant.now());
 
-        DeviceConnection connection = connectionRepository
-                .findTopByMissionIdAndConnectionStatusOrderByConnectedAtDesc(missionId, "CONNECTED")
-                .orElse(null);
         run.setDeviceConnection(connection);
 
         for (PreDeviceCheckType definition : CHECKS) {
@@ -174,6 +198,31 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                 .orElse(null);
     }
 
+    @Transactional
+    @Override
+    public void refreshFlightPermitCheck(String missionId) {
+        Mission mission = missionRepository.findByIdForUpdate(missionId)
+                .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
+        runRepository.findFirstByMissionIdOrderByCreatedAtDesc(missionId)
+                .ifPresent(latest -> {
+                    if (latest.getStatus() == PreDeviceCheckStatus.CANCELLED) return;
+                    PersistedPreDeviceCheck run = runRepository.findByIdForUpdate(latest.getId())
+                            .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND,
+                                    "Preflight check not found: " + latest.getId()));
+                    run.getItems().stream()
+                            .filter(item -> PreDeviceCheckType.AIRSPACE_PERMISSION.code()
+                                    .equals(item.getCheckType()))
+                            .findFirst()
+                            .ifPresent(item -> {
+                                item.setCheckedAt(Instant.now());
+                                evaluateAvailableEvidence(item, PreDeviceCheckType.AIRSPACE_PERMISSION,
+                                        mission, run.getDeviceConnection());
+                                refreshRunStatus(run);
+                                runRepository.save(run);
+                            });
+                });
+    }
+
     @Transactional(readOnly = true)
     @Override
     @PreAuthorize("@deviceCheckAuthorizationService.canViewPreCheck(#id)")
@@ -188,7 +237,7 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
     @Override
     @PreAuthorize("@deviceCheckAuthorizationService.canInspectPreCheck(#id)")
     public PersistedPreDeviceCheckResponse update(String id, String type, PreDeviceCheckItemUpdateRequest request) {
-        // Mission precedes the run lock, matching completion and safe-stop serialization.
+        // Mission precedes the run lock, matching completion serialization.
         PersistedPreDeviceCheck existing = runRepository.findById(id)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Preflight check not found: " + id));
         Mission mission = missionRepository.findByIdForUpdate(existing.getMission().getId())
@@ -356,6 +405,25 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
         run.setTotalChecks(activeItems.size()); run.setPassedChecks(passed); run.setFailedChecks(failed);
         run.setStatus(failedRequired ? PreDeviceCheckStatus.FAILED : allResolved ? PreDeviceCheckStatus.PASSED : PreDeviceCheckStatus.CHECKING);
         if (run.getStatus() != PreDeviceCheckStatus.CHECKING) run.setCompletedAt(Instant.now());
+
+        DeviceConnection connection = run.getDeviceConnection();
+        if (connection != null && connection.getDevice() != null) {
+            missionDeviceAssignmentRepository
+                    .findByMissionIdAndDeviceIdAndIsCurrentTrue(run.getMission().getId(), connection.getDevice().getId())
+                    .filter(assignment -> assignment.getDeviceRole() == DeviceRole.MAIN)
+                    .ifPresent(assignment -> {
+                        if (run.getStatus() == PreDeviceCheckStatus.CHECKING) {
+                            assignment.setStatus(MissionDeviceAssignmentStatus.PREFLIGHT_CHECKING);
+                            assignment.setCheckupStatus(MissionDeviceCheckStatus.CHECKING);
+                        } else if (run.getStatus() == PreDeviceCheckStatus.PASSED) {
+                            assignment.setStatus(MissionDeviceAssignmentStatus.READY_TO_FLY);
+                            assignment.setCheckupStatus(MissionDeviceCheckStatus.PASSED);
+                        } else {
+                            assignment.setStatus(MissionDeviceAssignmentStatus.FAILED);
+                            assignment.setCheckupStatus(MissionDeviceCheckStatus.FAILED);
+                        }
+                    });
+        }
     }
 
     private void evaluateAvailableEvidence(PersistedPreDeviceCheckItem item, PreDeviceCheckType definition,
@@ -398,7 +466,8 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                 } else fail(item, weather.getSummary(), "WEATHER_UNSAFE");
             }
             case AIRSPACE_PERMISSION -> {
-                if (mission.getFlightPermitStatus() == FlightPermitStatus.APPROVED) pass(item, "Giấy phép bay đã được xác nhận", null);
+                if (mission.getFlightPermit() != null
+                        && mission.getFlightPermit().getStatus() == FlightPermitStatus.APPROVED) pass(item, "Giấy phép bay đã được xác nhận", null);
                 else fail(item, "Giấy phép bay chưa được xác nhận", "FLIGHT_PERMISSION_REQUIRED");
             }
             case FLIGHT_ROUTE, FLIGHT_LIMITS, LANDING_DESTINATION -> {

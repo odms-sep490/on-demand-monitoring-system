@@ -7,6 +7,7 @@ import com.ondemandmonitoring.mission.domain.MissionChecklistExecution;
 import com.ondemandmonitoring.mission.dto.request.ChecklistExecutionUpdateRequest;
 import com.ondemandmonitoring.mission.dto.response.ChecklistExecutionResponse;
 import com.ondemandmonitoring.mission.dto.response.MissionChecklistResponse;
+import com.ondemandmonitoring.mission.enums.ChecklistAssessmentStatus;
 import com.ondemandmonitoring.mission.enums.ChecklistExecutionStatus;
 import com.ondemandmonitoring.mission.enums.MissionResultApprovalStatus;
 import com.ondemandmonitoring.mission.mapper.MissionChecklistExecutionMapper;
@@ -60,7 +61,9 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
         // Preserve Phase 5 readyForSubmission as package readiness; actor/status/result locks are independent.
         return new MissionChecklistResponse(missionId, mission.getOrder().getChecklistSnapshotAt() == null,
                 operational, rows,
-                operational, operational && mission.getStatus() == com.ondemandmonitoring.mission.enums.MissionStatus.PENDING_REVIEW,
+                operational, operational
+                        && mission.getStatus() == com.ondemandmonitoring.mission.enums.MissionStatus.IN_PROGRESS
+                        && mission.getActualEndAt() != null && mission.getCompletedAt() == null,
                 finalReady, List.copyOf(blockers));
     }
 
@@ -72,7 +75,7 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
         // This prevents a submit from racing an execution update across different rows.
         Mission mission = requireMission(missionId, true);
         boolean canExecute = authorization.canExecuteMonitoringChecklist(missionId);
-        boolean canAssess = authorization.canReviewMissionMedia(missionId);
+        boolean canAssess = authorization.canAssessMonitoringChecklist(missionId);
         if (!canExecute && !canAssess) throw new ApiException(ErrorCode.ACCESS_DENIED);
         var result = results.findByMissionId(missionId);
         boolean rejected = result.map(r -> r.getApprovalStatus() == MissionResultApprovalStatus.REJECTED).orElse(false);
@@ -101,6 +104,10 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
             throw new ApiException(ErrorCode.CONCURRENT_UPDATE);
         ChecklistExecutionStatus next = request.getExecutionStatus();
         ChecklistExecutionStatus previous = execution.getExecutionStatus();
+        boolean assessmentCompletesExecution = canAssess
+                && request.getAssessmentStatus() != ChecklistAssessmentStatus.NOT_ASSESSED
+                && !previous.isTerminal()
+                && next == ChecklistExecutionStatus.COMPLETED;
         String reason = trimmed(request.getUnableToVerifyReason(), 1000);
         String observation = trimmed(request.getObservation(), 2000);
         boolean executionChanged = next != previous
@@ -108,7 +115,8 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
                 || !Objects.equals(next == ChecklistExecutionStatus.UNABLE_TO_VERIFY ? reason : null,
                         execution.getUnableToVerifyReason());
         boolean assessmentChanged = request.getAssessmentStatus() != execution.getAssessmentStatus();
-        if (executionChanged && !canExecute) throw new ApiException(ErrorCode.ACCESS_DENIED);
+        if (executionChanged && !canExecute && !assessmentCompletesExecution)
+            throw new ApiException(ErrorCode.ACCESS_DENIED);
         if (assessmentChanged && !canAssess) throw new ApiException(ErrorCode.ACCESS_DENIED);
         if (!validTransition(previous, next, rejected))
             throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_TRANSITION_INVALID);
@@ -173,7 +181,8 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
             List<com.ondemandmonitoring.mission.domain.MissionChecklistEvidence> links) {
         return actual.stream().allMatch(execution ->
                 mission.getOrder().getId().equals(execution.getOrderId())
-                && execution.getExecutionStatus().isTerminal()
+                && (execution.getExecutionStatus().isTerminal()
+                    || execution.getAssessmentStatus() != ChecklistAssessmentStatus.NOT_ASSESSED)
                 && execution.getOrderChecklistItem() != null
                 && mission.getOrder().getId().equals(execution.getOrderChecklistItem().getOrder().getId())
                 && evidenceService.ready(execution, links, false)
@@ -238,7 +247,7 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
                 .findFirst()
                 .orElse(finalApproval
                         ? "Approve eligible evidence media before final MissionResult approval."
-                        : "Checklist execution or eligible evidence does not satisfy the saved Order requirement.");
+                        : "Checklist assessment or eligible evidence does not satisfy the saved Order requirement.");
     }
 
 

@@ -3,6 +3,7 @@ package com.ondemandmonitoring.mission.repository;
 import com.ondemandmonitoring.mission.domain.DeviceConnection;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -14,6 +15,17 @@ public interface DeviceConnectionRepository extends JpaRepository<DeviceConnecti
     List<DeviceConnection> findByMissionId(String missionId);
 
     Optional<DeviceConnection> findTopByMissionIdAndConnectionStatusOrderByConnectedAtDesc(String missionId, String connectionStatus);
+
+    @Query("""
+            SELECT dc FROM DeviceConnection dc
+            JOIN dc.deviceAssignment assignment
+            WHERE dc.mission.id = :missionId
+              AND assignment.device.id = :deviceId
+            ORDER BY dc.connectedAt DESC
+            """)
+    List<DeviceConnection> findByMissionIdAndAssignedDeviceIdOrderByConnectedAtDesc(
+            @Param("missionId") String missionId,
+            @Param("deviceId") String deviceId);
 
     @Query("""
             SELECT dc FROM DeviceConnection dc

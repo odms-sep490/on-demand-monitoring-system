@@ -15,8 +15,8 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-class MissionCancellationWithoutSafeStopTest {
-    @Test void cancellationDoesNotConsultSafeStopOrUnsafeResourceChecks() {
+class MissionCancellationServiceTest {
+    @Test void cancellationUpdatesMissionAndOrderWithoutResourcePrechecks() {
         var orders = mock(OrderRepository.class); var missions = mock(MissionRepository.class);
         var results = mock(MissionResultRepository.class); var actor = mock(AuthenticatedUserResolver.class);
         var service = new MissionCancellationServiceImpl(orders, missions, results, actor);
@@ -34,6 +34,5 @@ class MissionCancellationWithoutSafeStopTest {
         assertEquals("Cancel requested", mission.getCancellationReason());
         assertEquals(3, order.getExecutionPlanRevision());
         verify(missions, never()).hasUnsafeCancellationResources(anyString());
-        assertNull(mission.getSafeStopStatus()); assertNull(mission.getSafeStopRequestedAt());
     }
 }

@@ -33,7 +33,7 @@ public class MissionCancellationServiceImpl implements IMissionCancellationServi
     @Transactional
     public MissionCancellationResponse cancel(String missionId, MissionCancelRequest request) {
         boolean manager = authorization == null || authorization.canManageMissions();
-        if (request == null || request.expectedPlanRevision() == null || request.expectedPlanRevision() < 0
+        if (request == null || (request.expectedPlanRevision() != null && request.expectedPlanRevision() < 0)
                 || request.reason() == null || request.reason().isBlank() || request.reason().length() > 1000)
             throw new ApiException(ErrorCode.INVALID_REQUEST);
 
@@ -45,7 +45,11 @@ public class MissionCancellationServiceImpl implements IMissionCancellationServi
                 .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
         if (!manager && (authorization == null || !authorization.canCancelMission(missionId)))
             throw new ApiException(ErrorCode.MISSION_CANCELLATION_NOT_ALLOWED);
-        MissionCancellationGuard.requireAllowed(orderId, order, mission, request.expectedPlanRevision(), results, missions);
+        // Older operator clients only send the reason. Resolve their revision under the order lock;
+        // clients that send a revision still get the stale-plan guard.
+        long expectedPlanRevision = request.expectedPlanRevision() == null
+                ? order.getExecutionPlanRevision() : request.expectedPlanRevision();
+        MissionCancellationGuard.requireAllowed(orderId, order, mission, expectedPlanRevision, results, missions);
         mission.setStatus(MissionStatus.CANCELLED);
         mission.setCancellationAt(Instant.now()); mission.setCancelledBy(actor.getCurrentUserId());
         mission.setCancellationReason(request.reason().strip());

@@ -5,6 +5,7 @@ import com.ondemandmonitoring.finance.domain.Invoice;
 import com.ondemandmonitoring.finance.domain.Payment;
 import com.ondemandmonitoring.finance.domain.Quote;
 import com.ondemandmonitoring.finance.enums.InvoiceStatus;
+import com.ondemandmonitoring.finance.enums.DepositStatus;
 import com.ondemandmonitoring.finance.enums.PaymentStatus;
 import com.ondemandmonitoring.finance.enums.PaymentType;
 import com.ondemandmonitoring.finance.enums.QuoteStatus;
@@ -63,8 +64,7 @@ public class CommercialExpirationProcessor {
         Invoice candidate = invoices.findById(invoiceId).orElse(null);
         if (candidate == null) return false;
         Order order = orders.findByIdForUpdate(candidate.getOrder().getId()).orElse(null);
-        if (order == null || (order.getOrderStatus() != OrderStatus.WAITING_DEPOSIT
-                && order.getOrderStatus() != OrderStatus.APPROVED)
+        if (order == null || order.getOrderStatus() != OrderStatus.APPROVED
                 || order.getDepositExpiresAt() == null) return false;
         Instant now = Instant.now(clock);
         if (now.isBefore(order.getDepositExpiresAt())) return false;
@@ -73,7 +73,8 @@ public class CommercialExpirationProcessor {
         List<Payment> lockedPayments = payments.findAllByInvoiceIdForUpdate(invoiceId);
         Invoice invoice = invoices.findByIdForUpdate(invoiceId).orElse(null);
         if (invoice == null || invoice.getStatus() == InvoiceStatus.CANCELLED
-                || invoice.getStatus() == InvoiceStatus.PAID || invoice.getStatus() == InvoiceStatus.REFUNDED)
+                || invoice.getStatus() == InvoiceStatus.PAID || invoice.getStatus() == InvoiceStatus.REFUNDED
+                || invoice.effectiveDepositStatus() != DepositStatus.WAITING_DEPOSIT)
             return false;
         BigDecimal successful = lockedPayments.stream()
                 .filter(p -> p.getStatus() == PaymentStatus.SUCCESS && p.getPaymentType() != PaymentType.REFUND)

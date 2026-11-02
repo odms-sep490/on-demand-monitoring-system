@@ -10,7 +10,6 @@ import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.finance.repository.PaymentRepository;
 import com.ondemandmonitoring.finance.service.IPaymentWebhookService;
 import com.ondemandmonitoring.mission.service.IMissionService;
-import com.ondemandmonitoring.order.enums.OrderStatus;
 import java.math.BigDecimal;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
@@ -47,9 +46,8 @@ public class PaymentWebhookProcessor implements IPaymentWebhookService {
                     || payment.getPaymentType() == PaymentType.DEPOSIT) {
                 Invoice settled = invoices.findByIdForUpdate(payment.getInvoice().getId())
                         .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
-                if (payment.getPaymentType() == PaymentType.DEPOSIT && isDepositSatisfied(settled)
-                        && order.getOrderStatus() == OrderStatus.WAITING_DEPOSIT) {
-                    order.setOrderStatus(OrderStatus.APPROVED);
+                if (payment.getPaymentType() == PaymentType.DEPOSIT) {
+                    settled.refreshDepositStatus();
                 }
                 if (isFullyPaid(settled)) transitionAfterSettlement(settled.getOrder().getId());
             }
@@ -89,12 +87,9 @@ public class PaymentWebhookProcessor implements IPaymentWebhookService {
         if (paid.compareTo(invoice.getTotalAmount()) > 0) throw new ApiException(ErrorCode.PAYMENT_AMOUNT_MISMATCH, "Payment would overpay invoice");
         invoice.setPaidAmount(paid);
         invoice.setRemainingAmount(invoice.getTotalAmount().subtract(paid).max(BigDecimal.ZERO));
+        invoice.refreshDepositStatus();
         invoice.setStatus(paid.signum() == 0 ? InvoiceStatus.ISSUED
                 : paid.compareTo(invoice.getTotalAmount()) >= 0 ? InvoiceStatus.PAID : InvoiceStatus.PARTIALLY_PAID);
-        if (payment.getPaymentType() == PaymentType.DEPOSIT && isDepositSatisfied(invoice)
-                && order.getOrderStatus() == OrderStatus.WAITING_DEPOSIT) {
-            order.setOrderStatus(OrderStatus.APPROVED);
-        }
         if (payment.getPaymentType() == PaymentType.FINAL_PAYMENT && isFullyPaid(invoice))
             transitionAfterSettlement(invoice.getOrder().getId());
         return PaymentWebhookResult.PROCESSED;
@@ -103,11 +98,6 @@ public class PaymentWebhookProcessor implements IPaymentWebhookService {
     private static boolean isFullyPaid(Invoice invoice) {
         return invoice.getStatus() == InvoiceStatus.PAID && invoice.getRemainingAmount() != null
                 && invoice.getRemainingAmount().signum() == 0;
-    }
-
-    private static boolean isDepositSatisfied(Invoice invoice) {
-        return invoice.getPaidAmount() != null && invoice.getDepositAmount() != null
-                && invoice.getPaidAmount().compareTo(invoice.getDepositAmount()) >= 0;
     }
 
     /** Financial settlement commits first; mission state is a separately retryable side effect. */

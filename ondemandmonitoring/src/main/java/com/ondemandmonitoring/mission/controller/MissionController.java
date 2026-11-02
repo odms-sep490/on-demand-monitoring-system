@@ -26,7 +26,6 @@ import com.ondemandmonitoring.mission.service.IMissionMediaUploadService;
 import com.ondemandmonitoring.mission.service.IMissionService;
 import com.ondemandmonitoring.flightpermit.service.IFlightPermitService;
 import com.ondemandmonitoring.mission.dto.request.MissionCreateRequest;
-import com.ondemandmonitoring.mission.dto.request.MissionCancelRequest;
 import jakarta.validation.Valid;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -105,15 +104,6 @@ public class MissionController {
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ApiResponse<MissionResponse> confirm(@PathVariable String missionId) {
         return ApiResponse.ok(missionService.confirmMissionPlanning(missionId));
-    }
-
-    @PostMapping("/{missionId}/cancel")
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
-    public ApiResponse<MissionResponse> cancelMission(
-            @PathVariable String missionId,
-            @Valid @RequestBody(required = false) MissionCancelRequest request) {
-        String reason = request == null ? null : request.reason();
-        return ApiResponse.ok("Mission cancelled", missionService.cancelMission(missionId, reason));
     }
 
 

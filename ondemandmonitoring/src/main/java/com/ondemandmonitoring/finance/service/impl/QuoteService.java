@@ -509,6 +509,8 @@ public class QuoteService implements IQuoteService {
         requireGuidanceSnapshot(order, quote, checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId));
         quote.setStatus(QuoteStatus.ACCEPTED_BY_CUSTOMER);
         quote.setAcceptedAt(now);
+        // Deposit progress belongs to the invoice. Accepting a quote leaves the order approved;
+        // mission creation is gated by the invoice's deposit status.
         order.setDepositExpiresAt(now.plus(expirationSettings.current().depositPaymentTimeout()));
         Invoice invoice = new Invoice();
         invoice.setInvoiceNumber("INV-" + LocalDate.now(BUSINESS_ZONE).getYear() + "-"
@@ -520,9 +522,9 @@ public class QuoteService implements IQuoteService {
         invoice.setPaidAmount(ZERO);
         invoice.setRemainingAmount(quote.getTotalAmount());
         invoice.setStatus(InvoiceStatus.ISSUED);
+        invoice.setDepositStatus(DepositStatus.WAITING_DEPOSIT);
         invoice.setIssuedAt(now);
         Invoice saved = invoices.save(invoice);
-        order.setOrderStatus(OrderStatus.WAITING_DEPOSIT);
         return invoiceResponse(saved);
     }
 

@@ -141,7 +141,10 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
     public boolean ready(MissionChecklistExecution execution, List<MissionChecklistEvidence> links, boolean finalApproval) {
         if (execution.getExecutionStatus() == ChecklistExecutionStatus.UNABLE_TO_VERIFY)
             return execution.getUnableToVerifyReason() != null && !execution.getUnableToVerifyReason().isBlank();
-        if (execution.getExecutionStatus() != ChecklistExecutionStatus.COMPLETED) return false;
+        // Assessment is the operator-facing completion signal. Keep COMPLETED as a
+        // compatibility path for older checklist records that predate assessments.
+        if (execution.getAssessmentStatus() == ChecklistAssessmentStatus.NOT_ASSESSED
+                && execution.getExecutionStatus() != ChecklistExecutionStatus.COMPLETED) return false;
         return evidenceRequirementsSatisfied(execution, links, finalApproval);
     }
 
@@ -189,7 +192,8 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
             long images = policy.eligibleDistinctCount(links, execution.getId(), RequiredEvidenceType.IMAGE, finalApproval);
             long videos = policy.eligibleDistinctCount(links, execution.getId(), RequiredEvidenceType.VIDEO, finalApproval);
             var reasons = new LinkedHashSet<String>();
-            if (execution.getExecutionStatus() != ChecklistExecutionStatus.COMPLETED) reasons.add("EXECUTION_NOT_COMPLETED");
+            if (execution.getAssessmentStatus() == ChecklistAssessmentStatus.NOT_ASSESSED
+                    && execution.getExecutionStatus() != ChecklistExecutionStatus.COMPLETED) reasons.add("ASSESSMENT_REQUIRED");
             links.stream().filter(link -> link.getDetachedAt() == null && execution.getId().equals(link.getMissionChecklistExecution().getId()))
                     .map(link -> policy.ineligibilityReason(link.getMediaAsset(), finalApproval)).filter(Objects::nonNull).forEach(reasons::add);
             if (images < item.getMinimumImageCount() || videos < item.getMinimumVideoCount()) reasons.add("INSUFFICIENT_EVIDENCE");
@@ -208,7 +212,8 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
         var applicable = links.stream().filter(link -> link.getDetachedAt() == null
                 && execution.getId().equals(link.getMissionChecklistExecution().getId())).toList();
         var reasons = new LinkedHashSet<String>();
-        if (execution.getExecutionStatus() != ChecklistExecutionStatus.COMPLETED) reasons.add("EXECUTION_NOT_COMPLETED");
+        if (execution.getAssessmentStatus() == ChecklistAssessmentStatus.NOT_ASSESSED
+                && execution.getExecutionStatus() != ChecklistExecutionStatus.COMPLETED) reasons.add("ASSESSMENT_REQUIRED");
         applicable.stream().map(link -> {
             if (!policy.mediaTypeMatches(type, link.getMediaAsset().getType())) return "EVIDENCE_TYPE_NOT_ELIGIBLE";
             return policy.ineligibilityReason(link.getMediaAsset(), finalApproval);
@@ -245,7 +250,9 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
                 : response.getEligibleEvidenceCount() >= response.getMinimumEvidenceCount()));
         response.setEvidenceReady(ready(execution, links, false));
         var blockers = new LinkedHashSet<String>();
-        if (!execution.getExecutionStatus().isTerminal()) blockers.add("EXECUTION_NOT_TERMINAL");
+        if (!execution.getExecutionStatus().isTerminal()
+                && execution.getAssessmentStatus() == ChecklistAssessmentStatus.NOT_ASSESSED)
+            blockers.add("ASSESSMENT_REQUIRED");
         if (!response.isEvidenceRequirementSatisfied()) {
             blockers.add("INSUFFICIENT_EVIDENCE");
             applicable.stream().map(link -> {

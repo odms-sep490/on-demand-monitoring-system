@@ -1,11 +1,8 @@
 package com.ondemandmonitoring.mission.enums;
 
+/** Business lifecycle of a Mission. Device-operation progress belongs to MissionDeviceAssignment. */
 public enum MissionStatus {
-
     PLANNING,
-
-    /** Existing finance workflow status; retained without changing payment behavior. */
-    WAITING_DEPOSIT,
 
     /** Planning is finalized; operational work is blocked until payment is verified. */
     PENDING_PAYMENT,
@@ -16,44 +13,30 @@ public enum MissionStatus {
     /** Every required crew member and device resource is ready. */
     READY,
 
-    /** Required crew members accepted and the mission is scheduled for execution. */
+    /** Legacy persisted operations stages; current runtime progress lives on MissionDeviceAssignment. */
+    @Deprecated
     SCHEDULED,
-
-    /** Device powered on, telemetry link with GCS app confirmed. */
+    @Deprecated
     CONNECTED,
-
-    /** Operator opened checklist; digital preflight validation in progress. */
+    @Deprecated
     PREFLIGHT_CHECKING,
-
-    /**
-     * All preflight checks passed; flight-access token issued.
-     * Operator confirms take-off on the web dashboard.
-     */
+    @Deprecated
     READY_TO_FLY,
-
-    /**
-     * Preflight failed; operator notified.
-     * Device will be routed to maintenance or charge station and order re-queued.
-     */
+    @Deprecated
     FAILED_PREFLIGHT,
-
-    /** Device airborne, transmitting realtime GPS + video stream. */
+    @Deprecated
     IN_FLIGHT,
-
-    /** Legacy alias kept for compatibility - maps to IN_FLIGHT in most contexts. */
-    IN_PROGRESS,
-
+    @Deprecated
     RETURNING,
-
+    @Deprecated
     POSTFLIGHT_CHECKING,
 
-    /** Technical postflight finished; awaiting Inspector operational acceptance. */
+    IN_PROGRESS,
+    /** The inspector submitted the accepted result and it is waiting for Manager approval. */
+    AWAITING_REVIEW,
+    /** Legacy status retained for data compatibility. */
     PENDING_REVIEW,
-
-    /** Operationally accepted, not business-final (MissionResult approval completes the Order). */
     COMPLETED,
-
     FAILED,
-
     CANCELLED
 }

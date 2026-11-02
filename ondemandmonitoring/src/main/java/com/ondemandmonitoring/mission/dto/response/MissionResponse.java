@@ -40,11 +40,6 @@ public class MissionResponse {
     Instant lastRescheduledAt;
     Long scheduleRevision;
 
-    com.ondemandmonitoring.mission.enums.MissionSafeStopStatus safeStopStatus;
-    Instant safeStopRequestedAt;
-    Instant safeStopConfirmedAt;
-    Instant safeStopCleanedAt;
-
     @Schema(description = "ID of the associated order", example = "123e4567-e89b-12d3-a456-426614174000")
     String orderId;
 

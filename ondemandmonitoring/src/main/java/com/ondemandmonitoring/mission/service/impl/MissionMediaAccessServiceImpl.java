@@ -60,7 +60,7 @@ public class MissionMediaAccessServiceImpl implements IMissionMediaAccessService
         boolean assigned = deviceAssignments.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc(mission.getId())
                 .stream()
                 .anyMatch(entry -> entry.getDevice() != null && deviceId.equals(entry.getDevice().getId()));
-        if (!assigned && mission.getStatus() == MissionStatus.COMPLETED) {
+        if (!assigned && (mission.getStatus() == MissionStatus.COMPLETED || mission.getCompletedAt() != null)) {
             assigned = deviceAssignments.findByMissionId(mission.getId()).stream()
                     .anyMatch(entry -> deviceId.equals(entry.getDevice().getId()));
         }
@@ -84,7 +84,8 @@ public class MissionMediaAccessServiceImpl implements IMissionMediaAccessService
     public MissionDeviceAssignment requireDeviceAssignment(String missionId, String deviceId) {
         requireAssignedDevice(missionId, deviceId);
         return deviceAssignments.findByMissionIdAndDeviceIdAndIsCurrentTrue(missionId, deviceId)
-                .or(() -> missions.findById(missionId).filter(m -> m.getStatus() == MissionStatus.COMPLETED)
+                .or(() -> missions.findById(missionId).filter(m ->
+                        m.getStatus() == MissionStatus.COMPLETED || m.getCompletedAt() != null)
                     .flatMap(m -> deviceAssignments.findByMissionId(missionId).stream()
                         .filter(a -> a.getDevice() != null && deviceId.equals(a.getDevice().getId())
                                 && a.getReleasedAt() != null && "MISSION_COMPLETE".equals(a.getReleaseReason()))

@@ -27,8 +27,7 @@ DO $$ DECLARE t text; occupied boolean; BEGIN
     FOREACH t IN ARRAY ARRAY['orders','missions','order_checklist_items',
         'mission_checklist_assignments','mission_checklist_executions',
         'mission_checklist_evidence','drone_media','mission_results',
-        'resource_time_locks','mission_device_assignments','mission_staff_assignments',
-        'users','services','checklist_definitions'] LOOP
+        'resource_time_locks','mission_device_assignments','users','services','checklist_definitions'] LOOP
         IF to_regclass('public.' || t) IS NULL THEN
             RAISE EXCEPTION 'Hibernate prerequisite missing: public.%', t;
         END IF;
@@ -36,7 +35,7 @@ DO $$ DECLARE t text; occupied boolean; BEGIN
     FOREACH t IN ARRAY ARRAY['orders','missions','order_checklist_items',
         'mission_checklist_assignments','mission_checklist_executions',
         'mission_checklist_evidence','drone_media','mission_results',
-        'resource_time_locks','mission_device_assignments','mission_staff_assignments'] LOOP
+        'resource_time_locks','mission_device_assignments'] LOOP
         EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I)', t) INTO occupied;
         IF occupied THEN RAISE EXCEPTION 'Fresh bootstrap refused: public.% has runtime data', t; END IF;
     END LOOP;
@@ -44,8 +43,7 @@ END $$;
 LOCK TABLE public.orders, public.missions, public.order_checklist_items,
     public.mission_checklist_assignments, public.mission_checklist_executions,
     public.mission_checklist_evidence, public.drone_media, public.mission_results,
-    public.resource_time_locks, public.mission_device_assignments,
-    public.mission_staff_assignments IN ACCESS EXCLUSIVE MODE;
+    public.resource_time_locks, public.mission_device_assignments IN ACCESS EXCLUSIVE MODE;
 
 -- These columns need no migration DDL in current JPA. Still reject incomplete
 -- prerequisites: silently omitting safe-stop/release audit is not a bootstrap.
@@ -65,9 +63,7 @@ DO $$ DECLARE entry record; BEGIN
         ('resource_time_locks','released_at','timestamp with time zone'),
         ('resource_time_locks','release_reason','character varying(500)'),
         ('resource_time_locks','reserved_by','character varying(255)'),
-        ('resource_time_locks','released_by','character varying(255)'),
-        ('mission_device_assignments','replaced_by_assignment_id','character varying(255)'),
-        ('mission_staff_assignments','replaced_by_assignment_id','character varying(255)')
+        ('resource_time_locks','released_by','character varying(255)')
     ) AS columns(table_name,column_name,column_type) LOOP
         IF NOT EXISTS (SELECT 1 FROM pg_attribute
             WHERE attrelid=to_regclass('public.' || entry.table_name)
@@ -128,10 +124,6 @@ DO $$ DECLARE entry record; actual text; expected text; BEGIN
          'FOREIGN KEY (mission_id,order_id) REFERENCES public.missions(id,order_id)'),
         ('mission_checklist_executions','fk_execution_item_order',
          'FOREIGN KEY (order_checklist_item_id,order_id) REFERENCES public.order_checklist_items(id,order_id)'),
-        ('mission_device_assignments','fk_mission_device_assignment_replaced_by',
-         'FOREIGN KEY (replaced_by_assignment_id) REFERENCES public.mission_device_assignments(id) ON DELETE RESTRICT'),
-        ('mission_staff_assignments','fk_mission_staff_assignment_replaced_by',
-         'FOREIGN KEY (replaced_by_assignment_id) REFERENCES public.mission_staff_assignments(id) ON DELETE RESTRICT'),
         ('order_checklist_items','ck_snapshot_evidence_policy',
          'CHECK ((evidence_policy_version = 0 AND minimum_evidence_count = 0 AND minimum_image_count = 0 AND minimum_video_count = 0) OR (evidence_policy_version = 1 AND minimum_evidence_count = 1 AND required_evidence_type = ''IMAGE_OR_VIDEO'' AND minimum_image_count = 0 AND minimum_video_count = 0) OR (evidence_policy_version = 2 AND minimum_evidence_count BETWEEN 1 AND 50 AND required_evidence_type IN (''IMAGE'',''VIDEO'',''IMAGE_OR_VIDEO'') AND minimum_image_count = 0 AND minimum_video_count = 0) OR (evidence_policy_version = 3 AND minimum_image_count >= 0 AND minimum_video_count >= 0 AND minimum_evidence_count = minimum_image_count + minimum_video_count AND minimum_evidence_count BETWEEN 1 AND 1000 AND required_evidence_type IN (''IMAGE'',''VIDEO'',''IMAGE_AND_VIDEO'',''IMAGE_OR_VIDEO'')))'),
         ('checklist_definitions','ck_checklist_pricing',
@@ -293,10 +285,6 @@ DO $$ DECLARE entry record; actual text; expected text; BEGIN
         -- At most one current MAIN assignment per Mission.
         -- History and concurrent SUPPORT rows remain valid; duplicate MAIN fails.
         ('uk_mission_device_assignment_current_main','UNIQUE','mission_device_assignments(mission_id) WHERE is_current = true AND device_role = ''MAIN'''),
-        ('uk_mission_device_assignment_replacement_target','UNIQUE','mission_device_assignments(replaced_by_assignment_id) WHERE replaced_by_assignment_id IS NOT NULL'),
-        ('uk_mission_staff_assignment_replacement_target','UNIQUE','mission_staff_assignments(replaced_by_assignment_id) WHERE replaced_by_assignment_id IS NOT NULL'),
-        ('ix_mission_device_assignment_replacement_history','','mission_device_assignments(mission_id,released_at) WHERE replaced_by_assignment_id IS NOT NULL'),
-        ('ix_mission_staff_assignment_replacement_history','','mission_staff_assignments(mission_id,released_at) WHERE replaced_by_assignment_id IS NOT NULL'),
         ('uk_resource_reservation_active_pair','UNIQUE','resource_time_locks(resource_id,mission_id) WHERE released_at IS NULL'),
         ('ix_resource_reservation_active_window','','resource_time_locks(resource_id,start_time,end_time) WHERE released_at IS NULL')
     ) AS indexes(index_name,uniqueness,definition) LOOP

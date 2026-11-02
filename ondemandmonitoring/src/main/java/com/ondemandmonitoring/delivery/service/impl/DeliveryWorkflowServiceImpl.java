@@ -64,7 +64,8 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
             MediaAssetRepository media, IMediaObjectStorage storage, AuthenticatedUserResolver currentUser,
             com.ondemandmonitoring.order.service.IOrderExecutionCompletionPolicy completionPolicy) {
         this(deliveries, orders, missions, missionResults, invoices, media, storage,
-                new ResultRetentionAccessServiceImpl(java.time.Clock.systemUTC()), currentUser, completionPolicy);
+                new ResultRetentionAccessServiceImpl(media, java.time.Clock.systemUTC()), currentUser,
+                completionPolicy);
     }
 
     @Override

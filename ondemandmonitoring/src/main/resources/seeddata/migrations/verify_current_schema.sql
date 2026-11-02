@@ -4,11 +4,6 @@
 BEGIN READ ONLY;
 SET LOCAL search_path = public, pg_catalog;
 DO $$ DECLARE e record; actual text; keys text[]; predicate text; meta record; BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns
-        WHERE table_schema='public' AND table_name='missions'
-        AND column_name='resource_prepare_status') THEN
-        RAISE EXCEPTION 'Obsolete column exists: missions.resource_prepare_status';
-    END IF;
     FOREACH actual IN ARRAY ARRAY['postgis','vector','btree_gist'] LOOP
         IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname=actual AND extnamespace='public'::regnamespace)
             THEN RAISE EXCEPTION 'Required public extension missing: %',actual; END IF;
@@ -60,8 +55,6 @@ DO $$ DECLARE e record; actual text; keys text[]; predicate text; meta record; B
         ('mission_checklist_executions','fk_execution_assignment_identity','FOREIGN KEY (mission_checklist_assignment_id, mission_id, order_id, order_checklist_item_id) REFERENCES mission_checklist_assignments(id, mission_id, order_id, order_checklist_item_id) ON DELETE RESTRICT'),
         ('mission_checklist_executions','fk_execution_mission_order','FOREIGN KEY (mission_id, order_id) REFERENCES missions(id, order_id)'),
         ('mission_checklist_executions','fk_execution_item_order','FOREIGN KEY (order_checklist_item_id, order_id) REFERENCES order_checklist_items(id, order_id)'),
-        ('mission_device_assignments','fk_mission_device_assignment_replaced_by','FOREIGN KEY (replaced_by_assignment_id) REFERENCES mission_device_assignments(id) ON DELETE RESTRICT'),
-        ('mission_staff_assignments','fk_mission_staff_assignment_replaced_by','FOREIGN KEY (replaced_by_assignment_id) REFERENCES mission_staff_assignments(id) ON DELETE RESTRICT'),
         ('mission_checklist_evidence','fk_evidence_execution_mission','FOREIGN KEY (mission_checklist_execution_id, mission_id) REFERENCES mission_checklist_executions(id, mission_id) ON DELETE RESTRICT'),
         ('mission_checklist_evidence','fk_evidence_media_mission','FOREIGN KEY (media_asset_id, mission_id) REFERENCES drone_media(id, mission_id) ON DELETE RESTRICT'),
         ('mission_checklist_evidence','fk_evidence_attached_user','FOREIGN KEY (attached_by) REFERENCES users(id) ON DELETE RESTRICT'),
@@ -86,10 +79,6 @@ DO $$ DECLARE e record; actual text; keys text[]; predicate text; meta record; B
         ('ix_evidence_media','mission_checklist_evidence','media_asset_id',false,''),
         ('uk_mission_active_direct_replacement','missions','replaces_mission_id',true,'replaces_mission_idisnotnullandstatus<>''cancelled'''),
         ('uk_mission_device_assignment_current_main','mission_device_assignments','mission_id',true,'is_current=trueanddevice_role=''main'''),
-        ('uk_mission_device_assignment_replacement_target','mission_device_assignments','replaced_by_assignment_id',true,'replaced_by_assignment_idisnotnull'),
-        ('uk_mission_staff_assignment_replacement_target','mission_staff_assignments','replaced_by_assignment_id',true,'replaced_by_assignment_idisnotnull'),
-        ('ix_mission_device_assignment_replacement_history','mission_device_assignments','mission_id,released_at',false,'replaced_by_assignment_idisnotnull'),
-        ('ix_mission_staff_assignment_replacement_history','mission_staff_assignments','mission_id,released_at',false,'replaced_by_assignment_idisnotnull'),
         ('uk_resource_reservation_active_pair','resource_time_locks','resource_id,mission_id',true,'released_atisnull'),
         ('ix_resource_reservation_active_window','resource_time_locks','resource_id,start_time,end_time',false,'released_atisnull'),
         ('ix_order_checklist_order','order_checklist_items','order_id,display_order,id',false,'')

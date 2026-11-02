@@ -32,7 +32,7 @@ public class ChecklistAssignmentStatusSync {
     static ChecklistAssignmentStatus targetFor(MissionStatus status) {
         if (status == null) return null;
         return switch (status) {
-            case IN_FLIGHT, IN_PROGRESS -> ChecklistAssignmentStatus.IN_PROGRESS;
+            case IN_PROGRESS -> ChecklistAssignmentStatus.IN_PROGRESS;
             case COMPLETED -> ChecklistAssignmentStatus.COMPLETED;
             // Cancelled Missions are no longer effective: release items for re-assignment / replacement.
             case CANCELLED -> ChecklistAssignmentStatus.UNASSIGNED;

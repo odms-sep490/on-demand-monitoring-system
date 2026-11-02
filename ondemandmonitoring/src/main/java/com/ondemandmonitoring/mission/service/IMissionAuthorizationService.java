@@ -8,12 +8,12 @@ public interface IMissionAuthorizationService {
     boolean canRespondToMission(String missionId);
     boolean canRespondToMission(String missionId, String staffId);
     boolean canStartMission(String missionId);
+    boolean canCancelMission(String missionId);
     boolean canControlFlight(String missionId);
-    boolean canTerminateFlight(String missionId);
-    boolean canPrepareSafeStopPostflight(String missionId);
     boolean canOperatePayload(String missionId);
     boolean canExecuteMonitoringChecklist(String missionId);
     boolean canInspectDevice(String missionId);
+    boolean canAssessMonitoringChecklist(String missionId);
     boolean canMaintainDevice(String missionId);
     boolean canViewMissionMedia(String missionId);
     boolean canUploadMissionMedia(String missionId);

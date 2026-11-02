@@ -90,7 +90,7 @@ class CustomerMissionReportQueryServiceTest {
         assertEquals("No clear view",r2.checklistItems().getLast().unableToVerifyReason());
         assertEquals(ChecklistAssessmentStatus.NON_COMPLIANT,r1.checklistItems().getFirst().assessment());
         var json = new ObjectMapper().writeValueAsString(r1);
-        for (String hidden : List.of("INTERNAL","approvalStatus","reviewNote","mediaFiles","version","safeStopStatus","staffAssignments","executionPlanRevision"))
+        for (String hidden : List.of("INTERNAL","approvalStatus","reviewNote","mediaFiles","version","staffAssignments","executionPlanRevision"))
             assertFalse(json.contains(hidden),hidden);
     }
     @Test void approvedEmptyChecklistIsValidAndReadsNeverWrite() {

@@ -7,16 +7,13 @@ import com.ondemandmonitoring.devicecheck.dto.response.PreDeviceCheckResponse;
 import com.ondemandmonitoring.devicecheck.enums.PreDeviceCheckType;
 import com.ondemandmonitoring.devicecheck.enums.PreDeviceItemStatus;
 import com.ondemandmonitoring.weather.domain.MissionWeatherCheck;
-import com.ondemandmonitoring.mission.domain.FlightToken;
 import com.ondemandmonitoring.mission.domain.Mission;
-import com.ondemandmonitoring.mission.mapper.FlightTokenMapper;
 import java.time.Instant;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 
 @Mapper(
         componentModel = "spring",
-        uses = FlightTokenMapper.class,
         imports = PreDeviceCheckType.class)
 public interface PreDeviceCheckCompletionMapper {
 
@@ -45,13 +42,11 @@ public interface PreDeviceCheckCompletionMapper {
     @Mapping(target = "storageOk", expression = "java(passed(persistedPreDeviceCheck, PreDeviceCheckType.MEDIA_STORAGE))")
     @Mapping(target = "weatherOk", expression = "java(weatherOk(weatherCheck))")
     @Mapping(target = "weatherNotes", expression = "java(weatherNotes(weatherCheck))")
-    @Mapping(target = "flightToken", source = "token")
     @Mapping(target = "checkedAt", expression = "java(checkedAt(persistedPreDeviceCheck))")
     PreDeviceCheckResponse toResponse(
             Mission mission,
             Device assignedDevice,
             PersistedPreDeviceCheck persistedPreDeviceCheck,
-            FlightToken token,
             MissionWeatherCheck weatherCheck);
 
     default boolean passed(PersistedPreDeviceCheck run, PreDeviceCheckType checkType) {

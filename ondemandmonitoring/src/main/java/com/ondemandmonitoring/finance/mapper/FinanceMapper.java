@@ -67,7 +67,8 @@ public final class FinanceMapper {
     public static InvoiceResponse invoice(Invoice invoice, boolean finalPaymentAllowed) {
         return new InvoiceResponse(invoice.getId(), invoice.getInvoiceNumber(), invoice.getOrder().getId(),
                 invoice.getQuote().getId(), invoice.getTotalAmount(), invoice.getDepositAmount(),
-                invoice.getPaidAmount(), invoice.getRemainingAmount(), invoice.getStatus(), invoice.getIssuedAt(),
+                invoice.getPaidAmount(), invoice.getRemainingAmount(), invoice.getStatus(),
+                invoice.effectiveDepositStatus(), invoice.getIssuedAt(),
                 finalPaymentAllowed, invoice.getOrder().getDepositExpiresAt(),
                 invoice.getOrder().getFinalPaymentExpiresAt(),
                 invoice.getOrder().getCancellationReason() == null ? null : invoice.getOrder().getCancellationReason().name());

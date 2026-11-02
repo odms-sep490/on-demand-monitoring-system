@@ -10,6 +10,7 @@ import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.finance.repository.QuoteRepository;
 import com.ondemandmonitoring.finance.mapper.FinanceMapper;
 import com.ondemandmonitoring.finance.service.IQuoteService;
+import com.ondemandmonitoring.finance.event.QuoteApprovedEvent;
 import com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
@@ -42,6 +43,7 @@ import java.math.RoundingMode;
 import java.time.*;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -66,6 +68,7 @@ public class QuoteService implements IQuoteService {
     private final PricingEngine pricingEngine;
     private final PricingPolicyRepository pricingPolicies;
     private final ChecklistPricingAuditRepository pricingAudits;
+    private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -415,6 +418,8 @@ public class QuoteService implements IQuoteService {
                     ? ChecklistPricingStatus.APPROVED : ChecklistPricingStatus.ADJUSTED_AND_APPROVED);
         });
         markOrderApprovedAfterQuote(order, approver, issuedAt);
+        eventPublisher.publishEvent(new QuoteApprovedEvent(
+                order.getCustomer().getId(), orderId, quoteId, issuedAt));
         return FinanceMapper.quote(quote);
     }
 
@@ -447,6 +452,8 @@ public class QuoteService implements IQuoteService {
         quote.setStatus(QuoteStatus.APPROVED); quote.setApprovedBy(approver); quote.setApprovedAt(issuedAt);
         quote.setExpiresAt(issuedAt.plus(expirationSettings.current().quotationAcceptanceTimeout()));
         markOrderApprovedAfterQuote(order, approver, issuedAt);
+        eventPublisher.publishEvent(new QuoteApprovedEvent(
+                order.getCustomer().getId(), orderId, quoteId, issuedAt));
         return FinanceMapper.quote(quote);
     }
 
@@ -502,6 +509,8 @@ public class QuoteService implements IQuoteService {
         requireGuidanceSnapshot(order, quote, checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId));
         quote.setStatus(QuoteStatus.ACCEPTED_BY_CUSTOMER);
         quote.setAcceptedAt(now);
+        // Deposit progress belongs to the invoice. Accepting a quote leaves the order approved;
+        // mission creation is gated by the invoice's deposit status.
         order.setDepositExpiresAt(now.plus(expirationSettings.current().depositPaymentTimeout()));
         Invoice invoice = new Invoice();
         invoice.setInvoiceNumber("INV-" + LocalDate.now(BUSINESS_ZONE).getYear() + "-"
@@ -513,6 +522,7 @@ public class QuoteService implements IQuoteService {
         invoice.setPaidAmount(ZERO);
         invoice.setRemainingAmount(quote.getTotalAmount());
         invoice.setStatus(InvoiceStatus.ISSUED);
+        invoice.setDepositStatus(DepositStatus.WAITING_DEPOSIT);
         invoice.setIssuedAt(now);
         Invoice saved = invoices.save(invoice);
         return invoiceResponse(saved);

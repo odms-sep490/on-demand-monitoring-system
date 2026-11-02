@@ -4,6 +4,7 @@ package com.ondemandmonitoring.mission.dto.response;
 public record MissionPermissionsResponse(
         boolean canRespond,
         boolean canStartMission,
+        boolean canCancelMission,
         boolean canControlFlight,
         boolean canOperatePayload,
         boolean canInspectDevice,
@@ -14,6 +15,5 @@ public record MissionPermissionsResponse(
         boolean canExecuteMonitoringChecklist,
         boolean canAttachChecklistEvidence,
         boolean canDetachChecklistEvidence,
-        boolean canTerminateFlight,
-        boolean canPrepareSafeStopPostflight) {
+        boolean canAssessMonitoringChecklist) {
 }

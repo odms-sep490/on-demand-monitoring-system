@@ -62,4 +62,13 @@ public class MissionWeatherCheck extends BaseEntity {
 
     @Column(name = "checked_at", nullable = false)
     Instant checkedAt;
+
+    @Column(name = "inspector_accepted")
+    Boolean inspectorAccepted = false;
+
+    @Column(name = "inspector_accepted_by", length = 50)
+    String inspectorAcceptedBy;
+
+    @Column(name = "inspector_accepted_at")
+    Instant inspectorAcceptedAt;
 }

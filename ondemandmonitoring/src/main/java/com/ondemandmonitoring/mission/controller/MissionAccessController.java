@@ -22,6 +22,7 @@ public class MissionAccessController {
         return ApiResponse.ok(new MissionPermissionsResponse(
                 authorization.canRespondToMission(id),
                 authorization.canStartMission(id),
+                authorization.canCancelMission(id),
                 authorization.canControlFlight(id),
                 authorization.canOperatePayload(id),
                 authorization.canInspectDevice(id),
@@ -32,7 +33,6 @@ public class MissionAccessController {
                 authorization.canExecuteMonitoringChecklist(id),
                 authorization.canAttachChecklistEvidence(id),
                 authorization.canDetachChecklistEvidence(id),
-                authorization.canTerminateFlight(id),
-                authorization.canPrepareSafeStopPostflight(id)));
+                authorization.canAssessMonitoringChecklist(id)));
     }
 }

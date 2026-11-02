@@ -5,6 +5,7 @@ import com.ondemandmonitoring.finance.domain.Invoice;
 import com.ondemandmonitoring.finance.domain.Payment;
 import com.ondemandmonitoring.finance.domain.Quote;
 import com.ondemandmonitoring.finance.enums.InvoiceStatus;
+import com.ondemandmonitoring.finance.enums.DepositStatus;
 import com.ondemandmonitoring.finance.enums.PaymentStatus;
 import com.ondemandmonitoring.finance.enums.PaymentType;
 import com.ondemandmonitoring.finance.enums.QuoteStatus;
@@ -72,7 +73,8 @@ public class CommercialExpirationProcessor {
         List<Payment> lockedPayments = payments.findAllByInvoiceIdForUpdate(invoiceId);
         Invoice invoice = invoices.findByIdForUpdate(invoiceId).orElse(null);
         if (invoice == null || invoice.getStatus() == InvoiceStatus.CANCELLED
-                || invoice.getStatus() == InvoiceStatus.PAID || invoice.getStatus() == InvoiceStatus.REFUNDED)
+                || invoice.getStatus() == InvoiceStatus.PAID || invoice.getStatus() == InvoiceStatus.REFUNDED
+                || invoice.effectiveDepositStatus() != DepositStatus.WAITING_DEPOSIT)
             return false;
         BigDecimal successful = lockedPayments.stream()
                 .filter(p -> p.getStatus() == PaymentStatus.SUCCESS && p.getPaymentType() != PaymentType.REFUND)
@@ -131,8 +133,7 @@ public class CommercialExpirationProcessor {
             Mission mission = missions.findByIdForUpdate(id).orElse(null);
             if (mission == null) return null;
             if (mission.getStatus() == MissionStatus.CANCELLED) continue;
-            if ((mission.getStatus() != MissionStatus.PLANNING && mission.getStatus() != MissionStatus.WAITING_DEPOSIT)
-                    || missions.hasUnsafeCancellationResources(id)) {
+            if (mission.getStatus() != MissionStatus.PLANNING || missions.hasUnsafeCancellationResources(id)) {
                 log.error("Refusing commercial timeout for order {}: mission {} is {} or owns active resources",
                         orderId, id, mission.getStatus());
                 return null;

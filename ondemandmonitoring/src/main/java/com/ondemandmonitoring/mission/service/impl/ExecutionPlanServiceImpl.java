@@ -73,7 +73,7 @@ public class ExecutionPlanServiceImpl implements IExecutionPlanService {
                 a.setIsCurrent(true);
             });
             devices.findByMissionId(m.getId()).stream().filter(a -> a.getReleasedAt() == null).forEach(a -> {
-                a.setCheckupStatus(com.ondemandmonitoring.mission.enums.MissionDeviceAssignmentStatus.PENDING);
+                a.setCheckupStatus(com.ondemandmonitoring.mission.enums.MissionDeviceCheckStatus.PENDING);
                 a.setIsCurrent(true);
             });
         });

@@ -4,6 +4,7 @@ import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.device.enums.DeviceStatus;
 import com.ondemandmonitoring.finance.domain.Invoice;
+import com.ondemandmonitoring.finance.enums.DepositStatus;
 import com.ondemandmonitoring.finance.enums.InvoiceStatus;
 import com.ondemandmonitoring.finance.enums.PaymentProvider;
 import com.ondemandmonitoring.finance.enums.PaymentStatus;
@@ -54,8 +55,7 @@ public class MissionPaymentEligibilityService implements IMissionPaymentEligibil
 
     @Override
     public boolean isDepositSatisfied(Invoice invoice) {
-        return invoice != null && invoice.getPaidAmount() != null && invoice.getDepositAmount() != null
-                && invoice.getPaidAmount().compareTo(invoice.getDepositAmount()) >= 0;
+        return invoice != null && invoice.effectiveDepositStatus() == DepositStatus.DEPOSIT_PAID;
     }
 
     @Override

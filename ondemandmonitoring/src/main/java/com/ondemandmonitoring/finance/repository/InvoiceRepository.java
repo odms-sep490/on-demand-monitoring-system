@@ -38,7 +38,11 @@ public interface InvoiceRepository extends JpaRepository<Invoice, String> {
     @Query("""
             select i.id from Invoice i
             where i.order.depositExpiresAt is not null and i.order.depositExpiresAt <= :now
-              and i.order.orderStatus='APPROVED' and i.status in ('ISSUED','PARTIALLY_PAID')
+              and i.order.orderStatus = 'APPROVED'
+              and (i.depositStatus = 'WAITING_DEPOSIT'
+                   or (i.depositStatus is null and i.paidAmount < i.depositAmount))
+              and i.paidAmount < i.depositAmount
+              and i.status in ('ISSUED','PARTIALLY_PAID')
             order by i.order.depositExpiresAt, i.id
             """)
     java.util.List<String> findExpiredDepositInvoiceIds(@Param("now") java.time.Instant now,
@@ -70,10 +74,8 @@ public interface InvoiceRepository extends JpaRepository<Invoice, String> {
     @Query("""
             select count(i) from Invoice i
             where i.status in :openStatuses
-              and not exists (
-                select p.id from Payment p
-                where p.invoice = i and p.paymentType = 'DEPOSIT' and p.status = 'SUCCESS'
-              )
+              and (i.depositStatus = 'WAITING_DEPOSIT'
+                   or (i.depositStatus is null and i.paidAmount < i.depositAmount))
             """)
     long countWaitingDeposit(@Param("openStatuses") java.util.Collection<com.ondemandmonitoring.finance.enums.InvoiceStatus> openStatuses);
 

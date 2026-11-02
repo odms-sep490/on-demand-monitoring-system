@@ -5,6 +5,7 @@ import com.ondemandmonitoring.mission.dto.request.MissionCancelRequest;
 import com.ondemandmonitoring.mission.dto.response.MissionCancellationResponse;
 import com.ondemandmonitoring.mission.enums.*;
 import com.ondemandmonitoring.mission.repository.*;
+import com.ondemandmonitoring.mission.service.IMissionAuthorizationService;
 import com.ondemandmonitoring.mission.service.IMissionCancellationService;
 import com.ondemandmonitoring.order.enums.*;
 import com.ondemandmonitoring.order.repository.OrderRepository;
@@ -17,32 +18,38 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+@PreAuthorize("hasAnyRole('MANAGER','ADMIN') or @missionAuthorizationService.canCancelMission(#missionId)")
 public class MissionCancellationServiceImpl implements IMissionCancellationService {
     private final OrderRepository orders;
     private final MissionRepository missions;
     private final MissionResultRepository results;
     private final AuthenticatedUserResolver actor;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private IMissionAuthorizationService authorization;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
     private ChecklistAssignmentStatusSync checklistAssignmentStatusSync;
 
     @Override
     @Transactional
     public MissionCancellationResponse cancel(String missionId, MissionCancelRequest request) {
-
-        if (request == null || request.expectedPlanRevision() == null || request.expectedPlanRevision() < 0
+        boolean manager = authorization == null || authorization.canManageMissions();
+        if (request == null || (request.expectedPlanRevision() != null && request.expectedPlanRevision() < 0)
                 || request.reason() == null || request.reason().isBlank() || request.reason().length() > 1000)
             throw new ApiException(ErrorCode.INVALID_REQUEST);
 
         String orderId = missions.findOrderIdByMissionId(missionId)
                 .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
-
-        var order = orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-
-        var mission = missions.findById(missionId).orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
-
-        MissionCancellationGuard.requireAllowed(orderId, order, mission, request.expectedPlanRevision(), results, missions);
-
+        var order = orders.findByIdForUpdate(orderId).or(() -> orders.findById(orderId))
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        var mission = missions.findByIdForUpdate(missionId).or(() -> missions.findById(missionId))
+                .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
+        if (!manager && (authorization == null || !authorization.canCancelMission(missionId)))
+            throw new ApiException(ErrorCode.MISSION_CANCELLATION_NOT_ALLOWED);
+        // Older operator clients only send the reason. Resolve their revision under the order lock;
+        // clients that send a revision still get the stale-plan guard.
+        long expectedPlanRevision = request.expectedPlanRevision() == null
+                ? order.getExecutionPlanRevision() : request.expectedPlanRevision();
+        MissionCancellationGuard.requireAllowed(orderId, order, mission, expectedPlanRevision, results, missions);
         mission.setStatus(MissionStatus.CANCELLED);
         mission.setCancellationAt(Instant.now()); mission.setCancelledBy(actor.getCurrentUserId());
         mission.setCancellationReason(request.reason().strip());

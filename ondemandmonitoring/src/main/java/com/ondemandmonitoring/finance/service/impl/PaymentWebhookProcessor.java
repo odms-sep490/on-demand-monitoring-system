@@ -42,9 +42,13 @@ public class PaymentWebhookProcessor implements IPaymentWebhookService {
             return PaymentWebhookResult.INVALID_AMOUNT;
         }
         if (payment.getStatus() == PaymentStatus.SUCCESS) {
-            if (payment.getPaymentType() == PaymentType.FINAL_PAYMENT) {
+            if (payment.getPaymentType() == PaymentType.FINAL_PAYMENT
+                    || payment.getPaymentType() == PaymentType.DEPOSIT) {
                 Invoice settled = invoices.findByIdForUpdate(payment.getInvoice().getId())
                         .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
+                if (payment.getPaymentType() == PaymentType.DEPOSIT) {
+                    settled.refreshDepositStatus();
+                }
                 if (isFullyPaid(settled)) transitionAfterSettlement(settled.getOrder().getId());
             }
             return PaymentWebhookResult.ALREADY_CONFIRMED;
@@ -83,6 +87,7 @@ public class PaymentWebhookProcessor implements IPaymentWebhookService {
         if (paid.compareTo(invoice.getTotalAmount()) > 0) throw new ApiException(ErrorCode.PAYMENT_AMOUNT_MISMATCH, "Payment would overpay invoice");
         invoice.setPaidAmount(paid);
         invoice.setRemainingAmount(invoice.getTotalAmount().subtract(paid).max(BigDecimal.ZERO));
+        invoice.refreshDepositStatus();
         invoice.setStatus(paid.signum() == 0 ? InvoiceStatus.ISSUED
                 : paid.compareTo(invoice.getTotalAmount()) >= 0 ? InvoiceStatus.PAID : InvoiceStatus.PARTIALLY_PAID);
         if (payment.getPaymentType() == PaymentType.FINAL_PAYMENT && isFullyPaid(invoice))

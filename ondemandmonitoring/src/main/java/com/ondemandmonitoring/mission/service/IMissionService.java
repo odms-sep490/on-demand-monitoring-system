@@ -6,7 +6,6 @@ import com.ondemandmonitoring.mission.dto.request.AssignStaffRequest;
 import com.ondemandmonitoring.mission.dto.request.ReplaceDeviceRequest;
 import com.ondemandmonitoring.mission.dto.request.ReplaceStaffRequest;
 import com.ondemandmonitoring.mission.dto.request.MissionUpdateRequest;
-import com.ondemandmonitoring.mission.dto.request.FlightPermitUpdateRequest;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.dto.response.MissionPlanResponse;
 import com.ondemandmonitoring.mission.dto.response.MissionResponse;
@@ -43,8 +42,6 @@ public interface IMissionService {
 
 
     MissionResponse updateMission(String missionId, MissionUpdateRequest request);
-
-    MissionResponse updateFlightPermit(String missionId, FlightPermitUpdateRequest request);
 
     MissionResponse rescheduleMission(String missionId,
             com.ondemandmonitoring.mission.dto.request.MissionScheduleUpdateRequest request);
@@ -125,17 +122,13 @@ public interface IMissionService {
     Mission findById(String missionId);
 
     /**
-     * Accepts a mission assignment by the Staff (transitions status to SCHEDULED
-     * if flight plan is feasible).
+     * Accepts a mission assignment by the Staff.
      *
-     * @param missionId  Mission ID
+     * @param missionId Mission ID
      * @param staffId Staff ID
-     * @return {@link MissionResponse} Updated mission DTO
+     * @return updated mission DTO
      */
     MissionResponse acceptMission(String missionId, String staffId);
-
-    /** Inspector starts the operational workflow after every required crew role accepted. */
-    MissionResponse startMissionWorkflow(String missionId);
 
     /**
      * Rejects a mission assignment by the Staff (resets mission to
@@ -180,14 +173,13 @@ public interface IMissionService {
 
     /**
      * Executes digital pre-device safety check before takeoff.
-     * Passed -> Issues 60-minute FlightToken and sets status to READY_TO_FLY.
+     * Passed -> Sets status to READY_TO_FLY.
      * Failed -> Logs battery/hardware diagnostics, creates maintenance ticket, and
      * auto-swaps device if available.
      *
      * @param missionId Mission ID
      * @param deviceId Device ID/code
-     * @return {@link PreDeviceCheckResponse} Preflight diagnostics and issued
-     *         flight token (if passed)
+     * @return {@link PreDeviceCheckResponse} Preflight diagnostics
      */
     PreDeviceCheckResponse runPreDeviceCheck(String missionId, String deviceId);
 
@@ -204,19 +196,10 @@ public interface IMissionService {
     MissionResponse handoverControl(String missionId, String staffId);
 
     /**
-     * Initiates mission flight (Takeoff) with token validation.
-     *
-     * @param missionId  Mission ID
-     * @param tokenValue Flight token string
-     * @return {@link MissionResponse} Mission set to IN_FLIGHT
-     */
-    MissionResponse startMission(String missionId, String tokenValue);
-
-    /**
      * Initiates mission flight (Takeoff).
      *
      * @param missionId Mission ID
-     * @return {@link MissionResponse} Mission set to IN_FLIGHT
+     * @return {@link MissionResponse} Mission set to IN_PROGRESS
      */
     MissionResponse startMission(String missionId);
 

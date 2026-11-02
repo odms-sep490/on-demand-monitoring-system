@@ -1,6 +1,7 @@
 package com.ondemandmonitoring.finance.domain;
 
 import com.ondemandmonitoring.common.entity.BaseEntity;
+import com.ondemandmonitoring.finance.enums.DepositStatus;
 import com.ondemandmonitoring.finance.enums.InvoiceStatus;
 import com.ondemandmonitoring.order.domain.Order;
 import jakarta.persistence.*;
@@ -14,7 +15,10 @@ import lombok.Setter;
         @UniqueConstraint(name = "uk_invoice_number", columnNames = "invoice_number"),
         @UniqueConstraint(name = "uk_invoice_order", columnNames = "order_id"),
         @UniqueConstraint(name = "uk_invoice_quote", columnNames = "quote_id")},
-        indexes = @Index(name = "ix_invoices_status", columnList = "status"))
+        indexes = {
+                @Index(name = "ix_invoices_status", columnList = "status"),
+                @Index(name = "ix_invoices_deposit_status", columnList = "deposit_status")
+        })
 @Getter @Setter
 public class Invoice extends BaseEntity {
     @Column(name = "invoice_number", nullable = false, length = 50)
@@ -36,6 +40,26 @@ public class Invoice extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private InvoiceStatus status;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "deposit_status", nullable = false, length = 30)
+    private DepositStatus depositStatus = DepositStatus.WAITING_DEPOSIT;
     @Column(name = "issued_at", nullable = false)
     private Instant issuedAt;
+
+    @PrePersist
+    @PreUpdate
+    private void synchronizeDepositStatus() {
+        refreshDepositStatus();
+    }
+
+    /** Amounts remain the source of truth; this is also safe for legacy rows. */
+    public DepositStatus effectiveDepositStatus() {
+        return paidAmount != null && depositAmount != null && paidAmount.compareTo(depositAmount) >= 0
+                ? DepositStatus.DEPOSIT_PAID
+                : DepositStatus.WAITING_DEPOSIT;
+    }
+
+    public void refreshDepositStatus() {
+        depositStatus = effectiveDepositStatus();
+    }
 }

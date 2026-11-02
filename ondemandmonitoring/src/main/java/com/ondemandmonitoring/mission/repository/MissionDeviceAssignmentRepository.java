@@ -7,12 +7,21 @@ import org.springframework.stereotype.Repository;
 
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.enums.DeviceRole;
+import com.ondemandmonitoring.mission.enums.MissionDeviceAssignmentStatus;
 
 import java.util.List;
 import java.util.Optional;
 
 @Repository
 public interface MissionDeviceAssignmentRepository extends JpaRepository<MissionDeviceAssignment, String> {
+
+    @Query("""
+            SELECT COUNT(DISTINCT mda.mission.id) FROM MissionDeviceAssignment mda
+            WHERE mda.deviceRole = com.ondemandmonitoring.mission.enums.DeviceRole.MAIN
+              AND mda.isCurrent = true
+              AND mda.status = :status
+            """)
+    long countCurrentMainMissionsByStatus(MissionDeviceAssignmentStatus status);
 
     boolean existsByMissionId(String missionId);
 

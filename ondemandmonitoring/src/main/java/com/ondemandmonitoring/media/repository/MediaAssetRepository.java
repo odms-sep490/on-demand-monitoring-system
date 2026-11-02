@@ -33,6 +33,9 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, String> 
         @Query("select m.mission.id from MediaAsset m where m.id = :id")
         Optional<String> findMissionId(String id);
 
+        @Query("select m.mission.order.resultExpiresAt from MediaAsset m where m.id = :mediaId")
+        Optional<Instant> findResultExpiresAtByMediaId(@Param("mediaId") String mediaId);
+
         @Query("select count(m) from MediaAsset m where m.mission.id = :missionId and m.mediaStatus = :status")
         long countByMissionIdAndMediaStatus(String missionId, MediaStatus status);
 

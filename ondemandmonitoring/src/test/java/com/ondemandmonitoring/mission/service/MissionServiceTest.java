@@ -13,32 +13,28 @@ import com.ondemandmonitoring.devicecheck.repository.PersistedPreDeviceCheckRepo
 import com.ondemandmonitoring.devicecheck.service.IPreDeviceCheckCompletionService;
 import com.ondemandmonitoring.devicecheck.service.IPersistedPostDeviceCheckService;
 import com.ondemandmonitoring.mission.domain.DeviceConnection;
-import com.ondemandmonitoring.mission.domain.FlightToken;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import com.ondemandmonitoring.mission.domain.MissionStaffAssignment;
 import com.ondemandmonitoring.mission.dto.request.AssignDeviceRequest;
 import com.ondemandmonitoring.mission.dto.request.AssignStaffRequest;
 import com.ondemandmonitoring.mission.dto.request.ReplaceDeviceRequest;
-import com.ondemandmonitoring.mission.dto.response.FlightTokenResponse;
 import com.ondemandmonitoring.mission.dto.response.MissionResponse;
 import com.ondemandmonitoring.mission.enums.MissionStaffRole;
 import com.ondemandmonitoring.mission.enums.FlightPermitStatus;
+import com.ondemandmonitoring.flightpermit.domain.FlightPermit;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
 import com.ondemandmonitoring.mission.enums.MissionDeviceAssignmentStatus;
-import com.ondemandmonitoring.mission.mapper.FlightTokenMapper;
 import com.ondemandmonitoring.mission.mapper.MissionMapper;
 import com.ondemandmonitoring.mission.repository.ControlHandoverRepository;
 import com.ondemandmonitoring.mission.repository.DeviceConnectionRepository;
-import com.ondemandmonitoring.mission.repository.FlightTokenRepository;
 import com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository;
 import com.ondemandmonitoring.mission.repository.MissionPlanRepository;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.mission.repository.MissionStaffAssignmentRepository;
 import com.ondemandmonitoring.mission.repository.ResourceTimeLockRepository;
 import com.ondemandmonitoring.mission.service.impl.DeviceConnectionService;
-import com.ondemandmonitoring.mission.service.impl.FlightTokenService;
 import com.ondemandmonitoring.mission.service.impl.MissionService;
 import com.ondemandmonitoring.order.repository.OrderRepository;
 import com.ondemandmonitoring.finance.repository.InvoiceRepository;
@@ -52,6 +48,8 @@ import com.ondemandmonitoring.userschedule.domain.UserSchedule;
 import com.ondemandmonitoring.userschedule.enums.UserScheduleStatus;
 import com.ondemandmonitoring.userschedule.enums.UserScheduleType;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
+import com.ondemandmonitoring.weather.domain.MissionWeatherCheck;
+import com.ondemandmonitoring.weather.repository.MissionWeatherCheckRepository;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -60,6 +58,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.util.List;
@@ -74,9 +73,7 @@ class MissionServiceTest {
 
     MissionRepository missionRepository;
     DeviceRepository deviceRepository;
-    FlightTokenRepository flightTokenRepository;
     MissionMapper missionMapper;
-    FlightTokenMapper flightTokenMapper;
 
     MissionPlanRepository missionPlanRepository;
     DeviceConnectionRepository deviceConnectionRepository;
@@ -88,7 +85,6 @@ class MissionServiceTest {
     InvoiceRepository invoiceRepository;
     IMissionPaymentEligibilityService missionPaymentEligibilityService;
     IDeviceConnectionService deviceConnectionService;
-    IFlightTokenService flightTokenService;
     IMissionResultService missionResultService;
     IPreDeviceCheckCompletionService preDeviceCheckCompletionService;
     IPersistedPostDeviceCheckService persistedPostDeviceCheckService;
@@ -98,6 +94,7 @@ class MissionServiceTest {
     MissionDeviceAssignmentRepository missionDeviceAssignmentRepository;
     MissionStaffAssignmentRepository missionStaffAssignmentRepository;
     ResourceTimeLockRepository resourceTimeLockRepository;
+    MissionWeatherCheckRepository missionWeatherCheckRepository;
 
     MissionService missionService;
 
@@ -105,9 +102,7 @@ class MissionServiceTest {
     void setUp() {
         missionRepository = mock(MissionRepository.class);
         deviceRepository = mock(DeviceRepository.class);
-        flightTokenRepository = mock(FlightTokenRepository.class);
         missionMapper = mock(MissionMapper.class);
-        flightTokenMapper = mock(FlightTokenMapper.class);
         missionPlanRepository = mock(MissionPlanRepository.class);
         deviceConnectionRepository = mock(DeviceConnectionRepository.class);
         controlHandoverRepository = mock(ControlHandoverRepository.class);
@@ -123,6 +118,7 @@ class MissionServiceTest {
         missionDeviceAssignmentRepository = mock(MissionDeviceAssignmentRepository.class);
         missionStaffAssignmentRepository = mock(MissionStaffAssignmentRepository.class);
         resourceTimeLockRepository = mock(ResourceTimeLockRepository.class);
+        missionWeatherCheckRepository = mock(MissionWeatherCheckRepository.class);
         missionResultService = mock(IMissionResultService.class);
         preDeviceCheckCompletionService = mock(IPreDeviceCheckCompletionService.class);
         persistedPostDeviceCheckService = mock(IPersistedPostDeviceCheckService.class);
@@ -136,17 +132,10 @@ class MissionServiceTest {
                 missionMapper, com.ondemandmonitoring.mission.service.ScopeTestFixture.validScope(),
                 mock(com.ondemandmonitoring.mission.service.IResourceReservationService.class));
 
-        flightTokenService = new FlightTokenService(
-                flightTokenRepository,
-                missionDeviceAssignmentRepository,
-                missionStaffAssignmentRepository);
-
         missionService = new MissionService(
                 missionRepository,
                 deviceRepository,
-                flightTokenRepository,
                 missionMapper,
-                flightTokenMapper,
                 missionPlanRepository,
                 deviceConnectionRepository,
                 controlHandoverRepository,
@@ -157,7 +146,6 @@ class MissionServiceTest {
                 invoiceRepository,
                 missionPaymentEligibilityService,
                 deviceConnectionService,
-                flightTokenService,
                 missionResultService,
                 preDeviceCheckCompletionService,
                 persistedPostDeviceCheckService,
@@ -172,7 +160,9 @@ class MissionServiceTest {
                 new com.ondemandmonitoring.mission.service.impl.ResourceReservationServiceImpl(
                         mock(org.springframework.jdbc.core.JdbcTemplate.class), resourceTimeLockRepository, userScheduleRepository, authenticatedUserResolver),
                 mock(com.ondemandmonitoring.device.repository.DeviceTelemetryRepository.class));
-        org.springframework.test.util.ReflectionTestUtils.setField(
+        ReflectionTestUtils.setField(
+                missionService, "missionWeatherCheckRepository", missionWeatherCheckRepository);
+        ReflectionTestUtils.setField(
                 missionService, "preDeviceCheckRepository", preDeviceCheckRepository);
 
         when(missionRepository.findByIdForUpdate(anyString())).thenAnswer(call -> missionRepository.findById(call.getArgument(0)));
@@ -193,16 +183,6 @@ class MissionServiceTest {
                     .build();
         });
 
-        when(flightTokenMapper.toResponse(any())).thenAnswer(inv -> {
-            FlightToken ft = inv.getArgument(0);
-            if (ft == null)
-                return null;
-            return FlightTokenResponse.builder()
-                    .tokenValue(ft.getTokenValue())
-                    .issuedAt(ft.getIssuedAt())
-                    .expiresAt(ft.getExpiresAt())
-                    .build();
-        });
     }
 
     @Test
@@ -301,7 +281,7 @@ class MissionServiceTest {
     }
 
     @Test
-    void acceptingLastCrewWithCurrentMainDeviceMakesMissionReadyBeforePrecheck() {
+    void acceptingLastCrewKeepsMissionAwaitingPreflightUntilHandover() {
         Mission mission = buildMission("resource-ready", MissionStatus.PENDING_CONFIRMATION);
         var crew = java.util.Arrays.stream(MissionStaffRole.values())
                 .map(role -> staffAssignment(mission, role.name(), role,
@@ -323,7 +303,7 @@ class MissionServiceTest {
         MissionResponse result = missionService.acceptMission(
                 "resource-ready", MissionStaffRole.PILOT.name());
 
-        assertThat(result.getStatus()).isEqualTo(MissionStatus.READY);
+        assertThat(result.getStatus()).isEqualTo(MissionStatus.PENDING_CONFIRMATION);
     }
 
     @Test
@@ -839,7 +819,9 @@ class MissionServiceTest {
         @DisplayName("startMission is blocked until the flight permit is approved")
         void startMission_withoutApprovedPermit_throws() {
             Mission mission = buildMission("m-no-permit", MissionStatus.READY_TO_FLY);
-            mission.setFlightPermitStatus(FlightPermitStatus.PENDING);
+            mission.getOrder().setExecutionPlanStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
+            mission.getOrder().setExecutionPlanRevision(1L);
+            FlightPermit.pendingFor(mission).setStatus(FlightPermitStatus.PENDING);
             when(missionRepository.findById("m-no-permit")).thenReturn(Optional.of(mission));
 
             assertThatThrownBy(() -> missionService.startMission("m-no-permit"))
@@ -848,96 +830,34 @@ class MissionServiceTest {
         }
 
         @Test
-        @DisplayName("1. startMission success with valid FlightToken")
-        void startMission_success_withValidToken() {
-            Mission mission = buildMission("m-7", MissionStatus.READY_TO_FLY);
+        @DisplayName("startMission succeeds after permit and preflight are ready")
+        void startMission_successAfterPreflight() {
+            Mission mission = buildMission("m-7", MissionStatus.SCHEDULED);
+            mission.getOrder().setExecutionPlanStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
+            mission.getOrder().setExecutionPlanRevision(1L);
             Device device = buildDevice("DEV-01", DeviceStatus.PREFLIGHT);
             MissionDeviceAssignment mda = new MissionDeviceAssignment();
+            mda.setMission(mission);
             mda.setDevice(device);
-            when(missionDeviceAssignmentRepository.findFirstByMissionIdOrderByCreatedAtDesc("m-7"))
-                    .thenReturn(Optional.of(mda));
-
-            FlightToken token = new FlightToken();
-            token.setTokenValue("valid-token");
-            token.setMissionId("m-7");
-            token.setExpiresAt(Instant.now().plusSeconds(600));
-            token.setUsed(false);
-            token.setRevoked(false);
+            mda.setStatus(com.ondemandmonitoring.mission.enums.MissionDeviceAssignmentStatus.READY_TO_FLY);
+            mda.setIsCurrent(true);
 
             when(missionRepository.findById("m-7")).thenReturn(Optional.of(mission));
-            when(flightTokenRepository.findByTokenValue("valid-token")).thenReturn(Optional.of(token));
-            when(missionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-            when(deviceRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            MissionResponse result = missionService.startMission("m-7", "valid-token");
-
-            assertThat(result.getStatus()).isEqualTo(MissionStatus.IN_FLIGHT);
-            assertThat(mission.getActualStartAt()).isNotNull();
-            assertThat(device.getStatus()).isEqualTo(DeviceStatus.ACTIVE_MISSION);
-            assertThat(token.isUsed()).isTrue();
-        }
-
-        @Test
-        @DisplayName("2. startMission throws and revokes token when FlightToken is expired")
-        void startMission_expiredToken_revokesToken_throws() {
-            Mission mission = buildMission("m-7", MissionStatus.READY_TO_FLY);
-
-            FlightToken expiredToken = new FlightToken();
-            expiredToken.setTokenValue("expired-token");
-            expiredToken.setMissionId("m-7");
-            expiredToken.setExpiresAt(Instant.now().minusSeconds(10));
-            expiredToken.setUsed(false);
-            expiredToken.setRevoked(false);
-
-            when(missionRepository.findById("m-7")).thenReturn(Optional.of(mission));
-            when(flightTokenRepository.findByTokenValue("expired-token")).thenReturn(Optional.of(expiredToken));
-
-            assertThatThrownBy(() -> missionService.startMission("m-7", "expired-token"))
-                    .isInstanceOf(ApiException.class)
-                    .hasMessageContaining("expired or revoked");
-
-            assertThat(expiredToken.isRevoked()).isTrue();
-        }
-
-        @Test
-        @DisplayName("3. startMission throws exception when provided FlightToken does not exist")
-        void startMission_tokenNotFound_throws() {
-            Mission mission = buildMission("m-7", MissionStatus.READY_TO_FLY);
-            when(missionRepository.findById("m-7")).thenReturn(Optional.of(mission));
-            when(flightTokenRepository.findByTokenValue("invalid-token")).thenReturn(Optional.empty());
-
-            assertThatThrownBy(() -> missionService.startMission("m-7", "invalid-token"))
-                    .isInstanceOf(ApiException.class)
-                    .hasMessageContaining("Invalid flight access token");
-        }
-
-        @Test
-        @DisplayName("4. startMission without explicit token param auto-resolves valid un-used token for mission")
-        void startMission_withoutToken_success() {
-            Mission mission = buildMission("m-7", MissionStatus.READY_TO_FLY);
-            Device device = buildDevice("DEV-01", DeviceStatus.PREFLIGHT);
-            MissionDeviceAssignment mda = new MissionDeviceAssignment();
-            mda.setDevice(device);
-            when(missionDeviceAssignmentRepository.findFirstByMissionIdOrderByCreatedAtDesc("m-7"))
-                    .thenReturn(Optional.of(mda));
-
-            FlightToken token = new FlightToken();
-            token.setTokenValue("auto-token");
-            token.setExpiresAt(Instant.now().plusSeconds(600));
-            token.setUsed(false);
-            token.setRevoked(false);
-
-            when(missionRepository.findById("m-7")).thenReturn(Optional.of(mission));
-            when(flightTokenRepository.findAllByMissionIdAndUsedFalseAndRevokedFalseOrderByIssuedAtDesc("m-7"))
-                    .thenReturn(List.of(token));
+            MissionWeatherCheck weather = new MissionWeatherCheck();
+            weather.setSafeToFly(true);
+            weather.setCheckedAt(Instant.now());
+            when(missionWeatherCheckRepository.findFirstByMissionIdOrderByCreatedAtDesc("m-7"))
+                    .thenReturn(Optional.of(weather));
+            when(missionDeviceAssignmentRepository.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc("m-7"))
+                    .thenReturn(List.of(mda));
             when(missionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(deviceRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
             MissionResponse result = missionService.startMission("m-7");
 
-            assertThat(result.getStatus()).isEqualTo(MissionStatus.IN_FLIGHT);
+            assertThat(result.getStatus()).isEqualTo(MissionStatus.IN_PROGRESS);
             assertThat(mission.getActualStartAt()).isNotNull();
-            assertThat(token.isUsed()).isTrue();
+            assertThat(device.getStatus()).isEqualTo(DeviceStatus.ACTIVE_MISSION);
         }
     }
 
@@ -1077,8 +997,8 @@ class MissionServiceTest {
         }
 
         @Test
-        @DisplayName("5. failMission cannot bypass safe-stop for an airborne mission")
-        void failMission_airborneRequiresSafeStopWithoutReleasingResources() {
+        @DisplayName("5. failMission rejects an airborne mission")
+        void failMission_airborneMissionMustCloseFlightOperationsFirst() {
             Mission mission = buildMission("m-9", MissionStatus.IN_FLIGHT);
             Device device = buildDevice("DEV-01", DeviceStatus.ACTIVE_MISSION);
             MissionDeviceAssignment mda = new MissionDeviceAssignment();
@@ -1092,7 +1012,7 @@ class MissionServiceTest {
 
             assertThatThrownBy(() -> missionService.failMission("m-9", "GPS lost"))
                     .isInstanceOf(ApiException.class).extracting(e -> ((ApiException)e).getErrorCode())
-                    .isEqualTo(com.ondemandmonitoring.common.exception.ErrorCode.MISSION_CANCELLATION_REQUIRES_SAFE_STOP);
+                    .isEqualTo(com.ondemandmonitoring.common.exception.ErrorCode.MISSION_STATUS_INVALID);
             assertThat(mission.getStatus()).isEqualTo(MissionStatus.IN_FLIGHT);
             assertThat(device.getStatus()).isEqualTo(DeviceStatus.ACTIVE_MISSION);
             verify(resourceTimeLockRepository,never()).saveAllAndFlush(anyIterable());
@@ -1211,7 +1131,7 @@ class MissionServiceTest {
         m.setId(id);
         m.setMissionCode("MC-" + id);
         m.setStatus(status);
-        m.setFlightPermitStatus(FlightPermitStatus.APPROVED);
+        FlightPermit.pendingFor(m).setStatus(FlightPermitStatus.APPROVED);
         var order = new com.ondemandmonitoring.order.domain.Order(); order.setId("order-" + id);
         order.setOrderStatus(com.ondemandmonitoring.order.enums.OrderStatus.APPROVED);
         order.setExecutionPlanStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);

@@ -119,10 +119,26 @@ class OrderChecklistSnapshotServiceTest {
         assertEquals("Check exits", c1.getContent());
         verify(definitions, never()).save(any());
     }
-    @Test void emptyListIsExplicitEmptySnapshot() {
-        assertTrue(useCase.capture(order, List.of()).isEmpty());
-        assertNotNull(order.getChecklistSnapshotAt());
-        verify(definitions, never()).findByIdForUpdate(anyString());
+    @Test void emptySelectionIsRejectedWithoutPersistingSnapshot() {
+        assertThrows(ApiException.class, () -> useCase.capture(order, List.of()));
+        assertNull(order.getChecklistSnapshotAt());
+        verify(snapshots, never()).saveAllAndFlush(any());
+    }
+    @Test void emptyDefaultTemplateIsRejected() {
+        when(assignments.findTemplateChecklistIds("s1")).thenReturn(List.of());
+        assertThrows(ApiException.class, () -> useCase.capture(order, null));
+        verify(snapshots, never()).saveAllAndFlush(any());
+    }
+    @Test void inactiveOnlyDefaultTemplateIsRejected() {
+        c1.setIsActive(false);
+        c2.setIsActive(false);
+        assertThrows(ApiException.class, () -> useCase.capture(order, null));
+        verify(snapshots, never()).saveAllAndFlush(any());
+    }
+    @Test void customOnlySelectionIsAllowed() {
+        var result = useCase.capture(order, List.of(item(null, "Inspect customer area")));
+        assertEquals(1, result.size());
+        assertEquals(OrderChecklistSourceType.CUSTOMER_CUSTOM, result.getFirst().getSourceType());
     }
     @Test void rejectsForeignInactiveStaleAndDuplicateSource() {
         assertThrows(ApiException.class, () -> useCase.capture(order, List.of(item("foreign", null))));

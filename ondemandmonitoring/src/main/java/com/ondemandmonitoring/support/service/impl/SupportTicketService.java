@@ -13,6 +13,7 @@ import com.ondemandmonitoring.support.repository.SupportFaqArticleRepository;
 import com.ondemandmonitoring.support.repository.SupportFaqFeedbackRepository;
 import com.ondemandmonitoring.support.service.ISupportTicketService;
 import com.ondemandmonitoring.support.service.ISupportAuthorizationService;
+import com.ondemandmonitoring.support.enums.SupportTicketKind;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import com.ondemandmonitoring.user.service.IStaffDirectoryService;
 import com.ondemandmonitoring.user.domain.User;
@@ -41,14 +42,16 @@ public class SupportTicketService implements ISupportTicketService {
     private final AuthenticatedUserResolver currentUser;
     private final ISupportAuthorizationService authorization;
     private final IStaffDirectoryService staffDirectory;
+    private final com.ondemandmonitoring.delivery.repository.ResultRevisionCaseRepository revisionCases;
 
     @Override
     @Transactional
     @PreAuthorize("hasRole('CUSTOMER')")
     public SupportTicketDto createTicket(CreateSupportTicketRequest req) {
         User customer = currentUser.getCurrentUser();
-        long count = ticketRepository.count() + 1;
-        String ticketCode = String.format("TKT-2026-%04d", count);
+        // Random, high-entropy code generation is safe across concurrent app
+        // instances. The database unique constraint remains the final guard.
+        String ticketCode = generateTicketCode();
 
         SupportCustomerTicket ticket = new SupportCustomerTicket();
         ticket.setTicketCode(ticketCode);
@@ -79,6 +82,54 @@ public class SupportTicketService implements ISupportTicketService {
         }
 
         return mapToDto(saved);
+    }
+
+    /** Creates a structured result-review ticket within the caller's REQUIRED transaction. */
+    @Transactional
+    public SupportCustomerTicket createResultRevisionTicket(User customer, String orderId, String description) {
+        String ticketCode = generateTicketCode();
+        SupportCustomerTicket ticket = new SupportCustomerTicket();
+        ticket.setTicketCode(ticketCode);
+        ticket.setCustomerId(customer.getId());
+        ticket.setCustomerName(customer.getFullName());
+        ticket.setOrderId(orderId);
+        ticket.setMissionId(null);
+        ticket.setCategory("RESULTS");
+        ticket.setTicketKind(SupportTicketKind.RESULT_REVISION);
+        ticket.setSubject("Yêu cầu chỉnh sửa kết quả");
+        ticket.setDescription(description);
+        ticket.setPriority("NORMAL");
+        ticket.setStatus("OPEN");
+        ticket.setOpenedAt(Instant.now());
+        SupportCustomerTicket saved = ticketRepository.save(ticket);
+        return saved;
+    }
+
+    /** Checklist decisions hold the explanation; only the ticket status changes here. */
+    @Transactional
+    public void markResultRevisionAwaitingCustomer(String ticketId) {
+        SupportCustomerTicket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new ApiException(ErrorCode.SUPPORT_TICKET_NOT_FOUND));
+        if (ticket.getTicketKind() != SupportTicketKind.RESULT_REVISION)
+            throw new ApiException(ErrorCode.INVALID_REQUEST);
+        if ("OPEN".equals(ticket.getStatus()) || "ASSIGNED".equals(ticket.getStatus())) {
+            ticket.setStatus("WAITING_FOR_CUSTOMER");
+            ticketRepository.save(ticket);
+        }
+    }
+
+    /** Marks the support conversation resolved after every checklist item in its case is settled. */
+    @Transactional
+    public void resolveResultRevisionTicket(String ticketId, String resolutionNotes) {
+        SupportCustomerTicket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new ApiException(ErrorCode.SUPPORT_TICKET_NOT_FOUND));
+        if (ticket.getTicketKind() != SupportTicketKind.RESULT_REVISION)
+            throw new ApiException(ErrorCode.INVALID_REQUEST);
+        if ("RESOLVED".equalsIgnoreCase(ticket.getStatus()) || "CLOSED".equalsIgnoreCase(ticket.getStatus())) return;
+        ticket.setStatus("RESOLVED");
+        ticket.setResolvedAt(Instant.now());
+        ticket.setResolutionNotes(resolutionNotes);
+        ticketRepository.save(ticket);
     }
 
     @Override
@@ -115,6 +166,10 @@ public class SupportTicketService implements ISupportTicketService {
         SupportCustomerTicket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new ApiException(ErrorCode.SUPPORT_TICKET_NOT_FOUND, "Support ticket not found with ID: " + ticketId));
 
+        if (ticket.getTicketKind() == SupportTicketKind.RESULT_REVISION)
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "Result revision feedback must be submitted through checklist review");
+
         SupportCustomerMessage msg = new SupportCustomerMessage();
         msg.setTicketId(ticketId);
         User sender = currentUser.getCurrentUser();
@@ -146,6 +201,13 @@ public class SupportTicketService implements ISupportTicketService {
                 .orElseThrow(() -> new ApiException(ErrorCode.SUPPORT_TICKET_NOT_FOUND, "Support ticket not found with ID: " + ticketId));
 
         if (req.getStatus() != null && !req.getStatus().isBlank()) {
+            if (ticket.getTicketKind() == SupportTicketKind.RESULT_REVISION
+                    && ("RESOLVED".equalsIgnoreCase(req.getStatus()) || "CLOSED".equalsIgnoreCase(req.getStatus()))
+                    && revisionCases.findByTicketId(ticketId)
+                            .map(com.ondemandmonitoring.delivery.domain.ResultRevisionCase::isActive).orElse(false)) {
+                throw new ApiException(ErrorCode.INVALID_DELIVERY_STATE,
+                        "A result revision ticket can only be resolved after every checklist item is settled");
+            }
             ticket.setStatus(req.getStatus());
             if ("RESOLVED".equalsIgnoreCase(req.getStatus()) || "CLOSED".equalsIgnoreCase(req.getStatus())) {
                 ticket.setResolvedAt(Instant.now());
@@ -308,8 +370,10 @@ public class SupportTicketService implements ISupportTicketService {
     }
 
     private SupportTicketDto mapToDto(SupportCustomerTicket t) {
-        List<SupportCustomerMessage> messages = messageRepository.findByTicketIdOrderByCreatedAtAsc(t.getId());
-        List<SupportMessageDto> messageDtos = messages.stream().map(this::mapToMessageDto).toList();
+        List<SupportMessageDto> messageDtos = t.getTicketKind() == SupportTicketKind.RESULT_REVISION
+                ? List.of()
+                : messageRepository.findByTicketIdOrderByCreatedAtAsc(t.getId()).stream()
+                        .map(this::mapToMessageDto).toList();
 
         return SupportTicketDto.builder()
                 .id(t.getId())
@@ -319,6 +383,7 @@ public class SupportTicketService implements ISupportTicketService {
                 .orderId(t.getOrderId())
                 .missionId(t.getMissionId())
                 .category(t.getCategory())
+                .ticketKind(t.getTicketKind())
                 .subject(t.getSubject())
                 .description(t.getDescription())
                 .priority(t.getPriority())
@@ -343,5 +408,10 @@ public class SupportTicketService implements ISupportTicketService {
                 .attachmentUrl(m.getAttachmentUrl())
                 .createdAt(m.getCreatedAt())
                 .build();
+    }
+
+    private String generateTicketCode() {
+        return "TKT-" + java.time.Year.now(java.time.ZoneOffset.UTC).getValue()
+                + "-" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
     }
 }

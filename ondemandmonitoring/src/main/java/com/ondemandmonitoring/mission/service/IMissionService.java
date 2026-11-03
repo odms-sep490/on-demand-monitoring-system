@@ -31,6 +31,12 @@ public interface IMissionService {
 
     MissionResponse createAdditionalMission(String orderId, MissionCreateRequest request);
 
+    MissionResponse createResultRevisionReworkMission(String caseId,
+            com.ondemandmonitoring.mission.dto.request.CreateResultRevisionReworkMissionRequest request);
+
+    void finalizeReworkPlan(String caseId,
+            com.ondemandmonitoring.mission.dto.request.ExecutionPlanFinalizeRequest request);
+
     MissionResponse confirmMissionPlanning(String missionId);
 
     /** Opens resource confirmation for every Mission of an Order after final payment. */

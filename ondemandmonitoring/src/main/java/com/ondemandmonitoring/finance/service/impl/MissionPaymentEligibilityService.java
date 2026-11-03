@@ -102,6 +102,19 @@ public class MissionPaymentEligibilityService implements IMissionPaymentEligibil
 
     @Override
     @Transactional(readOnly = true)
+    public boolean isOriginalFinalPaymentConfirmed(Invoice invoice) {
+        if (invoice == null || invoice.getOrder() == null || invoice.getStatus() != InvoiceStatus.PAID
+                || invoice.getRemainingAmount() == null || invoice.getRemainingAmount().signum() != 0
+                || !isDepositSatisfied(invoice) || invoice.getQuote() == null
+                || invoice.getQuote().getStatus() != QuoteStatus.ACCEPTED_BY_CUSTOMER
+                || invoice.getOrder().getExecutionPlan().getStatus() != ExecutionPlanStatus.FINALIZED
+                || !isLegalReady(invoice.getOrder().getFlightAreaReview().getLegalReviewStatus())) return false;
+        return payments.existsByInvoiceIdAndPaymentTypeAndStatus(
+                invoice.getId(), PaymentType.FINAL_PAYMENT, PaymentStatus.SUCCESS);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public boolean hasActiveFinalPayment(String orderId) {
         return invoices.findByOrderId(orderId).map(invoice -> payments
                 .findFirstByInvoiceIdAndPaymentTypeAndProviderAndStatusInOrderByCreatedAtDesc(

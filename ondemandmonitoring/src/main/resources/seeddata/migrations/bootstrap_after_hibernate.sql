@@ -307,4 +307,305 @@ DO $$ DECLARE entry record; actual text; expected text; BEGIN
 END $$;
 CREATE INDEX IF NOT EXISTS ix_media_orphan_cleanup ON public.drone_media(orphan_cleanup_requested_at, id)
     WHERE orphan_cleanup_requested_at IS NOT NULL AND storage_status <> 'DELETED';
+
+-- SECTION 6: Current order checklist revisions (fresh schema, no historical backfill).
+-- Adds optimistic revision tracking and versioned snapshots for customer order checklist updates.
+ALTER TABLE orders
+    ADD COLUMN IF NOT EXISTS checklist_revision BIGINT NOT NULL DEFAULT 0;
+
+
+ALTER TABLE order_checklist_items
+    ADD COLUMN IF NOT EXISTS checklist_revision BIGINT NOT NULL DEFAULT 1;
+
+
+ALTER TABLE order_checklist_items
+    DROP CONSTRAINT IF EXISTS uk_order_checklist_source;
+
+ALTER TABLE order_checklist_items
+    ADD CONSTRAINT uk_order_checklist_source UNIQUE (order_id, checklist_revision, source_checklist_id);
+
+CREATE INDEX IF NOT EXISTS ix_order_checklist_order_rev
+    ON order_checklist_items (order_id, checklist_revision, display_order, id);
+
+CREATE TABLE IF NOT EXISTS order_checklist_revisions (
+    id VARCHAR(255) PRIMARY KEY,
+    order_id VARCHAR(255) NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    revision BIGINT NOT NULL,
+    actor_id VARCHAR(255) REFERENCES users(id),
+    change_summary VARCHAR(2000) NOT NULL,
+    payload_fingerprint VARCHAR(128),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uk_order_checklist_revision UNIQUE (order_id, revision)
+);
+
+CREATE INDEX IF NOT EXISTS ix_order_checklist_revision_order
+    ON order_checklist_revisions (order_id, revision);
+
+
+ALTER TABLE quotes
+    ADD COLUMN IF NOT EXISTS checklist_revision BIGINT NOT NULL DEFAULT 1;
+
+-- SECTION 7: Customer-requested checklist guidance.
+-- Additive, rerunnable foundation only. Historical catalog snapshots and quotes stay unchanged.
+ALTER TABLE order_checklist_items
+    ADD COLUMN IF NOT EXISTS custom_guidance JSONB,
+    ADD COLUMN IF NOT EXISTS guidance_version BIGINT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS guidance_confirmed_version BIGINT,
+    ADD COLUMN IF NOT EXISTS guidance_updated_by VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS guidance_updated_at TIMESTAMPTZ;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_order_checklist_guidance_updated_by'
+          AND conrelid = 'order_checklist_items'::regclass
+    ) THEN
+        ALTER TABLE order_checklist_items
+            ADD CONSTRAINT fk_order_checklist_guidance_updated_by
+            FOREIGN KEY (guidance_updated_by) REFERENCES users(id);
+    END IF;
+END $$;
+
+ALTER TABLE quotes
+    ADD COLUMN IF NOT EXISTS checklist_guidance_snapshot JSONB;
+
+-- SECTION 8: Customer result review persistence.
+-- Additive persistence foundation for customer review rounds and structured revision requests.
+ALTER TABLE order_deliveries
+    ADD COLUMN IF NOT EXISTS current_review_round_id VARCHAR(255);
+
+ALTER TABLE support_customer_tickets
+    ADD COLUMN IF NOT EXISTS ticket_kind VARCHAR(40) NOT NULL DEFAULT 'GENERAL';
+
+CREATE TABLE IF NOT EXISTS result_review_rounds (
+    id VARCHAR(255) PRIMARY KEY,
+    order_id VARCHAR(255) NOT NULL REFERENCES orders(id),
+    delivery_id VARCHAR(255) NOT NULL REFERENCES order_deliveries(id),
+    round_number INTEGER NOT NULL CHECK (round_number > 0),
+    checklist_revision BIGINT NOT NULL,
+    published_at TIMESTAMPTZ NOT NULL,
+    published_by VARCHAR(255) REFERENCES users(id),
+    schema_version INTEGER NOT NULL DEFAULT 1 CHECK (schema_version > 0),
+    status VARCHAR(40) NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN','REVISION_REQUESTED','ACCEPTED','SUPERSEDED')),
+    published_payload JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ,
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_result_review_round_order_number UNIQUE (order_id, round_number)
+);
+CREATE INDEX IF NOT EXISTS ix_result_review_round_order_number ON result_review_rounds(order_id, round_number DESC);
+
+-- The FK is installed after table creation to keep fresh and existing databases compatible.
+DO $$ BEGIN
+    ALTER TABLE order_deliveries ADD CONSTRAINT fk_order_delivery_current_review_round
+        FOREIGN KEY (current_review_round_id) REFERENCES result_review_rounds(id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE TABLE IF NOT EXISTS result_review_round_items (
+    id VARCHAR(255) PRIMARY KEY,
+    round_id VARCHAR(255) NOT NULL REFERENCES result_review_rounds(id),
+    order_checklist_item_id VARCHAR(255) NOT NULL REFERENCES order_checklist_items(id),
+    content_snapshot VARCHAR(500) NOT NULL,
+    evidence_policy_snapshot JSONB,
+    guidance_snapshot JSONB,
+    display_order INTEGER NOT NULL CHECK (display_order >= 0),
+    execution_id VARCHAR(255),
+    mission_id VARCHAR(255),
+    mission_result_id VARCHAR(255),
+    result_version VARCHAR(255),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ, version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_result_review_round_item_checklist UNIQUE (round_id, order_checklist_item_id)
+);
+CREATE INDEX IF NOT EXISTS ix_result_review_round_item_order ON result_review_round_items(round_id, display_order);
+
+CREATE TABLE IF NOT EXISTS result_review_round_evidence (
+    id VARCHAR(255) PRIMARY KEY,
+    round_item_id VARCHAR(255) NOT NULL REFERENCES result_review_round_items(id),
+    media_asset_id VARCHAR(255) NOT NULL REFERENCES drone_media(id),
+    execution_id VARCHAR(255), evidence_id VARCHAR(255), file_name_snapshot VARCHAR(1000),
+    media_type_snapshot VARCHAR(100), captured_at_snapshot TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ, version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_result_review_round_evidence_media UNIQUE (round_item_id, media_asset_id)
+);
+CREATE INDEX IF NOT EXISTS ix_result_review_round_evidence_item_media ON result_review_round_evidence(round_item_id, media_asset_id);
+
+CREATE TABLE IF NOT EXISTS result_revision_requests (
+    id VARCHAR(255) PRIMARY KEY,
+    round_id VARCHAR(255) NOT NULL REFERENCES result_review_rounds(id),
+    order_id VARCHAR(255) NOT NULL REFERENCES orders(id),
+    customer_id VARCHAR(255) NOT NULL REFERENCES users(id),
+    ticket_id VARCHAR(255) NOT NULL REFERENCES support_customer_tickets(id),
+    client_request_id UUID NOT NULL,
+    payload_fingerprint VARCHAR(128) NOT NULL,
+    general_note VARCHAR(2000), submitted_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ, version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_result_revision_request_round UNIQUE (round_id),
+    CONSTRAINT uk_result_revision_request_customer_key UNIQUE (customer_id, client_request_id)
+);
+CREATE INDEX IF NOT EXISTS ix_result_revision_request_order_submitted ON result_revision_requests(order_id, submitted_at DESC);
+
+CREATE TABLE IF NOT EXISTS result_revision_request_items (
+    id VARCHAR(255) PRIMARY KEY,
+    request_id VARCHAR(255) NOT NULL REFERENCES result_revision_requests(id),
+    round_item_id VARCHAR(255) NOT NULL REFERENCES result_review_round_items(id),
+    reason_code VARCHAR(40) NOT NULL CHECK (reason_code IN ('MISSING_EVIDENCE','POOR_QUALITY','WRONG_LOCATION','REQUIREMENT_NOT_MET','OTHER')),
+    note VARCHAR(2000) NOT NULL, display_order INTEGER NOT NULL CHECK (display_order >= 0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ, version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_result_revision_request_item_round_item UNIQUE (request_id, round_item_id)
+);
+CREATE INDEX IF NOT EXISTS ix_result_revision_request_item_order ON result_revision_request_items(request_id, display_order);
+
+CREATE TABLE IF NOT EXISTS result_revision_request_item_media (
+    id VARCHAR(255) PRIMARY KEY,
+    request_item_id VARCHAR(255) NOT NULL REFERENCES result_revision_request_items(id),
+    round_evidence_id VARCHAR(255) NOT NULL REFERENCES result_review_round_evidence(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ, version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_result_revision_request_item_media_pair UNIQUE (request_item_id, round_evidence_id)
+);
+CREATE INDEX IF NOT EXISTS ix_result_revision_request_item_media_evidence ON result_revision_request_item_media(round_evidence_id);
+CREATE INDEX IF NOT EXISTS ix_support_customer_ticket_kind_status_opened
+    ON support_customer_tickets(ticket_kind, status, opened_at);
+-- END CUSTOMER RESULT REVIEW
+
+-- SECTION 9: Continuous result-revision case and auditable Manager decisions.
+CREATE TABLE IF NOT EXISTS checklist_delivery_drafts (
+    id VARCHAR(255) PRIMARY KEY,
+    order_id VARCHAR(255) NOT NULL UNIQUE REFERENCES orders(id) ON DELETE CASCADE,
+    case_id VARCHAR(255),
+    base_review_round_id VARCHAR(255),
+    expected_delivery_version BIGINT,
+    notes VARCHAR(2000),
+    checklist_operations JSONB NOT NULL DEFAULT '[]'::jsonb,
+    updated_by VARCHAR(255) NOT NULL REFERENCES users(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ, version BIGINT NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ix_checklist_delivery_draft_case ON checklist_delivery_drafts(case_id);
+
+ALTER TABLE order_deliveries ADD COLUMN IF NOT EXISTS last_checklist_publish_request_id UUID;
+ALTER TABLE order_deliveries ADD COLUMN IF NOT EXISTS last_checklist_publish_fingerprint VARCHAR(128);
+ALTER TABLE result_review_round_items ADD COLUMN IF NOT EXISTS changed_in_round BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE result_review_round_evidence ADD COLUMN IF NOT EXISTS source_round_evidence_id VARCHAR(255);
+ALTER TABLE result_review_round_evidence ADD COLUMN IF NOT EXISTS supersedes_round_evidence_id VARCHAR(255);
+ALTER TABLE result_review_round_evidence ADD COLUMN IF NOT EXISTS change_type VARCHAR(30) NOT NULL DEFAULT 'INITIAL'
+    CHECK (change_type IN ('INITIAL','RETAINED','ADDED','REPLACEMENT'));
+
+CREATE TABLE IF NOT EXISTS result_revision_cases (
+    id VARCHAR(255) PRIMARY KEY,
+    order_id VARCHAR(255) NOT NULL REFERENCES orders(id),
+    ticket_id VARCHAR(255) NOT NULL UNIQUE REFERENCES support_customer_tickets(id),
+    status VARCHAR(30) NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN','CLOSED')),
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    opened_at TIMESTAMPTZ NOT NULL,
+    closed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ, version BIGINT NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_result_revision_case_active_order
+    ON result_revision_cases(order_id) WHERE active;
+CREATE INDEX IF NOT EXISTS ix_result_revision_case_order_active
+    ON result_revision_cases(order_id, active);
+
+CREATE TABLE IF NOT EXISTS result_revision_case_items (
+    id VARCHAR(255) PRIMARY KEY,
+    case_id VARCHAR(255) NOT NULL REFERENCES result_revision_cases(id),
+    order_checklist_item_id VARCHAR(255) NOT NULL REFERENCES order_checklist_items(id),
+    scope_decision VARCHAR(30) NOT NULL DEFAULT 'PENDING' CHECK (scope_decision IN ('PENDING','IN_SCOPE','OUT_OF_SCOPE')),
+    strategy VARCHAR(30) NOT NULL DEFAULT 'UNDECIDED' CHECK (strategy IN ('UNDECIDED','RESERVE_MEDIA','REWORK')),
+    status VARCHAR(40) NOT NULL DEFAULT 'NEEDS_TRIAGE' CHECK (status IN ('NEEDS_TRIAGE','IN_PROGRESS','WAITING_CUSTOMER','RESOLVED','OUT_OF_SCOPE_RESPONDED')),
+    scope_reason VARCHAR(2000), manager_instructions VARCHAR(2000),
+    scope_decided_by VARCHAR(255), scope_decided_at TIMESTAMPTZ,
+    assigned_rework_mission_id VARCHAR(255), out_of_scope_notification_key UUID,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ, version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_result_revision_case_checklist UNIQUE (case_id, order_checklist_item_id)
+);
+CREATE INDEX IF NOT EXISTS ix_result_revision_case_item_status ON result_revision_case_items(case_id, status);
+ALTER TABLE result_revision_case_items ADD COLUMN IF NOT EXISTS source_mission_id VARCHAR(255);
+ALTER TABLE result_revision_case_items ADD COLUMN IF NOT EXISTS out_of_scope_acknowledged_by VARCHAR(255);
+ALTER TABLE result_revision_case_items ADD COLUMN IF NOT EXISTS out_of_scope_acknowledged_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS mission_rework_checklist_contexts (
+    id VARCHAR(255) PRIMARY KEY,
+    mission_id VARCHAR(255) NOT NULL REFERENCES missions(id) ON DELETE RESTRICT,
+    case_item_id VARCHAR(255) NOT NULL REFERENCES result_revision_case_items(id) ON DELETE RESTRICT,
+    order_checklist_item_id_snapshot VARCHAR(255) NOT NULL,
+    checklist_title_snapshot VARCHAR(500) NOT NULL,
+    manager_instructions_snapshot VARCHAR(2000),
+    source_feedback_item_ids JSONB NOT NULL,
+    guidance_snapshot JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ, version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_mission_rework_context_item UNIQUE (mission_id, case_item_id)
+);
+CREATE INDEX IF NOT EXISTS ix_mission_rework_context_mission
+    ON mission_rework_checklist_contexts(mission_id, created_at);
+ALTER TABLE result_revision_case_items DROP CONSTRAINT IF EXISTS result_revision_case_items_status_check;
+ALTER TABLE result_revision_case_items DROP CONSTRAINT IF EXISTS ck_result_revision_case_item_status;
+ALTER TABLE result_revision_case_items ADD CONSTRAINT ck_result_revision_case_item_status
+    CHECK (status IN ('NEEDS_TRIAGE','IN_PROGRESS','WAITING_CUSTOMER','RESOLVED','OUT_OF_SCOPE_RESPONDED','OUT_OF_SCOPE_ACKNOWLEDGED'));
+
+CREATE TABLE IF NOT EXISTS result_revision_media_holds (
+    id VARCHAR(255) PRIMARY KEY,
+    case_id VARCHAR(255) NOT NULL REFERENCES result_revision_cases(id) ON DELETE RESTRICT,
+    media_asset_id VARCHAR(255) NOT NULL REFERENCES drone_media(id) ON DELETE RESTRICT,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ, version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_result_revision_media_hold UNIQUE (case_id, media_asset_id)
+);
+CREATE INDEX IF NOT EXISTS ix_result_revision_media_hold_media_expiry
+    ON result_revision_media_holds(media_asset_id, expires_at);
+
+CREATE TABLE IF NOT EXISTS result_revision_case_decisions (
+    id VARCHAR(255) PRIMARY KEY,
+    case_item_id VARCHAR(255) NOT NULL REFERENCES result_revision_case_items(id),
+    scope_decision VARCHAR(30) NOT NULL CHECK (scope_decision IN ('IN_SCOPE','OUT_OF_SCOPE')),
+    strategy VARCHAR(30) NOT NULL CHECK (strategy IN ('UNDECIDED','RESERVE_MEDIA','REWORK')),
+    reason VARCHAR(2000) NOT NULL, manager_instructions VARCHAR(2000),
+    decided_by VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ, version BIGINT NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ix_result_revision_decision_item_time
+    ON result_revision_case_decisions(case_item_id, created_at);
+
+ALTER TABLE missions ADD COLUMN IF NOT EXISTS mission_purpose VARCHAR(20) NOT NULL DEFAULT 'ORIGINAL'
+    CHECK (mission_purpose IN ('ORIGINAL','REWORK'));
+ALTER TABLE missions ADD COLUMN IF NOT EXISTS result_revision_case_id VARCHAR(255);
+ALTER TABLE missions ADD COLUMN IF NOT EXISTS rework_request_id UUID;
+ALTER TABLE missions ADD COLUMN IF NOT EXISTS rework_request_fingerprint VARCHAR(64);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_mission_rework_request
+    ON missions(rework_request_id) WHERE rework_request_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_mission_result_revision_case
+    ON missions(result_revision_case_id, mission_purpose);
+DO $$ BEGIN
+    ALTER TABLE missions ADD CONSTRAINT fk_mission_result_revision_case
+        FOREIGN KEY (result_revision_case_id) REFERENCES result_revision_cases(id) ON DELETE RESTRICT;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER TABLE result_revision_case_items ADD CONSTRAINT fk_case_item_source_mission
+        FOREIGN KEY (source_mission_id) REFERENCES missions(id) ON DELETE RESTRICT;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+ALTER TABLE result_revision_requests ADD COLUMN IF NOT EXISTS case_id VARCHAR(255);
+DO $$ BEGIN
+    ALTER TABLE result_revision_requests ADD CONSTRAINT fk_result_revision_request_case
+        FOREIGN KEY (case_id) REFERENCES result_revision_cases(id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+ALTER TABLE result_revision_requests DROP CONSTRAINT IF EXISTS uk_result_revision_request_ticket;
+CREATE INDEX IF NOT EXISTS ix_result_revision_request_case_submitted
+    ON result_revision_requests(case_id, submitted_at DESC);
+
+ALTER TABLE result_revision_request_items ADD COLUMN IF NOT EXISTS case_item_id VARCHAR(255);
+DO $$ BEGIN
+    ALTER TABLE result_revision_request_items ADD CONSTRAINT fk_result_revision_request_case_item
+        FOREIGN KEY (case_item_id) REFERENCES result_revision_case_items(id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+CREATE INDEX IF NOT EXISTS ix_result_revision_request_case_item
+    ON result_revision_request_items(case_item_id, created_at);
+
+-- END RESULT REVISION CASE
+
 COMMIT;

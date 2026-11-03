@@ -14,6 +14,9 @@ public interface IMissionPaymentEligibilityService {
     /** True only after an authoritative successful final-payment transaction fully settled the invoice. */
     boolean isFinalPaymentConfirmed(Invoice invoice);
 
+    /** Confirms that the original Order was fully paid, independent of its current completion state. */
+    boolean isOriginalFinalPaymentConfirmed(Invoice invoice);
+
     /** Resource mutations must not race an in-flight final payment. */
     boolean hasActiveFinalPayment(String orderId);
 

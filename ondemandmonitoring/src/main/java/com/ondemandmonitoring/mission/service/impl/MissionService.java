@@ -36,6 +36,7 @@ import com.ondemandmonitoring.mission.service.IDeviceConnectionService;
 import com.ondemandmonitoring.mission.service.IMissionResultService;
 import com.ondemandmonitoring.mission.service.IMissionChecklistExecutionService;
 import com.ondemandmonitoring.mission.service.IMissionChecklistMaterializationService;
+import com.ondemandmonitoring.mission.service.IMissionReworkContextSnapshotService;
 import com.ondemandmonitoring.mission.service.IMissionService;
 import com.ondemandmonitoring.flightpermit.service.IFlightPermitService;
 import com.ondemandmonitoring.flightpermit.domain.FlightPermit;
@@ -77,6 +78,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.concurrent.ThreadLocalRandom;
 
 import com.ondemandmonitoring.device.domain.MaintenanceTicket;
@@ -135,6 +138,8 @@ public class MissionService implements IMissionService {
     IMissionChecklistExecutionService checklistExecutionService;
 
     IMissionChecklistMaterializationService checklistMaterializationService;
+    @Autowired @NonFinal
+    IMissionReworkContextSnapshotService reworkContextSnapshots;
     com.ondemandmonitoring.mission.service.IMissionChecklistAssignmentService checklistAssignmentService;
     com.ondemandmonitoring.mission.service.IResourceReservationService resources;
     DeviceTelemetryRepository telemetryRepository;
@@ -146,6 +151,10 @@ public class MissionService implements IMissionService {
     MissionChecklistExecutionRepository missionChecklistExecutionRepository;
     @Autowired @NonFinal
     IFinalPaymentNotificationService finalPaymentNotifications;
+    @Autowired @NonFinal
+    com.ondemandmonitoring.delivery.repository.ResultRevisionCaseRepository resultRevisionCases;
+    @Autowired @NonFinal
+    com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository resultRevisionCaseItems;
     // =========================================================================
     // Query Methods
     // =========================================================================
@@ -178,6 +187,11 @@ public class MissionService implements IMissionService {
                     "The new mission schedule must start and end on the same day");
         }
 
+        if (mission.getPurpose() == MissionPurpose.REWORK
+                && request.scope() == MissionRescheduleScope.ORDER_AND_MISSION) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "Reschedule the rework Mission without changing the original Order preferences");
+        }
         if (request.scope() == MissionRescheduleScope.ORDER_AND_MISSION) {
             if (request.orderPreferredDateFrom() == null || request.orderPreferredDateTo() == null
                     || request.orderPreferredTimeId() == null || request.orderPreferredTimeId().isBlank()) {
@@ -205,7 +219,7 @@ public class MissionService implements IMissionService {
             }
         }
 
-        validatePlanningSchedule(newStart, newEnd, order);
+        validatePlanningSchedule(newStart, newEnd, order, mission.getPurpose());
         resources.revalidateSchedule(mission, newStart, newEnd);
         mission.setScheduledStartAt(newStart);
         mission.setScheduledEndAt(newEnd);
@@ -276,6 +290,96 @@ public class MissionService implements IMissionService {
     public MissionResponse createAdditionalMission(String orderId, MissionCreateRequest request) {
         return createMissionInternal(orderId, request, true);
     }
+
+    @Override
+    @Transactional
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public MissionResponse createResultRevisionReworkMission(String caseId,
+            CreateResultRevisionReworkMissionRequest request) {
+        if (request == null || request.clientRequestId() == null || request.caseItemIds() == null
+                || request.caseItemIds().isEmpty() || request.caseItemIds().size() > 100)
+            throw new ApiException(ErrorCode.INVALID_REQUEST);
+        var caseSnapshot = resultRevisionCases.findById(caseId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        Order order = orderRepository.findByIdForUpdate(caseSnapshot.getOrder().getId())
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        var revisionCase = resultRevisionCases.findByIdForUpdate(caseId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        String fingerprint = reworkFingerprint(caseId, request);
+        var replay = missionRepository.findByReworkRequestId(request.clientRequestId());
+        if (replay.isPresent()) {
+            Mission prior = replay.get();
+            if (!MissionPurpose.REWORK.equals(prior.getPurpose()) || !caseId.equals(prior.getResultRevisionCaseId())
+                    || !fingerprint.equals(prior.getReworkRequestFingerprint()))
+                throw new ApiException(ErrorCode.IDEMPOTENCY_KEY_REUSED);
+            return missionMapper.toResponse(prior);
+        }
+        if (!revisionCase.isActive()
+                || revisionCase.getStatus() != com.ondemandmonitoring.delivery.enums.ResultRevisionCaseStatus.OPEN
+                || !java.util.Objects.equals(revisionCase.getVersion(), request.expectedCaseVersion()))
+            throw new ApiException(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED);
+
+        if (!order.getId().equals(revisionCase.getOrder().getId()))
+            throw new ApiException(ErrorCode.RESOURCE_NOT_FOUND);
+        if (order.getOrderStatus() != OrderStatus.COMPLETED
+                || order.getExecutionPlan().getStatus() != ExecutionPlanStatus.FINALIZED)
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Rework is only available for a completed Order");
+        var invoice = invoiceRepository.findByOrderId(order.getId())
+                .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
+        if (!missionPaymentEligibilityService.isOriginalFinalPaymentConfirmed(invoice))
+            throw new ApiException(ErrorCode.INVOICE_NOT_PAID,
+                    "The original Order must be fully paid before a rework Mission can be created");
+
+        var requestedIds = new java.util.LinkedHashSet<>(request.caseItemIds());
+        if (requestedIds.size() != request.caseItemIds().size())
+            throw new ApiException(ErrorCode.CHECKLIST_ASSIGNMENT_DUPLICATE);
+        var caseItems = resultRevisionCaseItems.findByResultRevisionCaseIdAndIdInOrderByCreatedAtAsc(caseId, requestedIds);
+        if (caseItems.size() != requestedIds.size()) throw new ApiException(ErrorCode.RESOURCE_NOT_FOUND);
+        for (var item : caseItems) {
+            if (item.getScopeDecision() != com.ondemandmonitoring.delivery.enums.ResultRevisionScope.IN_SCOPE
+                    || item.getStrategy() != com.ondemandmonitoring.delivery.enums.ResultRevisionStrategy.REWORK
+                    || item.getStatus() != com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.IN_PROGRESS)
+                throw new ApiException(ErrorCode.INVALID_REQUEST,
+                        "Every selected checklist item must be in scope and approved for rework");
+            if (item.getAssignedReworkMissionId() != null) {
+                Mission previous = missionRepository.findById(item.getAssignedReworkMissionId()).orElse(null);
+                if (previous != null && !Set.of(MissionStatus.FAILED, MissionStatus.CANCELLED)
+                        .contains(previous.getStatus()))
+                    throw new ApiException(ErrorCode.INVALID_DELIVERY_STATE,
+                            "The previous rework Mission must be reviewed before another attempt can be created");
+            }
+        }
+
+        validatePlanningSchedule(request.scheduledStartAt(), request.scheduledEndAt(), order, MissionPurpose.REWORK);
+        String scopeLabel = Normalizer.normalize(request.scopeLabel().strip().replaceAll("\\s+", " "), Normalizer.Form.NFC);
+        Mission mission = newPlanningMission(order, request.scheduledStartAt(), request.scheduledEndAt(),
+                scopeLabel, MissionPurpose.REWORK);
+        mission.setResultRevisionCaseId(caseId);
+        mission.setReworkRequestId(request.clientRequestId());
+        mission.setReworkRequestFingerprint(fingerprint);
+        Mission saved = missionRepository.saveAndFlush(mission);
+        caseItems.forEach(item -> {
+            item.setAssignedReworkMissionId(saved.getId());
+            item.setStatus(com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.IN_PROGRESS);
+        });
+        resultRevisionCaseItems.saveAllAndFlush(caseItems);
+        assignChecklist(saved, order, caseItems.stream()
+                .map(item -> item.getOrderChecklistItem().getId()).toList());
+        reworkContextSnapshots.capture(saved, caseItems);
+        return missionMapper.toResponse(saved);
+    }
+
+    private String reworkFingerprint(String caseId, CreateResultRevisionReworkMissionRequest request) {
+        try {
+            String canonical = caseId + "\\n" + request.expectedCaseVersion() + "\\n" + request.scopeLabel().strip()
+                    + "\\n" + request.scheduledStartAt() + "\\n" + request.scheduledEndAt() + "\\n"
+                    + request.caseItemIds().stream().sorted().collect(java.util.stream.Collectors.joining("\\n"));
+            return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(canonical.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception exception) {
+            throw new IllegalStateException("Unable to fingerprint rework Mission creation", exception);
+        }
+    }
     
     private MissionResponse createMissionInternal(String orderId, MissionCreateRequest request, boolean additional) {
         String scopeLabel = Normalizer.normalize(
@@ -300,17 +404,27 @@ public class MissionService implements IMissionService {
             throw new ApiException(ErrorCode.INVOICE_NOT_PAID,
                     "The required deposit must be paid before mission planning can begin");
         }
-        Mission mission = new Mission();
-        mission.setMissionCode(generateMissionCode());
-        mission.setStatus(MissionStatus.PLANNING);
-        mission.setOrder(order);
-        FlightPermit.pendingFor(mission);
-        mission.setScheduledStartAt(request.getScheduledStartAt()); mission.setScheduledEndAt(request.getScheduledEndAt());
-        mission.setScopeLabel(scopeLabel);
+        Mission mission = newPlanningMission(order, request.getScheduledStartAt(), request.getScheduledEndAt(),
+                scopeLabel, MissionPurpose.ORIGINAL);
         Mission saved = missionRepository.saveAndFlush(mission);
         assignChecklist(saved, order, request.getChecklistIds());
         // Planning creation never materializes executions; the canonical plan finalizer owns that boundary.
         return missionMapper.toResponse(saved);
+    }
+
+    /** Original and rework Missions share the same planning lifecycle and permit initialization. */
+    private Mission newPlanningMission(Order order, Instant scheduledStart, Instant scheduledEnd,
+            String scopeLabel, MissionPurpose purpose) {
+        Mission mission = new Mission();
+        mission.setMissionCode(generateMissionCode());
+        mission.setPurpose(purpose);
+        mission.setStatus(MissionStatus.PLANNING);
+        mission.setOrder(order);
+        FlightPermit.pendingFor(mission);
+        mission.setScheduledStartAt(scheduledStart);
+        mission.setScheduledEndAt(scheduledEnd);
+        mission.setScopeLabel(scopeLabel);
+        return mission;
     }
 
     @Override
@@ -321,6 +435,9 @@ public class MissionService implements IMissionService {
         var mission = getMissionForOrder(missionId, order);
         if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.FINALIZED)
             throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_FINALIZED);
+        if (mission.getPurpose() == MissionPurpose.REWORK)
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "Finalize the rework plan before proceeding to flight permits");
         requireOpenOrder(order);
         if (mission.getStatus() == MissionStatus.PENDING_PAYMENT) {
             return missionMapper.toResponse(mission);
@@ -336,27 +453,100 @@ public class MissionService implements IMissionService {
             throw new ApiException(ErrorCode.CHECKLIST_COVERAGE_INCOMPLETE);
         checklistMaterializationService.materialize(mission);
         mission.setStatus(MissionStatus.PENDING_PAYMENT);
-        missionStaffAssignmentRepository.findByMissionId(missionId).forEach(a -> {
-            if (a.getReleasedAt() == null) {
-                if (a.getResponseStatus() == MissionStaffAssignmentStatus.PLANNING) {
-                    a.setResponseStatus(MissionStaffAssignmentStatus.PENDING);
-                }
-                a.setIsCurrent(true);
-            }
-        });
-        missionDeviceAssignmentRepository.findByMissionId(missionId).forEach(a -> {
-            if (a.getReleasedAt() == null) {
-                if (a.getCheckupStatus() == MissionDeviceCheckStatus.PLANNING) {
-                    a.setCheckupStatus(MissionDeviceCheckStatus.PENDING);
-                }
-                a.setIsCurrent(true);
-            }
-        });
+        activateAssignedResources(missionId);
         order.getExecutionPlan().setRevision(order.getExecutionPlan().getRevision() + 1);
         orderRepository.saveAndFlush(order);
-        Mission saved = missionRepository.saveAndFlush(mission);
-        finalPaymentNotifications.notifyIfEligible(order.getId());
-        return missionMapper.toResponse(saved);
+        return missionMapper.toResponse(missionRepository.saveAndFlush(mission));
+    }
+
+    @Override
+    @Transactional
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public void finalizeReworkPlan(String caseId,
+            com.ondemandmonitoring.mission.dto.request.ExecutionPlanFinalizeRequest request) {
+        if (request == null || request.expectedPlanRevision() == null || request.expectedPlanRevision() < 0)
+            throw new ApiException(ErrorCode.INVALID_REQUEST);
+        var snapshot = resultRevisionCases.findById(caseId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        var order = orderRepository.findByIdForUpdate(snapshot.getOrder().getId())
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        var revisionCase = resultRevisionCases.findByIdForUpdate(caseId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        if (!revisionCase.isActive()
+                || revisionCase.getStatus() != com.ondemandmonitoring.delivery.enums.ResultRevisionCaseStatus.OPEN
+                || order.getOrderStatus() != OrderStatus.COMPLETED
+                || order.getExecutionPlan().getStatus() != ExecutionPlanStatus.FINALIZED)
+            throw new ApiException(ErrorCode.INVALID_DELIVERY_STATE);
+        if (order.getExecutionPlan().getRevision() != request.expectedPlanRevision())
+            throw new ApiException(ErrorCode.EXECUTION_PLAN_REVISION_CONFLICT);
+        var related = missionRepository.findAllByOrderIdForUpdateOrderById(order.getId()).stream()
+                .filter(m -> m.getPurpose() == MissionPurpose.REWORK && caseId.equals(m.getResultRevisionCaseId())
+                        && m.getStatus() != MissionStatus.FAILED && m.getStatus() != MissionStatus.CANCELLED)
+                .toList();
+        var caseItems = resultRevisionCaseItems.findByResultRevisionCaseIdOrderByCreatedAtAsc(caseId).stream()
+                .filter(item -> item.getScopeDecision() == com.ondemandmonitoring.delivery.enums.ResultRevisionScope.IN_SCOPE
+                        && item.getStrategy() == com.ondemandmonitoring.delivery.enums.ResultRevisionStrategy.REWORK)
+                .toList();
+        if (caseItems.isEmpty() || caseItems.stream().anyMatch(item -> item.getAssignedReworkMissionId() == null
+                || related.stream().noneMatch(m -> m.getId().equals(item.getAssignedReworkMissionId()))))
+            throw new ApiException(ErrorCode.CHECKLIST_COVERAGE_INCOMPLETE);
+        var drafts = related.stream().filter(m -> m.getStatus() == MissionStatus.PLANNING).toList();
+        if (drafts.isEmpty()) return;
+        // All confirmations share this transaction: one invalid Mission rolls back the entire plan.
+        for (var mission : drafts) finalizeReworkMission(order, mission);
+    }
+
+    private MissionResponse finalizeReworkMission(Order order, Mission mission) {
+        if (order.getOrderStatus() != OrderStatus.COMPLETED || mission.getResultRevisionCaseId() == null)
+            throw new ApiException(ErrorCode.INVALID_DELIVERY_STATE);
+        if (mission.getStatus() == MissionStatus.PENDING_CONFIRMATION
+                || mission.getStatus() == MissionStatus.READY) return missionMapper.toResponse(mission);
+        if (mission.getStatus() != MissionStatus.PLANNING || mission.getCancellationAt() != null)
+            throw new ApiException(ErrorCode.MISSION_STATUS_INVALID);
+        var assigned = missionChecklistAssignmentRepository
+                .findByMissionIdAndRemovedAtIsNullOrderByDisplayOrderAscIdAsc(mission.getId());
+        if (assigned.isEmpty()) throw new ApiException(ErrorCode.CHECKLIST_COVERAGE_INCOMPLETE);
+        var linkedCaseItems = resultRevisionCaseItems
+                .findByResultRevisionCaseIdAndOrderChecklistItemIdInOrderByCreatedAtAsc(
+                        mission.getResultRevisionCaseId(), assigned.stream()
+                                .map(com.ondemandmonitoring.mission.domain.MissionChecklistAssignment::getOrderChecklistItemId).toList());
+        if (linkedCaseItems.size() != assigned.size() || linkedCaseItems.stream().anyMatch(item ->
+                item.getScopeDecision() != com.ondemandmonitoring.delivery.enums.ResultRevisionScope.IN_SCOPE
+                || item.getStrategy() != com.ondemandmonitoring.delivery.enums.ResultRevisionStrategy.REWORK
+                || !mission.getId().equals(item.getAssignedReworkMissionId())))
+            throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_INTEGRITY_INVALID);
+        requirePlanningReady(mission);
+        var invoice = invoiceRepository.findByOrderId(order.getId())
+                .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
+        if (!missionPaymentEligibilityService.isOriginalFinalPaymentConfirmed(invoice))
+            throw new ApiException(ErrorCode.INVOICE_NOT_PAID);
+        if (!missionPaymentEligibilityService.isResourceAssignmentReady(mission))
+            throw new ApiException(ErrorCode.FINAL_PAYMENT_NOT_ALLOWED,
+                    "Rework crew, equipment, schedule or resource reservations are no longer valid");
+
+        checklistMaterializationService.materialize(mission);
+        mission.setStatus(MissionStatus.PENDING_CONFIRMATION);
+        activateAssignedResources(mission.getId());
+        order.getExecutionPlan().setRevision(Math.addExact(order.getExecutionPlan().getRevision(), 1));
+        orderRepository.saveAndFlush(order);
+        return missionMapper.toResponse(missionRepository.saveAndFlush(mission));
+    }
+
+    private void activateAssignedResources(String missionId) {
+        missionStaffAssignmentRepository.findByMissionId(missionId).forEach(assignment -> {
+            if (assignment.getReleasedAt() == null) {
+                if (assignment.getResponseStatus() == MissionStaffAssignmentStatus.PLANNING)
+                    assignment.setResponseStatus(MissionStaffAssignmentStatus.PENDING);
+                assignment.setIsCurrent(true);
+            }
+        });
+        missionDeviceAssignmentRepository.findByMissionId(missionId).forEach(assignment -> {
+            if (assignment.getReleasedAt() == null) {
+                if (assignment.getCheckupStatus() == MissionDeviceCheckStatus.PLANNING)
+                    assignment.setCheckupStatus(MissionDeviceCheckStatus.PENDING);
+                assignment.setIsCurrent(true);
+            }
+        });
     }
 
     @Override
@@ -378,12 +568,18 @@ public class MissionService implements IMissionService {
                 MissionStatus.PENDING_CONFIRMATION, MissionStatus.READY, MissionStatus.IN_PROGRESS,
                 MissionStatus.AWAITING_REVIEW, MissionStatus.PENDING_REVIEW,
                 MissionStatus.COMPLETED, MissionStatus.FAILED, MissionStatus.CANCELLED);
-        missions.stream()
+        // Rework missions are created only after the original Order has been fully paid.
+        // A retried original-payment callback must never try to activate them through the
+        // original PENDING_PAYMENT transition.
+        List<Mission> originalMissions = missions.stream()
+                .filter(mission -> mission.getPurpose() != MissionPurpose.REWORK)
+                .toList();
+        originalMissions.stream()
                 .filter(mission -> mission.getStatus() != MissionStatus.PENDING_PAYMENT)
                 .filter(mission -> !alreadyActivatedOrTerminal.contains(mission.getStatus()))
                 .findFirst()
                 .ifPresent(mission -> requireStatus(mission, MissionStatus.PENDING_PAYMENT));
-        missions.stream()
+        originalMissions.stream()
                 .filter(mission -> mission.getStatus() == MissionStatus.PENDING_PAYMENT)
                 .filter(mission -> !missionPaymentEligibilityService.isResourceAssignmentReady(mission))
                 .findFirst()
@@ -391,10 +587,10 @@ public class MissionService implements IMissionService {
                     throw new ApiException(ErrorCode.FINAL_PAYMENT_NOT_ALLOWED,
                             "Mission resources must remain valid after final payment");
                 });
-        missions.stream()
+        originalMissions.stream()
                 .filter(mission -> mission.getStatus() == MissionStatus.PENDING_PAYMENT)
                 .forEach(mission -> mission.setStatus(MissionStatus.PENDING_CONFIRMATION));
-        return missionRepository.saveAllAndFlush(missions).stream()
+        return missionRepository.saveAllAndFlush(originalMissions).stream()
                 .map(missionMapper::toResponse)
                 .toList();
     }
@@ -547,6 +743,10 @@ public class MissionService implements IMissionService {
     }
 
     private void validatePlanningSchedule(Instant start, Instant end, Order order) {
+        validatePlanningSchedule(start, end, order, MissionPurpose.ORIGINAL);
+    }
+
+    private void validatePlanningSchedule(Instant start, Instant end, Order order, MissionPurpose purpose) {
         if (start == null || end == null) {
             throw new ApiException(ErrorCode.INVALID_REQUEST,
                     "Scheduled start time and scheduled end time must be specified");
@@ -564,6 +764,15 @@ public class MissionService implements IMissionService {
                     "Scheduled start time and scheduled end time must be on the same day");
         }
 
+        // Rework is arranged after the original results were reviewed. Its new
+        // schedule must not reuse the original Order's expired date/time window.
+        if (purpose == MissionPurpose.REWORK) {
+            if (!start.isAfter(Instant.now())) {
+                throw new ApiException(ErrorCode.INVALID_REQUEST,
+                        "The rework Mission must be scheduled in the future");
+            }
+            return;
+        }
         if (order != null) {
             if (order.getPreferredDateFrom() != null && startDate.isBefore(order.getPreferredDateFrom())) {
                 throw new ApiException(ErrorCode.INVALID_REQUEST,
@@ -1139,18 +1348,34 @@ public class MissionService implements IMissionService {
     public MissionResponse updateMission(String missionId, MissionUpdateRequest request) {
         String orderId = missionRepository.findOrderIdByMissionId(missionId)
                 .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
-        Order order = orderRepository.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-        Mission mission = missionRepository.findById(missionId).orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
+        Order order = orderRepository.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        Mission mission = missionRepository.findByIdForUpdate(missionId).orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
+        boolean rework = mission.getPurpose() == MissionPurpose.REWORK;
         if (!orderId.equals(mission.getOrder().getId())) throw new ApiException(ErrorCode.CHECKLIST_ASSIGNMENT_CROSS_ORDER);
         if ((order.getExecutionPlan().getStatus() != ExecutionPlanStatus.DRAFT
                 && order.getExecutionPlan().getStatus() != ExecutionPlanStatus.FINALIZED)
                 || mission.getStatus() != MissionStatus.PLANNING
-                || MissionRuntimeGate.isStructurallyFinalized(mission))
+                || (MissionRuntimeGate.isStructurallyFinalized(mission) && !rework))
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
                     "Only unfinalized planning Missions can be updated");
-        if (order.getOrderStatus() != OrderStatus.APPROVED && order.getOrderStatus() != OrderStatus.IN_PROGRESS)
+        if (!rework && order.getOrderStatus() != OrderStatus.APPROVED && order.getOrderStatus() != OrderStatus.IN_PROGRESS)
             throw new ApiException(ErrorCode.INVALID_REQUEST);
         if (request == null) throw new ApiException(ErrorCode.INVALID_REQUEST);
+        if (rework) {
+            if (mission.getResultRevisionCaseId() == null)
+                throw new ApiException(ErrorCode.INVALID_DELIVERY_STATE);
+            var revisionCase = resultRevisionCases.findById(mission.getResultRevisionCaseId())
+                    .filter(value -> value.isActive() && orderId.equals(value.getOrder().getId()))
+                    .orElseThrow(() -> new ApiException(ErrorCode.INVALID_DELIVERY_STATE));
+            if (order.getOrderStatus() != OrderStatus.COMPLETED
+                    || revisionCase.getStatus() != com.ondemandmonitoring.delivery.enums.ResultRevisionCaseStatus.OPEN
+                    || mission.getCancellationAt() != null
+                    || !missionChecklistExecutionRepository.findOrderedByMissionId(missionId).isEmpty())
+                throw new ApiException(ErrorCode.MISSION_PLANNING_ONLY);
+            if (request.getChecklistIds() != null)
+                throw new ApiException(ErrorCode.INVALID_REQUEST,
+                        "The approved rework checklist scope cannot be changed through schedule editing");
+        }
 
         Instant previousStart = mission.getScheduledStartAt();
         Instant previousEnd = mission.getScheduledEndAt();
@@ -1158,7 +1383,7 @@ public class MissionService implements IMissionService {
         Instant newStart = request.getScheduledStartAt() != null ? request.getScheduledStartAt() : previousStart;
         Instant newEnd = request.getScheduledEndAt() != null ? request.getScheduledEndAt() : previousEnd;
 
-        validateScheduledDates(newStart, newEnd, mission.getOrder());
+        validatePlanningSchedule(newStart, newEnd, mission.getOrder(), mission.getPurpose());
         resources.revalidateSchedule(mission, newStart, newEnd);
 
         mission.setScheduledStartAt(newStart);
@@ -1776,10 +2001,6 @@ public class MissionService implements IMissionService {
                 newDeviceStatus);
         Mission saved = missionRepository.save(mission);
         return missionMapper.toResponse(saved);
-    }
-
-    private void validateScheduledDates(Instant startAt, Instant endAt, Order order) {
-        validatePlanningSchedule(startAt, endAt, order);
     }
 
     private String generateMissionCode() {

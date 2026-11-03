@@ -16,6 +16,7 @@ public class SupportTicketDto {
     private String orderId;
     private String missionId;
     private String category;
+    private com.ondemandmonitoring.support.enums.SupportTicketKind ticketKind;
     private String subject;
     private String description;
     private String priority;

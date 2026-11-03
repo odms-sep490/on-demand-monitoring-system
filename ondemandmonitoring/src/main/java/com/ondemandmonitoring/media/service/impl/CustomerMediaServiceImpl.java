@@ -45,8 +45,9 @@ public class CustomerMediaServiceImpl implements ICustomerMediaService {
     @Transactional(readOnly = true)
     public CustomerMissionMediaStatusResponse getMissionMediaStatus(String missionId) {
         String canonicalId = missionAccess.authorizeCustomer(missionId);
+        var visibleIds = publishedMediaIds(List.of(canonicalId));
         return CustomerMissionMediaStatusResponse.builder()
-                .availableCount(media.countByMissionIdAndMediaStatus(canonicalId, MediaStatus.AVAILABLE))
+                .availableCount(visibleIds.size())
                 .processingCount(media.countByMissionIdAndMediaStatusIn(canonicalId, List.of(
                         MediaStatus.UPLOAD_PENDING, MediaStatus.UPLOADING, MediaStatus.VALIDATING,
                         MediaStatus.RETRY_REQUIRED, MediaStatus.MANUAL_UPLOAD_REQUIRED,
@@ -60,9 +61,11 @@ public class CustomerMediaServiceImpl implements ICustomerMediaService {
     public PageResponse<CustomerMediaResponse> listAvailablePage(String missionId, int page, int size) {
         String canonicalId = missionAccess.authorizeCustomer(missionId);
         boolean originalsAvailable = deliveredMissionIds(List.of(canonicalId)).contains(canonicalId);
+        var visibleIds = publishedMediaIds(List.of(canonicalId));
         var pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "capturedAt", "id"));
-        return PageResponse.from(media.findByMissionIdAndMediaStatus(
-                canonicalId, MediaStatus.AVAILABLE, pageable).map(asset -> toResponse(asset, originalsAvailable)));
+        if (visibleIds.isEmpty()) return PageResponse.from(org.springframework.data.domain.Page.empty(pageable));
+        return PageResponse.from(media.findByMissionIdAndIdInAndMediaStatus(
+                canonicalId, visibleIds, MediaStatus.AVAILABLE, pageable).map(asset -> toResponse(asset, originalsAvailable)));
     }
 
     @Override
@@ -70,7 +73,9 @@ public class CustomerMediaServiceImpl implements ICustomerMediaService {
     public CustomerMediaResponse getAvailableInMission(String missionId, String mediaId) {
         String canonicalId = missionAccess.authorizeCustomer(missionId);
         boolean originalsAvailable = deliveredMissionIds(List.of(canonicalId)).contains(canonicalId);
+        var visibleIds = publishedMediaIds(List.of(canonicalId));
         return media.findById(mediaId)
+                .filter(asset -> visibleIds.contains(asset.getId()))
                 .filter(asset -> canonicalId.equals(asset.getMissionId()))
                 .filter(asset -> asset.getMediaStatus() == MediaStatus.AVAILABLE)
                 .map(asset -> toResponse(asset, originalsAvailable))
@@ -82,7 +87,9 @@ public class CustomerMediaServiceImpl implements ICustomerMediaService {
     public List<CustomerMediaResponse> listAvailable(String missionId) {
         String canonicalId = missionAccess.authorizeCustomer(missionId);
         boolean originalsAvailable = deliveredMissionIds(List.of(canonicalId)).contains(canonicalId);
+        var visibleIds = publishedMediaIds(List.of(canonicalId));
         return media.findByMissionIdOrderByCapturedAtDesc(canonicalId).stream()
+                .filter(asset -> visibleIds.contains(asset.getId()))
                 .filter(asset -> asset.getMediaStatus() == MediaStatus.AVAILABLE)
                 .map(asset -> toResponse(asset, originalsAvailable)).toList();
     }
@@ -94,9 +101,11 @@ public class CustomerMediaServiceImpl implements ICustomerMediaService {
         if (missionIds.isEmpty())
             return List.of();
         var delivered = new java.util.HashSet<>(deliveredMissionIds(missionIds));
+        var visibleIds = publishedMediaIds(missionIds);
         return media.findByMissionIdInAndMediaStatusOrderByCapturedAtDesc(missionIds,
                 MediaStatus.AVAILABLE)
-                .stream().map(asset -> toResponse(asset, delivered.contains(asset.getMissionId()))).toList();
+                .stream().filter(asset -> visibleIds.contains(asset.getId()))
+                .map(asset -> toResponse(asset, delivered.contains(asset.getMissionId()))).toList();
     }
 
     @Override
@@ -105,6 +114,9 @@ public class CustomerMediaServiceImpl implements ICustomerMediaService {
         MediaAsset asset = media.findById(mediaId)
                 .orElseThrow(() -> new ApiException(ErrorCode.MEDIA_NOT_FOUND));
         missionAccess.authorizeCustomer(asset.getMissionId());
+        if (!publishedMediaIds(List.of(asset.getMissionId())).contains(asset.getId())) {
+            throw new ApiException(ErrorCode.MEDIA_NOT_FOUND);
+        }
         if (asset.getMediaStatus() != MediaStatus.AVAILABLE) {
             throw new ApiException(ErrorCode.MEDIA_NOT_FOUND);
         }
@@ -115,8 +127,10 @@ public class CustomerMediaServiceImpl implements ICustomerMediaService {
     @Transactional(readOnly = true)
     public List<CustomerMediaNotificationResponse> listNotifications(String missionId) {
         String canonicalId = missionAccess.authorizeCustomer(missionId);
+        var visibleIds = publishedMediaIds(List.of(canonicalId));
         return notifications.findByMedia_MissionIdOrderByCreatedAtDesc(canonicalId).stream()
                 .filter(event -> event.getMedia().getMediaStatus() == MediaStatus.AVAILABLE)
+                .filter(event -> visibleIds.contains(event.getMedia().getId()))
                 .map(mapper::toNotificationResponse)
                 .toList();
     }
@@ -127,8 +141,10 @@ public class CustomerMediaServiceImpl implements ICustomerMediaService {
         List<String> missionIds = ownMissionIds();
         if (missionIds.isEmpty())
             return List.of();
+        var visibleIds = publishedMediaIds(missionIds);
         return notifications.findByMedia_MissionIdInOrderByCreatedAtDesc(missionIds).stream()
                 .filter(event -> event.getMedia().getMediaStatus() == MediaStatus.AVAILABLE)
+                .filter(event -> visibleIds.contains(event.getMedia().getId()))
                 .map(mapper::toNotificationResponse)
                 .toList();
     }
@@ -143,6 +159,10 @@ public class CustomerMediaServiceImpl implements ICustomerMediaService {
         // rollback-only and causes UnexpectedRollbackException during commit.
         if (deliveryWorkflow == null) return missionIds;
         return deliveryWorkflow.originalAccessibleMissionIds(missionIds);
+    }
+
+    private java.util.Set<String> publishedMediaIds(List<String> missionIds) {
+        return deliveryWorkflow == null ? java.util.Set.of() : deliveryWorkflow.publishedMediaAssetIds(missionIds);
     }
 
     private CustomerMediaResponse toResponse(MediaAsset asset, boolean originalsAvailable) {

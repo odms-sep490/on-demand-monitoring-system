@@ -6,6 +6,7 @@ import com.ondemandmonitoring.mission.dto.request.ExecutionPlanFinalizeRequest;
 import com.ondemandmonitoring.mission.enums.*;
 import com.ondemandmonitoring.mission.repository.*;
 import com.ondemandmonitoring.mission.service.impl.*;
+import com.ondemandmonitoring.finance.service.IFinalPaymentNotificationService;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.domain.OrderChecklistItem;
 import com.ondemandmonitoring.order.enums.*;
@@ -26,10 +27,11 @@ class ExecutionPlanFinalizeTest {
     MissionStaffAssignmentRepository staff = mock(MissionStaffAssignmentRepository.class);
     MissionDeviceAssignmentRepository devices = mock(MissionDeviceAssignmentRepository.class);
     IMissionChecklistMaterializationService materializer = mock(IMissionChecklistMaterializationService.class);
+    IFinalPaymentNotificationService finalPaymentNotifications = mock(IFinalPaymentNotificationService.class);
     AuthenticatedUserResolver actor = mock(AuthenticatedUserResolver.class);
     ExecutionPlanServiceImpl service = new ExecutionPlanServiceImpl(orders, missions, items, assignments,
             materializer, mock(IMissionChecklistScopeService.class), actor, new ExecutionPlanCoverageService(),
-            staff, devices);
+            staff, devices, finalPaymentNotifications);
     Order order;
     Mission first, second;
     List<MissionChecklistAssignment> selection;
@@ -81,12 +83,13 @@ class ExecutionPlanFinalizeTest {
         assertEquals("manager", order.getExecutionPlan().getFinalizedBy()); assertNotNull(order.getExecutionPlan().getFinalizedAt());
         assertEquals(MissionStatus.PENDING_PAYMENT, first.getStatus());
         assertEquals(MissionStatus.PENDING_PAYMENT, second.getStatus());
+        verify(finalPaymentNotifications).notifyIfEligible("o");
     }
 
     @Test void missingCrewOnAnyMissionPreventsEveryMaterialization() {
         when(staff.findByMissionId("b")).thenReturn(List.of());
         error(ErrorCode.INVALID_REQUEST, this::finalizePlan);
-        verifyNoInteractions(materializer); assertEquals(ExecutionPlanStatus.DRAFT, order.getExecutionPlan().getStatus());
+        verifyNoInteractions(materializer, finalPaymentNotifications); assertEquals(ExecutionPlanStatus.DRAFT, order.getExecutionPlan().getStatus());
     }
 
     @Test void supportDeviceDoesNotSatisfyMainRequirement() {

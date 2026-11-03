@@ -56,6 +56,10 @@ public class Invoice extends BaseEntity {
     @Column(name = "final_payment_expires_at")
     private Instant finalPaymentExpiresAt;
 
+    /** Timestamp when the final-payment window first opened. */
+    @Column(name = "final_payment_started_at")
+    private Instant finalPaymentStartedAt;
+
     @PrePersist
     @PreUpdate
     private void synchronizeDepositStatus() {

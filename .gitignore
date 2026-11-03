@@ -3,6 +3,7 @@ ondemandmonitoring/.env
 *.env.*
 ondemandmonitoring/.env
 ondemandmonitoring/uploads/
+.codegraph/
 __pycache__/
 *.pyc
 drone-controller/.env

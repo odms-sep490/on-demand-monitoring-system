@@ -44,6 +44,7 @@ import com.ondemandmonitoring.order.repository.OrderRepository;
 import com.ondemandmonitoring.finance.enums.QuoteStatus;
 import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService;
+import com.ondemandmonitoring.finance.service.IFinalPaymentNotificationService;
 import com.ondemandmonitoring.role.enumeration.RoleCode;
 import com.ondemandmonitoring.user.domain.User;
 import com.ondemandmonitoring.user.service.IStaffDirectoryService;
@@ -143,6 +144,8 @@ public class MissionService implements IMissionService {
     IFlightPermitService flightPermitService;
 
     MissionChecklistExecutionRepository missionChecklistExecutionRepository;
+    @Autowired @NonFinal
+    IFinalPaymentNotificationService finalPaymentNotifications;
     // =========================================================================
     // Query Methods
     // =========================================================================
@@ -351,7 +354,9 @@ public class MissionService implements IMissionService {
         });
         order.getExecutionPlan().setRevision(order.getExecutionPlan().getRevision() + 1);
         orderRepository.saveAndFlush(order);
-        return missionMapper.toResponse(missionRepository.saveAndFlush(mission));
+        Mission saved = missionRepository.saveAndFlush(mission);
+        finalPaymentNotifications.notifyIfEligible(order.getId());
+        return missionMapper.toResponse(saved);
     }
 
     @Override

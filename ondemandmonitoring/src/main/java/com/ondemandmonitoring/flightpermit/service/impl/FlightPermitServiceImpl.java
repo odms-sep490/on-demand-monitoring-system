@@ -13,8 +13,10 @@ import com.ondemandmonitoring.mission.dto.request.FlightPermitUpdateRequest;
 import com.ondemandmonitoring.mission.dto.response.MissionResponse;
 import com.ondemandmonitoring.mission.enums.FlightPermitStatus;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
+import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
 import com.ondemandmonitoring.mission.mapper.MissionMapper;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
+import com.ondemandmonitoring.mission.repository.MissionStaffAssignmentRepository;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.enums.LegalReviewStatus;
 import com.ondemandmonitoring.order.repository.OrderRepository;
@@ -39,6 +41,7 @@ public class FlightPermitServiceImpl implements IFlightPermitService {
     OrderRepository orderRepository;
     InvoiceRepository invoiceRepository;
     MissionMapper missionMapper;
+    MissionStaffAssignmentRepository missionStaffAssignmentRepository;
     AuthenticatedUserResolver authenticatedUserResolver;
     IPersistedPreDeviceCheckService persistedPreDeviceCheckService;
 
@@ -73,6 +76,22 @@ public class FlightPermitServiceImpl implements IFlightPermitService {
         if (request.status() == FlightPermitStatus.REJECTED && note == null) {
             throw new ApiException(ErrorCode.INVALID_REQUEST,
                     "A rejection reason is required for a rejected flight permit");
+        }
+        if (request.status() == FlightPermitStatus.APPROVED) {
+            if (blankToNull(request.dataUrl()) == null
+                    && blankToNull(permit.getDataUrl()) == null) {
+                throw new ApiException(ErrorCode.INVALID_REQUEST,
+                        "A flight permit file is required before approval");
+            }
+            var currentStaff = missionStaffAssignmentRepository
+                    .findAllByMissionIdAndIsCurrentTrue(missionId).stream()
+                    .filter(assignment -> assignment.getReleasedAt() == null)
+                    .toList();
+            if (currentStaff.isEmpty() || currentStaff.stream().anyMatch(assignment ->
+                    assignment.getResponseStatus() != MissionStaffAssignmentStatus.ACCEPTED)) {
+                throw new ApiException(ErrorCode.INVALID_REQUEST,
+                        "All assigned staff must accept the mission before the flight permit can be approved");
+            }
         }
         if (request.status() == FlightPermitStatus.PENDING
                 && permit.getStatus() == FlightPermitStatus.REJECTED

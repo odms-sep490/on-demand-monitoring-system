@@ -33,9 +33,6 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
             MissionStatus.FAILED, MissionStatus.CANCELLED);
     private static final Set<MissionStatus> PILOT_UPLOAD_STATUSES = Set.of(
             MissionStatus.IN_PROGRESS);
-    private static final Set<MissionStaffRole> REQUIRED_OPERATIONAL_CREW = Set.of(
-            MissionStaffRole.PILOT, MissionStaffRole.OPERATOR,
-            MissionStaffRole.MAINTAINER, MissionStaffRole.INSPECTOR);
     private final MissionStaffAssignmentRepository assignments;
     private final MissionRepository missions;
     private final AuthenticatedUserResolver currentUser;
@@ -174,26 +171,9 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
     @Override
     public boolean canOperatePayload(String missionId) {
         return findRuntimeMissionById(missionId)
-                .filter(this::crewAcceptedBeforePreflight)
                 .filter(mission -> mission.getActualEndAt() == null)
                 .map(mission -> canPerform(mission.getId(), MissionStaffRole.OPERATOR))
                 .orElse(false);
-    }
-
-    /** Keep device connection and preflight closed until the full assigned crew accepts. */
-    private boolean crewAcceptedBeforePreflight(Mission mission) {
-        if (mission.getStatus() != MissionStatus.PENDING_CONFIRMATION) return true;
-        List<MissionStaffAssignment> crew = assignments.findByMissionId(mission.getId()).stream()
-                .filter(entry -> Boolean.TRUE.equals(entry.getIsCurrent()) && entry.getReleasedAt() == null)
-                .toList();
-        Set<MissionStaffRole> acceptedRoles = crew.stream()
-                .filter(entry -> entry.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED)
-                .map(MissionStaffAssignment::getAssignedRole)
-                .collect(java.util.stream.Collectors.toSet());
-        return !crew.isEmpty()
-                && crew.stream().allMatch(entry ->
-                        entry.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED)
-                && acceptedRoles.containsAll(REQUIRED_OPERATIONAL_CREW);
     }
 
     @Override

@@ -178,13 +178,14 @@ public class UserSeedDataInitializer implements ApplicationRunner {
             case "seed.drone.operator.2@odms.local" -> "0901000002";
             case "seed.drone.operator.3@odms.local" -> "0901000003";
             case "seed.drone.operator.4@odms.local" -> "0901000004";
+            case "seed.system.operator@odms.local" -> "0901000005";
             default -> null;
         };
         if (phoneNumber == null) {
             return;
         }
         jdbcTemplate.update(
-                "UPDATE users SET phone_number = ? WHERE id = ?",
+                "UPDATE users SET phone_number = ? WHERE id = ? AND phone_number IS NULL",
                 phoneNumber,
                 seed.userId()
         );

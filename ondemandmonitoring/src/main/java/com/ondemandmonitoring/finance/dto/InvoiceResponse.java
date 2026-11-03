@@ -11,4 +11,5 @@ public record InvoiceResponse(String id, String invoiceNumber, String orderId, S
                               InvoiceStatus status, DepositStatus depositStatus, Instant issuedAt,
                               boolean finalPaymentAllowed, Instant depositExpiresAt,
                               Instant finalPaymentExpiresAt,
+                              Instant finalPaymentStartedAt,
                               String orderCancellationReason) {}

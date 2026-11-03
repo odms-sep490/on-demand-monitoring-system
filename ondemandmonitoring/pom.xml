@@ -31,6 +31,10 @@
 		<lombok.version>1.18.42</lombok.version>
 		<mybatis-spring-boot.version>4.1.0</mybatis-spring-boot.version>
 		<aws-sdk.version>2.40.13</aws-sdk.version>
+		<spotbugs.maven.plugin.version>4.10.5.0</spotbugs.maven.plugin.version>
+		<pmd.maven.plugin.version>3.28.0</pmd.maven.plugin.version>
+		<rewrite.maven.plugin.version>6.46.1</rewrite.maven.plugin.version>
+		<rewrite.migrate.java.version>3.42.1</rewrite.migrate.java.version>
 	</properties>
 	<dependencyManagement>
 		<dependencies>
@@ -205,6 +209,48 @@
 						</exclude>
 					</excludes>
 				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>com.github.spotbugs</groupId>
+				<artifactId>spotbugs-maven-plugin</artifactId>
+				<version>${spotbugs.maven.plugin.version}</version>
+				<configuration>
+					<effort>Max</effort>
+					<threshold>Medium</threshold>
+					<xmlOutput>true</xmlOutput>
+					<htmlOutput>true</htmlOutput>
+					<failOnError>false</failOnError>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-pmd-plugin</artifactId>
+				<version>${pmd.maven.plugin.version}</version>
+				<configuration>
+					<rulesets>
+						<ruleset>${project.basedir}/config/pmd-ruleset.xml</ruleset>
+					</rulesets>
+					<targetJdk>${java.version}</targetJdk>
+					<failOnViolation>false</failOnViolation>
+					<printFailingErrors>false</printFailingErrors>
+					<includeTests>true</includeTests>
+					<minimumTokens>100</minimumTokens>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.openrewrite.maven</groupId>
+				<artifactId>rewrite-maven-plugin</artifactId>
+				<version>${rewrite.maven.plugin.version}</version>
+				<configuration>
+					<failOnDryRunResults>false</failOnDryRunResults>
+				</configuration>
+				<dependencies>
+					<dependency>
+						<groupId>org.openrewrite.recipe</groupId>
+						<artifactId>rewrite-migrate-java</artifactId>
+						<version>${rewrite.migrate.java.version}</version>
+					</dependency>
+				</dependencies>
 			</plugin>
 		</plugins>
 	</build>

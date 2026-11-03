@@ -155,6 +155,7 @@ public enum ErrorCode {
     DEVICE_MODEL_CODE_EXISTS("Device model code already exists", HttpStatus.CONFLICT),
     DEVICE_NOT_FOUND("Device not found", HttpStatus.NOT_FOUND),
     DEVICE_SERIAL_NUMBER_EXISTS("Device serial number already exists", HttpStatus.CONFLICT),
+    DEVICE_IMAGE_STORAGE_ERROR("Unable to store device image", HttpStatus.BAD_GATEWAY),
     /**
      * Support Ticket Error Codes
      */

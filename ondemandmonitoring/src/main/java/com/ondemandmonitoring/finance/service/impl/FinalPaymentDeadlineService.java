@@ -34,17 +34,27 @@ public class FinalPaymentDeadlineService {
     public Instant assignIfEligible(Invoice invoice) {
         if (invoice == null || invoice.getOrder() == null) return null;
         Instant currentDeadline = invoice.getFinalPaymentExpiresAt();
-        if (currentDeadline != null || !eligibility.isFinalPaymentEligible(invoice)) return currentDeadline;
+        if (currentDeadline != null && invoice.getFinalPaymentStartedAt() != null) return currentDeadline;
+        if (currentDeadline == null && !eligibility.isFinalPaymentEligible(invoice)) return null;
         var order = orders.findByIdForUpdate(invoice.getOrder().getId()).orElse(null);
         if (order == null) return null;
         var lockedInvoice = invoices.findByIdForUpdate(invoice.getId()).orElse(null);
         if (lockedInvoice == null) return null;
         entityManager.refresh(lockedInvoice, LockModeType.PESSIMISTIC_WRITE);
         currentDeadline = lockedInvoice.getFinalPaymentExpiresAt();
-        if (currentDeadline != null) return currentDeadline;
+        if (currentDeadline != null) {
+            if (lockedInvoice.getFinalPaymentStartedAt() == null) {
+                // Backfill older invoices whose final deadline predates the start timestamp.
+                lockedInvoice.setFinalPaymentStartedAt(
+                        currentDeadline.minus(settings.current().finalPaymentTimeout()));
+                invoices.save(lockedInvoice);
+            }
+            return currentDeadline;
+        }
         if (eligibility.isFinalPaymentEligible(lockedInvoice)) {
-            Instant assignedAt = Instant.now(clock).plus(settings.current().finalPaymentTimeout());
-            lockedInvoice.setFinalPaymentExpiresAt(assignedAt);
+            Instant startedAt = Instant.now(clock);
+            lockedInvoice.setFinalPaymentStartedAt(startedAt);
+            lockedInvoice.setFinalPaymentExpiresAt(startedAt.plus(settings.current().finalPaymentTimeout()));
             invoices.save(lockedInvoice);
         }
         return lockedInvoice.getFinalPaymentExpiresAt();

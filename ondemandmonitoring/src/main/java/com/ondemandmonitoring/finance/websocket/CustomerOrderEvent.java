@@ -6,5 +6,6 @@ public record CustomerOrderEvent(
         String eventType,
         String orderId,
         String quoteId,
+        String invoiceId,
         Instant occurredAt) {
 }

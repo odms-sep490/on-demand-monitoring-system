@@ -43,4 +43,15 @@ public class Device extends BaseEntity {
 
     @Column(name = "last_seen_at")
     private LocalDateTime lastSeenAt;
+
+    /** S3 object identity is persisted; API responses expose a short-lived signed URL. */
+    @Column(name = "image_s3_key", length = 500)
+    private String imageS3Key;
+
+    @Column(name = "image_s3_bucket", length = 255)
+    private String imageS3Bucket;
+
+    /** Seed/catalog fallback image; uploaded S3 images take precedence when present. */
+    @Column(name = "image_url", length = 1000)
+    private String imageUrl;
 }

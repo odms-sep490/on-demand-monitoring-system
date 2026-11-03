@@ -65,9 +65,9 @@ public class PreDeviceCheckCompletionServiceImpl implements IPreDeviceCheckCompl
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Device does not match the mission assignment");
         }
 
-        if (!hasAcceptedPilot(mission.getId())) {
+        if (!hasAcceptedOperator(mission.getId())) {
             throw new ApiException(ErrorCode.INVALID_REQUEST,
-                    "Mission chưa có pilot nhận nhiệm vụ để hoàn tất kiểm tra trước chuyến bay.");
+                    "Mission chưa có Operator nhận nhiệm vụ để hoàn tất kiểm tra trước chuyến bay.");
         }
 
         PersistedPreDeviceCheck persistedPreDeviceCheck = requirePassedPersistedPreDevice(mission.getId());
@@ -115,14 +115,15 @@ public class PreDeviceCheckCompletionServiceImpl implements IPreDeviceCheckCompl
                 .stream().findFirst().orElse(null);
     }
 
-    private boolean hasAcceptedPilot(String missionId) {
+    private boolean hasAcceptedOperator(String missionId) {
         return missionStaffAssignmentRepository
                 .findAllByMissionIdAndAssignedRoleAndIsCurrentTrue(missionId,
-                        MissionStaffRole.PILOT)
+                        MissionStaffRole.OPERATOR)
                 .stream()
-                .filter(entry -> entry.getResponseStatus() ==
-                        MissionStaffAssignmentStatus.ACCEPTED)
-                .anyMatch(assignment -> assignment.getStaff() != null
+                .anyMatch(assignment -> assignment.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED
+                        && assignment.getReleasedAt() == null
+                        && Boolean.TRUE.equals(assignment.getIsCurrent())
+                        && assignment.getStaff() != null
                         && assignment.getStaff().getId() != null);
     }
 }

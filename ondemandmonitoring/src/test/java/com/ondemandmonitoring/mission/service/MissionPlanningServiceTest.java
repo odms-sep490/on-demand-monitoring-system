@@ -6,6 +6,7 @@ import com.ondemandmonitoring.mission.enums.*;
 import com.ondemandmonitoring.mission.mapper.MissionMapper;
 import com.ondemandmonitoring.mission.repository.*;
 import com.ondemandmonitoring.mission.service.impl.*;
+import com.ondemandmonitoring.finance.service.IFinalPaymentNotificationService;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.domain.OrderChecklistItem;
 import com.ondemandmonitoring.order.enums.*;
@@ -30,6 +31,7 @@ class MissionPlanningServiceTest {
     @org.mockito.Mock UserScheduleRepository schedules;
     @org.mockito.Mock IResourceReservationService resources;
     @org.mockito.Mock IMissionChecklistMaterializationService materializer;
+    @org.mockito.Mock IFinalPaymentNotificationService finalPaymentNotifications;
     @org.mockito.Mock MissionMapper mapper;
     @org.mockito.InjectMocks MissionService service;
     AutoCloseable mocks;
@@ -43,6 +45,7 @@ class MissionPlanningServiceTest {
         org.springframework.test.util.ReflectionTestUtils.setField(service, "missionChecklistExecutionRepository", executions);
         org.springframework.test.util.ReflectionTestUtils.setField(service, "orderChecklistItemRepository", items);
         org.springframework.test.util.ReflectionTestUtils.setField(service, "checklistMaterializationService", materializer);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "finalPaymentNotifications", finalPaymentNotifications);
         order = new Order(); order.setId("o"); order.setOrderStatus(OrderStatus.APPROVED);
         order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED); order.getExecutionPlan().setRevision(5);
         mission = new Mission(); mission.setId("m"); mission.setOrder(order); mission.setStatus(MissionStatus.PLANNING);
@@ -79,6 +82,7 @@ class MissionPlanningServiceTest {
         when(missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc("o")).thenReturn(List.of(mission, sibling));
         service.confirmMissionPlanning("m");
         verify(materializer).materialize(mission);
+        verify(finalPaymentNotifications).notifyIfEligible("o");
         assertEquals(MissionStatus.PENDING_PAYMENT, mission.getStatus());
         assertEquals(MissionStatus.IN_FLIGHT, sibling.getStatus());
         assertEquals(ExecutionPlanStatus.FINALIZED, order.getExecutionPlan().getStatus());

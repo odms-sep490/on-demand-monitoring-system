@@ -213,7 +213,6 @@ class MissionServiceTest {
         when(missionRepository.findAllByOrderIdForUpdateOrderById(orderId)).thenReturn(List.of(first, second));
         when(missionRepository.saveAllAndFlush(anyList())).thenAnswer(call -> call.getArgument(0));
         when(missionPaymentEligibilityService.isFinalPaymentConfirmed(any())).thenReturn(true);
-        when(missionPaymentEligibilityService.isResourceAssignmentReady(any())).thenReturn(true);
 
         List<MissionResponse> result = missionService.transitionToPendingConfirmation(orderId);
 
@@ -241,22 +240,21 @@ class MissionServiceTest {
     }
 
     @Test
-    void paymentConfirmationRejectsTheWholeOrderWhenOneAssignmentIsNoLongerValid() {
+    void paymentConfirmationOpensConfirmationWhileResourceAssignmentsAreStillBeingPrepared() {
         Mission first = buildMission("payment-assignment-1", MissionStatus.PENDING_PAYMENT);
         Mission second = buildMission("payment-assignment-2", MissionStatus.PENDING_PAYMENT);
         second.setOrder(first.getOrder());
         String orderId = first.getOrder().getId();
         when(missionRepository.findAllByOrderIdForUpdateOrderById(orderId)).thenReturn(List.of(first, second));
+        when(missionRepository.saveAllAndFlush(anyList())).thenAnswer(call -> call.getArgument(0));
         when(missionPaymentEligibilityService.isFinalPaymentConfirmed(any())).thenReturn(true);
-        when(missionPaymentEligibilityService.isResourceAssignmentReady(first)).thenReturn(true);
-        when(missionPaymentEligibilityService.isResourceAssignmentReady(second)).thenReturn(false);
 
-        assertThatThrownBy(() -> missionService.transitionToPendingConfirmation(orderId))
-                .isInstanceOf(ApiException.class)
-                .extracting("errorCode").isEqualTo(ErrorCode.FINAL_PAYMENT_NOT_ALLOWED);
-        assertThat(first.getStatus()).isEqualTo(MissionStatus.PENDING_PAYMENT);
-        assertThat(second.getStatus()).isEqualTo(MissionStatus.PENDING_PAYMENT);
-        verify(missionRepository, never()).saveAllAndFlush(anyList());
+        List<MissionResponse> result = missionService.transitionToPendingConfirmation(orderId);
+
+        assertThat(result).extracting(MissionResponse::getStatus)
+                .containsExactly(MissionStatus.PENDING_CONFIRMATION, MissionStatus.PENDING_CONFIRMATION);
+        verify(missionPaymentEligibilityService, never()).isResourceAssignmentReady(any());
+        verify(missionRepository).saveAllAndFlush(List.of(first, second));
     }
 
     @Test

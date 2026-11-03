@@ -45,6 +45,7 @@ import com.ondemandmonitoring.order.repository.OrderRepository;
 import com.ondemandmonitoring.finance.enums.QuoteStatus;
 import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService;
+import com.ondemandmonitoring.finance.service.IFinalPaymentNotificationService;
 import com.ondemandmonitoring.role.enumeration.RoleCode;
 import com.ondemandmonitoring.user.domain.User;
 import com.ondemandmonitoring.user.service.IStaffDirectoryService;
@@ -148,6 +149,8 @@ public class MissionService implements IMissionService {
     IFlightPermitService flightPermitService;
 
     MissionChecklistExecutionRepository missionChecklistExecutionRepository;
+    @Autowired @NonFinal
+    IFinalPaymentNotificationService finalPaymentNotifications;
     @Autowired @NonFinal
     com.ondemandmonitoring.delivery.repository.ResultRevisionCaseRepository resultRevisionCases;
     @Autowired @NonFinal
@@ -576,14 +579,6 @@ public class MissionService implements IMissionService {
                 .filter(mission -> !alreadyActivatedOrTerminal.contains(mission.getStatus()))
                 .findFirst()
                 .ifPresent(mission -> requireStatus(mission, MissionStatus.PENDING_PAYMENT));
-        originalMissions.stream()
-                .filter(mission -> mission.getStatus() == MissionStatus.PENDING_PAYMENT)
-                .filter(mission -> !missionPaymentEligibilityService.isResourceAssignmentReady(mission))
-                .findFirst()
-                .ifPresent(mission -> {
-                    throw new ApiException(ErrorCode.FINAL_PAYMENT_NOT_ALLOWED,
-                            "Mission resources must remain valid after final payment");
-                });
         originalMissions.stream()
                 .filter(mission -> mission.getStatus() == MissionStatus.PENDING_PAYMENT)
                 .forEach(mission -> mission.setStatus(MissionStatus.PENDING_CONFIRMATION));

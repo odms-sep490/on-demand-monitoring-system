@@ -1,5 +1,6 @@
 package com.ondemandmonitoring.finance.websocket;
 
+import com.ondemandmonitoring.finance.event.FinalPaymentRequiredEvent;
 import com.ondemandmonitoring.finance.event.QuoteApprovedEvent;
 import com.ondemandmonitoring.user.domain.UserIdentity;
 import com.ondemandmonitoring.user.repository.UserIdentityRepository;
@@ -14,28 +15,39 @@ import org.springframework.transaction.event.TransactionalEventListener;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class QuoteApprovalNotificationListener {
+public class CustomerOrderNotificationListener {
     private static final String CUSTOMER_ORDER_EVENTS_DESTINATION = "/queue/order-events";
 
     private final UserIdentityRepository identities;
     private final SimpMessagingTemplate messagingTemplate;
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    public void notifyCustomer(QuoteApprovedEvent event) {
-        List<String> cognitoSubjects = identities.findAllByUserId(event.customerId()).stream()
+    public void notifyQuoteApproved(QuoteApprovedEvent event) {
+        CustomerOrderEvent message = new CustomerOrderEvent(
+                "QUOTE_APPROVED", event.orderId(), event.quoteId(), null, event.approvedAt());
+        sendToCustomer(event.customerId(), event.orderId(), message);
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void notifyFinalPaymentRequired(FinalPaymentRequiredEvent event) {
+        CustomerOrderEvent message = new CustomerOrderEvent(
+                "FINAL_PAYMENT_REQUIRED", event.orderId(), null, event.invoiceId(), event.occurredAt());
+        sendToCustomer(event.customerId(), event.orderId(), message);
+    }
+
+    private void sendToCustomer(String customerId, String orderId, CustomerOrderEvent message) {
+        List<String> cognitoSubjects = identities.findAllByUserId(customerId).stream()
                 .map(UserIdentity::getCognitoSub)
                 .filter(subject -> subject != null && !subject.isBlank())
                 .distinct()
                 .toList();
 
-        CustomerOrderEvent message = new CustomerOrderEvent(
-                "QUOTE_APPROVED", event.orderId(), event.quoteId(), event.approvedAt());
         for (String cognitoSubject : cognitoSubjects) {
             try {
                 messagingTemplate.convertAndSendToUser(
                         cognitoSubject, CUSTOMER_ORDER_EVENTS_DESTINATION, message);
             } catch (RuntimeException exception) {
-                log.warn("Unable to send quote approval event for order {}", event.orderId(), exception);
+                log.warn("Unable to send customer order event for order {}", orderId, exception);
             }
         }
     }

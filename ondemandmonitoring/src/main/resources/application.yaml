@@ -70,6 +70,7 @@ auth:
 app:
   seed:
     demo-drones: ${APP_SEED_DEMO_DRONES:false}
+    staff-licenses: ${APP_SEED_STAFF_LICENSES:true}
   media:
     orphan-cleanup:
       enabled: ${APP_MEDIA_ORPHAN_CLEANUP_ENABLED:true}

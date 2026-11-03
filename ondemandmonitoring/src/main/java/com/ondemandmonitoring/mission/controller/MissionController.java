@@ -349,7 +349,6 @@ public class MissionController {
     /**
      * POST /api/missions/{id}/connect
      * Confirm telemetry link with GCS app (powerOnAndPairWithGCSApp).
-     * Connects the assigned device after all assigned staff have accepted.
      */
     @PostMapping("/{id}/connect")
     @PreAuthorize("@missionAuthorizationService.canOperatePayload(#id)")

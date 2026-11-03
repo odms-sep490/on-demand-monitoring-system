@@ -71,6 +71,7 @@ public final class FinanceMapper {
                 invoice.effectiveDepositStatus(), invoice.getIssuedAt(),
                 finalPaymentAllowed, invoice.getDepositExpiresAt(),
                 invoice.getFinalPaymentExpiresAt(),
+                invoice.getFinalPaymentStartedAt(),
                 invoice.getOrder().getCancellationReason() == null ? null : invoice.getOrder().getCancellationReason().name());
     }
 

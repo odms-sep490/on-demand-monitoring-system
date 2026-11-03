@@ -23,4 +23,5 @@ public class MissionStaffAssignmentResponse {
     Instant assignedAt;
     Instant respondedAt;
     String declineReason;
+    Boolean isCurrent;
 }

@@ -5,6 +5,7 @@ import com.ondemandmonitoring.common.api.PageResponse;
 import com.ondemandmonitoring.device.dto.request.DeviceCreateRequest;
 import com.ondemandmonitoring.device.dto.request.DeviceUpdateRequest;
 import com.ondemandmonitoring.device.dto.response.DeviceResponse;
+import com.ondemandmonitoring.device.service.DeviceCreationService;
 import com.ondemandmonitoring.device.service.IDeviceService;
 import com.ondemandmonitoring.device.service.IDeviceAvailabilityService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -29,6 +30,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.RequestPart;
 
 @Tag(name = "Devices", description = "APIs for managing bound devices")
 @RestController
@@ -40,6 +44,7 @@ public class DeviceController {
 
     IDeviceService deviceService;
     IDeviceAvailabilityService deviceAvailabilityService;
+    DeviceCreationService deviceCreationService;
 
     @Operation(summary = "Get devices available for the persisted Mission interval")
     @GetMapping("/available")
@@ -53,6 +58,18 @@ public class DeviceController {
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<DeviceResponse>> create(@Valid @RequestBody DeviceCreateRequest request) {
         DeviceResponse response = deviceService.create(request);
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(ApiResponse.created("Device created successfully", response));
+    }
+
+    @Operation(summary = "Create device with an optional S3 image")
+    @PostMapping(value = "/with-image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<DeviceResponse>> createWithImage(
+            @Valid @RequestPart("device") DeviceCreateRequest request,
+            @RequestPart(value = "file", required = false) MultipartFile image) {
+        DeviceResponse response = deviceCreationService.create(request, image);
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(ApiResponse.created("Device created successfully", response));

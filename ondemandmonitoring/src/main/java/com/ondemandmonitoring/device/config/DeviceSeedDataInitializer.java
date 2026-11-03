@@ -36,6 +36,13 @@ public class DeviceSeedDataInitializer implements ApplicationRunner {
     static final String DEVICE_CODE_3 = "DRN-003";
     static final String SERIAL_NUMBER_3 = "M3E-DEMO-003";
 
+    static final String DEVICE_IMAGE_URL =
+            "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRLnK1rYadOXNTzz9jh83_n1geH3J4LSLez3Hwsrs3eLp-xj8lcjZT8Ks4&s=10";
+    static final String DEVICE_IMAGE_URL_2 =
+            "https://cdn.mos.cms.futurecdn.net/3ExwAytUhjDbPCBjg52rvW-1200-80.jpg";
+    static final String DEVICE_IMAGE_URL_3 =
+            "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSF-PuFVIv4NSIFraK12729c5RKUlEszA3R-Mod1ddSJA&s=10";
+
     DeviceTypeRepository deviceTypeRepository;
     DeviceModelRepository deviceModelRepository;
     DeviceRepository deviceRepository;
@@ -50,9 +57,12 @@ public class DeviceSeedDataInitializer implements ApplicationRunner {
 
         DeviceModel model = ensureDeviceModel(droneType);
 
-        ensureDevice(SERIAL_NUMBER, DEVICE_CODE, "DJI Mavic 3 Enterprise", model, DeviceStatus.AVAILABLE);
-        ensureDevice(SERIAL_NUMBER_2, DEVICE_CODE_2, "DJI Mavic 3 Enterprise 02", model, DeviceStatus.AVAILABLE);
-        ensureDevice(SERIAL_NUMBER_3, DEVICE_CODE_3, "DJI Mavic 3 Enterprise 03", model, DeviceStatus.AVAILABLE);
+        ensureDevice(SERIAL_NUMBER, DEVICE_CODE, "DJI Mavic 3 Enterprise", model,
+                DeviceStatus.AVAILABLE, DEVICE_IMAGE_URL);
+        ensureDevice(SERIAL_NUMBER_2, DEVICE_CODE_2, "DJI Mavic 3 Enterprise 02", model,
+                DeviceStatus.AVAILABLE, DEVICE_IMAGE_URL_2);
+        ensureDevice(SERIAL_NUMBER_3, DEVICE_CODE_3, "DJI Mavic 3 Enterprise 03", model,
+                DeviceStatus.AVAILABLE, DEVICE_IMAGE_URL_3);
 
         log.info("3 DJI Mavic 3 Enterprise seed devices ready.");
     }
@@ -91,7 +101,8 @@ public class DeviceSeedDataInitializer implements ApplicationRunner {
             String deviceCode,
             String name,
             DeviceModel model,
-            DeviceStatus status) {
+            DeviceStatus status,
+            String imageUrl) {
         Device device = deviceRepository.findBySerialNumber(serialNumber).orElse(null);
         if (device == null) {
             device = new Device();
@@ -104,6 +115,7 @@ public class DeviceSeedDataInitializer implements ApplicationRunner {
         device.setDeviceCode(deviceCode);
         device.setName(name);
         device.setDeviceModel(model);
+        device.setImageUrl(imageUrl);
         deviceRepository.save(device);
     }
 }

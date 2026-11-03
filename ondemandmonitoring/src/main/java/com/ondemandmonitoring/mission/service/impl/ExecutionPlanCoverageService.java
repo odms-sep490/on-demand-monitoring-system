@@ -30,6 +30,10 @@ public class ExecutionPlanCoverageService {
                 throw new ApiException(ErrorCode.CHECKLIST_ASSIGNMENT_CROSS_ORDER);
             if (!pairs.add(List.of(mission.getId(), assignment.getOrderChecklistItemId())))
                 throw new ApiException(ErrorCode.CHECKLIST_ASSIGNMENT_DUPLICATE);
+            // A rework mission is an audited execution attempt for an already-covered
+            // Order item. It must have its own assignment/execution but cannot count
+            // as a second slot in the original finalized plan.
+            if (mission.getPurpose() == com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK) continue;
             if (effective(mission)) counts.compute(assignment.getOrderChecklistItemId(), (id, count) -> count + 1);
         }
         var missing = counts.entrySet().stream().filter(e -> e.getValue() == 0).map(Map.Entry::getKey).toList();

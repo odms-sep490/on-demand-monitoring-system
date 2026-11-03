@@ -48,6 +48,9 @@ public class FlightPermitServiceImpl implements IFlightPermitService {
     public MissionResponse updateFlightPermit(String missionId, FlightPermitUpdateRequest request) {
         Mission mission = missionRepository.findByIdWithOrder(missionId)
                 .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
+        if (mission.getPurpose() == com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK
+                && mission.getStatus() == MissionStatus.PLANNING)
+            throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_FINALIZED);
         var invoice = invoiceRepository.findByOrderId(mission.getOrder().getId())
                 .orElseThrow(() -> new ApiException(ErrorCode.INVALID_REQUEST,
                         "Flight permit updates require the order invoice to be paid in full"));

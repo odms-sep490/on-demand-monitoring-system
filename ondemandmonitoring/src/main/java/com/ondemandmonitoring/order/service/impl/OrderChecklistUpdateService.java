@@ -82,6 +82,7 @@ public class OrderChecklistUpdateService implements IOrderChecklistUpdateService
             throw invalid("expectedRevision is required");
         }
         List<OrderChecklistUpdateItemRequest> requested = request.getItems() == null ? List.of() : request.getItems();
+        if (requested.isEmpty()) throw invalid("Select at least one checklist item");
         if (requested.size() > 100) {
             throw invalid("At most 100 checklist items are allowed");
         }

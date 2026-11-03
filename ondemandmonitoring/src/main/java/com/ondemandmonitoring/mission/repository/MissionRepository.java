@@ -30,6 +30,8 @@ public interface MissionRepository extends JpaRepository<Mission, String>, JpaSp
 
     Optional<Mission> findByMissionCode(String missionCode);
 
+    Optional<Mission> findByReworkRequestId(java.util.UUID reworkRequestId);
+
     /** Order aggregate query; never use an Order ID as exact Mission identity. */
     @EntityGraph(attributePaths = "flightPermit")
     List<Mission> findAllByOrderIdOrderByScheduledStartAtAscIdAsc(String orderId);

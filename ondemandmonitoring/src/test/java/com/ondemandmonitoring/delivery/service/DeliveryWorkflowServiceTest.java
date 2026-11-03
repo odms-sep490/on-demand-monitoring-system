@@ -11,6 +11,13 @@ import com.ondemandmonitoring.delivery.dto.request.ReleasePreviewRequest;
 import com.ondemandmonitoring.delivery.dto.request.RevisionRequest;
 import com.ondemandmonitoring.delivery.enums.DeliveryStatus;
 import com.ondemandmonitoring.delivery.repository.OrderDeliveryRepository;
+import com.ondemandmonitoring.delivery.domain.ResultReviewRound;
+import com.ondemandmonitoring.delivery.repository.ResultReviewRoundRepository;
+import com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository;
+import com.ondemandmonitoring.delivery.repository.ResultReviewRoundItemRepository;
+import com.ondemandmonitoring.delivery.repository.ResultRevisionCaseRepository;
+import com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository;
+import com.ondemandmonitoring.delivery.service.impl.ResultReviewRoundPublisher;
 import com.ondemandmonitoring.delivery.service.impl.DeliveryWorkflowServiceImpl;
 import com.ondemandmonitoring.finance.domain.Invoice;
 import com.ondemandmonitoring.finance.domain.Quote;
@@ -26,9 +33,12 @@ import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.enums.MissionResultApprovalStatus;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.mission.repository.MissionResultRepository;
+import com.ondemandmonitoring.mission.repository.MissionChecklistEvidenceRepository;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.enums.OrderStatus;
+import com.ondemandmonitoring.order.repository.OrderChecklistItemRepository;
 import com.ondemandmonitoring.order.repository.OrderRepository;
+import com.ondemandmonitoring.mission.service.impl.ChecklistEvidencePolicy;
 import com.ondemandmonitoring.role.domain.Role;
 import com.ondemandmonitoring.role.enumeration.RoleCode;
 import com.ondemandmonitoring.user.domain.User;
@@ -48,8 +58,20 @@ class DeliveryWorkflowServiceTest {
     IMediaObjectStorage storage = mock(IMediaObjectStorage.class);
     AuthenticatedUserResolver users = mock(AuthenticatedUserResolver.class);
     com.ondemandmonitoring.order.service.IOrderExecutionCompletionPolicy completion = mock(com.ondemandmonitoring.order.service.IOrderExecutionCompletionPolicy.class);
+    ResultReviewRoundPublisher reviewPublisher = mock(ResultReviewRoundPublisher.class);
+    ResultReviewRoundRepository reviewRounds = mock(ResultReviewRoundRepository.class);
+    ResultReviewRoundEvidenceRepository roundEvidence = mock(ResultReviewRoundEvidenceRepository.class);
+    ResultReviewRoundItemRepository roundItems = mock(ResultReviewRoundItemRepository.class);
+    MissionChecklistEvidenceRepository missionEvidence = mock(MissionChecklistEvidenceRepository.class);
+    OrderChecklistItemRepository checklistItems = mock(OrderChecklistItemRepository.class);
+    ChecklistEvidencePolicy evidencePolicy = mock(ChecklistEvidencePolicy.class);
+    ResultRevisionCaseRepository revisionCases = mock(ResultRevisionCaseRepository.class);
+    ResultRevisionCaseItemRepository revisionCaseItems = mock(ResultRevisionCaseItemRepository.class);
     DeliveryWorkflowServiceImpl service = new DeliveryWorkflowServiceImpl(
-            deliveries, orders, missions, missionResults, invoices, media, storage, users, completion);
+            deliveries, orders, missions, missionResults, invoices, media, storage,
+            new com.ondemandmonitoring.media.service.impl.ResultRetentionAccessServiceImpl(media, java.time.Clock.systemUTC()),
+            users, completion, reviewPublisher, reviewRounds, roundEvidence, roundItems, missionEvidence,
+            checklistItems, evidencePolicy, revisionCases, revisionCaseItems);
     User customer; Order order; Mission mission; Invoice invoice; OrderDelivery delivery;
 
     @BeforeEach void setUp() {
@@ -62,6 +84,9 @@ class DeliveryWorkflowServiceTest {
         invoice.setTotalAmount(new BigDecimal("8500000")); invoice.setPaidAmount(new BigDecimal("2550000"));
         invoice.setRemainingAmount(new BigDecimal("5950000"));
         delivery = new OrderDelivery(); delivery.setOrder(order); delivery.setStatus(DeliveryStatus.CUSTOMER_REVIEW);
+        delivery.setCurrentReviewRoundId("round");
+        ResultReviewRound round = new ResultReviewRound(); round.setId("round"); round.setVersion(2L);
+        when(reviewRounds.findByIdForUpdate("round")).thenReturn(Optional.of(round));
         when(users.getCurrentUser()).thenReturn(customer); when(users.getCurrentUserId()).thenReturn(customer.getId());
         when(orders.findById("order")).thenReturn(Optional.of(order));
         when(orders.findByIdForUpdate("order")).thenReturn(Optional.of(order));
@@ -78,29 +103,70 @@ class DeliveryWorkflowServiceTest {
         when(storage.presignedUrlExpiresSeconds()).thenReturn(600L);
     }
 
-    @Test void customerCanAcceptResultsWithoutASecondPaymentPrompt() {
-        var result = service.acceptResult("order");
+    @Test void legacyUnpaidAcceptanceRemainsPendingReconciliation() {
+        var result = service.acceptResult("order", "round", 2L);
         assertThat(result.deliveryStatus()).isEqualTo(DeliveryStatus.FINAL_PAYMENT_PENDING);
         assertThat(delivery.getCustomerAcceptedAt()).isNotNull();
         assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.IN_PROGRESS);
     }
 
-    @Test void customerAcceptanceAfterFullPaymentMovesDirectlyToDelivery() {
+    @Test void paidOrderAcceptanceMovesDirectlyToDeliveryAndRetryDoesNotReopenPayment() {
         invoice.setStatus(InvoiceStatus.PAID);
-        invoice.setPaidAmount(invoice.getTotalAmount()); invoice.setRemainingAmount(BigDecimal.ZERO);
-        var result = service.acceptResult("order");
-        assertThat(result.deliveryStatus()).isEqualTo(DeliveryStatus.READY_FOR_DELIVERY);
-        assertThat(delivery.getCustomerAcceptedAt()).isNotNull();
-        assertThat(delivery.getFinalPaymentConfirmedAt()).isNull();
+        invoice.setPaidAmount(invoice.getTotalAmount());
+        invoice.setRemainingAmount(BigDecimal.ZERO);
+
+        var accepted = service.acceptResult("order", "round", 2L);
+        var acceptedAt = delivery.getCustomerAcceptedAt();
+        var round = reviewRounds.findByIdForUpdate("round").orElseThrow();
+        round.setVersion(3L);
+        var retry = service.acceptResult("order", "round", 2L);
+
+        assertThat(accepted.deliveryStatus()).isEqualTo(DeliveryStatus.READY_FOR_DELIVERY);
+        assertThat(retry.deliveryStatus()).isEqualTo(DeliveryStatus.READY_FOR_DELIVERY);
+        assertThat(delivery.getCustomerAcceptedAt()).isEqualTo(acceptedAt);
+        assertThat(round.getStatus()).isEqualTo(com.ondemandmonitoring.delivery.enums.ResultReviewRoundStatus.ACCEPTED);
         assertThat(invoice.getStatus()).isEqualTo(InvoiceStatus.PAID);
-        assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.IN_PROGRESS);
+        assertThat(delivery.getFinalPaymentConfirmedAt()).isNull();
     }
 
-    @Test void revisionRequestLeavesResultReviewOpenWithoutChangingPaymentState() {
-        service.requestRevision("order", new RevisionRequest("North side is unclear", List.of()));
-        assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.REVISION_REQUESTED);
-        assertThat(delivery.getRevisionCount()).isEqualTo(1);
-        assertThat(invoice.getStatus()).isEqualTo(InvoiceStatus.PARTIALLY_PAID);
+    @Test void acceptedRoundRetryAfterHandoffKeepsDeliveryComplete() {
+        service.acceptResult("order", "round", 2L);
+        delivery.setStatus(DeliveryStatus.DELIVERED);
+        reviewRounds.findByIdForUpdate("round").orElseThrow().setVersion(3L);
+
+        assertThat(service.acceptResult("order", "round", 2L).deliveryStatus())
+                .isEqualTo(DeliveryStatus.DELIVERED);
+    }
+
+    @Test void staleRoundCannotAcceptResultsEvenWhenInvoiceIsPaid() {
+        invoice.setStatus(InvoiceStatus.PAID);
+        invoice.setRemainingAmount(BigDecimal.ZERO);
+
+        assertThatThrownBy(() -> service.acceptResult("order", "round", 1L))
+                .isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED);
+        assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.CUSTOMER_REVIEW);
+        assertThat(delivery.getCustomerAcceptedAt()).isNull();
+    }
+
+    @Test void acceptanceRetryWithOriginalRoundVersionIsIdempotentAfterVersionIncrement() {
+        service.acceptResult("order", "round", 2L);
+        delivery.setStatus(DeliveryStatus.FINAL_PAYMENT_PENDING);
+        var acceptedAt = delivery.getCustomerAcceptedAt();
+        var round = reviewRounds.findByIdForUpdate("round").orElseThrow();
+        round.setVersion(3L);
+
+        var retry = service.acceptResult("order", "round", 2L);
+
+        assertThat(retry.deliveryStatus()).isEqualTo(DeliveryStatus.FINAL_PAYMENT_PENDING);
+        assertThat(delivery.getCustomerAcceptedAt()).isEqualTo(acceptedAt);
+    }
+
+
+    @Test void legacyRevisionPayloadRequiresRefreshingTheResultReview() {
+        assertThatThrownBy(() -> service.requestRevision("order", new RevisionRequest(null, null, null, null, List.of())))
+                .isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED);
+        assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.CUSTOMER_REVIEW);
+        assertThat(delivery.getRevisionCount()).isZero();
     }
 
     @Test void managerSelectsApprovedPreviewAssets() {
@@ -110,6 +176,9 @@ class DeliveryWorkflowServiceTest {
         MediaAsset excluded = asset("excluded", MediaStatus.AVAILABLE);
         when(media.findByMissionIdOrderByCapturedAtDesc("mission")).thenReturn(List.of(selected, excluded));
         when(storage.createPresignedGetUrl(anyString(), anyString())).thenReturn("https://signed-preview");
+        when(reviewPublisher.publish(any(), any(), anyList(), anySet(), any(), any())).thenAnswer(call -> {
+            var round = new ResultReviewRound(); round.setId("round-new"); return round;
+        });
         service.releasePreview("order", new ReleasePreviewRequest(List.of("selected"), "QA passed"));
         assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.CUSTOMER_REVIEW);
         assertThat(selected.isPreviewSelected()).isTrue(); assertThat(excluded.isPreviewSelected()).isFalse();
@@ -130,10 +199,29 @@ class DeliveryWorkflowServiceTest {
         when(users.getCurrentUser()).thenReturn(user("manager", RoleCode.MANAGER));
         when(media.findByMissionIdOrderByCapturedAtDesc("mission")).thenReturn(List.of(asset("selected", MediaStatus.AVAILABLE)));
         when(storage.createPresignedGetUrl(anyString(), anyString())).thenReturn("https://example.test/preview");
+        when(reviewPublisher.publish(any(), any(), anyList(), anySet(), any(), any())).thenAnswer(call -> {
+            var round = new ResultReviewRound(); round.setId("round-new"); return round;
+        });
         var response = service.releasePreview("order", new ReleasePreviewRequest(List.of("selected"), null));
         assertThat(response.deliveryStatus()).isEqualTo(DeliveryStatus.CUSTOMER_REVIEW);
         verify(deliveries).save(any(OrderDelivery.class));
         verify(completion).completeIfReady(any());
+    }
+
+    @Test void legacyCustomerReviewWithoutRoundCanBeRepublishedByManager() {
+        delivery.setStatus(DeliveryStatus.CUSTOMER_REVIEW);
+        delivery.setCurrentReviewRoundId(null);
+        when(users.getCurrentUser()).thenReturn(user("manager", RoleCode.MANAGER));
+        when(media.findByMissionIdOrderByCapturedAtDesc("mission")).thenReturn(List.of(asset("selected", MediaStatus.AVAILABLE)));
+        when(reviewPublisher.publish(any(), any(), anyList(), anySet(), any(), any())).thenAnswer(call -> {
+            var round = new ResultReviewRound(); round.setId("migrated-round"); return round;
+        });
+
+        var response = service.releasePreview("order", new ReleasePreviewRequest(List.of("selected"), "Republish legacy review"));
+
+        assertThat(response.deliveryStatus()).isEqualTo(DeliveryStatus.CUSTOMER_REVIEW);
+        assertThat(delivery.getCurrentReviewRoundId()).isEqualTo("migrated-round");
+        verify(reviewPublisher).publish(any(), any(), anyList(), anySet(), any(), any());
     }
 
     @Test void originalsRequirePaidInvoiceAndManagerRelease() {
@@ -143,6 +231,8 @@ class DeliveryWorkflowServiceTest {
         delivery.setStatus(DeliveryStatus.READY_FOR_DELIVERY);
         User manager = user("manager", RoleCode.MANAGER); when(users.getCurrentUser()).thenReturn(manager);
         when(media.findByMissionIdOrderByCapturedAtDesc("mission")).thenReturn(List.of(asset("original", MediaStatus.AVAILABLE)));
+        when(missions.findAllById(List.of("mission"))).thenReturn(List.of(mission));
+        when(roundEvidence.findCurrentPublishedMediaAssetIdsByOrderIds(List.of("order"))).thenReturn(java.util.Set.of("original"));
         when(storage.createPresignedGetUrl(anyString(), anyString())).thenReturn("https://signed-original");
         service.releaseOriginals("order");
         assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.DELIVERED);

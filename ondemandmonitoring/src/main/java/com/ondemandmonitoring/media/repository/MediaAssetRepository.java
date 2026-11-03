@@ -22,6 +22,10 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, String> 
                 where m.mission.order.resultExpiresAt is not null
                   and m.mission.order.resultExpiresAt <= :now
                   and m.storageStatus in :statuses
+                  and not exists (
+                    select h.id from ResultRevisionMediaHold h
+                    where h.mediaAsset.id = m.id and h.expiresAt > :now and h.resultRevisionCase.active = true
+                  )
                 order by m.mission.order.resultExpiresAt, m.id
                 """)
         Page<String> findExpiredStorageCandidateIds(
@@ -45,6 +49,9 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, String> 
         @Query("select m from MediaAsset m where m.mission.id = :missionId and m.mediaStatus = :status")
         Page<MediaAsset> findByMissionIdAndMediaStatus(
                         String missionId, MediaStatus status, Pageable pageable);
+
+        Page<MediaAsset> findByMissionIdAndIdInAndMediaStatus(
+                        String missionId, java.util.Collection<String> ids, MediaStatus status, Pageable pageable);
 
         @Lock(LockModeType.PESSIMISTIC_WRITE)
         @Query("select m from MediaAsset m where m.id = :id")

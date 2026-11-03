@@ -28,6 +28,10 @@ public class MissionResponse {
     @Schema(description = "Mission lifecycle status", example = "PLANNING")
     MissionStatus status;
 
+    com.ondemandmonitoring.mission.enums.MissionPurpose purpose;
+
+    String resultRevisionCaseId;
+
     FlightPermitStatus flightPermitStatus;
     String flightPermitNote;
     String flightPermitFileName;

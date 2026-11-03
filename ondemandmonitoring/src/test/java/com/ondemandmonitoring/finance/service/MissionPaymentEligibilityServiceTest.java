@@ -20,7 +20,7 @@ import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import com.ondemandmonitoring.mission.domain.MissionStaffAssignment;
 import com.ondemandmonitoring.mission.domain.ResourceTimeLock;
 import com.ondemandmonitoring.mission.enums.DeviceRole;
-import com.ondemandmonitoring.mission.enums.MissionDeviceAssignmentStatus;
+import com.ondemandmonitoring.mission.enums.MissionDeviceCheckStatus;
 import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
 import com.ondemandmonitoring.mission.enums.MissionStaffRole;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
@@ -78,7 +78,7 @@ class MissionPaymentEligibilityServiceTest {
         }).toList();
         Device device = new Device(); device.setId("device-1"); device.setStatus(DeviceStatus.AVAILABLE);
         mainDevice = MissionDeviceAssignment.builder().mission(mission).device(device).deviceRole(DeviceRole.MAIN)
-                .checkupStatus(MissionDeviceAssignmentStatus.PENDING).isCurrent(true).build();
+                .checkupStatus(MissionDeviceCheckStatus.PENDING).isCurrent(true).build();
 
         when(missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc("o1")).thenReturn(List.of(mission));
         when(staff.findByMissionId("m1")).thenReturn(crew);
@@ -147,6 +147,19 @@ class MissionPaymentEligibilityServiceTest {
                 eq("i1"), eq(PaymentType.FINAL_PAYMENT), eq(com.ondemandmonitoring.finance.enums.PaymentProvider.VNPAY), anyList()))
                 .thenReturn(Optional.of(new com.ondemandmonitoring.finance.domain.Payment()));
         assertThat(service.hasActiveFinalPayment("o1")).isTrue();
+    }
+
+    @Test void completedOrderRetainsOriginalPaymentConfirmationForRework() {
+        invoice.getOrder().setOrderStatus(OrderStatus.COMPLETED);
+        invoice.setStatus(InvoiceStatus.PAID);
+        invoice.setPaidAmount(invoice.getTotalAmount());
+        invoice.setRemainingAmount(BigDecimal.ZERO);
+        when(payments.existsByInvoiceIdAndPaymentTypeAndStatus("i1", PaymentType.FINAL_PAYMENT, PaymentStatus.SUCCESS))
+                .thenReturn(true);
+        assertThat(service.isOriginalFinalPaymentConfirmed(invoice)).isTrue();
+        assertThat(service.isFinalPaymentConfirmed(invoice)).isFalse();
+        invoice.getOrder().getExecutionPlan().setStatus(ExecutionPlanStatus.DRAFT);
+        assertThat(service.isOriginalFinalPaymentConfirmed(invoice)).isFalse();
     }
 
     private ResourceTimeLock lock(String id) {

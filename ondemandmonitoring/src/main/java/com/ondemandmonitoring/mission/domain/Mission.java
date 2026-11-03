@@ -4,6 +4,7 @@ import com.ondemandmonitoring.common.entity.BaseEntity;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.flightpermit.domain.FlightPermit;
 import com.ondemandmonitoring.mission.enums.MissionRescheduleReason;
+import com.ondemandmonitoring.mission.enums.MissionPurpose;
 import com.ondemandmonitoring.order.domain.Order;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -53,6 +54,19 @@ public class Mission extends BaseEntity {
 
     @Column(name = "scope_label", length = 255)
     String scopeLabel;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "mission_purpose", nullable = false, length = 20)
+    MissionPurpose purpose = MissionPurpose.ORIGINAL;
+
+    @Column(name = "result_revision_case_id", length = 255)
+    String resultRevisionCaseId;
+
+    @Column(name = "rework_request_id", unique = true)
+    java.util.UUID reworkRequestId;
+
+    @Column(name = "rework_request_fingerprint", length = 64)
+    String reworkRequestFingerprint;
 
 
     @Column(name = "replaces_mission_id", length = 255)

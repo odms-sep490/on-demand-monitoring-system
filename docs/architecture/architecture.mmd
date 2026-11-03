@@ -1,0 +1,47 @@
+flowchart LR
+  subgraph Client["Client"]
+    Browser["Browser"]
+    React["React 19 + Vite + TypeScript\nfeatures/* · shared/api/httpClient"]
+    Browser --> React
+  end
+
+  subgraph Backend["Spring Boot application · ondemandmonitoring"]
+    API["REST controllers\n/api/**"]
+    Domains["Domain services\norder · mission · checklist · device\nfinance · delivery · support"]
+    Auth["Auth domain\nCognito identity adapter"]
+    Media["Media domain\nS3 object storage"]
+    SqsConsumer["Optional media SQS consumer"]
+    S3Processor["S3 event message processor"]
+    Persistence["Repositories and mappers\nJPA + MyBatis"]
+    API --> Domains --> Persistence
+    API --> Auth
+    API --> Media
+    SqsConsumer --> S3Processor --> Media
+    WS["Authenticated WebSocket flows"]
+    FinanceNotify["Finance/order notification listeners"]
+    FinanceNotify --> WS
+  end
+
+  React -->|"HTTP /api/**"| API
+  WS -.->|"live updates where subscribed"| React
+  Persistence --> DB[("PostgreSQL")]
+
+  subgraph Cloud["External integrations configured by backend"]
+    Cognito["Amazon Cognito"]
+    S3["Amazon S3"]
+    SQS[("Amazon SQS")]
+  end
+  Auth --> Cognito
+  Media --> S3
+  SqsConsumer -->|"poll/delete events when enabled"| SQS
+
+  subgraph Dev["Development / simulation support"]
+    PX4["PX4 SITL"]
+    Drone["Python drone telemetry adapter"]
+    Gazebo["Gazebo + Forest3D assets"]
+    Lambda["Cognito pre-signup Java Lambda"]
+    PX4 --> Drone
+    Gazebo -.-> PX4
+  end
+  Drone -->|"HTTP device telemetry API"| API
+  Cognito -.-> Lambda

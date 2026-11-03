@@ -471,9 +471,9 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                 else fail(item, "Giấy phép bay chưa được xác nhận", "FLIGHT_PERMISSION_REQUIRED");
             }
             case FLIGHT_ROUTE, FLIGHT_LIMITS, LANDING_DESTINATION -> {
-                if (mission.getOrder() != null && mission.getOrder().getExecutionPlanStatus()
+                if (mission.getOrder() != null && mission.getOrder().getExecutionPlan().getStatus()
                         == com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED)
-                    pass(item, "Kế hoạch bay đã được chốt", String.valueOf(mission.getOrder().getExecutionPlanRevision()));
+                    pass(item, "Kế hoạch bay đã được chốt", String.valueOf(mission.getOrder().getExecutionPlan().getRevision()));
                 else unknown(item, "Chưa có kế hoạch bay đã chốt", "FLIGHT_PLAN_MISSING");
             }
             case RENTAL_BOOKING -> {

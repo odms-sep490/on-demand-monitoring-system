@@ -35,7 +35,7 @@ class ExecutionPlanFinalizeTest {
     List<MissionChecklistAssignment> selection;
 
     @BeforeEach void setup() {
-        order = new Order(); order.setId("o"); order.setExecutionPlanRevision(3); order.setOrderStatus(OrderStatus.APPROVED);
+        order = new Order(); order.setId("o"); order.getExecutionPlan().setRevision(3); order.setOrderStatus(OrderStatus.APPROVED);
         first = mission("a"); second = mission("b");
         selection = List.of(assignment(first, "i1"), assignment(second, "i2"));
         when(orders.findByIdForUpdate("o")).thenReturn(Optional.of(order));
@@ -76,9 +76,9 @@ class ExecutionPlanFinalizeTest {
         sequence.verify(missions).findIdsByOrderIdOrderById("o");
         sequence.verify(missions).findById("a"); sequence.verify(missions).findById("b");
         sequence.verify(materializer).materialize(first); sequence.verify(materializer).materialize(second);
-        assertEquals(ExecutionPlanStatus.FINALIZED, order.getExecutionPlanStatus());
-        assertEquals(4, order.getExecutionPlanRevision());
-        assertEquals("manager", order.getExecutionPlanFinalizedBy()); assertNotNull(order.getExecutionPlanFinalizedAt());
+        assertEquals(ExecutionPlanStatus.FINALIZED, order.getExecutionPlan().getStatus());
+        assertEquals(4, order.getExecutionPlan().getRevision());
+        assertEquals("manager", order.getExecutionPlan().getFinalizedBy()); assertNotNull(order.getExecutionPlan().getFinalizedAt());
         assertEquals(MissionStatus.PENDING_PAYMENT, first.getStatus());
         assertEquals(MissionStatus.PENDING_PAYMENT, second.getStatus());
     }
@@ -86,7 +86,7 @@ class ExecutionPlanFinalizeTest {
     @Test void missingCrewOnAnyMissionPreventsEveryMaterialization() {
         when(staff.findByMissionId("b")).thenReturn(List.of());
         error(ErrorCode.INVALID_REQUEST, this::finalizePlan);
-        verifyNoInteractions(materializer); assertEquals(ExecutionPlanStatus.DRAFT, order.getExecutionPlanStatus());
+        verifyNoInteractions(materializer); assertEquals(ExecutionPlanStatus.DRAFT, order.getExecutionPlan().getStatus());
     }
 
     @Test void supportDeviceDoesNotSatisfyMainRequirement() {
@@ -126,7 +126,7 @@ class ExecutionPlanFinalizeTest {
         error(ErrorCode.EXECUTION_PLAN_REVISION_CONFLICT, () -> service.finalizePlan("o", new ExecutionPlanFinalizeRequest(2L, true)));
         second.setStatus(MissionStatus.READY);
         error(ErrorCode.MISSION_STATUS_INVALID, this::finalizePlan);
-        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED);
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED);
         error(ErrorCode.EXECUTION_PLAN_NOT_DRAFT, this::finalizePlan); verifyNoInteractions(materializer);
     }
 }

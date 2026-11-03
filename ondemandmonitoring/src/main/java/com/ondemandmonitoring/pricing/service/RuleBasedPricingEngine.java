@@ -45,12 +45,9 @@ public class RuleBasedPricingEngine implements PricingEngine {
     public PricingBreakdown calculate(Order order, List<OrderChecklistItem> checklistItems) {
         PricingPolicy policy = resolvePolicy(order);
         List<PricingBreakdownItem> result = new ArrayList<>();
-        // Checklists are the price. Only orders created before that (a stored package snapshot, or version-0 checklist
-        // snapshots) keep a PACKAGE line; a new order has none.
-        boolean legacyOrder = order.getServiceBasePriceSnapshot() != null
-                || checklistItems.stream().anyMatch(i -> i.getPricingSnapshotVersion() == 0);
-        BigDecimal base = money(!legacyOrder ? BigDecimal.ZERO : order.getServiceBasePriceSnapshot() != null
-                ? order.getServiceBasePriceSnapshot() : order.getService().getBasePrice());
+        // Checklists are the price. Only legacy orders with version-0 checklist snapshots keep a PACKAGE line.
+        boolean legacyOrder = checklistItems.stream().anyMatch(i -> i.getPricingSnapshotVersion() == 0);
+        BigDecimal base = money(legacyOrder ? order.getService().getBasePrice() : BigDecimal.ZERO);
         if (legacyOrder) add(result, PricingCategory.PACKAGE, order.getService().getName(), BigDecimal.ONE, base, base);
 
         // Legacy snapshots (version 0) keep the single order-level custom charge; new snapshots price each custom item.
@@ -74,7 +71,7 @@ public class RuleBasedPricingEngine implements PricingEngine {
         }
 
         // Work done on every visit is billed once per visit; permits, terrain and discounts apply to the order as a whole.
-        // Orders priced before this rule (a package snapshot or version-0 checklists) keep their single-visit price.
+        // Orders priced before this rule (version-0 checklist snapshots) keep their single-visit price.
         int occurrences = legacyOrder || legacyDimensions ? 1 : PricingOccurrences.of(order);
         int visitStart = result.size();
         List<String> pendingQuotes = new ArrayList<>();

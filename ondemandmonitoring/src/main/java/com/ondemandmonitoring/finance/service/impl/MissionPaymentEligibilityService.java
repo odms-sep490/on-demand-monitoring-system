@@ -64,7 +64,7 @@ public class MissionPaymentEligibilityService implements IMissionPaymentEligibil
         if (invoice == null || invoice.getOrder() == null || invoice.getQuote() == null) return false;
         var order = invoice.getOrder();
         if (order.getOrderStatus() != OrderStatus.APPROVED && order.getOrderStatus() != OrderStatus.IN_PROGRESS) return false;
-        if (order.getExecutionPlanStatus() != ExecutionPlanStatus.FINALIZED || !isLegalReady(order.getLegalReviewStatus())) return false;
+        if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.FINALIZED || !isLegalReady(order.getFlightAreaReview().getLegalReviewStatus())) return false;
         if (invoice.getQuote().getStatus() != QuoteStatus.ACCEPTED_BY_CUSTOMER
                 || invoice.getStatus() == InvoiceStatus.PAID
                 || invoice.getStatus() == InvoiceStatus.CANCELLED
@@ -94,8 +94,8 @@ public class MissionPaymentEligibilityService implements IMissionPaymentEligibil
                 || invoice.getQuote().getStatus() != QuoteStatus.ACCEPTED_BY_CUSTOMER
                 || (invoice.getOrder().getOrderStatus() != OrderStatus.APPROVED
                     && invoice.getOrder().getOrderStatus() != OrderStatus.IN_PROGRESS)
-                || invoice.getOrder().getExecutionPlanStatus() != ExecutionPlanStatus.FINALIZED
-                || !isLegalReady(invoice.getOrder().getLegalReviewStatus())) return false;
+                || invoice.getOrder().getExecutionPlan().getStatus() != ExecutionPlanStatus.FINALIZED
+                || !isLegalReady(invoice.getOrder().getFlightAreaReview().getLegalReviewStatus())) return false;
         return payments.existsByInvoiceIdAndPaymentTypeAndStatus(
                 invoice.getId(), PaymentType.FINAL_PAYMENT, PaymentStatus.SUCCESS);
     }
@@ -107,8 +107,8 @@ public class MissionPaymentEligibilityService implements IMissionPaymentEligibil
                 || invoice.getRemainingAmount() == null || invoice.getRemainingAmount().signum() != 0
                 || !isDepositSatisfied(invoice) || invoice.getQuote() == null
                 || invoice.getQuote().getStatus() != QuoteStatus.ACCEPTED_BY_CUSTOMER
-                || invoice.getOrder().getExecutionPlanStatus() != ExecutionPlanStatus.FINALIZED
-                || !isLegalReady(invoice.getOrder().getLegalReviewStatus())) return false;
+                || invoice.getOrder().getExecutionPlan().getStatus() != ExecutionPlanStatus.FINALIZED
+                || !isLegalReady(invoice.getOrder().getFlightAreaReview().getLegalReviewStatus())) return false;
         return payments.existsByInvoiceIdAndPaymentTypeAndStatus(
                 invoice.getId(), PaymentType.FINAL_PAYMENT, PaymentStatus.SUCCESS);
     }

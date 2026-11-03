@@ -22,7 +22,7 @@ DO $$ DECLARE e record; actual text; keys text[]; predicate text; meta record; B
     END IF;
     FOR e IN SELECT * FROM (VALUES
         ('services','ck_services_base_price_positive','c'),
-        ('orders','ck_order_execution_plan','c'),
+        ('order_execution_plans','ck_order_execution_plan','c'),
         ('missions','ck_mission_foundation','c'),
         ('missions','uk_mission_id_order','u'),
         ('order_checklist_items','uk_checklist_item_id_order','u'),

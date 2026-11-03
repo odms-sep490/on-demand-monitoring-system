@@ -48,14 +48,14 @@ public class MissionChecklistAssignmentServiceImpl implements IMissionChecklistA
         var order = orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
         var mission = missions.findById(missionId).orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
         if (!orderId.equals(mission.getOrder().getId())) throw new ApiException(ErrorCode.CHECKLIST_ASSIGNMENT_CROSS_ORDER);
-        boolean finalizedPlanning = order.getExecutionPlanStatus() == ExecutionPlanStatus.FINALIZED
+        boolean finalizedPlanning = order.getExecutionPlan().getStatus() == ExecutionPlanStatus.FINALIZED
                 && mission.getStatus() == MissionStatus.PLANNING;
-        if (order.getExecutionPlanStatus() != ExecutionPlanStatus.DRAFT && !finalizedPlanning)
+        if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.DRAFT && !finalizedPlanning)
             throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_DRAFT);
         if (request == null || request.expectedPlanRevision() == null || request.items() == null)
             throw new ApiException(ErrorCode.INVALID_REQUEST);
-        if (order.getExecutionPlanRevision() != request.expectedPlanRevision()
-                || order.getExecutionPlanRevision() == Long.MAX_VALUE)
+        if (order.getExecutionPlan().getRevision() != request.expectedPlanRevision()
+                || order.getExecutionPlan().getRevision() == Long.MAX_VALUE)
             throw new ApiException(ErrorCode.EXECUTION_PLAN_REVISION_CONFLICT);
         if (mission.getStatus() != MissionStatus.PLANNING || mission.getCancellationAt() != null
                 || !executions.findOrderedByMissionId(missionId).isEmpty())
@@ -125,14 +125,14 @@ public class MissionChecklistAssignmentServiceImpl implements IMissionChecklistA
         }
         assignments.saveAllAndFlush(changed);
         items.saveAll(selected.values());
-        order.setExecutionPlanRevision(Math.addExact(order.getExecutionPlanRevision(), 1));
+        order.getExecutionPlan().setRevision(Math.addExact(order.getExecutionPlan().getRevision(), 1));
         orders.saveAndFlush(order);
         return response(mission);
     }
 
     private Mission mission(String id) { return missions.findById(id).orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND)); }
     private ChecklistAssignmentSelectionResponse response(Mission mission) {
-        return new ChecklistAssignmentSelectionResponse(mission.getId(), mission.getOrder().getExecutionPlanRevision(),
+        return new ChecklistAssignmentSelectionResponse(mission.getId(), mission.getOrder().getExecutionPlan().getRevision(),
                 assignments.findByMissionIdAndRemovedAtIsNullOrderByDisplayOrderAscIdAsc(mission.getId()).stream().map(mapper::toResponse).toList());
     }
 }

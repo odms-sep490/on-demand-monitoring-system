@@ -37,8 +37,8 @@ class ChecklistEvidenceServiceTest {
     Mission mission; MissionChecklistExecution execution; MediaAsset asset;
     @BeforeEach void setup() {
         var order = new Order(); order.setId("o"); mission = new Mission(); mission.setId("m"); mission.setOrder(order); mission.setStatus(MissionStatus.PENDING_REVIEW);
-        order.setExecutionPlanStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
-        order.setExecutionPlanRevision(1);
+        order.getExecutionPlan().setStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
+        order.getExecutionPlan().setRevision(1);
         var item = new OrderChecklistItem(); item.setId("i"); item.setOrder(order); item.setEvidencePolicyVersion(2); item.setMinimumEvidenceCount(1); item.setRequiredEvidenceType(RequiredEvidenceType.IMAGE_OR_VIDEO);
         execution = new MissionChecklistExecution(); execution.setId("e"); execution.setMissionId("m"); execution.setOrderId("o"); execution.setOrderChecklistItem(item); execution.setVersion(0L);
         execution.setExecutionStatus(ChecklistExecutionStatus.COMPLETED);

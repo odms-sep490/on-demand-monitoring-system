@@ -59,7 +59,7 @@ class MissionReworkPlanFinalizeTest {
         ReflectionTestUtils.setField(service, "checklistMaterializationService", materialization);
         ReflectionTestUtils.setField(service, "missionMapper", mock(MissionMapper.class));
         order.setId("order"); order.setOrderStatus(OrderStatus.COMPLETED);
-        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED); order.setExecutionPlanRevision(7);
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED); order.getExecutionPlan().setRevision(7);
         mission.setId("rework"); mission.setOrder(order); mission.setPurpose(MissionPurpose.REWORK);
         mission.setResultRevisionCaseId("case"); mission.setStatus(MissionStatus.PLANNING);
         revisionCase.setId("case"); revisionCase.setOrder(order); revisionCase.setActive(true);
@@ -95,7 +95,7 @@ class MissionReworkPlanFinalizeTest {
     void finalizesReworkUsingSharedMaterializationAndResourceActivationWithoutReopeningOriginalPlan() {
         service.finalizeReworkPlan("case", new ExecutionPlanFinalizeRequest(7L, true));
         assertThat(mission.getStatus()).isEqualTo(MissionStatus.PENDING_CONFIRMATION);
-        assertThat(order.getExecutionPlanStatus()).isEqualTo(ExecutionPlanStatus.FINALIZED);
+        assertThat(order.getExecutionPlan().getStatus()).isEqualTo(ExecutionPlanStatus.FINALIZED);
         assertThat(staff).allSatisfy(row -> assertThat(row.getResponseStatus()).isEqualTo(MissionStaffAssignmentStatus.PENDING));
         assertThat(device.getCheckupStatus()).isEqualTo(MissionDeviceCheckStatus.PENDING);
         verify(materialization).materialize(mission);

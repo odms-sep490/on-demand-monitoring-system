@@ -8,9 +8,9 @@ public final class MissionRuntimeGate {
     private MissionRuntimeGate() {}
     public static boolean isStructurallyFinalized(Mission mission) {
         return mission.getOrder() != null
-                && mission.getOrder().getExecutionPlanStatus()
+                && mission.getOrder().getExecutionPlan().getStatus()
                     == com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED
-                && mission.getOrder().getExecutionPlanRevision() > 0;
+                && mission.getOrder().getExecutionPlan().getRevision() > 0;
     }
     public static void requireFinalizedStructure(Mission mission) {
         if (!isStructurallyFinalized(mission)) throw new ApiException(

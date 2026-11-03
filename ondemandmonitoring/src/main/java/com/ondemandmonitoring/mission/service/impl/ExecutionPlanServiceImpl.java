@@ -43,11 +43,11 @@ public class ExecutionPlanServiceImpl implements IExecutionPlanService {
     public ExecutionPlanResponse finalizePlan(String orderId, ExecutionPlanFinalizeRequest request) {
         if (request == null || request.expectedPlanRevision() == null || request.expectedPlanRevision() < 0) throw new ApiException(ErrorCode.INVALID_REQUEST);
         var order = orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-        if (order.getExecutionPlanStatus() != ExecutionPlanStatus.DRAFT)
+        if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.DRAFT)
             throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_DRAFT);
         if (order.getOrderStatus() != OrderStatus.APPROVED && order.getOrderStatus() != OrderStatus.IN_PROGRESS)
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Order must be APPROVED or IN_PROGRESS");
-        if (order.getExecutionPlanRevision() != request.expectedPlanRevision() || order.getExecutionPlanRevision() == Long.MAX_VALUE)
+        if (order.getExecutionPlan().getRevision() != request.expectedPlanRevision() || order.getExecutionPlan().getRevision() == Long.MAX_VALUE)
             throw new ApiException(ErrorCode.EXECUTION_PLAN_REVISION_CONFLICT);
         var children = missions.findIdsByOrderIdOrderById(orderId).stream().sorted()
                 .map(id -> missions.findById(id).orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND))).toList();
@@ -77,10 +77,10 @@ public class ExecutionPlanServiceImpl implements IExecutionPlanService {
                 a.setIsCurrent(true);
             });
         });
-        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED);
-        order.setExecutionPlanRevision(order.getExecutionPlanRevision() + 1);
-        order.setExecutionPlanFinalizedAt(Instant.now());
-        order.setExecutionPlanFinalizedBy(currentUser.getCurrentUserId());
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED);
+        order.getExecutionPlan().setRevision(order.getExecutionPlan().getRevision() + 1);
+        order.getExecutionPlan().setFinalizedAt(Instant.now());
+        order.getExecutionPlan().setFinalizedBy(currentUser.getCurrentUserId());
         missions.saveAllAndFlush(effective);
         orders.saveAndFlush(order);
         return response(order, children);
@@ -95,7 +95,7 @@ public class ExecutionPlanServiceImpl implements IExecutionPlanService {
         if (children.stream().noneMatch(ExecutionPlanCoverageService::effective)) blockers.add("NO_EFFECTIVE_MISSIONS");
         if (!calculated.coverageReady() || calculated.repeated() > 0) blockers.add("CHECKLIST_COVERAGE_INCOMPLETE");
         if (order.getOrderStatus() != OrderStatus.APPROVED && order.getOrderStatus() != OrderStatus.IN_PROGRESS) blockers.add("ORDER_NOT_APPROVED");
-        if (order.getExecutionPlanStatus() == ExecutionPlanStatus.DRAFT) {
+        if (order.getExecutionPlan().getStatus() == ExecutionPlanStatus.DRAFT) {
             for (var mission : children.stream().filter(ExecutionPlanCoverageService::effective).toList()) {
                 try { MissionService.requirePlanningReady(mission, staff.findByMissionId(mission.getId()),
                     devices.findByMissionId(mission.getId())); }
@@ -104,7 +104,7 @@ public class ExecutionPlanServiceImpl implements IExecutionPlanService {
                     blockers.add("MISSION_CHECKLIST_EMPTY:" + mission.getId());
             }
         }
-        return new ExecutionPlanResponse(order.getId(), order.getExecutionPlanStatus(), order.getExecutionPlanRevision(),
+        return new ExecutionPlanResponse(order.getId(), order.getExecutionPlan().getStatus(), order.getExecutionPlan().getRevision(),
                 children.stream().map(m -> {
                     var mAssignments = active.stream().filter(a -> m.getId().equals(a.getMissionId())).toList();
                     var itemIds = mAssignments.stream().map(com.ondemandmonitoring.mission.domain.MissionChecklistAssignment::getOrderChecklistItemId).toList();

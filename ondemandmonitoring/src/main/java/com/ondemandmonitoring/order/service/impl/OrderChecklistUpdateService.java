@@ -145,8 +145,6 @@ public class OrderChecklistUpdateService implements IOrderChecklistUpdateService
             order.setPricingPolicyId(policy.getId());
             order.setPricingPolicyVersion(policy.getPolicyVersion());
         }
-        order.setServiceBasePriceSnapshot(null);
-
         List<OrderChecklistItem> saved = snapshots.saveAllAndFlush(candidateItems);
         order.setChecklistRevision(nextRevision);
         order.setChecklistSnapshotAt(Instant.now());

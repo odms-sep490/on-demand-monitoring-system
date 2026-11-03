@@ -20,7 +20,7 @@ class MissionCancellationServiceTest {
         var results = mock(MissionResultRepository.class); var actor = mock(AuthenticatedUserResolver.class);
         var service = new MissionCancellationServiceImpl(orders, missions, results, actor);
         var order = new Order(); order.setId("o"); order.setOrderStatus(OrderStatus.APPROVED);
-        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED); order.setExecutionPlanRevision(2);
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED); order.getExecutionPlan().setRevision(2);
         var mission = new Mission(); mission.setId("m"); mission.setOrder(order); mission.setStatus(MissionStatus.IN_FLIGHT);
         when(missions.findOrderIdByMissionId("m")).thenReturn(Optional.of("o"));
         when(missions.findById("m")).thenReturn(Optional.of(mission));
@@ -29,7 +29,7 @@ class MissionCancellationServiceTest {
         var response = service.cancel("m", new MissionCancelRequest(2L, "  Cancel requested  "));
         assertEquals(MissionStatus.CANCELLED, response.status());
         assertEquals("Cancel requested", mission.getCancellationReason());
-        assertEquals(3, order.getExecutionPlanRevision());
+        assertEquals(3, order.getExecutionPlan().getRevision());
         verify(missions, never()).hasUnsafeCancellationResources(anyString());
     }
 }

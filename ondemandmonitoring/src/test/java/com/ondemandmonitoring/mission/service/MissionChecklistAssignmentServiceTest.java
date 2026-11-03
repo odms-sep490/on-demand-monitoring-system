@@ -28,7 +28,7 @@ class MissionChecklistAssignmentServiceTest {
             org.mapstruct.factory.Mappers.getMapper(MissionChecklistAssignmentMapper.class),acceptedGuidance);
     Order order; Mission mission; OrderChecklistItem item;
     @BeforeEach void setup() {
-        order=new Order(); order.setId("o"); order.setExecutionPlanRevision(2);
+        order=new Order(); order.setId("o"); order.getExecutionPlan().setRevision(2);
         mission=new Mission(); mission.setId("m"); mission.setOrder(order);
         mission.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.PLANNING);
         item=new OrderChecklistItem(); item.setId("i"); item.setOrder(order); item.setContent("Snapshot");
@@ -67,18 +67,18 @@ class MissionChecklistAssignmentServiceTest {
         assertEquals(3,service.replace("m",request("i")).revision());
         verify(acceptedGuidance,times(1)).findForOrder("o");
     }
-    @Test void staleRevisionRejectedBeforeDiff() { order.setExecutionPlanRevision(3); error(ErrorCode.EXECUTION_PLAN_REVISION_CONFLICT,()->service.replace("m",request("i"))); }
+    @Test void staleRevisionRejectedBeforeDiff() { order.getExecutionPlan().setRevision(3); error(ErrorCode.EXECUTION_PLAN_REVISION_CONFLICT,()->service.replace("m",request("i"))); }
     @Test void crossOrderSelectionRejectedBeforeDiff() {
         var foreign=new Order(); foreign.setId("other"); item.setOrder(foreign);
         error(ErrorCode.CHECKLIST_ASSIGNMENT_CROSS_ORDER,()->service.replace("m",request("i")));
     }
     @Test void finalizedOrderAllowsUnconfirmedMissionSelectionAndAdvancesRevision() {
-        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED);
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED);
         assertEquals(3, service.replace("m", request("i")).revision());
         verify(executions, never()).saveAllAndFlush(any());
     }
     @Test void confirmedMissionCannotRewriteSelection() {
-        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED);
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED);
         mission.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.READY);
         error(ErrorCode.EXECUTION_PLAN_NOT_DRAFT, () -> service.replace("m", request("i")));
     }
@@ -90,6 +90,6 @@ class MissionChecklistAssignmentServiceTest {
         var a=new MissionChecklistAssignment(); a.setId("a"); a.setMissionId("m"); a.setOrderId("o"); a.setOrderChecklistItemId("i"); a.setOrderChecklistItem(item);
         when(assignments.findByMissionIdAndRemovedAtIsNullOrderByDisplayOrderAscIdAsc("m")).thenReturn(List.of(a));
         service.replace("m",request()); assertEquals("manager",a.getRemovedBy()); assertNotNull(a.getRemovedAt());
-        verify(assignments,never()).delete(any()); assertEquals(3,order.getExecutionPlanRevision());
+        verify(assignments,never()).delete(any()); assertEquals(3,order.getExecutionPlan().getRevision());
     }
 }

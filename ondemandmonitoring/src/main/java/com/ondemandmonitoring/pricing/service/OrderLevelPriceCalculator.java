@@ -59,7 +59,7 @@ public class OrderLevelPriceCalculator {
             return new Context(order.getResultFormats(), quantities,
                     requestedQualityQuantity(order, "IMAGE", "4K"),
                     requestedQualityQuantity(order, "VIDEO", "4K"),
-                    Boolean.TRUE.equals(order.getPermitRequired()) || order.getPermitStatus() == OrderPermitStatus.NEED_SUPPORT,
+                    Boolean.TRUE.equals(order.getFlightCompliance().getPermitRequired()) || order.getFlightCompliance().getPermitStatus() == OrderPermitStatus.NEED_SUPPORT,
                     TerrainType.FLAT);
         }
     }

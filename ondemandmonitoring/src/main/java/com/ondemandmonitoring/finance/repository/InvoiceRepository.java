@@ -37,21 +37,21 @@ public interface InvoiceRepository extends JpaRepository<Invoice, String> {
 
     @Query("""
             select i.id from Invoice i
-            where i.order.depositExpiresAt is not null and i.order.depositExpiresAt <= :now
+            where i.depositExpiresAt is not null and i.depositExpiresAt <= :now
               and i.order.orderStatus = 'APPROVED'
               and (i.depositStatus = 'WAITING_DEPOSIT'
                    or (i.depositStatus is null and i.paidAmount < i.depositAmount))
               and i.paidAmount < i.depositAmount
               and i.status in ('ISSUED','PARTIALLY_PAID')
-            order by i.order.depositExpiresAt, i.id
+            order by i.depositExpiresAt, i.id
             """)
     java.util.List<String> findExpiredDepositInvoiceIds(@Param("now") java.time.Instant now,
             org.springframework.data.domain.Pageable pageable);
 
     @Query("""
             select i.id from Invoice i
-            where i.order.finalPaymentExpiresAt is null
-              and i.order.executionPlanStatus = 'FINALIZED'
+            where i.finalPaymentExpiresAt is null
+              and i.order.executionPlan.status = 'FINALIZED'
               and i.order.orderStatus in ('APPROVED','IN_PROGRESS')
               and i.quote.status = 'ACCEPTED_BY_CUSTOMER'
               and i.paidAmount >= i.depositAmount and i.remainingAmount > 0
@@ -63,10 +63,10 @@ public interface InvoiceRepository extends JpaRepository<Invoice, String> {
 
     @Query("""
             select i.id from Invoice i
-            where i.order.finalPaymentExpiresAt is not null and i.order.finalPaymentExpiresAt <= :now
+            where i.finalPaymentExpiresAt is not null and i.finalPaymentExpiresAt <= :now
               and i.order.orderStatus in ('APPROVED','IN_PROGRESS')
               and i.remainingAmount > 0 and i.status in ('ISSUED','PARTIALLY_PAID')
-            order by i.order.finalPaymentExpiresAt, i.id
+            order by i.finalPaymentExpiresAt, i.id
             """)
     java.util.List<String> findExpiredFinalPaymentInvoiceIds(@Param("now") java.time.Instant now,
             org.springframework.data.domain.Pageable pageable);

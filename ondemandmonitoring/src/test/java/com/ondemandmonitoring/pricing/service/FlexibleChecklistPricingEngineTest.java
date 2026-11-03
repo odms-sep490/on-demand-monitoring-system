@@ -59,7 +59,7 @@ class FlexibleChecklistPricingEngineTest {
         var service = new com.ondemandmonitoring.service.domain.Service();
         service.setName("Inspection"); service.setBasePrice(new BigDecimal(packageFee));
         Order o = new Order();
-        o.setId("o1"); o.setService(service); o.setServiceBasePriceSnapshot(new BigDecimal(packageFee));
+        o.setId("o1"); o.setService(service);
         when(assessments.findByOrderId("o1")).thenReturn(Optional.empty());
         return o;
     }
@@ -74,17 +74,17 @@ class FlexibleChecklistPricingEngineTest {
         return item;
     }
 
-    @Test void orderTotalIsPackageFeePlusEachChecklistContributionOnce() {
+    @Test void orderTotalUsesChecklistAndMediaPricingWithoutAddingTheServiceBasePrice() {
         policy(4, media("STANDARD", MediaPricingComponent.INCLUDED_IMAGE, "50000"),
                 tier(MediaPricingComponent.EXTRA_IMAGE, "0", "10", "50000"), tier(MediaPricingComponent.EXTRA_IMAGE, "10", null, "40000"));
 
         var result = engine.calculate(order("1000000"), List.of(snapshot("200000", 10, 0, 30, 0)));
 
-        // 1,000,000 package + 200,000 base + 50,000 included images + 50,000 + 40,000 extra tiers
-        assertThat(result.systemCalculatedAmount()).isEqualByComparingTo("1340000");
+        // 200,000 checklist base + 50,000 included images + 50,000 + 40,000 extra tiers
+        assertThat(result.systemCalculatedAmount()).isEqualByComparingTo("340000");
         assertThat(result.policyVersion()).isEqualTo(4);
         assertThat(result.items()).extracting(i -> i.category()).containsExactly(
-                PricingCategory.PACKAGE, PricingCategory.CHECKLIST, PricingCategory.MEDIA, PricingCategory.MEDIA, PricingCategory.MEDIA);
+                PricingCategory.CHECKLIST, PricingCategory.MEDIA, PricingCategory.MEDIA, PricingCategory.MEDIA);
     }
 
     @Test void removingAnOptionalChecklistLowersThePriceByExactlyItsContribution() {
@@ -98,7 +98,7 @@ class FlexibleChecklistPricingEngineTest {
         policy(4);
         OrderChecklistItem rejected = snapshot("200000", 0, 0, 0, 0);
         rejected.setReviewStatus(ChecklistReviewStatus.REJECTED);
-        assertThat(engine.calculate(order("1000000"), List.of(rejected)).systemCalculatedAmount()).isEqualByComparingTo("1000000");
+        assertThat(engine.calculate(order("1000000"), List.of(rejected)).systemCalculatedAmount()).isEqualByComparingTo("0");
     }
 
     @Test void snapshotPriceIgnoresLaterCatalogEdits() {
@@ -131,9 +131,9 @@ class FlexibleChecklistPricingEngineTest {
         policy(2, media("STANDARD", MediaPricingComponent.INCLUDED_IMAGE, "80000"));
         var v2 = engine.calculate(order("1000000"), List.of(item));
         // The persisted Quote keeps the v1 numbers; recalculation is an explicit new-version act and reports its policy version.
-        assertThat(v1.systemCalculatedAmount()).isEqualByComparingTo("1050000");
+        assertThat(v1.systemCalculatedAmount()).isEqualByComparingTo("50000");
         assertThat(v1.policyVersion()).isEqualTo(1);
-        assertThat(v2.systemCalculatedAmount()).isEqualByComparingTo("1080000");
+        assertThat(v2.systemCalculatedAmount()).isEqualByComparingTo("80000");
         assertThat(v2.policyVersion()).isEqualTo(2);
     }
 
@@ -170,7 +170,6 @@ class FlexibleChecklistPricingEngineTest {
     @Test void newOrderHasNoPackageLineBecauseTheChecklistsAreTheWholePrice() {
         policy(4);
         Order o = order("1000000");
-        o.setServiceBasePriceSnapshot(null);
         var result = engine.calculate(o, List.of(snapshot("200000", 0, 0, 0, 0)));
         assertThat(result.systemCalculatedAmount()).isEqualByComparingTo("200000");
         assertThat(result.items()).extracting(i -> i.category()).doesNotContain(PricingCategory.PACKAGE);
@@ -179,7 +178,6 @@ class FlexibleChecklistPricingEngineTest {
     @Test void highResolutionOutputUsesThePerTypeQuantitiesFromTheChecklists() {
         policy(4, rule(PricingCategory.OUTPUT, "4K_VIDEO", PricingCalculationType.PER_UNIT, "150000"));
         Order o = order("0");
-        o.setServiceBasePriceSnapshot(null);
         o.setDeliverables(new java.util.ArrayList<>(List.of(com.ondemandmonitoring.order.domain.OrderDeliverable.builder()
                 .requirement(java.util.Map.of("mediaType", "IMAGE", "quantity", 10, "resolution", "4K",
                         "imageQuantity", 10, "videoQuantity", 2)).build())));
@@ -197,7 +195,6 @@ class FlexibleChecklistPricingEngineTest {
         policy(1, area100, image, video);
 
         Order pricedOrder = order("0");
-        pricedOrder.setServiceBasePriceSnapshot(null);
         double widthDegrees = 500d / 111_320d;
         double heightDegrees = 600d / 110_540d;
         pricedOrder.setTargetArea(new GeometryFactory().createPolygon(new Coordinate[] {

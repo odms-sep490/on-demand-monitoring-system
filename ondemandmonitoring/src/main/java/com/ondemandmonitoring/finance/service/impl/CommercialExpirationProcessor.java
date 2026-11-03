@@ -65,15 +65,16 @@ public class CommercialExpirationProcessor {
         if (candidate == null) return false;
         Order order = orders.findByIdForUpdate(candidate.getOrder().getId()).orElse(null);
         if (order == null || order.getOrderStatus() != OrderStatus.APPROVED
-                || order.getDepositExpiresAt() == null) return false;
+                || candidate.getDepositExpiresAt() == null) return false;
         Instant now = Instant.now(clock);
-        if (now.isBefore(order.getDepositExpiresAt())) return false;
+        if (now.isBefore(candidate.getDepositExpiresAt())) return false;
 
         // Lock the commercial aggregate in deterministic order before applying expiration.
         List<Payment> lockedPayments = payments.findAllByInvoiceIdForUpdate(invoiceId);
         Invoice invoice = invoices.findByIdForUpdate(invoiceId).orElse(null);
         if (invoice == null || invoice.getStatus() == InvoiceStatus.CANCELLED
                 || invoice.getStatus() == InvoiceStatus.PAID || invoice.getStatus() == InvoiceStatus.REFUNDED
+                || invoice.getDepositExpiresAt() == null || now.isBefore(invoice.getDepositExpiresAt())
                 || invoice.effectiveDepositStatus() != DepositStatus.WAITING_DEPOSIT)
             return false;
         BigDecimal successful = lockedPayments.stream()
@@ -83,7 +84,7 @@ public class CommercialExpirationProcessor {
 
         boolean inFlight = lockedPayments.stream().anyMatch(p ->
                 p.getStatus() == PaymentStatus.PENDING || p.getStatus() == PaymentStatus.PROCESSING);
-        if (inFlight && now.isBefore(order.getDepositExpiresAt().plus(properties.pendingPaymentGrace()))) return false;
+        if (inFlight && now.isBefore(invoice.getDepositExpiresAt().plus(properties.pendingPaymentGrace()))) return false;
 
         List<Mission> affected = cancellableMissions(order.getId());
         if (affected == null) return false;
@@ -106,14 +107,15 @@ public class CommercialExpirationProcessor {
         Order order = orders.findByIdForUpdate(candidate.getOrder().getId()).orElse(null);
         if (order == null || (order.getOrderStatus() != OrderStatus.APPROVED
                 && order.getOrderStatus() != OrderStatus.IN_PROGRESS)
-                || order.getFinalPaymentExpiresAt() == null) return false;
+                || candidate.getFinalPaymentExpiresAt() == null) return false;
         Instant now = Instant.now(clock);
-        if (now.isBefore(order.getFinalPaymentExpiresAt())) return false;
+        if (now.isBefore(candidate.getFinalPaymentExpiresAt())) return false;
 
         List<Payment> lockedPayments = payments.findAllByInvoiceIdForUpdate(invoiceId);
         Invoice invoice = invoices.findByIdForUpdate(invoiceId).orElse(null);
         if (invoice == null || invoice.getStatus() == InvoiceStatus.CANCELLED
                 || invoice.getStatus() == InvoiceStatus.PAID || invoice.getStatus() == InvoiceStatus.REFUNDED
+                || invoice.getFinalPaymentExpiresAt() == null || now.isBefore(invoice.getFinalPaymentExpiresAt())
                 || invoice.getRemainingAmount() == null || invoice.getRemainingAmount().signum() <= 0)
             return false;
         boolean finalPaymentInFlight = lockedPayments.stream()

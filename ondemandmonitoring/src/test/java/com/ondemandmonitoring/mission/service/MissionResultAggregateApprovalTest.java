@@ -32,7 +32,7 @@ class MissionResultAggregateApprovalTest {
 
     @BeforeEach void setup() {
         order = new Order(); order.setId("o"); order.setOrderStatus(OrderStatus.APPROVED);
-        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED); order.setExecutionPlanRevision(4);
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED); order.getExecutionPlan().setRevision(4);
         mission = new Mission(); mission.setId("m"); mission.setOrder(order); mission.setStatus(MissionStatus.COMPLETED);
         result = new MissionResult(); result.setId("r"); result.setMission(mission); result.setStatus(MissionResultStatus.COMPLETED);
         result.setApprovalStatus(MissionResultApprovalStatus.PENDING_MANAGER_APPROVAL);

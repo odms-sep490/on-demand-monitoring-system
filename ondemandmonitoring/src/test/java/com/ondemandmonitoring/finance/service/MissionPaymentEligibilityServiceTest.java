@@ -59,8 +59,8 @@ class MissionPaymentEligibilityServiceTest {
         var order = new Order();
         order.setId("o1");
         order.setOrderStatus(OrderStatus.APPROVED);
-        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED);
-        order.setLegalReviewStatus(LegalReviewStatus.NOT_REQUIRED);
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED);
+        order.getFlightAreaReview().setLegalReviewStatus(LegalReviewStatus.NOT_REQUIRED);
         Quote quote = new Quote(); quote.setStatus(QuoteStatus.ACCEPTED_BY_CUSTOMER);
         invoice = new Invoice(); invoice.setId("i1"); invoice.setOrder(order); invoice.setQuote(quote);
         invoice.setTotalAmount(new BigDecimal("1000")); invoice.setDepositAmount(new BigDecimal("300"));
@@ -147,6 +147,19 @@ class MissionPaymentEligibilityServiceTest {
                 eq("i1"), eq(PaymentType.FINAL_PAYMENT), eq(com.ondemandmonitoring.finance.enums.PaymentProvider.VNPAY), anyList()))
                 .thenReturn(Optional.of(new com.ondemandmonitoring.finance.domain.Payment()));
         assertThat(service.hasActiveFinalPayment("o1")).isTrue();
+    }
+
+    @Test void completedOrderRetainsOriginalPaymentConfirmationForRework() {
+        invoice.getOrder().setOrderStatus(OrderStatus.COMPLETED);
+        invoice.setStatus(InvoiceStatus.PAID);
+        invoice.setPaidAmount(invoice.getTotalAmount());
+        invoice.setRemainingAmount(BigDecimal.ZERO);
+        when(payments.existsByInvoiceIdAndPaymentTypeAndStatus("i1", PaymentType.FINAL_PAYMENT, PaymentStatus.SUCCESS))
+                .thenReturn(true);
+        assertThat(service.isOriginalFinalPaymentConfirmed(invoice)).isTrue();
+        assertThat(service.isFinalPaymentConfirmed(invoice)).isFalse();
+        invoice.getOrder().getExecutionPlan().setStatus(ExecutionPlanStatus.DRAFT);
+        assertThat(service.isOriginalFinalPaymentConfirmed(invoice)).isFalse();
     }
 
     private ResourceTimeLock lock(String id) {

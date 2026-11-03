@@ -1,20 +1,14 @@
 package com.ondemandmonitoring.order.domain;
 
 import com.ondemandmonitoring.common.entity.BaseEntity;
-import com.ondemandmonitoring.order.dto.OrderAuthorizationDocument;
-import com.ondemandmonitoring.order.dto.OrderPermitDocument;
 import com.ondemandmonitoring.order.enums.OrderDeliveryMethod;
-import com.ondemandmonitoring.order.enums.OrderPermitStatus;
 import com.ondemandmonitoring.order.enums.OrderRecurrenceType;
 import com.ondemandmonitoring.order.enums.OrderResultFormat;
 import com.ondemandmonitoring.order.enums.OrderStatus;
 import com.ondemandmonitoring.order.enums.OrderCancellationReason;
-import com.ondemandmonitoring.order.enums.ExecutionPlanStatus;
 import com.ondemandmonitoring.order.enums.OrderFlightPurpose;
 import com.ondemandmonitoring.order.enums.OrderUsagePurpose;
 import com.ondemandmonitoring.order.enums.OrderWeatherFallback;
-import com.ondemandmonitoring.order.enums.MonitoringRelationship;
-import com.ondemandmonitoring.order.enums.LegalReviewStatus;
 import com.ondemandmonitoring.service.domain.Service;
 import com.ondemandmonitoring.user.domain.User;
 import com.ondemandmonitoring.warehouse.domain.PreferredTime;
@@ -27,9 +21,12 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
+import jakarta.persistence.OneToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -47,8 +44,6 @@ import org.locationtech.jts.geom.Polygon;
 @Entity
 @Table(name = "orders", indexes = {
         @jakarta.persistence.Index(name = "ix_orders_status_created", columnList = "order_status,created_at"),
-        @jakarta.persistence.Index(name = "ix_orders_deposit_expiration", columnList = "deposit_expires_at,order_status"),
-        @jakarta.persistence.Index(name = "ix_orders_final_payment_expiration", columnList = "final_payment_expires_at,order_status"),
         @jakarta.persistence.Index(name = "ix_orders_created", columnList = "created_at")})
 @Getter
 @Setter
@@ -57,30 +52,11 @@ import org.locationtech.jts.geom.Polygon;
 @AllArgsConstructor
 public class Order extends BaseEntity {
 
+    @JsonIgnore
     @Builder.Default
-    @Enumerated(EnumType.STRING)
-    @Column(name = "execution_plan_status", nullable = false, length = 30)
-    private ExecutionPlanStatus executionPlanStatus = ExecutionPlanStatus.DRAFT;
+    @OneToOne(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private OrderExecutionPlan executionPlan = new OrderExecutionPlan();
 
-    @Builder.Default
-    @jakarta.validation.constraints.PositiveOrZero
-    @Column(name = "execution_plan_revision", nullable = false)
-    private long executionPlanRevision = 0;
-
-    @Column(name = "execution_plan_finalized_at")
-    private Instant executionPlanFinalizedAt;
-
-    @Column(name = "execution_plan_finalized_by", length = 255)
-    private String executionPlanFinalizedBy;
-
-    @Column(name = "execution_plan_amended_at")
-    private Instant executionPlanAmendedAt;
-
-    @Column(name = "execution_plan_amended_by", length = 255)
-    private String executionPlanAmendedBy;
-
-    @Column(name = "execution_plan_amendment_reason", length = 1000)
-    private String executionPlanAmendmentReason;
 
     @Column(name = "order_code", unique = true, length = 40)
     private String orderCode;
@@ -99,19 +75,12 @@ public class Order extends BaseEntity {
     @Column(name = "pricing_policy_version")
     private Integer pricingPolicyVersion;
 
-    /** Authoritative system calculation at the latest create/update recalculation; never trusted from the client. */
-    @Column(name = "system_calculated_amount", precision = 19, scale = 0)
-    private BigDecimal systemCalculatedAmount;
-
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
     private User customer;
 
     @Column(name = "title", nullable = false)
     private String title;
-
-    @Column(name = "service_base_price_snapshot", precision = 19, scale = 0)
-    private BigDecimal serviceBasePriceSnapshot;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "service_id", nullable = false)
@@ -141,38 +110,10 @@ public class Order extends BaseEntity {
     @Column(name = "access_notes", columnDefinition = "TEXT")
     private String accessNotes;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "permit_status", length = 20)
-    private OrderPermitStatus permitStatus;
-
-    @Column(name = "permit_number", length = 80)
-    private String permitNumber;
-
-    /** Last day the customer's permit is valid; must cover the preferred flight window. */
-    @Column(name = "permit_expires_on")
-    private LocalDate permitExpiresOn;
-
-    /** Permit files the customer attached (PDF or image). */
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "permit_documents", columnDefinition = "jsonb")
-    private List<OrderPermitDocument> permitDocuments;
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "monitoring_relationship", length = 40)
-    private MonitoringRelationship monitoringRelationship;
-
-    @Column(name = "monitoring_authorization_confirmed", nullable = false)
-    private Boolean monitoringAuthorizationConfirmed = false;
-
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "monitoring_authorization_documents", columnDefinition = "jsonb")
-    private List<OrderAuthorizationDocument> monitoringAuthorizationDocuments;
-
-    @Column(name = "permit_required")
-    private Boolean permitRequired;
-
-    @Column(name = "permit_zone_name", length = 120)
-    private String permitZoneName;
+    @JsonIgnore
+    @Builder.Default
+    @OneToOne(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private OrderFlightCompliance flightCompliance = new OrderFlightCompliance();
 
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
@@ -241,14 +182,6 @@ public class Order extends BaseEntity {
     @Column(name = "order_status", nullable = false)
     private OrderStatus orderStatus;
 
-    /** Commercial deadline assigned once at quote acceptance; configuration changes never move it. */
-    @Column(name = "deposit_expires_at")
-    private Instant depositExpiresAt;
-
-    /** Commercial deadline assigned once when the final balance first becomes payable. */
-    @Column(name = "final_payment_expires_at")
-    private Instant finalPaymentExpiresAt;
-
     @Enumerated(EnumType.STRING)
     @Column(name = "cancellation_reason", length = 40)
     private OrderCancellationReason cancellationReason;
@@ -270,29 +203,22 @@ public class Order extends BaseEntity {
     @Column(name = "review_at")
     private Instant reviewAt;
 
-    @Enumerated(EnumType.STRING)
+    @JsonIgnore
     @Builder.Default
-    @Column(name = "legal_review_status", length = 30)
-    private LegalReviewStatus legalReviewStatus = LegalReviewStatus.NOT_REVIEWED;
-
-    @Column(name = "flight_area_review_reason", length = 500)
-    private String flightAreaReviewReason;
-
-    @Column(name = "flight_area_review_note", columnDefinition = "TEXT")
-    private String flightAreaReviewNote;
-
-    @Column(name = "requested_scope_feasible")
-    private Boolean requestedScopeFeasible;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "flight_area_reviewed_by")
-    private User flightAreaReviewedBy;
-
-    @Column(name = "flight_area_reviewed_at")
-    private Instant flightAreaReviewedAt;
+    @OneToOne(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private OrderFlightAreaReview flightAreaReview = new OrderFlightAreaReview();
 
 
     @Builder.Default
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<OrderDeliverable> deliverables = new ArrayList<>();
+
+    @PrePersist
+    @PreUpdate
+    void connectFlightProfiles() {
+        if (flightCompliance != null) flightCompliance.setOrder(this);
+        if (flightAreaReview != null) flightAreaReview.setOrder(this);
+        if (executionPlan != null) executionPlan.setOrder(this);
+    }
+
 }

@@ -73,7 +73,7 @@ class MissionCreationHttpTest {
     @Test void repeatedRequestsCreateDistinctMissions() throws Exception {
         create("o","unused",0,"Scope","MANAGER").andExpect(status().isCreated());
         create("o","unused",1,"Scope","MANAGER").andExpect(status().isCreated());
-        assertEquals(2,stored.size());assertEquals(2,order.getExecutionPlanRevision());
+        assertEquals(2,stored.size());assertEquals(2,order.getExecutionPlan().getRevision());
     }
     @Test void differentKeyAndDifferentOrderAreIndependent() throws Exception {
         String key=UUID.randomUUID().toString();create("o",key,0,"Scope","ADMIN").andExpect(status().isCreated());
@@ -86,7 +86,7 @@ class MissionCreationHttpTest {
         String key=UUID.randomUUID().toString();
         create("o",key,3,"Scope","MANAGER").andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("EXECUTION_PLAN_REVISION_CONFLICT"));
         create("o",key,0,"Scope","MANAGER").andExpect(status().isCreated());
-        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED);order.setOrderStatus(OrderStatus.COMPLETED);
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED);order.setOrderStatus(OrderStatus.COMPLETED);
         create("o",UUID.randomUUID().toString(),1,"Scope","MANAGER").andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("EXECUTION_PLAN_NOT_DRAFT"));
         create("o",key,0,"Scope","MANAGER").andExpect(status().isConflict());
     }

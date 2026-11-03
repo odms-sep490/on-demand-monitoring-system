@@ -50,8 +50,8 @@ class MissionReworkPlanningUpdateTest {
         ReflectionTestUtils.setField(service, "missionMapper", mapper);
         order.setId("order");
         order.setOrderStatus(OrderStatus.COMPLETED);
-        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED);
-        order.setExecutionPlanRevision(1);
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED);
+        order.getExecutionPlan().setRevision(1);
         order.setPreferredDateTo(LocalDate.of(2026, 11, 9));
         mission.setId("mission");
         mission.setOrder(order);

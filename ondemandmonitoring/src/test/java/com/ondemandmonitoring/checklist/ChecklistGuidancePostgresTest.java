@@ -82,7 +82,7 @@ class ChecklistGuidancePostgresTest {
             manager = User.builder().fullName("Guidance manager").email("guidance@test.local").role(role).build();
             em.persist(manager); em.flush();
             var order = fixture.orders.findById(orderId).orElseThrow();
-            order.setLegalReviewStatus(LegalReviewStatus.NOT_REQUIRED);
+            order.getFlightAreaReview().setLegalReviewStatus(LegalReviewStatus.NOT_REQUIRED);
             var item = fixture.snapshots.findById(itemId).orElseThrow();
             item.setReviewStatus(ChecklistReviewStatus.ADDITIONAL);
             item.setManagerQuotedPrice(PRICE);

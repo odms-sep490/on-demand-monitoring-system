@@ -4,6 +4,9 @@ import com.ondemandmonitoring.finance.domain.Invoice;
 import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService;
 import com.ondemandmonitoring.order.repository.OrderRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.PersistenceContext;
 import java.time.Clock;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +17,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class FinalPaymentDeadlineService {
+    @PersistenceContext
+    private EntityManager entityManager;
     private final InvoiceRepository invoices;
     private final OrderRepository orders;
     private final CommercialExpirationSettingsService settings;
@@ -28,15 +33,20 @@ public class FinalPaymentDeadlineService {
     @Transactional
     public Instant assignIfEligible(Invoice invoice) {
         if (invoice == null || invoice.getOrder() == null) return null;
-        Instant currentDeadline = invoice.getOrder().getFinalPaymentExpiresAt();
+        Instant currentDeadline = invoice.getFinalPaymentExpiresAt();
         if (currentDeadline != null || !eligibility.isFinalPaymentEligible(invoice)) return currentDeadline;
         var order = orders.findByIdForUpdate(invoice.getOrder().getId()).orElse(null);
         if (order == null) return null;
-        if (order.getFinalPaymentExpiresAt() == null && eligibility.isFinalPaymentEligible(invoice)) {
+        var lockedInvoice = invoices.findByIdForUpdate(invoice.getId()).orElse(null);
+        if (lockedInvoice == null) return null;
+        entityManager.refresh(lockedInvoice, LockModeType.PESSIMISTIC_WRITE);
+        currentDeadline = lockedInvoice.getFinalPaymentExpiresAt();
+        if (currentDeadline != null) return currentDeadline;
+        if (eligibility.isFinalPaymentEligible(lockedInvoice)) {
             Instant assignedAt = Instant.now(clock).plus(settings.current().finalPaymentTimeout());
-            order.setFinalPaymentExpiresAt(assignedAt);
-            orders.save(order);
+            lockedInvoice.setFinalPaymentExpiresAt(assignedAt);
+            invoices.save(lockedInvoice);
         }
-        return order.getFinalPaymentExpiresAt();
+        return lockedInvoice.getFinalPaymentExpiresAt();
     }
 }

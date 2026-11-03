@@ -59,7 +59,7 @@ class QuoteServiceTest {
                 readiness, pricingEngine, pricingPolicies, pricingAudits, Clock.systemUTC());
         when(expirationSettings.current()).thenReturn(new com.ondemandmonitoring.finance.dto.CommercialExpirationSettingsResponse(
                 48, 24, "system", java.time.Instant.EPOCH));
-        order = new Order(); order.setId("o1"); order.setLegalReviewStatus(com.ondemandmonitoring.order.enums.LegalReviewStatus.NOT_REQUIRED); order.setOrderStatus(OrderStatus.PENDING);
+        order = new Order(); order.setId("o1"); order.getFlightAreaReview().setLegalReviewStatus(com.ondemandmonitoring.order.enums.LegalReviewStatus.NOT_REQUIRED); order.setOrderStatus(OrderStatus.PENDING);
         var catalog = new com.ondemandmonitoring.service.domain.Service(); catalog.setName("Building inspection");
         order.setService(catalog);
         when(orders.findByIdForUpdate("o1")).thenReturn(Optional.of(order));
@@ -115,9 +115,8 @@ class QuoteServiceTest {
         assertThat(service.getPricingReview("o1").basePackagePrice()).isZero();
     }
 
-    @Test void pricingReviewUsesOrderPriceSnapshotInsteadOfCurrentCatalogPrice() {
+    @Test void pricingReviewUsesPricingEngineBreakdownInsteadOfCurrentCatalogPrice() {
         User customer = new User(); customer.setFullName("Customer"); order.setCustomer(customer);
-        order.setServiceBasePriceSnapshot(new BigDecimal("2800000"));
         order.getService().setBasePrice(new BigDecimal("9900000"));
         when(orders.findById("o1")).thenReturn(Optional.of(order));
         when(items.findAllByOrderIdOrderByDisplayOrderAscIdAsc("o1")).thenReturn(List.of());
@@ -358,7 +357,6 @@ class QuoteServiceTest {
 
     @Test void anAlreadyAcceptedQuoteDoesNotMoveItsSavedDepositDeadlineWhenSettingsChange() {
         User customer = new User(); customer.setId("u1"); order.setCustomer(customer);
-        order.setDepositExpiresAt(java.time.Instant.parse("2026-11-01T12:00:00Z"));
         when(users.getCurrentUser()).thenReturn(customer);
         Quote quote = new Quote(); quote.setId("q1"); quote.setOrder(order);
         quote.setStatus(QuoteStatus.ACCEPTED_BY_CUSTOMER);
@@ -368,14 +366,15 @@ class QuoteServiceTest {
         invoice.setQuote(quote); invoice.setOrder(order); invoice.setTotalAmount(new BigDecimal("1000"));
         invoice.setDepositAmount(new BigDecimal("300")); invoice.setPaidAmount(BigDecimal.ZERO);
         invoice.setRemainingAmount(new BigDecimal("1000"));
+        invoice.setDepositExpiresAt(java.time.Instant.parse("2026-11-01T12:00:00Z"));
         when(invoices.findByQuoteId("q1")).thenReturn(Optional.of(invoice));
         when(expirationSettings.current()).thenReturn(new com.ondemandmonitoring.finance.dto.CommercialExpirationSettingsResponse(
                 48, 12, "admin", java.time.Instant.EPOCH));
-        var savedDeadline = order.getDepositExpiresAt();
+        var savedDeadline = invoice.getDepositExpiresAt();
 
         service.accept("o1", "q1");
 
-        assertThat(order.getDepositExpiresAt()).isEqualTo(savedDeadline);
+        assertThat(invoice.getDepositExpiresAt()).isEqualTo(savedDeadline);
         verify(expirationSettings, never()).current();
     }
 
@@ -400,8 +399,8 @@ class QuoteServiceTest {
         assertThat(result.depositAmount()).isEqualByComparingTo("2550000");
         assertThat(result.remainingAmount()).isEqualByComparingTo("8500000");
         assertThat(quote.getStatus()).isEqualTo(QuoteStatus.ACCEPTED_BY_CUSTOMER);
-        assertThat(order.getDepositExpiresAt()).isAfter(quote.getAcceptedAt());
-        assertThat(order.getDepositExpiresAt()).isEqualTo(quote.getAcceptedAt().plus(java.time.Duration.ofHours(12)));
+        assertThat(result.depositExpiresAt()).isAfter(quote.getAcceptedAt());
+        assertThat(result.depositExpiresAt()).isEqualTo(quote.getAcceptedAt().plus(java.time.Duration.ofHours(12)));
         verify(missions, never()).save(any());
         verifyNoInteractions(executions);
     }

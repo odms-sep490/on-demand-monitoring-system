@@ -37,8 +37,8 @@ class MissionChecklistExecutionServiceTest {
     @BeforeEach void prepare() {
         order = new Order(); order.setId("o");
         // Operational execution requires a finalized plan as well as valid assignment/execution rows.
-        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED);
-        order.setExecutionPlanRevision(1);
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED);
+        order.getExecutionPlan().setRevision(1);
         mission = new Mission(); mission.setId("m"); mission.setOrder(order); mission.setStatus(MissionStatus.IN_FLIGHT);
         item = new OrderChecklistItem(); item.setId("i"); item.setOrder(order); item.setContent("Historical");
         item.setEvidencePolicyVersion(0); item.setMinimumEvidenceCount(0); item.setRequiredEvidenceType(RequiredEvidenceType.IMAGE_OR_VIDEO);
@@ -83,12 +83,12 @@ class MissionChecklistExecutionServiceTest {
         request.setExecutionStatus(status); request.setAssessmentStatus(ChecklistAssessmentStatus.NOT_ASSESSED); return request;
     }
     @Test void draftOrUnversionedPlanStillBlocksExecutionWithOtherwiseValidRows() {
-        order.setExecutionPlanStatus(ExecutionPlanStatus.DRAFT);
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.DRAFT);
         assertFalse(service.isReadyForSubmission(mission));
         error(ErrorCode.CHECKLIST_ASSIGNMENT_NOT_FINALIZED,
                 () -> service.update("m", "e", request(ChecklistExecutionStatus.IN_PROGRESS)));
-        order.setExecutionPlanStatus(ExecutionPlanStatus.FINALIZED);
-        order.setExecutionPlanRevision(0);
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED);
+        order.getExecutionPlan().setRevision(0);
         assertFalse(service.isReadyForSubmission(mission));
         error(ErrorCode.CHECKLIST_ASSIGNMENT_NOT_FINALIZED,
                 () -> service.update("m", "e", request(ChecklistExecutionStatus.IN_PROGRESS)));

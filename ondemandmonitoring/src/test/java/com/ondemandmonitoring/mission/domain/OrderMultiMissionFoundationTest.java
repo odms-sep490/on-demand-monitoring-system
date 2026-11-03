@@ -13,11 +13,11 @@ import static org.junit.jupiter.api.Assertions.*;
 class OrderMultiMissionFoundationTest {
     @Test void orderDefaultsDoNotReuseOptimisticVersion() throws Exception {
         for (Order order : new Order[] {new Order(), Order.builder().build()}) {
-            assertEquals(ExecutionPlanStatus.DRAFT, order.getExecutionPlanStatus());
-            assertEquals(0, order.getExecutionPlanRevision());
+            assertEquals(ExecutionPlanStatus.DRAFT, order.getExecutionPlan().getStatus());
+            assertEquals(0, order.getExecutionPlan().getRevision());
             assertNull(order.getVersion());
             order.setVersion(8L);
-            order.setExecutionPlanRevision(3);
+            order.getExecutionPlan().setRevision(3);
             assertEquals(8L, order.getVersion());
         }
         assertNotNull(BaseEntity.class.getDeclaredField("version").getAnnotation(Version.class));
@@ -63,7 +63,7 @@ class OrderMultiMissionFoundationTest {
 
     @Test void negativePlanningValuesFailValidation() {
         try (var factory = Validation.buildDefaultValidatorFactory()) {
-            var order = new Order(); order.setExecutionPlanRevision(-1);
+            var order = new Order(); order.getExecutionPlan().setRevision(-1);
             assertTrue(factory.getValidator().validate(order).stream()
                     .anyMatch(v -> v.getPropertyPath().toString().equals("executionPlanRevision")));
             var assignment = new MissionChecklistAssignment(); assignment.setDisplayOrder(-1);

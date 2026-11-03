@@ -3,6 +3,8 @@ package com.ondemandmonitoring.flightpermit.service.impl;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.devicecheck.service.IPersistedPreDeviceCheckService;
+import com.ondemandmonitoring.finance.enums.InvoiceStatus;
+import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.flightpermit.service.IFlightPermitService;
 import com.ondemandmonitoring.flightpermit.domain.FlightPermit;
 import com.ondemandmonitoring.flightpermit.repository.FlightPermitRepository;
@@ -35,6 +37,7 @@ public class FlightPermitServiceImpl implements IFlightPermitService {
     MissionRepository missionRepository;
     FlightPermitRepository flightPermitRepository;
     OrderRepository orderRepository;
+    InvoiceRepository invoiceRepository;
     MissionMapper missionMapper;
     AuthenticatedUserResolver authenticatedUserResolver;
     IPersistedPreDeviceCheckService persistedPreDeviceCheckService;
@@ -48,6 +51,15 @@ public class FlightPermitServiceImpl implements IFlightPermitService {
         if (mission.getPurpose() == com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK
                 && mission.getStatus() == MissionStatus.PLANNING)
             throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_FINALIZED);
+        var invoice = invoiceRepository.findByOrderId(mission.getOrder().getId())
+                .orElseThrow(() -> new ApiException(ErrorCode.INVALID_REQUEST,
+                        "Flight permit updates require the order invoice to be paid in full"));
+        if (invoice.getStatus() != InvoiceStatus.PAID
+                || invoice.getRemainingAmount() == null
+                || invoice.getRemainingAmount().signum() > 0) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "Flight permit updates require the order invoice to be paid in full");
+        }
         FlightPermit permit = flightPermitRepository.findByMissionId(missionId)
                 .orElseGet(() -> FlightPermit.pendingFor(mission));
         if (Set.of(MissionStatus.IN_PROGRESS, MissionStatus.AWAITING_REVIEW, MissionStatus.PENDING_REVIEW,
@@ -112,27 +124,27 @@ public class FlightPermitServiceImpl implements IFlightPermitService {
         FlightPermit permit = mission.getFlightPermit();
         FlightPermitStatus status = permit == null ? FlightPermitStatus.PENDING : permit.getStatus();
         if (status == FlightPermitStatus.REJECTED) {
-            order.setLegalReviewStatus(LegalReviewStatus.REJECTED);
-            order.setFlightAreaReviewReason("FLIGHT_PERMIT_REJECTED");
-            order.setFlightAreaReviewNote(permit.getNote());
+            order.getFlightAreaReview().setLegalReviewStatus(LegalReviewStatus.REJECTED);
+            order.getFlightAreaReview().setFlightAreaReviewReason("FLIGHT_PERMIT_REJECTED");
+            order.getFlightAreaReview().setFlightAreaReviewNote(permit.getNote());
         } else if (status == FlightPermitStatus.PENDING) {
-            order.setLegalReviewStatus(LegalReviewStatus.PENDING_PERMIT);
-            order.setFlightAreaReviewReason("FLIGHT_PERMIT_RESUBMITTED");
-            order.setFlightAreaReviewNote(permit.getNote());
+            order.getFlightAreaReview().setLegalReviewStatus(LegalReviewStatus.PENDING_PERMIT);
+            order.getFlightAreaReview().setFlightAreaReviewReason("FLIGHT_PERMIT_RESUBMITTED");
+            order.getFlightAreaReview().setFlightAreaReviewNote(permit.getNote());
         } else if (status == FlightPermitStatus.APPROVED) {
             boolean allApproved = missionRepository
                     .findAllByOrderIdOrderByScheduledStartAtAscIdAsc(order.getId()).stream()
                     .filter(item -> item.getStatus() != MissionStatus.CANCELLED)
                     .allMatch(item -> item.getFlightPermit() != null
                             && item.getFlightPermit().getStatus() == FlightPermitStatus.APPROVED);
-            order.setLegalReviewStatus(allApproved
+            order.getFlightAreaReview().setLegalReviewStatus(allApproved
                     ? LegalReviewStatus.APPROVED
                     : LegalReviewStatus.PENDING_PERMIT);
-            order.setFlightAreaReviewReason(allApproved ? null : "WAITING_FOR_OTHER_MISSION_PERMITS");
-            order.setFlightAreaReviewNote(allApproved ? null : order.getFlightAreaReviewNote());
+            order.getFlightAreaReview().setFlightAreaReviewReason(allApproved ? null : "WAITING_FOR_OTHER_MISSION_PERMITS");
+            order.getFlightAreaReview().setFlightAreaReviewNote(allApproved ? null : order.getFlightAreaReview().getFlightAreaReviewNote());
         }
-        order.setFlightAreaReviewedBy(authenticatedUserResolver.getCurrentUser());
-        order.setFlightAreaReviewedAt(Instant.now());
+        order.getFlightAreaReview().setFlightAreaReviewedBy(authenticatedUserResolver.getCurrentUser());
+        order.getFlightAreaReview().setFlightAreaReviewedAt(Instant.now());
         orderRepository.save(order);
         // A rejected permit blocks execution; it does not itself reject or cancel the Order.
     }

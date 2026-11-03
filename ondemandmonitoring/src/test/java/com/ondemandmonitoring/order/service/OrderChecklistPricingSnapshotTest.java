@@ -276,17 +276,6 @@ class OrderChecklistPricingSnapshotTest {
                 "a customer-added checklist must have a configured system baseline");
     }
 
-    @Test void newOrderNeverCarriesAPackageSnapshotBecauseTheChecklistsAreThePrice() {
-        order.setServiceBasePriceSnapshot(new BigDecimal("3200000"));
-        var row = new com.ondemandmonitoring.checklist.domain.ServiceChecklist();
-        row.setService(order.getService()); row.setChecklist(roof);
-        when(assignments.findAllByServiceIdAndChecklistIsActiveTrueOrderByDisplayOrderAscIdAsc("s1")).thenReturn(List.of(row));
-
-        useCase.capture(order, List.of(template("c1", null, null)));
-
-        assertNull(order.getServiceBasePriceSnapshot());
-    }
-
     @Test void selectionThatPricesToNothingOnAnUnpricedServiceIsRefused() {
         roof.setBasePrice(BigDecimal.ZERO); roof.setIncludedImageCount(0); roof.setIncludedVideoCount(0);
         // nothing is stubbed for the default checklist rows -> the service has no priced default checklist
@@ -318,6 +307,5 @@ class OrderChecklistPricingSnapshotTest {
 
         assertEquals(new BigDecimal("450000"), first.getSystemCalculatedPrice());
         assertEquals(new BigDecimal("200000"), second.getSystemCalculatedPrice());
-        assertEquals(new BigDecimal("650000"), order.getSystemCalculatedAmount());
     }
 }

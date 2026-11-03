@@ -581,14 +581,6 @@ public class MissionService implements IMissionService {
                 .ifPresent(mission -> requireStatus(mission, MissionStatus.PENDING_PAYMENT));
         originalMissions.stream()
                 .filter(mission -> mission.getStatus() == MissionStatus.PENDING_PAYMENT)
-                .filter(mission -> !missionPaymentEligibilityService.isResourceAssignmentReady(mission))
-                .findFirst()
-                .ifPresent(mission -> {
-                    throw new ApiException(ErrorCode.FINAL_PAYMENT_NOT_ALLOWED,
-                            "Mission resources must remain valid after final payment");
-                });
-        originalMissions.stream()
-                .filter(mission -> mission.getStatus() == MissionStatus.PENDING_PAYMENT)
                 .forEach(mission -> mission.setStatus(MissionStatus.PENDING_CONFIRMATION));
         return missionRepository.saveAllAndFlush(originalMissions).stream()
                 .map(missionMapper::toResponse)

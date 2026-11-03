@@ -20,6 +20,10 @@ public class ResultRevisionRequestItem extends BaseEntity {
     @JoinColumn(name = "round_item_id", nullable = false, updatable = false)
     private ResultReviewRoundItem roundItem;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "case_item_id", updatable = false)
+    private ResultRevisionCaseItem caseItem;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "reason_code", nullable = false, length = 40, updatable = false)
     private ResultRevisionReasonCode reasonCode;

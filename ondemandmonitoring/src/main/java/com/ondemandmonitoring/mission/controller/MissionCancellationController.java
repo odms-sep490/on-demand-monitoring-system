@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+@PreAuthorize("hasAnyRole('MANAGER','ADMIN') or @missionAuthorizationService.canCancelMission(#missionId)")
 @RequestMapping("/api/missions/{missionId}/cancel")
 public class MissionCancellationController {
     private final IMissionCancellationService cancellation;

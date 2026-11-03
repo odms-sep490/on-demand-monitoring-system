@@ -1,11 +1,25 @@
 package com.ondemandmonitoring.finance.service;
 
 import com.ondemandmonitoring.finance.domain.Invoice;
-import com.ondemandmonitoring.mission.domain.Mission;
 
-/** Central business policy for deposit satisfaction and mission unlock. */
+/** Central business policy for deposit satisfaction. */
 public interface IMissionPaymentEligibilityService {
     boolean isDepositSatisfied(Invoice invoice);
-    boolean canUnlockMission(Invoice invoice, Mission mission);
-    boolean unlockIfEligible(Invoice invoice, Mission mission);
+
+    /** The single business decision used by both the invoice API and payment creation. */
+    boolean isFinalPaymentEligible(Invoice invoice);
+
+    void requireFinalPaymentEligible(Invoice invoice);
+
+    /** True only after an authoritative successful final-payment transaction fully settled the invoice. */
+    boolean isFinalPaymentConfirmed(Invoice invoice);
+
+    /** Confirms that the original Order was fully paid, independent of its current completion state. */
+    boolean isOriginalFinalPaymentConfirmed(Invoice invoice);
+
+    /** Resource mutations must not race an in-flight final payment. */
+    boolean hasActiveFinalPayment(String orderId);
+
+    /** Validates current crew, equipment, schedule, and persisted reservations. */
+    boolean isResourceAssignmentReady(com.ondemandmonitoring.mission.domain.Mission mission);
 }

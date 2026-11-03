@@ -110,6 +110,7 @@ public class OrderChecklistSnapshotService implements IOrderChecklistSnapshotSer
                 return item;
             }).toList();
         }
+        if (items.isEmpty()) throw invalid("Select at least one checklist item");
         if (!defaults && items.size() > 100) throw invalid("At most 100 checklist items are allowed");
         Map<String, ServiceChecklistRepository.TemplateOverride> overrides = new HashMap<>();
         Set<String> requiredChecklistIds = new HashSet<>();
@@ -252,6 +253,7 @@ public class OrderChecklistSnapshotService implements IOrderChecklistSnapshotSer
                     requestedImages, requestedVideos, profile, entity.getStandardVideoDurationSnapshot(), false)).subtotal());
             entities.add(entity);
         }
+        if (entities.isEmpty()) throw invalid("Select at least one active checklist item");
         if (entities.size() > 100) throw invalid("At most 100 checklist items are allowed");
         // The checklists are the whole price: an order whose checklists add up to nothing on a service that has no priced
         // default checklists would be free, so it is refused. (Customer-added checklists awaiting a Manager quote are priced by the Manager.)

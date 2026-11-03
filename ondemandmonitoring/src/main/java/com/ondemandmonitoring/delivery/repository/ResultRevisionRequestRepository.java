@@ -8,7 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ResultRevisionRequestRepository extends JpaRepository<ResultRevisionRequest, String> {
     Optional<ResultRevisionRequest> findByRoundId(String roundId);
-    Optional<ResultRevisionRequest> findByTicketId(String ticketId);
+    Optional<ResultRevisionRequest> findFirstByTicketIdOrderBySubmittedAtDesc(String ticketId);
     Optional<ResultRevisionRequest> findByCustomerIdAndClientRequestId(String customerId, UUID clientRequestId);
     List<ResultRevisionRequest> findByOrderIdOrderBySubmittedAtDesc(String orderId);
 }

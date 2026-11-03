@@ -41,6 +41,10 @@ public class ResultReviewService implements IResultReviewService {
     private final ResultRevisionRequestRepository requests;
     private final ResultRevisionRequestItemRepository requestItems;
     private final ResultRevisionRequestItemMediaRepository requestMedia;
+    private final ResultRevisionCaseRepository revisionCases;
+    private final ResultRevisionCaseItemRepository caseItems;
+    private final ResultRevisionMediaHoldRepository mediaHolds;
+    private final com.ondemandmonitoring.media.repository.MediaAssetRepository mediaAssets;
     private final OrderDeliveryRepository deliveries;
     private final OrderRepository orders;
     private final MissionRepository missions;
@@ -61,13 +65,15 @@ public class ResultReviewService implements IResultReviewService {
         OrderDelivery delivery = deliveries.findByOrderId(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESULT_NOT_READY_FOR_REVIEW));
         ResultReviewRound round = currentRound(delivery);
         List<ResultReviewRoundItem> all = roundItems.findByRoundIdOrderByDisplayOrderAsc(round.getId());
+        boolean hasActiveCase = revisionCases.findByOrderIdAndActiveTrue(orderId).isPresent();
         ResultRevisionRequest revision = requests.findByRoundId(round.getId()).orElse(null);
         List<ResultReviewRoundItem> pageItems = all.stream().skip((long) page * size).limit(size).toList();
         Map<String, List<ResultReviewRoundEvidence>> evidenceByItem = pageItems.isEmpty() ? Map.of()
                 : evidence.findByRoundItemIdInOrderByRoundItemIdAscCreatedAtAsc(pageItems.stream().map(ResultReviewRoundItem::getId).toList())
                         .stream().collect(Collectors.groupingBy(e -> e.getRoundItem().getId()));
         List<ResultReviewResponse.Item> items = pageItems.stream()
-                .map(item -> mapItem(item, evidenceByItem.getOrDefault(item.getId(), List.of()))).toList();
+                .map(item -> mapItem(item, evidenceByItem.getOrDefault(item.getId(), List.of()),
+                        !hasActiveCase || item.isChangedInRound())).toList();
         boolean open = round.getStatus() == ResultReviewRoundStatus.OPEN && delivery.getStatus() == DeliveryStatus.CUSTOMER_REVIEW && revision == null;
         String blocked = open ? null : revision != null ? "REVISION_ALREADY_SUBMITTED" : round.getStatus().name();
         ResultReviewResponse.RevisionSummary summary = null;
@@ -77,6 +83,29 @@ public class ResultReviewService implements IResultReviewService {
         }
         return new ResultReviewResponse(round.getId(), round.getRoundNumber(), round.getVersion(), round.getPublishedAt(),
                 round.getChecklistRevision(), open, open, blocked, summary, page, size, all.size(), items);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ResultReviewHistoryResponse getHistory(String orderId, int page, int size) {
+        Order order = orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        assertOwner(order);
+        if (page < 0 || size < 1 || size > 50)
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "page must be nonnegative and size must be between 1 and 50");
+        List<ResultReviewRound> all = rounds.findByOrderIdOrderByRoundNumberDesc(orderId);
+        List<ResultReviewRound> selected = all.stream().skip((long) page * size).limit(size).toList();
+        List<ResultReviewHistoryResponse.Round> history = selected.stream().map(round -> {
+            List<ResultReviewRoundItem> rows = roundItems.findByRoundIdOrderByDisplayOrderAsc(round.getId());
+            List<String> rowIds = rows.stream().map(ResultReviewRoundItem::getId).toList();
+            Map<String, List<ResultReviewRoundEvidence>> evidenceByItem = rowIds.isEmpty() ? Map.of()
+                    : evidence.findByRoundItemIdInOrderByRoundItemIdAscCreatedAtAsc(rowIds).stream()
+                            .collect(Collectors.groupingBy(row -> row.getRoundItem().getId()));
+            List<ResultReviewResponse.Item> itemDtos = rows.stream().map(item -> mapItem(item,
+                    evidenceByItem.getOrDefault(item.getId(), List.of()), false)).toList();
+            return new ResultReviewHistoryResponse.Round(round.getId(), round.getRoundNumber(), round.getVersion(),
+                    round.getPublishedAt(), round.getStatus(), itemDtos);
+        }).toList();
+        return new ResultReviewHistoryResponse(page, size, all.size(), history);
     }
 
     @Override
@@ -111,13 +140,27 @@ public class ResultReviewService implements IResultReviewService {
 
         Map<String, ResultReviewRoundItem> allowedItems = roundItems.findByRoundIdOrderByDisplayOrderAsc(round.getId()).stream()
                 .collect(Collectors.toMap(ResultReviewRoundItem::getId, i -> i));
-        StringBuilder description = new StringBuilder();
-        if (normalized.generalNote() != null) description.append(normalized.generalNote().trim()).append("\n\n");
-        description.append("Customer requested changes to ").append(normalized.items().size()).append(" checklist item(s).");
-        SupportCustomerTicket ticket = supportTickets.createResultRevisionTicket(customer, orderId, description.toString().trim());
+        ResultRevisionCase revisionCase = revisionCases.findByOrderIdAndActiveTrue(orderId).orElse(null);
+        SupportCustomerTicket ticket;
+        if (revisionCase == null) {
+            StringBuilder description = new StringBuilder();
+            if (normalized.generalNote() != null) description.append(normalized.generalNote().trim()).append("\n\n");
+            description.append("Customer requested changes to ").append(normalized.items().size()).append(" checklist item(s).");
+            ticket = supportTickets.createResultRevisionTicket(customer, orderId, description.toString().trim());
+            revisionCase = new ResultRevisionCase();
+            revisionCase.setOrder(order);
+            revisionCase.setTicketId(ticket.getId());
+            revisionCase.setOpenedAt(Instant.now());
+            revisionCase = revisionCases.saveAndFlush(revisionCase);
+        } else {
+            ticket = tickets.findById(revisionCase.getTicketId())
+                    .orElseThrow(() -> new ApiException(ErrorCode.SUPPORT_TICKET_NOT_FOUND));
+        }
+        ResultRevisionCase savedCase = revisionCase;
 
         ResultRevisionRequest saved = new ResultRevisionRequest();
-        saved.setRound(round); saved.setOrder(order); saved.setCustomerId(customer.getId()); saved.setTicketId(ticket.getId());
+        saved.setRound(round); saved.setOrder(order); saved.setResultRevisionCase(savedCase);
+        saved.setCustomerId(customer.getId()); saved.setTicketId(ticket.getId());
         saved.setClientRequestId(request.clientRequestId()); saved.setPayloadFingerprint(fingerprint);
         saved.setGeneralNote(normalized.generalNote()); saved.setSubmittedAt(Instant.now());
         saved = requests.saveAndFlush(saved);
@@ -125,8 +168,27 @@ public class ResultReviewService implements IResultReviewService {
         for (NormalizedItem input : normalized.items()) {
             ResultReviewRoundItem item = allowedItems.get(input.roundItemId());
             if (item == null) throw new ApiException(ErrorCode.RESULT_REVIEW_ITEM_INVALID);
+            if (revisionCase != null && !item.isChangedInRound())
+                throw new ApiException(ErrorCode.RESULT_REVIEW_ITEM_INVALID);
             ResultRevisionRequestItem row = new ResultRevisionRequestItem();
             row.setRequest(saved); row.setRoundItem(item); row.setReasonCode(input.reasonCode()); row.setNote(input.note()); row.setDisplayOrder(displayOrder++);
+            var caseItem = caseItems.findByResultRevisionCaseIdAndOrderChecklistItemId(savedCase.getId(),
+                    item.getOrderChecklistItem().getId()).orElseGet(() -> {
+                        ResultRevisionCaseItem created = new ResultRevisionCaseItem();
+                        created.setResultRevisionCase(savedCase);
+                        created.setOrderChecklistItem(item.getOrderChecklistItem());
+                        created.setSourceMissionId(item.getMissionId());
+                        return caseItems.save(created);
+                    });
+            if (caseItem.getStatus() == ResultRevisionCaseItemStatus.WAITING_CUSTOMER) {
+                if (caseItem.getAssignedReworkMissionId() != null) {
+                    var priorMission = missions.findById(caseItem.getAssignedReworkMissionId()).orElse(null);
+                    if (priorMission != null && priorMission.getStatus() == com.ondemandmonitoring.mission.enums.MissionStatus.COMPLETED)
+                        caseItem.setAssignedReworkMissionId(null);
+                }
+                caseItem.setStatus(ResultRevisionCaseItemStatus.NEEDS_TRIAGE);
+            }
+            row.setCaseItem(caseItem);
             row = requestItems.save(row);
             Set<String> uniqueEvidenceIds = new HashSet<>(input.roundEvidenceIds());
             if (uniqueEvidenceIds.size() != input.roundEvidenceIds().size()) throw new ApiException(ErrorCode.RESULT_REVIEW_ITEM_INVALID);
@@ -137,6 +199,7 @@ public class ResultReviewService implements IResultReviewService {
                 if (selected == null) throw new ApiException(ErrorCode.RESULT_REVIEW_ITEM_INVALID);
                 ResultRevisionRequestItemMedia link = new ResultRevisionRequestItemMedia();
                 link.setRequestItem(row); link.setRoundEvidence(selected); requestMedia.save(link);
+                holdFeedbackEvidence(savedCase, selected.getMediaAsset());
             }
         }
         String firstReason = normalized.items().stream().map(i -> i.reasonCode().name() + ": " + i.note()).collect(Collectors.joining("\n"));
@@ -158,7 +221,8 @@ public class ResultReviewService implements IResultReviewService {
         if (!manager && (user.getRole().getCode() != RoleCode.CUSTOMER || !user.getId().equals(ticket.getCustomerId())))
             throw new ApiException(ErrorCode.ACCESS_DENIED);
         if (ticket.getTicketKind() != SupportTicketKind.RESULT_REVISION) throw new ApiException(ErrorCode.RESOURCE_NOT_FOUND);
-        ResultRevisionRequest request = requests.findByTicketId(ticketId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        ResultRevisionRequest request = requests.findFirstByTicketIdOrderBySubmittedAtDesc(ticketId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
         ResultReviewRound round = request.getRound();
         List<ResultRevisionRequestItem> requestRows = requestItems.findByRequestIdOrderByDisplayOrderAsc(request.getId());
         Map<String, List<ResultReviewRoundEvidence>> evidenceByRequestItem = requestMedia.findByRequestItemIdIn(
@@ -176,16 +240,26 @@ public class ResultReviewService implements IResultReviewService {
                     strings(guidance, "expectedOutputs"), source.getMissionId(), null, row.getReasonCode().name(), row.getNote(),
                     selectedEvidence.stream().map(ResultReviewRoundEvidence::getId).toList(), mediaRows);
         }).toList();
+        List<ResultRevisionTicketReviewResponse.OutOfScopeItem> outOfScopeItems = revisionCases
+                .findByTicketId(ticketId).stream()
+                .flatMap(revisionCase -> caseItems.findByResultRevisionCaseIdOrderByCreatedAtAsc(revisionCase.getId()).stream())
+                .filter(caseItem -> caseItem.getScopeDecision() == ResultRevisionScope.OUT_OF_SCOPE)
+                .map(caseItem -> new ResultRevisionTicketReviewResponse.OutOfScopeItem(caseItem.getId(),
+                        caseItem.getOrderChecklistItem().getId(), caseItem.getOrderChecklistItem().getContent(),
+                        caseItem.getScopeReason(), caseItem.getStatus().name(),
+                        !manager && caseItem.getStatus() == ResultRevisionCaseItemStatus.OUT_OF_SCOPE_RESPONDED))
+                .toList();
         return new ResultRevisionTicketReviewResponse(ticket.getId(), ticket.getTicketCode(), request.getOrder().getId(), round.getId(),
-                round.getRoundNumber(), round.getVersion(), round.getPublishedAt(), request.getGeneralNote(), request.getSubmittedAt(), items);
+                round.getRoundNumber(), round.getVersion(), round.getPublishedAt(), request.getGeneralNote(), request.getSubmittedAt(), items, outOfScopeItems);
     }
 
-    private ResultReviewResponse.Item mapItem(ResultReviewRoundItem item, List<ResultReviewRoundEvidence> evidenceRows) {
+    private ResultReviewResponse.Item mapItem(ResultReviewRoundItem item, List<ResultReviewRoundEvidence> evidenceRows,
+            boolean canRequestRevision) {
         List<ResultReviewResponse.Evidence> mediaRows = evidenceRows.stream().map(e -> mapEvidence(e, false, false)).toList();
         return new ResultReviewResponse.Item(item.getId(), item.getOrderChecklistItem().getId(), item.getContentSnapshot(),
                 text(item.getGuidanceSnapshot(), "description"), strings(item.getGuidanceSnapshot(), "executionSteps"),
                 strings(item.getGuidanceSnapshot(), "inputRequirements"), strings(item.getGuidanceSnapshot(), "expectedOutputs"),
-                item.getMissionId(), null, mediaRows);
+                item.getMissionId(), null, mediaRows, item.isChangedInRound(), canRequestRevision);
     }
 
     private ResultReviewResponse.Evidence mapEvidence(ResultReviewRoundEvidence row, boolean downloadable, boolean ticketContext) {
@@ -250,6 +324,24 @@ public class ResultReviewService implements IResultReviewService {
         catch (Exception ex) { throw new IllegalStateException(ex); }
     }
     private String truncate(String value, int length) { return value.length() <= length ? value : value.substring(0, length); }
+    private void holdFeedbackEvidence(ResultRevisionCase revisionCase,
+            com.ondemandmonitoring.media.domain.MediaAsset referencedAsset) {
+        var asset = mediaAssets.findByIdForUpdate(referencedAsset.getId()).orElse(null);
+        if (asset == null || asset.getStorageStatus() != com.ondemandmonitoring.media.enums.MediaStorageStatus.AVAILABLE)
+            return;
+        Instant retentionDeadline = asset.getMission().getOrder().getResultExpiresAt();
+        Instant now = Instant.now();
+        if (retentionDeadline == null || !retentionDeadline.isAfter(now)) return;
+        Instant holdDeadline = revisionCase.getOpenedAt().plus(java.time.Duration.ofDays(14));
+        if (!holdDeadline.isAfter(now)) return;
+        mediaHolds.findByResultRevisionCaseIdAndMediaAssetId(revisionCase.getId(), asset.getId()).orElseGet(() -> {
+            ResultRevisionMediaHold hold = new ResultRevisionMediaHold();
+            hold.setResultRevisionCase(revisionCase);
+            hold.setMediaAsset(asset);
+            hold.setExpiresAt(holdDeadline);
+            return mediaHolds.save(hold);
+        });
+    }
     private record Normalized(String generalNote, List<NormalizedItem> items) {}
     private record NormalizedItem(String roundItemId, ResultRevisionReasonCode reasonCode, String note, List<String> roundEvidenceIds) {}
 }

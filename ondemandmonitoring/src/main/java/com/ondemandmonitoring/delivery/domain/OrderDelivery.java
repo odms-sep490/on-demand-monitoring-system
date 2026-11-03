@@ -38,6 +38,10 @@ public class OrderDelivery extends BaseEntity {
     @Column(name = "revision_count", nullable = false) private int revisionCount;
     @Column(name = "current_review_round_id", length = 255)
     private String currentReviewRoundId;
+    @Column(name = "last_checklist_publish_request_id")
+    private java.util.UUID lastChecklistPublishRequestId;
+    @Column(name = "last_checklist_publish_fingerprint", length = 128)
+    private String lastChecklistPublishFingerprint;
     @Column(name = "final_payment_confirmed_at") private Instant finalPaymentConfirmedAt;
     @ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "originals_released_by")
     private User originalsReleasedBy;

@@ -2,8 +2,8 @@ package com.ondemandmonitoring.mission.domain;
 
 import com.ondemandmonitoring.common.entity.BaseEntity;
 import com.ondemandmonitoring.device.domain.Device;
-import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.enums.MissionDeviceAssignmentStatus;
+import com.ondemandmonitoring.mission.enums.MissionDeviceCheckStatus;
 import com.ondemandmonitoring.mission.enums.DeviceRole;
 import jakarta.persistence.*;
 import lombok.*;
@@ -37,7 +37,7 @@ public class MissionDeviceAssignment extends BaseEntity {
     @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "checkup_status", nullable = false, length = 50)
-    MissionDeviceAssignmentStatus checkupStatus = MissionDeviceAssignmentStatus.PENDING;
+    MissionDeviceCheckStatus checkupStatus = MissionDeviceCheckStatus.PENDING;
 
     @Column(name = "postcheck_status", length = 50)
     String postcheckStatus;
@@ -51,8 +51,10 @@ public class MissionDeviceAssignment extends BaseEntity {
     @Column(name = "failure_notes", columnDefinition = "TEXT")
     String failureNotes;
 
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 50)
-    String status;
+    MissionDeviceAssignmentStatus status = MissionDeviceAssignmentStatus.ASSIGNED;
 
     @Builder.Default
     @Column(name = "is_current", nullable = false)
@@ -66,5 +68,9 @@ public class MissionDeviceAssignment extends BaseEntity {
 
     @Column(name = "release_reason", length = 500)
     String releaseReason;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "replaced_by_assignment_id")
+    MissionDeviceAssignment replacementAssignment;
 
 }

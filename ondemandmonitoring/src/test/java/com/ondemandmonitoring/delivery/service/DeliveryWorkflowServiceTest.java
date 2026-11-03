@@ -13,6 +13,10 @@ import com.ondemandmonitoring.delivery.enums.DeliveryStatus;
 import com.ondemandmonitoring.delivery.repository.OrderDeliveryRepository;
 import com.ondemandmonitoring.delivery.domain.ResultReviewRound;
 import com.ondemandmonitoring.delivery.repository.ResultReviewRoundRepository;
+import com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository;
+import com.ondemandmonitoring.delivery.repository.ResultReviewRoundItemRepository;
+import com.ondemandmonitoring.delivery.repository.ResultRevisionCaseRepository;
+import com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository;
 import com.ondemandmonitoring.delivery.service.impl.ResultReviewRoundPublisher;
 import com.ondemandmonitoring.delivery.service.impl.DeliveryWorkflowServiceImpl;
 import com.ondemandmonitoring.finance.domain.Invoice;
@@ -29,9 +33,12 @@ import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.enums.MissionResultApprovalStatus;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.mission.repository.MissionResultRepository;
+import com.ondemandmonitoring.mission.repository.MissionChecklistEvidenceRepository;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.enums.OrderStatus;
+import com.ondemandmonitoring.order.repository.OrderChecklistItemRepository;
 import com.ondemandmonitoring.order.repository.OrderRepository;
+import com.ondemandmonitoring.mission.service.impl.ChecklistEvidencePolicy;
 import com.ondemandmonitoring.role.domain.Role;
 import com.ondemandmonitoring.role.enumeration.RoleCode;
 import com.ondemandmonitoring.user.domain.User;
@@ -53,10 +60,18 @@ class DeliveryWorkflowServiceTest {
     com.ondemandmonitoring.order.service.IOrderExecutionCompletionPolicy completion = mock(com.ondemandmonitoring.order.service.IOrderExecutionCompletionPolicy.class);
     ResultReviewRoundPublisher reviewPublisher = mock(ResultReviewRoundPublisher.class);
     ResultReviewRoundRepository reviewRounds = mock(ResultReviewRoundRepository.class);
+    ResultReviewRoundEvidenceRepository roundEvidence = mock(ResultReviewRoundEvidenceRepository.class);
+    ResultReviewRoundItemRepository roundItems = mock(ResultReviewRoundItemRepository.class);
+    MissionChecklistEvidenceRepository missionEvidence = mock(MissionChecklistEvidenceRepository.class);
+    OrderChecklistItemRepository checklistItems = mock(OrderChecklistItemRepository.class);
+    ChecklistEvidencePolicy evidencePolicy = mock(ChecklistEvidencePolicy.class);
+    ResultRevisionCaseRepository revisionCases = mock(ResultRevisionCaseRepository.class);
+    ResultRevisionCaseItemRepository revisionCaseItems = mock(ResultRevisionCaseItemRepository.class);
     DeliveryWorkflowServiceImpl service = new DeliveryWorkflowServiceImpl(
             deliveries, orders, missions, missionResults, invoices, media, storage,
-            new com.ondemandmonitoring.media.service.impl.ResultRetentionAccessServiceImpl(java.time.Clock.systemUTC()),
-            users, completion, reviewPublisher, reviewRounds);
+            new com.ondemandmonitoring.media.service.impl.ResultRetentionAccessServiceImpl(media, java.time.Clock.systemUTC()),
+            users, completion, reviewPublisher, reviewRounds, roundEvidence, roundItems, missionEvidence,
+            checklistItems, evidencePolicy, revisionCases, revisionCaseItems);
     User customer; Order order; Mission mission; Invoice invoice; OrderDelivery delivery;
 
     @BeforeEach void setUp() {
@@ -88,13 +103,49 @@ class DeliveryWorkflowServiceTest {
         when(storage.presignedUrlExpiresSeconds()).thenReturn(600L);
     }
 
-    @Test void customerAcceptanceEnablesFinalPaymentButDoesNotPayOrCompleteOrder() {
+    @Test void legacyUnpaidAcceptanceRemainsPendingReconciliation() {
         var result = service.acceptResult("order", "round", 2L);
         assertThat(result.deliveryStatus()).isEqualTo(DeliveryStatus.FINAL_PAYMENT_PENDING);
         assertThat(delivery.getCustomerAcceptedAt()).isNotNull();
-        assertThat(invoice.getStatus()).isEqualTo(InvoiceStatus.PARTIALLY_PAID);
         assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.IN_PROGRESS);
-        assertThatCode(() -> service.requireFinalPaymentEligible("order")).doesNotThrowAnyException();
+    }
+
+    @Test void paidOrderAcceptanceMovesDirectlyToDeliveryAndRetryDoesNotReopenPayment() {
+        invoice.setStatus(InvoiceStatus.PAID);
+        invoice.setPaidAmount(invoice.getTotalAmount());
+        invoice.setRemainingAmount(BigDecimal.ZERO);
+
+        var accepted = service.acceptResult("order", "round", 2L);
+        var acceptedAt = delivery.getCustomerAcceptedAt();
+        var round = reviewRounds.findByIdForUpdate("round").orElseThrow();
+        round.setVersion(3L);
+        var retry = service.acceptResult("order", "round", 2L);
+
+        assertThat(accepted.deliveryStatus()).isEqualTo(DeliveryStatus.READY_FOR_DELIVERY);
+        assertThat(retry.deliveryStatus()).isEqualTo(DeliveryStatus.READY_FOR_DELIVERY);
+        assertThat(delivery.getCustomerAcceptedAt()).isEqualTo(acceptedAt);
+        assertThat(round.getStatus()).isEqualTo(com.ondemandmonitoring.delivery.enums.ResultReviewRoundStatus.ACCEPTED);
+        assertThat(invoice.getStatus()).isEqualTo(InvoiceStatus.PAID);
+        assertThat(delivery.getFinalPaymentConfirmedAt()).isNull();
+    }
+
+    @Test void acceptedRoundRetryAfterHandoffKeepsDeliveryComplete() {
+        service.acceptResult("order", "round", 2L);
+        delivery.setStatus(DeliveryStatus.DELIVERED);
+        reviewRounds.findByIdForUpdate("round").orElseThrow().setVersion(3L);
+
+        assertThat(service.acceptResult("order", "round", 2L).deliveryStatus())
+                .isEqualTo(DeliveryStatus.DELIVERED);
+    }
+
+    @Test void staleRoundCannotAcceptResultsEvenWhenInvoiceIsPaid() {
+        invoice.setStatus(InvoiceStatus.PAID);
+        invoice.setRemainingAmount(BigDecimal.ZERO);
+
+        assertThatThrownBy(() -> service.acceptResult("order", "round", 1L))
+                .isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED);
+        assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.CUSTOMER_REVIEW);
+        assertThat(delivery.getCustomerAcceptedAt()).isNull();
     }
 
     @Test void acceptanceRetryWithOriginalRoundVersionIsIdempotentAfterVersionIncrement() {
@@ -110,11 +161,6 @@ class DeliveryWorkflowServiceTest {
         assertThat(delivery.getCustomerAcceptedAt()).isEqualTo(acceptedAt);
     }
 
-    @Test void finalPaymentIsRejectedBeforeExplicitAcceptance() {
-        delivery.setStatus(DeliveryStatus.CUSTOMER_REVIEW);
-        assertThatThrownBy(() -> service.requireFinalPaymentEligible("order"))
-                .isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.FINAL_PAYMENT_NOT_ALLOWED);
-    }
 
     @Test void legacyRevisionPayloadRequiresRefreshingTheResultReview() {
         assertThatThrownBy(() -> service.requestRevision("order", new RevisionRequest(null, null, null, null, List.of())))
@@ -185,6 +231,8 @@ class DeliveryWorkflowServiceTest {
         delivery.setStatus(DeliveryStatus.READY_FOR_DELIVERY);
         User manager = user("manager", RoleCode.MANAGER); when(users.getCurrentUser()).thenReturn(manager);
         when(media.findByMissionIdOrderByCapturedAtDesc("mission")).thenReturn(List.of(asset("original", MediaStatus.AVAILABLE)));
+        when(missions.findAllById(List.of("mission"))).thenReturn(List.of(mission));
+        when(roundEvidence.findCurrentPublishedMediaAssetIdsByOrderIds(List.of("order"))).thenReturn(java.util.Set.of("original"));
         when(storage.createPresignedGetUrl(anyString(), anyString())).thenReturn("https://signed-original");
         service.releaseOriginals("order");
         assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.DELIVERED);

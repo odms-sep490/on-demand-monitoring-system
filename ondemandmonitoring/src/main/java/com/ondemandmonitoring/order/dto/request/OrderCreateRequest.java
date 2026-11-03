@@ -161,6 +161,6 @@ public class OrderCreateRequest {
     @Schema(description = "List of deliverable types with requirements for the service")
     List<@Valid OrderDeliverableRequest> deliverables;
 
-    @Size(max = 100)
+    @Size(min = 1, max = 100, message = "Checklist must contain between 1 and 100 items")
     List<@NotNull @Valid OrderChecklistItemRequest> checklistItems;
 }

@@ -1,6 +1,7 @@
 package com.ondemandmonitoring.mission.dto.response;
 
 import com.ondemandmonitoring.mission.enums.MissionDeviceAssignmentStatus;
+import com.ondemandmonitoring.mission.enums.MissionDeviceCheckStatus;
 import com.ondemandmonitoring.mission.enums.DeviceRole;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -20,6 +21,7 @@ public class MissionDeviceAssignmentResponse {
     String deviceSerialNumber;
     String deviceStatus;
     DeviceRole deviceRole;
-    MissionDeviceAssignmentStatus checkupStatus;
+    MissionDeviceAssignmentStatus status;
+    MissionDeviceCheckStatus checkupStatus;
     Instant assignedAt;
 }

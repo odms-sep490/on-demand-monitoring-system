@@ -37,6 +37,9 @@ public class ResultReviewRoundItem extends BaseEntity {
     @Column(name = "display_order", nullable = false, updatable = false)
     private int displayOrder;
 
+    @Column(name = "changed_in_round", nullable = false, updatable = false)
+    private boolean changedInRound;
+
     @Column(name = "execution_id", length = 255, updatable = false)
     private String executionId;
 

@@ -153,6 +153,13 @@ class OrderChecklistUpdateGuidanceTest {
         assertEquals(1, order.getChecklistRevision());
     }
 
+    @Test void emptyOrMissingSelectionCannotRemoveEveryChecklistItem() {
+        assertThrows(com.ondemandmonitoring.common.exception.ApiException.class, () -> update(List.of()));
+        assertThrows(com.ondemandmonitoring.common.exception.ApiException.class, () -> update(null));
+        verify(snapshots, never()).saveAllAndFlush(anyList());
+        assertEquals(1, order.getChecklistRevision());
+    }
+
     private OrderChecklistUpdateItemRequest inherit() {
         var item = new OrderChecklistUpdateItemRequest();
         item.setExistingItemId(original.getId());

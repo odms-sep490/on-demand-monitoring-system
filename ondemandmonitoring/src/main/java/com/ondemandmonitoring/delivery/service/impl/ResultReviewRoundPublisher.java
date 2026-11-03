@@ -38,6 +38,24 @@ public class ResultReviewRoundPublisher {
 
     public ResultReviewRound publish(Order order, OrderDelivery delivery, List<Mission> missions,
                                      Set<String> selectedMediaIds, Instant publishedAt, User publishedBy) {
+        return publishInternal(order, delivery, missions, selectedMediaIds, null, publishedAt, publishedBy,
+                Map.of(), Map.of(), Set.of(), true);
+    }
+
+    public ResultReviewRound publishByChecklist(Order order, OrderDelivery delivery, List<Mission> missions,
+            Map<String, Set<String>> selectedByChecklist, Instant publishedAt, User publishedBy,
+            Map<String, String> sourceRoundEvidenceByMedia, Map<String, String> supersededEvidenceByMedia,
+            Set<String> changedChecklistIds, boolean initialRound) {
+        Set<String> selectedMediaIds = selectedByChecklist.values().stream().flatMap(Set::stream)
+                .collect(Collectors.toUnmodifiableSet());
+        return publishInternal(order, delivery, missions, selectedMediaIds, selectedByChecklist, publishedAt,
+                publishedBy, sourceRoundEvidenceByMedia, supersededEvidenceByMedia, changedChecklistIds, initialRound);
+    }
+
+    private ResultReviewRound publishInternal(Order order, OrderDelivery delivery, List<Mission> missions,
+            Set<String> selectedMediaIds, Map<String, Set<String>> selectedByChecklist, Instant publishedAt,
+            User publishedBy, Map<String, String> sourceRoundEvidenceByMedia,
+            Map<String, String> supersededEvidenceByMedia, Set<String> changedChecklistIds, boolean initialRound) {
         List<ResultReviewRound> history = rounds.findByOrderIdOrderByRoundNumberDesc(order.getId());
         history.stream().filter(r -> r.getStatus() == ResultReviewRoundStatus.OPEN)
                 .forEach(r -> r.setStatus(ResultReviewRoundStatus.SUPERSEDED));
@@ -96,6 +114,7 @@ public class ResultReviewRoundPublisher {
                     "expectedOutputs", Objects.requireNonNullElse(item.getEffectiveExpectedOutputs(), List.of()));
             ri.setGuidanceSnapshot(mapper.valueToTree(guidanceValue));
             ri.setDisplayOrder(displayOrder++);
+            ri.setChangedInRound(changedChecklistIds.contains(item.getId()));
             MissionChecklistExecution execution = itemExecutions.isEmpty() ? null : itemExecutions.getFirst();
             if (execution != null) {
                 ri.setExecutionId(execution.getId());
@@ -107,14 +126,29 @@ public class ResultReviewRoundPublisher {
             for (MissionChecklistExecution source : itemExecutions) {
                 MissionResult result = resultByMission.get(source.getMissionId());
                 if (result == null) continue;
+                Set<String> selectedForItem = selectedByChecklist == null
+                        ? selectedMediaIds : selectedByChecklist.getOrDefault(item.getId(), Set.of());
                 for (MissionChecklistEvidence link : evidenceByExecution.getOrDefault(source.getId(), List.of())) {
                     MediaAsset asset = link.getMediaAsset();
-                    if (!selectedMediaIds.contains(asset.getId()) || evidencePolicy.ineligibilityReason(asset, true) != null
+                    if (!selectedForItem.contains(asset.getId()) || evidencePolicy.ineligibilityReason(asset, true) != null
                             || !evidencePolicy.mediaTypeMatches(item.getRequiredEvidenceType(), asset.getType())) continue;
                     ResultReviewRoundEvidence re = new ResultReviewRoundEvidence();
                     re.setRoundItem(ri); re.setMediaAsset(asset); re.setExecutionId(source.getId()); re.setEvidenceId(link.getId());
                     re.setFileNameSnapshot(asset.getOriginalFileName()); re.setMediaTypeSnapshot(asset.getType());
-                    re.setCapturedAtSnapshot(asset.getCapturedAt()); roundEvidence.save(re);
+                    re.setCapturedAtSnapshot(asset.getCapturedAt());
+                    String provenanceKey = item.getId() + "|" + asset.getId();
+                    String sourceId = sourceRoundEvidenceByMedia.get(provenanceKey);
+                    String supersededId = supersededEvidenceByMedia.get(provenanceKey);
+                    re.setSourceRoundEvidenceId(sourceId);
+                    re.setSupersedesRoundEvidenceId(supersededId);
+                    re.setChangeType(supersededId != null
+                            ? com.ondemandmonitoring.delivery.enums.DeliveryEvidenceChangeType.REPLACEMENT
+                            : sourceId != null
+                                ? com.ondemandmonitoring.delivery.enums.DeliveryEvidenceChangeType.RETAINED
+                                : initialRound
+                                    ? com.ondemandmonitoring.delivery.enums.DeliveryEvidenceChangeType.INITIAL
+                                    : com.ondemandmonitoring.delivery.enums.DeliveryEvidenceChangeType.ADDED);
+                    roundEvidence.save(re);
                 }
             }
         }

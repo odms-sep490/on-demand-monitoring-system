@@ -11,7 +11,6 @@ import lombok.Setter;
 @Table(name = "result_revision_requests",
         uniqueConstraints = {
                 @UniqueConstraint(name = "uk_result_revision_request_round", columnNames = "round_id"),
-                @UniqueConstraint(name = "uk_result_revision_request_ticket", columnNames = "ticket_id"),
                 @UniqueConstraint(name = "uk_result_revision_request_customer_key", columnNames = {"customer_id", "client_request_id"})
         }, indexes = @Index(name = "ix_result_revision_request_order_submitted", columnList = "order_id,submitted_at"))
 @Getter @Setter
@@ -23,6 +22,10 @@ public class ResultRevisionRequest extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "order_id", nullable = false, updatable = false)
     private Order order;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "case_id", updatable = false)
+    private ResultRevisionCase resultRevisionCase;
 
     @Column(name = "customer_id", nullable = false, updatable = false, length = 255)
     private String customerId;

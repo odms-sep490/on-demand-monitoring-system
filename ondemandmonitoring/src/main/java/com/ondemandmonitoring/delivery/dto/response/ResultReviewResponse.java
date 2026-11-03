@@ -9,7 +9,8 @@ public record ResultReviewResponse(String reviewRoundId, int roundNumber, Long r
     public record RevisionSummary(String revisionRequestId, String ticketId, String ticketCode) {}
     public record Item(String roundItemId, String orderChecklistItemId, String title, String description,
             List<String> executionSteps, List<String> inputRequirements, List<String> expectedOutputs,
-            String missionId, String missionCode, List<Evidence> evidence) {}
+            String missionId, String missionCode, List<Evidence> evidence,
+            boolean changedInRound, boolean canRequestRevision) {}
     public record Evidence(String roundEvidenceId, String mediaAssetId, String type, String fileName,
             Long size, Instant capturedAt, String url, Instant urlExpiresAt, boolean downloadable, String accessReason) {}
 }

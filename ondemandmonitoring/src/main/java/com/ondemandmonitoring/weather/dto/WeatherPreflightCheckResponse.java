@@ -17,5 +17,8 @@ public record WeatherPreflightCheckResponse(
         double temperatureC,
         int humidityPercent,
         List<String> advisories,
-        Instant checkedAt) {
+        Instant checkedAt,
+        boolean inspectorAccepted,
+        String inspectorAcceptedBy,
+        Instant inspectorAcceptedAt) {
 }

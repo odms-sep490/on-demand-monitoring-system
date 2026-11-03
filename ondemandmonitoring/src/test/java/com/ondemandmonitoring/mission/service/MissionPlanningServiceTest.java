@@ -49,13 +49,18 @@ class MissionPlanningServiceTest {
         var item = new OrderChecklistItem(); item.setId("i"); item.setOrder(order); item.setAssignmentStatus(ChecklistAssignmentStatus.ASSIGNED);
         assignment = new MissionChecklistAssignment(); assignment.setId("a"); assignment.setMission(mission);
         assignment.setMissionId("m"); assignment.setOrderId("o"); assignment.setOrderChecklistItemId("i"); assignment.setOrderChecklistItem(item);
-        when(staff.findAllByMissionIdAndIsCurrentTrue("m")).thenReturn(Arrays.stream(MissionStaffRole.values())
+        var crew = Arrays.stream(MissionStaffRole.values())
                 .map(role -> MissionStaffAssignment.builder().staff(new com.ondemandmonitoring.user.domain.User())
-                        .assignedRole(role).responseStatus(MissionStaffAssignmentStatus.PENDING).build()).toList());
-        when(devices.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc("m")).thenReturn(List.of(
-                MissionDeviceAssignment.builder().device(new com.ondemandmonitoring.device.domain.Device()).deviceRole(DeviceRole.MAIN).build()));
+                        .assignedRole(role).responseStatus(MissionStaffAssignmentStatus.PENDING).build()).toList();
+        var equipment = List.of(
+                MissionDeviceAssignment.builder().device(new com.ondemandmonitoring.device.domain.Device()).deviceRole(DeviceRole.MAIN).build());
+        when(staff.findByMissionId("m")).thenReturn(crew);
+        when(devices.findByMissionId("m")).thenReturn(equipment);
+        when(staff.findAllByMissionIdAndIsCurrentTrue("m")).thenReturn(crew);
+        when(devices.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc("m")).thenReturn(equipment);
         when(missions.findOrderIdByMissionId("m")).thenReturn(Optional.of("o"));
         when(orders.findById("o")).thenReturn(Optional.of(order));
+        when(orders.findByIdForUpdate("o")).thenReturn(Optional.of(order));
         when(missions.findById("m")).thenReturn(Optional.of(mission));
         when(missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc("o")).thenReturn(List.of(mission));
         when(assignments.findByMissionIdAndRemovedAtIsNullOrderByDisplayOrderAscIdAsc("m")).thenReturn(List.of(assignment));
@@ -74,7 +79,7 @@ class MissionPlanningServiceTest {
         when(missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc("o")).thenReturn(List.of(mission, sibling));
         service.confirmMissionPlanning("m");
         verify(materializer).materialize(mission);
-        assertEquals(MissionStatus.READY, mission.getStatus());
+        assertEquals(MissionStatus.PENDING_PAYMENT, mission.getStatus());
         assertEquals(MissionStatus.IN_FLIGHT, sibling.getStatus());
         assertEquals(ExecutionPlanStatus.FINALIZED, order.getExecutionPlanStatus());
         assertEquals(6, order.getExecutionPlanRevision());
@@ -90,10 +95,10 @@ class MissionPlanningServiceTest {
     }
 
     @Test void confirmRejectsMissingResourcesAndIncompleteOrderCoverage() {
-        var crew = staff.findAllByMissionIdAndIsCurrentTrue("m");
-        when(staff.findAllByMissionIdAndIsCurrentTrue("m")).thenReturn(List.of());
+        var crew = staff.findByMissionId("m");
+        when(staff.findByMissionId("m")).thenReturn(List.of());
         error(ErrorCode.INVALID_REQUEST, () -> service.confirmMissionPlanning("m"));
-        when(staff.findAllByMissionIdAndIsCurrentTrue("m")).thenReturn(crew);
+        when(staff.findByMissionId("m")).thenReturn(crew);
         when(assignments.findActiveByOrderId("o")).thenReturn(List.of());
         error(ErrorCode.CHECKLIST_COVERAGE_INCOMPLETE, () -> service.confirmMissionPlanning("m"));
         verifyNoInteractions(materializer);
@@ -101,6 +106,8 @@ class MissionPlanningServiceTest {
 
     @Test void deletingDraftCleansChildrenAndUnassignsChecklistBeforeDeletingParent() {
         order.setExecutionPlanStatus(ExecutionPlanStatus.DRAFT);
+        when(staff.findByMissionId("m")).thenReturn(List.of());
+        when(devices.findByMissionId("m")).thenReturn(List.of());
         when(assignments.findByMissionId("m")).thenReturn(List.of(assignment));
         var missionSchedule = UserSchedule.builder().scheduleType(UserScheduleType.MISSION).build();
         var leave = UserSchedule.builder().scheduleType(UserScheduleType.LEAVE).build();

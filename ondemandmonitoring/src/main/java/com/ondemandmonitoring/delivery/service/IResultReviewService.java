@@ -7,6 +7,7 @@ import com.ondemandmonitoring.delivery.dto.response.ResultRevisionTicketReviewRe
 
 public interface IResultReviewService {
     ResultReviewResponse getOrderReview(String orderId, int page, int size);
+    com.ondemandmonitoring.delivery.dto.response.ResultReviewHistoryResponse getHistory(String orderId, int page, int size);
     ResultRevisionSubmittedResponse submit(String orderId, RevisionRequest request);
     ResultRevisionTicketReviewResponse getTicketReview(String ticketId);
 }

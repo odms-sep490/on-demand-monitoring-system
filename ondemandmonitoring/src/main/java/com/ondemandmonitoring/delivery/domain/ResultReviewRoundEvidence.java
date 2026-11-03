@@ -1,6 +1,7 @@
 package com.ondemandmonitoring.delivery.domain;
 
 import com.ondemandmonitoring.common.entity.BaseEntity;
+import com.ondemandmonitoring.delivery.enums.DeliveryEvidenceChangeType;
 import com.ondemandmonitoring.media.domain.MediaAsset;
 import jakarta.persistence.*;
 import java.time.Instant;
@@ -35,4 +36,14 @@ public class ResultReviewRoundEvidence extends BaseEntity {
 
     @Column(name = "captured_at_snapshot", updatable = false)
     private Instant capturedAtSnapshot;
+
+    @Column(name = "source_round_evidence_id", length = 255, updatable = false)
+    private String sourceRoundEvidenceId;
+
+    @Column(name = "supersedes_round_evidence_id", length = 255, updatable = false)
+    private String supersedesRoundEvidenceId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "change_type", nullable = false, length = 30, updatable = false)
+    private DeliveryEvidenceChangeType changeType = DeliveryEvidenceChangeType.INITIAL;
 }

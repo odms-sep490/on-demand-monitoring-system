@@ -9,6 +9,7 @@ public interface IPersistedPreDeviceCheckService {
     PersistedPreDeviceCheckResponse start(String missionId);
     List<PersistedPreDeviceCheckResponse> history(String missionId);
     PersistedPreDeviceCheckResponse current(String missionId);
+    void refreshFlightPermitCheck(String missionId);
     PersistedPreDeviceCheckResponse get(String id);
     PersistedPreDeviceCheckResponse update(String id, String type, PreDeviceCheckItemUpdateRequest request);
     PersistedPreDeviceCheckResponse recordSystemResult(

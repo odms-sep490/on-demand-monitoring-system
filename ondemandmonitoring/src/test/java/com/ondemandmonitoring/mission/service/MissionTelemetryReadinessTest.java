@@ -80,12 +80,11 @@ class MissionTelemetryReadinessTest {
         session.getStaffAssignment().setReleasedAt(null); session.getStaffAssignment().setResponseStatus(MissionStaffAssignmentStatus.PENDING);
         assertFalse(service.getTelemetryReadiness("M1").ready());
     }
-    @Test void cancelledFailedReviewCompletedAndSafeStopAreNotReady() {
+    @Test void cancelledFailedReviewAndCompletedMissionsAreNotReady() {
         for (var status : List.of(MissionStatus.CANCELLED,MissionStatus.FAILED,MissionStatus.COMPLETED,MissionStatus.PENDING_REVIEW)) {
             mission.setStatus(status); assertFalse(service.getTelemetryReadiness("M1").ready());
         }
-        mission.setStatus(MissionStatus.CONNECTED); mission.setSafeStopRequestedAt(Instant.now());
-        assertFalse(service.getTelemetryReadiness("M1").ready()); verifyNoInteractions(telemetry);
+        verifyNoInteractions(telemetry);
     }
     @Test void nonFinalizedMissionIsNotReady() {
         assertFalse(service.getTelemetryReadiness("M1").ready());

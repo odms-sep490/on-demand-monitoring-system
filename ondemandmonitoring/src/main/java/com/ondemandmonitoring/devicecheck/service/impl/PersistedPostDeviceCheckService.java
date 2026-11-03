@@ -13,7 +13,11 @@ import com.ondemandmonitoring.devicecheck.repository.PersistedPostDeviceCheckRep
 import com.ondemandmonitoring.devicecheck.service.IPersistedPostDeviceCheckService;
 import com.ondemandmonitoring.mission.domain.DeviceConnection;
 import com.ondemandmonitoring.mission.domain.Mission;
+import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import com.ondemandmonitoring.mission.dto.request.PostFlightStatusRequest;
+import com.ondemandmonitoring.mission.enums.DeviceRole;
+import com.ondemandmonitoring.mission.enums.MissionDeviceAssignmentStatus;
+import com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository;
 import com.ondemandmonitoring.mission.enums.InspectionResult;
 import com.ondemandmonitoring.mission.repository.DeviceConnectionRepository;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
@@ -46,6 +50,7 @@ public class PersistedPostDeviceCheckService implements IPersistedPostDeviceChec
     private final PersistedPostDeviceCheckRepository runRepository;
     private final MissionRepository missionRepository;
     private final DeviceConnectionRepository deviceConnectionRepository;
+    private final MissionDeviceAssignmentRepository missionDeviceAssignmentRepository;
 
     @Transactional
     @Override
@@ -55,14 +60,17 @@ public class PersistedPostDeviceCheckService implements IPersistedPostDeviceChec
                 .orElseThrow(() -> new ApiException(
                         ErrorCode.MISSION_NOT_FOUND,
                         "Mission not found: " + missionId));
-        if (mission.getStatus() != com.ondemandmonitoring.mission.enums.MissionStatus.POSTFLIGHT_CHECKING) {
-            throw new ApiException(ErrorCode.MISSION_STATUS_INVALID, "Post-device inspection requires postflight state");
-        }
         DeviceConnection deviceConnection = deviceConnectionRepository
                 .findTopByMissionIdAndConnectionStatusOrderByConnectedAtDesc(missionId, "CONNECTED")
                 .orElseThrow(() -> new ApiException(
                         ErrorCode.RESOURCE_NOT_FOUND,
                         "No active device connection found for mission: " + missionId));
+        MissionDeviceAssignment assignment = missionDeviceAssignmentRepository
+                .findByMissionIdAndDeviceIdAndIsCurrentTrue(missionId, deviceConnection.getDevice().getId())
+                .filter(candidate -> candidate.getDeviceRole() == DeviceRole.MAIN)
+                .filter(candidate -> candidate.getStatus() == MissionDeviceAssignmentStatus.POSTFLIGHT_CHECKING)
+                .orElseThrow(() -> new ApiException(ErrorCode.MISSION_STATUS_INVALID,
+                        "Post-device inspection requires the assigned device to be in postflight checking."));
 
         PersistedPostDeviceCheck run = new PersistedPostDeviceCheck();
         run.setMission(mission);
@@ -177,13 +185,24 @@ public class PersistedPostDeviceCheckService implements IPersistedPostDeviceChec
                 .orElseThrow(() -> new ApiException(
                         ErrorCode.MISSION_NOT_FOUND,
                         "Mission not found: " + missionId));
-        DeviceConnection connection = deviceConnectionRepository
-                .findTopByMissionIdAndConnectionStatusOrderByConnectedAtDesc(missionId, "CONNECTED")
-                .orElse(null);
+        MissionDeviceAssignment mainAssignment = missionDeviceAssignmentRepository
+                .findAllByMissionIdAndDeviceRoleAndIsCurrentTrueOrderByCreatedAtDesc(missionId, DeviceRole.MAIN)
+                .stream()
+                .findFirst()
+                .orElseThrow(() -> new ApiException(
+                        ErrorCode.RESOURCE_NOT_FOUND,
+                        "No current main device assignment found for mission: " + missionId));
+        String mainDeviceId = mainAssignment.getDevice().getId();
+        List<DeviceConnection> deviceConnections = deviceConnectionRepository
+                .findByMissionIdAndAssignedDeviceIdOrderByConnectedAtDesc(missionId, mainDeviceId);
+        DeviceConnection connection = deviceConnections.stream()
+                .filter(candidate -> "CONNECTED".equals(candidate.getConnectionStatus()))
+                .findFirst()
+                .orElseGet(() -> deviceConnections.stream().findFirst().orElse(null));
         if (connection == null) {
-            log.warn("Mission {} post-device check was not persisted because no active device connection was found",
-                    missionId);
-            return;
+            throw new ApiException(
+                    ErrorCode.RESOURCE_NOT_FOUND,
+                    "No device connection is available to save the postflight check for mission: " + missionId);
         }
 
         PersistedPostDeviceCheck run = runRepository

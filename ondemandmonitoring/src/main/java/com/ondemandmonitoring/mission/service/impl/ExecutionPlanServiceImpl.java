@@ -67,14 +67,13 @@ public class ExecutionPlanServiceImpl implements IExecutionPlanService {
         // Runtime consumes executions; create them only after all planning validation passes.
         effective.forEach(materialization::materialize);
         effective.forEach(m -> {
-            m.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.READY);
-            m.setResourcePrepareStatus(com.ondemandmonitoring.mission.enums.MissionResourcePrepareStatus.PENDING);
+            m.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.PENDING_PAYMENT);
             staff.findByMissionId(m.getId()).stream().filter(a -> a.getReleasedAt() == null).forEach(a -> {
                 a.setResponseStatus(com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus.PENDING);
                 a.setIsCurrent(true);
             });
             devices.findByMissionId(m.getId()).stream().filter(a -> a.getReleasedAt() == null).forEach(a -> {
-                a.setCheckupStatus(com.ondemandmonitoring.mission.enums.MissionDeviceAssignmentStatus.PENDING);
+                a.setCheckupStatus(com.ondemandmonitoring.mission.enums.MissionDeviceCheckStatus.PENDING);
                 a.setIsCurrent(true);
             });
         });

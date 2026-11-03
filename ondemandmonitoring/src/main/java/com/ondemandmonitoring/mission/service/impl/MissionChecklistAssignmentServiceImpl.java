@@ -17,6 +17,7 @@ import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import java.time.Instant;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +34,8 @@ public class MissionChecklistAssignmentServiceImpl implements IMissionChecklistA
     private final AuthenticatedUserResolver currentUser;
     private final MissionChecklistAssignmentMapper mapper;
     private final IAcceptedChecklistGuidanceService acceptedGuidance;
+    @Autowired
+    private com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository revisionCaseItems;
 
     @Override
     @Transactional(readOnly = true)
@@ -70,8 +73,19 @@ public class MissionChecklistAssignmentServiceImpl implements IMissionChecklistA
         // One checklist item belongs to at most one effective Mission (cancelled Missions release their items).
         var guidance = new MissionChecklistGuidanceContext(acceptedGuidance.findForOrder(orderId));
         selected.values().forEach(guidance::resolve);
+        boolean rework = mission.getPurpose() == com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK;
+        if (rework) {
+            if (mission.getResultRevisionCaseId() == null) throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_INTEGRITY_INVALID);
+            var caseItemsForMission = revisionCaseItems.findByResultRevisionCaseIdAndOrderChecklistItemIdInOrderByCreatedAtAsc(
+                    mission.getResultRevisionCaseId(), selected.keySet());
+            if (caseItemsForMission.size() != selected.size() || caseItemsForMission.stream().anyMatch(item ->
+                    item.getScopeDecision() != com.ondemandmonitoring.delivery.enums.ResultRevisionScope.IN_SCOPE
+                    || item.getStrategy() != com.ondemandmonitoring.delivery.enums.ResultRevisionStrategy.REWORK
+                    || !missionId.equals(item.getAssignedReworkMissionId())))
+                throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_INTEGRITY_INVALID);
+        }
         var ownerMissions = new HashMap<String, Mission>();
-        for (var other : assignments.findActiveByOrderId(orderId)) {
+        for (var other : rework ? List.<MissionChecklistAssignment>of() : assignments.findActiveByOrderId(orderId)) {
             if (missionId.equals(other.getMissionId()) || !selected.containsKey(other.getOrderChecklistItemId())) continue;
             var owner = ownerMissions.computeIfAbsent(other.getMissionId(), id -> missions.findById(id)
                     .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND)));

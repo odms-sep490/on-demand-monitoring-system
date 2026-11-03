@@ -46,7 +46,10 @@ class ResultRevisionIdempotencyTest {
         when(requests.findByCustomerIdAndClientRequestId("customer", key)).thenReturn(Optional.of(prior));
         var service = new ResultReviewService(rounds, mock(ResultReviewRoundItemRepository.class),
                 mock(ResultReviewRoundEvidenceRepository.class), requests, mock(ResultRevisionRequestItemRepository.class),
-                mock(ResultRevisionRequestItemMediaRepository.class), mock(OrderDeliveryRepository.class), orders,
+                mock(ResultRevisionRequestItemMediaRepository.class), mock(ResultRevisionCaseRepository.class),
+                mock(ResultRevisionCaseItemRepository.class), mock(ResultRevisionMediaHoldRepository.class),
+                mock(com.ondemandmonitoring.media.repository.MediaAssetRepository.class),
+                mock(OrderDeliveryRepository.class), orders,
                 mock(com.ondemandmonitoring.mission.repository.MissionRepository.class), ticketRepo,
                 mock(SupportTicketService.class), mock(ISupportAuthorizationService.class), users,
                 mock(IMediaObjectStorage.class), mock(IResultRetentionAccessService.class), new ObjectMapper());

@@ -16,7 +16,7 @@ class ResultReviewWireContractTest {
         var value = new ResultReviewResponse("round", 2, 7L, Instant.EPOCH, 3L, true, true, null,
                 new ResultReviewResponse.RevisionSummary("request", "ticket", "TKT-1"), 0, 50, 1,
                 List.of(new ResultReviewResponse.Item("item", "check", "Roof", "Inspect roof", List.of("Capture"),
-                        List.of(), List.of(), "mission", "M-001", List.of())));
+                        List.of(), List.of(), "mission", "M-001", List.of(), false, true)));
         var json = mapper.readTree(mapper.writeValueAsString(value));
         assertThat(json.has("roundVersion")).isTrue();
         assertThat(json.has("existingRequest")).isTrue();
@@ -34,7 +34,7 @@ class ResultReviewWireContractTest {
         var item = new ResultRevisionTicketReviewResponse.Item("item", "check", "Roof", "Inspect roof", List.of(),
                 List.of(), List.of(), "mission", "M-001", "POOR_QUALITY", "Too blurry", List.of("e1"), List.of(evidence));
         var value = new ResultRevisionTicketReviewResponse("ticket", "TKT-1", "order", "round", 2, 7L,
-                Instant.EPOCH, null, Instant.EPOCH, List.of(item));
+                Instant.EPOCH, null, Instant.EPOCH, List.of(item), List.of());
         var json = mapper.readTree(mapper.writeValueAsString(value));
         var row = json.path("items").get(0);
         assertThat(row.path("roundEvidenceIds").get(0).asText()).isEqualTo("e1");

@@ -29,4 +29,9 @@ public final class WeatherCodeLabels {
     public static boolean isThunderstorm(Integer code) {
         return code != null && (code == 95 || code == 96 || code == 99);
     }
+
+    /** WMO drizzle codes: light, persistent precipitation still needs caution for a flight. */
+    public static boolean isDrizzle(Integer code) {
+        return code != null && (code == 51 || code == 53 || code == 55 || code == 56 || code == 57);
+    }
 }

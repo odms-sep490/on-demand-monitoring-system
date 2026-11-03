@@ -21,11 +21,20 @@ import org.springframework.web.bind.annotation.*;
 public class CustomerDeliveryController {
     private final IDeliveryWorkflowService delivery;
     private final IResultReviewService resultReview;
+    private final com.ondemandmonitoring.delivery.service.IResultRevisionCaseService revisionCases;
 
     @GetMapping("/result-review")
     public ApiResponse<ResultReviewResponse> resultReview(@PathVariable String orderId,
             @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "50") int size) {
         return ApiResponse.ok(resultReview.getOrderReview(orderId, page, size));
+    }
+
+    @GetMapping("/result-review/history")
+    public ApiResponse<com.ondemandmonitoring.delivery.dto.response.ResultReviewHistoryResponse> resultReviewHistory(
+            @PathVariable String orderId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ApiResponse.ok(resultReview.getHistory(orderId, page, size));
     }
 
     @GetMapping("/delivery")
@@ -54,5 +63,11 @@ public class CustomerDeliveryController {
             @PathVariable String orderId,
             @Valid @RequestBody RevisionRequest request) {
         return ApiResponse.ok("Revision requested", resultReview.submit(orderId, request));
+    }
+
+    @PostMapping("/result-revision-case/items/{caseItemId}/acknowledge-out-of-scope")
+    public ApiResponse<com.ondemandmonitoring.delivery.dto.response.ResultRevisionCaseResponse> acknowledgeOutOfScope(
+            @PathVariable String orderId, @PathVariable String caseItemId) {
+        return ApiResponse.ok(revisionCases.acknowledgeOutOfScope(orderId, caseItemId));
     }
 }

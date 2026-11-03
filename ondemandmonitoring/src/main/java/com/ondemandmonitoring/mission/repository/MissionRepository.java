@@ -24,14 +24,21 @@ public interface MissionRepository extends JpaRepository<Mission, String>, JpaSp
     @Query("SELECT m FROM Mission m WHERE m.id = :id")
     Optional<Mission> findByIdForUpdate(@Param("id") String id);
 
-    @EntityGraph(attributePaths = "order")
+    @EntityGraph(attributePaths = {"order", "flightPermit"})
     @Query("SELECT m FROM Mission m WHERE m.id = :id")
     Optional<Mission> findByIdWithOrder(@Param("id") String id);
 
     Optional<Mission> findByMissionCode(String missionCode);
 
+    Optional<Mission> findByReworkRequestId(java.util.UUID reworkRequestId);
+
     /** Order aggregate query; never use an Order ID as exact Mission identity. */
+    @EntityGraph(attributePaths = "flightPermit")
     List<Mission> findAllByOrderIdOrderByScheduledStartAtAscIdAsc(String orderId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select m from Mission m where m.order.id = :orderId order by m.id")
+    List<Mission> findAllByOrderIdForUpdateOrderById(@Param("orderId") String orderId);
 
     @Query("select m.id from Mission m where m.order.id = :orderId order by m.id")
     List<String> findIdsByOrderIdOrderById(@Param("orderId") String orderId);
@@ -71,10 +78,6 @@ public interface MissionRepository extends JpaRepository<Mission, String>, JpaSp
     List<Mission> findByStaffIdAndStatusIn(@Param("staffId") String staffId, @Param("statuses") List<MissionStatus> statuses);
 
     List<Mission> findByStatusIn(List<MissionStatus> statuses);
-
-    List<Mission> findByFlightPermitStatusAndFlightPermitResourceHoldUntilLessThanEqualAndFlightPermitResourcesReleasedAtIsNull(
-            com.ondemandmonitoring.mission.enums.FlightPermitStatus status,
-            java.time.Instant holdUntil);
 
     long countByStatusIn(java.util.Collection<MissionStatus> statuses);
 

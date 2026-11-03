@@ -52,7 +52,7 @@ class MissionAuthorizationServiceTest {
 
     @Test
     void pendingCrewCanRespondButCannotExecuteOrRespondOnBehalfOfAnotherUser() {
-        mission.setStatus(MissionStatus.READY);
+        mission.setStatus(MissionStatus.PENDING_CONFIRMATION);
         assign(MissionStaffRole.PILOT, MissionStaffAssignmentStatus.PENDING);
         assertThat(policy.canRespondToMission("mission-1")).isTrue();
         assertThat(policy.canRespondToMission("mission-1", "staff-2")).isFalse();
@@ -61,60 +61,14 @@ class MissionAuthorizationServiceTest {
         assertThat(policy.canRespondToMission("mission-1")).isFalse();
     }
 
-    @ParameterizedTest
-    @EnumSource(com.ondemandmonitoring.mission.enums.MissionSafeStopStatus.class)
-    void everySafeStopPhaseDisablesNormalFlightAndPayload(com.ondemandmonitoring.mission.enums.MissionSafeStopStatus phase) {
-        mission.setStatus(MissionStatus.READY_TO_FLY);
-        mission.setSafeStopStatus(phase);
-        assign(MissionStaffRole.PILOT, MissionStaffAssignmentStatus.ACCEPTED);
-        assertThat(policy.canControlFlight("mission-1")).isFalse();
-        assertThat(policy.canTerminateFlight("mission-1")).isFalse(); // no request timestamp: fail closed
-        assign(MissionStaffRole.OPERATOR, MissionStaffAssignmentStatus.ACCEPTED);
-        assertThat(policy.canOperatePayload("mission-1")).isFalse();
-    }
-
     @Test
-    void requestedPilotCanOnlyTerminateAndConfirmedCleanedCancelledCannotFly() {
-        mission.setStatus(MissionStatus.IN_FLIGHT);
-        mission.setSafeStopRequestedAt(Instant.now());
-        mission.setSafeStopStatus(com.ondemandmonitoring.mission.enums.MissionSafeStopStatus.REQUESTED);
-        assign(MissionStaffRole.PILOT, MissionStaffAssignmentStatus.ACCEPTED);
-        assertThat(policy.canControlFlight("mission-1")).isFalse();
-        assertThat(policy.canTerminateFlight("mission-1")).isTrue();
-        assertThat(policy.canTerminateFlight("another-mission")).isFalse();
-        mission.setStatus(MissionStatus.PENDING_REVIEW);
-        mission.setSafeStopConfirmedAt(Instant.now());
-        assertThat(policy.canTerminateFlight("mission-1")).isFalse();
-        assertThat(policy.canControlFlight("mission-1")).isFalse();
-        mission.setSafeStopCleanedAt(Instant.now());
-        assertThat(policy.canControlFlight("mission-1")).isFalse();
-        mission.setStatus(MissionStatus.CANCELLED);
-        assertThat(policy.canTerminateFlight("mission-1")).isFalse();
-    }
-
-    @Test
-    void terminationRemainsPilotOnlyAndMaintainerCanFinishInspection() {
+    void postflightInspectionRemainsMaintainerOnly() {
         mission.setStatus(MissionStatus.RETURNING);
-        mission.setSafeStopRequestedAt(Instant.now());
         assign(MissionStaffRole.OPERATOR, MissionStaffAssignmentStatus.ACCEPTED);
-        assertThat(policy.canTerminateFlight("mission-1")).isFalse();
-        assertThat(policy.canOperatePayload("mission-1")).isFalse();
+        assertThat(policy.canMaintainDevice("mission-1")).isFalse();
         assign(MissionStaffRole.MAINTAINER, MissionStaffAssignmentStatus.ACCEPTED);
         mission.setStatus(MissionStatus.POSTFLIGHT_CHECKING);
         assertThat(policy.canMaintainDevice("mission-1")).isTrue();
-    }
-
-    @Test
-    void historicalConfirmedReadyCanOnlyPreparePostflightNotReopenFlight() {
-        mission.setStatus(MissionStatus.READY_TO_FLY); mission.setSafeStopRequestedAt(Instant.now());
-        mission.setSafeStopConfirmedAt(Instant.now());
-        mission.setSafeStopStatus(com.ondemandmonitoring.mission.enums.MissionSafeStopStatus.IN_PROGRESS);
-        assign(MissionStaffRole.PILOT, MissionStaffAssignmentStatus.ACCEPTED);
-        assertThat(policy.canControlFlight("mission-1")).isFalse();
-        assertThat(policy.canTerminateFlight("mission-1")).isFalse();
-        assertThat(policy.canPrepareSafeStopPostflight("mission-1")).isTrue();
-        mission.setSafeStopCleanedAt(Instant.now());
-        assertThat(policy.canPrepareSafeStopPostflight("mission-1")).isFalse();
     }
 
     @Test

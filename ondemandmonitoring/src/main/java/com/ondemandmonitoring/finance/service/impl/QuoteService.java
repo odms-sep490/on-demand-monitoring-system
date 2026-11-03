@@ -2,8 +2,6 @@ package com.ondemandmonitoring.finance.service.impl;
 
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
-import com.ondemandmonitoring.delivery.enums.DeliveryStatus;
-import com.ondemandmonitoring.delivery.repository.OrderDeliveryRepository;
 import com.ondemandmonitoring.finance.config.PaymentProperties;
 import com.ondemandmonitoring.finance.domain.*;
 import com.ondemandmonitoring.finance.dto.*;
@@ -12,6 +10,8 @@ import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.finance.repository.QuoteRepository;
 import com.ondemandmonitoring.finance.mapper.FinanceMapper;
 import com.ondemandmonitoring.finance.service.IQuoteService;
+import com.ondemandmonitoring.finance.event.QuoteApprovedEvent;
+import com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
@@ -43,6 +43,7 @@ import java.math.RoundingMode;
 import java.time.*;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -60,11 +61,15 @@ public class QuoteService implements IQuoteService {
     private final IMissionChecklistExecutionService checklistExecutionService;
     private final AuthenticatedUserResolver currentUser;
     private final PaymentProperties paymentProperties;
-    private final OrderDeliveryRepository deliveries;
+    private final CommercialExpirationSettingsService expirationSettings;
+    private final FinalPaymentDeadlineService finalPaymentDeadlines;
+    private final IMissionPaymentEligibilityService paymentEligibility;
     private final IOrderReadinessService readiness;
     private final PricingEngine pricingEngine;
     private final PricingPolicyRepository pricingPolicies;
     private final ChecklistPricingAuditRepository pricingAudits;
+    private final ApplicationEventPublisher eventPublisher;
+    private final Clock clock;
 
     @Transactional(readOnly = true)
     public PricingReviewResponse getPricingReview(String orderId) {
@@ -399,9 +404,12 @@ public class QuoteService implements IQuoteService {
         requireGuidanceSnapshot(order, quote, reviewed);
         // Approval criteria: automatic checks + the manager's own answers.
         readiness.requireApprovable(orderId);
+        Instant issuedAt = Instant.now(clock);
+        User approver = currentUser.getCurrentUser();
         quote.setStatus(QuoteStatus.APPROVED);
-        quote.setApprovedBy(currentUser.getCurrentUser());
-        quote.setApprovedAt(Instant.now());
+        quote.setApprovedBy(approver);
+        quote.setApprovedAt(issuedAt);
+        quote.setExpiresAt(issuedAt.plus(expirationSettings.current().quotationAcceptanceTimeout()));
         writeChecklistPricingAudits(quote, reviewed);
         reviewed.stream().filter(this::requiresManagerPrice).forEach(item -> {
             BigDecimal system = Optional.ofNullable(item.getSystemCalculatedPrice()).orElse(ZERO);
@@ -409,7 +417,9 @@ public class QuoteService implements IQuoteService {
             item.setPricingStatus(approved.compareTo(system) == 0
                     ? ChecklistPricingStatus.APPROVED : ChecklistPricingStatus.ADJUSTED_AND_APPROVED);
         });
-        if (order.getOrderStatus() == OrderStatus.PENDING) order.setOrderStatus(OrderStatus.APPROVED);
+        markOrderApprovedAfterQuote(order, approver, issuedAt);
+        eventPublisher.publishEvent(new QuoteApprovedEvent(
+                order.getCustomer().getId(), orderId, quoteId, issuedAt));
         return FinanceMapper.quote(quote);
     }
 
@@ -427,7 +437,8 @@ public class QuoteService implements IQuoteService {
         if (quote.getAdjustmentRequestedBy() != null
                 && Objects.equals(quote.getAdjustmentRequestedBy().getId(), approver.getId()))
             throw new ApiException(ErrorCode.PRICING_SELF_APPROVAL_NOT_ALLOWED);
-        quote.setPricingApprovedBy(approver); quote.setPricingApprovedAt(Instant.now());
+        Instant reviewedAt = Instant.now(clock);
+        quote.setPricingApprovedBy(approver); quote.setPricingApprovedAt(reviewedAt);
         quote.setPricingApprovalNote(trimToNull(request.note()));
         if (!request.approved()) {
             quote.setPricingApprovalStatus(PricingApprovalStatus.REJECTED);
@@ -437,9 +448,22 @@ public class QuoteService implements IQuoteService {
         requireGuidanceSnapshot(order, quote, checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId));
         readiness.requireApprovable(orderId);
         quote.setPricingApprovalStatus(PricingApprovalStatus.APPROVED);
-        quote.setStatus(QuoteStatus.APPROVED); quote.setApprovedBy(approver); quote.setApprovedAt(Instant.now());
-        if (order.getOrderStatus() == OrderStatus.PENDING) order.setOrderStatus(OrderStatus.APPROVED);
+        Instant issuedAt = reviewedAt;
+        quote.setStatus(QuoteStatus.APPROVED); quote.setApprovedBy(approver); quote.setApprovedAt(issuedAt);
+        quote.setExpiresAt(issuedAt.plus(expirationSettings.current().quotationAcceptanceTimeout()));
+        markOrderApprovedAfterQuote(order, approver, issuedAt);
+        eventPublisher.publishEvent(new QuoteApprovedEvent(
+                order.getCustomer().getId(), orderId, quoteId, issuedAt));
         return FinanceMapper.quote(quote);
+    }
+
+    private void markOrderApprovedAfterQuote(Order order, User approver, Instant approvedAt) {
+        OrderStatus status = order.getOrderStatus();
+        if (status != OrderStatus.PENDING && status != OrderStatus.UNDER_REVIEW) return;
+
+        order.setOrderStatus(OrderStatus.APPROVED);
+        order.setReviewBy(approver);
+        order.setReviewAt(approvedAt);
     }
 
     @Transactional(readOnly = true)
@@ -447,7 +471,8 @@ public class QuoteService implements IQuoteService {
         assertOwner(orderId);
         return quotes.findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc(orderId,
                         List.of(QuoteStatus.APPROVED, QuoteStatus.ACCEPTED_BY_CUSTOMER))
-                .filter(q -> q.getStatus() == QuoteStatus.ACCEPTED_BY_CUSTOMER
+                .or(() -> quotes.findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc(orderId, List.of(QuoteStatus.EXPIRED)))
+                .filter(q -> q.getStatus() == QuoteStatus.ACCEPTED_BY_CUSTOMER || q.getStatus() == QuoteStatus.EXPIRED
                         || (orderForCustomerQuote(orderId).getOrderStatus() == OrderStatus.APPROVED
                             && q.getChecklistRevision() == effectiveRevForOrder(orderId)))
                 .map(quote -> {
@@ -475,11 +500,18 @@ public class QuoteService implements IQuoteService {
                 || current.getChecklistRevision() != (order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision()))
             throw new ApiException(ErrorCode.QUOTE_NOT_CURRENT);
 
+        Instant now = Instant.now(clock);
+        if (quote.getExpiresAt() != null && !now.isBefore(quote.getExpiresAt()))
+            throw new ApiException(ErrorCode.QUOTE_NOT_APPROVED, "Quotation has expired");
+
         if (quote.getStatus() != QuoteStatus.APPROVED || order.getOrderStatus() != OrderStatus.APPROVED)
             throw new ApiException(ErrorCode.QUOTE_NOT_APPROVED);
         requireGuidanceSnapshot(order, quote, checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId));
         quote.setStatus(QuoteStatus.ACCEPTED_BY_CUSTOMER);
-        quote.setAcceptedAt(Instant.now());
+        quote.setAcceptedAt(now);
+        // Deposit progress belongs to the invoice. Accepting a quote leaves the order approved;
+        // mission creation is gated by the invoice's deposit status.
+        order.setDepositExpiresAt(now.plus(expirationSettings.current().depositPaymentTimeout()));
         Invoice invoice = new Invoice();
         invoice.setInvoiceNumber("INV-" + LocalDate.now(BUSINESS_ZONE).getYear() + "-"
                 + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
@@ -490,9 +522,9 @@ public class QuoteService implements IQuoteService {
         invoice.setPaidAmount(ZERO);
         invoice.setRemainingAmount(quote.getTotalAmount());
         invoice.setStatus(InvoiceStatus.ISSUED);
-        invoice.setIssuedAt(Instant.now());
+        invoice.setDepositStatus(DepositStatus.WAITING_DEPOSIT);
+        invoice.setIssuedAt(now);
         Invoice saved = invoices.save(invoice);
-        ensureWaitingDepositMission(order);
         return invoiceResponse(saved);
     }
 
@@ -505,7 +537,7 @@ public class QuoteService implements IQuoteService {
         }
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public InvoiceResponse getInvoiceByOrder(String orderId) {
         assertOwnerOrManager(orderId);
         return invoices.findByOrderId(orderId).map(this::invoiceResponse)
@@ -513,11 +545,9 @@ public class QuoteService implements IQuoteService {
     }
 
     private InvoiceResponse invoiceResponse(Invoice invoice) {
-        boolean finalPaymentAllowed = deliveries.findByOrderId(invoice.getOrder().getId())
-                .map(delivery -> delivery.getStatus() == DeliveryStatus.FINAL_PAYMENT_PENDING
-                        && delivery.getCustomerAcceptedAt() != null)
-                .orElse(false);
-        return FinanceMapper.invoice(invoice, finalPaymentAllowed);
+        var finalPaymentExpiresAt = finalPaymentDeadlines.assignIfEligible(invoice);
+        boolean deadlineOpen = finalPaymentExpiresAt != null && Instant.now(clock).isBefore(finalPaymentExpiresAt);
+        return FinanceMapper.invoice(invoice, deadlineOpen && paymentEligibility.isFinalPaymentEligible(invoice));
     }
 
     /**
@@ -701,21 +731,6 @@ public class QuoteService implements IQuoteService {
         line.setUnitPrice(vnd(unitPrice)); line.setAmount(vnd(unitPrice));
         line.setOrderChecklistItem(checklistItem); line.setDisplayOrder(displayOrder);
         return line;
-    }
-
-    private void ensureWaitingDepositMission(Order order) {
-        // Quote acceptance creates the invoice, not a hidden unassigned Mission.
-        // Manager planning remains the only creator/materializer in the 1:N model.
-        for (String id : missions.findIdsByOrderIdOrderById(order.getId()).stream().sorted().toList()) {
-            Mission mission = missions.findByIdForUpdate(id)
-                    .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
-            if (mission.getStatus() == MissionStatus.CANCELLED) continue;
-            if (mission.getStatus() == MissionStatus.PLANNING) {
-                mission.setStatus(MissionStatus.WAITING_DEPOSIT);
-            } else if (mission.getStatus() != MissionStatus.WAITING_DEPOSIT) {
-                throw new ApiException(ErrorCode.MISSION_STATUS_INVALID, "Existing mission has already entered execution");
-            }
-        }
     }
 
     private Order orderForCustomerQuote(String orderId) {

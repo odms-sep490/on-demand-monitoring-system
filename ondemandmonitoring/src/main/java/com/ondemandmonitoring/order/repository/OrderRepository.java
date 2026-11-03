@@ -23,7 +23,14 @@ public interface OrderRepository extends JpaRepository<Order, String> {
 
     boolean existsByOrderCode(String orderCode);
 
+    Optional<Order> findByOrderCode(String orderCode);
+
     List<Order> findByOrderStatusOrderByCreatedAtAsc(OrderStatus status);
+
+    List<Order> findByOrderStatusInOrderByCreatedAtAsc(java.util.Collection<OrderStatus> statuses);
+
+    Page<Order> findByOrderStatusInOrderByCreatedAtAsc(
+            java.util.Collection<OrderStatus> statuses, Pageable pageable);
 
     List<Order> findByCustomer_IdOrderByCreatedAtDesc(String customerId);
 

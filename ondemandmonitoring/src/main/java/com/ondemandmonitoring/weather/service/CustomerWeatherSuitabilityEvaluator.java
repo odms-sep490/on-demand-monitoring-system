@@ -47,6 +47,12 @@ public class CustomerWeatherSuitabilityEvaluator {
             warnings.add("THUNDERSTORM");
             level = WeatherSuitability.POOR;
         }
+        if (WeatherCodeLabels.isDrizzle(weatherCode)) {
+            warnings.add("DRIZZLE");
+            if (level == WeatherSuitability.GOOD) {
+                level = WeatherSuitability.CAUTION;
+            }
+        }
         return new Result(level, List.copyOf(warnings));
     }
 

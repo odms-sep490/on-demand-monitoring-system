@@ -20,6 +20,7 @@ public class PersistedPreDeviceCheckResponse {
     private static final Set<String> IGNORED_CHECK_TYPES = Set.of(
             "GAZEBO", "LOCAL_POSITION", "MODULES", "motor_esc_health",
             "satellite_signal", "positioning_health", "compass_health",
+            "weather_conditions",
             "imu_health", "home_position", "altitude_sensor");
 
     String id;

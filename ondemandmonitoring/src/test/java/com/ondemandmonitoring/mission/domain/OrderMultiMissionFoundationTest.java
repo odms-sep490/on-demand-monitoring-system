@@ -2,6 +2,8 @@ package com.ondemandmonitoring.mission.domain;
 
 import com.ondemandmonitoring.common.entity.BaseEntity;
 import com.ondemandmonitoring.order.domain.Order;
+import com.ondemandmonitoring.mission.enums.FlightPermitStatus;
+import com.ondemandmonitoring.flightpermit.domain.FlightPermit;
 import com.ondemandmonitoring.order.enums.ExecutionPlanStatus;
 import jakarta.persistence.*;
 import jakarta.validation.Validation;
@@ -34,6 +36,19 @@ class OrderMultiMissionFoundationTest {
     @Test void newMissionFieldsAreNullableForUnchangedRuntime() {
         var mission = new Mission();
         assertNull(mission.getReplacesMissionId());
+        assertNull(mission.getFlightPermit());
+        assertEquals(FlightPermitStatus.PENDING, FlightPermit.pendingFor(mission).getStatus());
+    }
+
+    @Test void flightPermitIsASeparateOneToOneAggregate() throws Exception {
+        var missionField = Mission.class.getDeclaredField("flightPermit");
+        assertEquals("mission", missionField.getAnnotation(OneToOne.class).mappedBy());
+        assertEquals(FetchType.LAZY, missionField.getAnnotation(OneToOne.class).fetch());
+
+        var mission = new Mission();
+        var permit = FlightPermit.pendingFor(mission);
+        assertSame(mission, permit.getMission());
+        assertSame(permit, mission.getFlightPermit());
     }
 
     @Test void executionAssignmentIsMandatoryAndExistingIdentityRemains() throws Exception {

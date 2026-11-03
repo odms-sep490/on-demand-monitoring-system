@@ -1,7 +1,6 @@
 package com.ondemandmonitoring.mission.domain;
 
 import com.ondemandmonitoring.common.entity.BaseEntity;
-import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.enums.LockStatus;
 import jakarta.persistence.*;
 import lombok.*;

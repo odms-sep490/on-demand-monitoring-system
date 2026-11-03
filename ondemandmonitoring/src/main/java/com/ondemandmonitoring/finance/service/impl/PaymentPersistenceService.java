@@ -14,7 +14,6 @@ import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.finance.repository.PaymentRepository;
 import com.ondemandmonitoring.finance.service.*;
 import com.ondemandmonitoring.finance.util.PaymentReferenceGenerator;
-import com.ondemandmonitoring.order.enums.LegalReviewStatus;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -44,11 +43,6 @@ public class PaymentPersistenceService implements IPaymentPersistenceService {
         orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
         Invoice invoice = invoices.findByIdForUpdate(invoiceId).orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
         if (!invoice.getOrder().getCustomer().getId().equals(currentUser.getCurrentUserId())) throw new ApiException(ErrorCode.ACCESS_DENIED);
-        if (invoice.getOrder().getFlightAreaReview().getLegalReviewStatus() != LegalReviewStatus.NOT_REQUIRED
-                && invoice.getOrder().getFlightAreaReview().getLegalReviewStatus() != LegalReviewStatus.APPROVED
-                && invoice.getOrder().getFlightAreaReview().getLegalReviewStatus() != LegalReviewStatus.PENDING_PERMIT) {
-            throw new ApiException(ErrorCode.ORDER_LEGAL_REVIEW_NOT_READY);
-        }
         if (invoice.getStatus() == InvoiceStatus.PAID || invoice.getRemainingAmount().signum() == 0) {
             throw new ApiException(ErrorCode.INVOICE_ALREADY_PAID);
         }

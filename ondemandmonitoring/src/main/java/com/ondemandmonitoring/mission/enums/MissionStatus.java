@@ -13,24 +13,6 @@ public enum MissionStatus {
     /** Every required crew member and device resource is ready. */
     READY,
 
-    /** Legacy persisted operations stages; current runtime progress lives on MissionDeviceAssignment. */
-    @Deprecated
-    SCHEDULED,
-    @Deprecated
-    CONNECTED,
-    @Deprecated
-    PREFLIGHT_CHECKING,
-    @Deprecated
-    READY_TO_FLY,
-    @Deprecated
-    FAILED_PREFLIGHT,
-    @Deprecated
-    IN_FLIGHT,
-    @Deprecated
-    RETURNING,
-    @Deprecated
-    POSTFLIGHT_CHECKING,
-
     IN_PROGRESS,
     /** The inspector submitted the accepted result and it is waiting for Manager approval. */
     AWAITING_REVIEW,

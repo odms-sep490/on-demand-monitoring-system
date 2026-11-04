@@ -1,7 +1,6 @@
 package com.ondemandmonitoring.mission.domain;
 
 import com.ondemandmonitoring.common.entity.BaseEntity;
-import com.ondemandmonitoring.mission.enums.WaypointReason;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -63,7 +62,4 @@ public class PlanWaypoint extends BaseEntity {
     @Column(name = "planned_speed_mps")
     Double plannedSpeedMps;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "reason", nullable = false, length = 50)
-    WaypointReason reason;
 }

@@ -27,6 +27,6 @@ public class ResultRevisionMediaHold extends BaseEntity {
     @JoinColumn(name = "media_asset_id", nullable = false, updatable = false)
     private MediaAsset mediaAsset;
 
-    @Column(name = "expires_at", nullable = false, updatable = false)
+    @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
 }

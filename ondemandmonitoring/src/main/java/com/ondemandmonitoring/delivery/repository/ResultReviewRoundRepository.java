@@ -15,4 +15,7 @@ public interface ResultReviewRoundRepository extends JpaRepository<ResultReviewR
     Optional<ResultReviewRound> findByIdForUpdate(@Param("id") String id);
     List<ResultReviewRound> findByOrderIdOrderByRoundNumberDesc(String orderId);
     Optional<ResultReviewRound> findByOrderIdAndRoundNumber(String orderId, int roundNumber);
+    org.springframework.data.domain.Page<ResultReviewRound> findByOrderIdOrderByRoundNumberDesc(
+            String orderId, org.springframework.data.domain.Pageable pageable);
+
 }

@@ -15,6 +15,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface MediaAssetRepository extends JpaRepository<MediaAsset, String> {
+        @Query("select m.mission.order.id from MediaAsset m where m.id = :mediaId")
+        Optional<String> findOrderIdByMediaId(@Param("mediaId") String mediaId);
+
         @Query("select m.id from MediaAsset m where m.orphanCleanupRequestedAt <= :before and m.storageStatus <> com.ondemandmonitoring.media.enums.MediaStorageStatus.DELETED order by m.orphanCleanupRequestedAt, m.id")
         List<String> findOrphanCleanupCandidates(@Param("before") Instant before, Pageable pageable);
         @Query("""
@@ -23,8 +26,12 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, String> 
                   and m.mission.order.resultExpiresAt <= :now
                   and m.storageStatus in :statuses
                   and not exists (
+                    select c.id from ResultRevisionCase c
+                    where c.order.id = m.mission.order.id and c.active = true
+                  )
+                  and not exists (
                     select h.id from ResultRevisionMediaHold h
-                    where h.mediaAsset.id = m.id and h.expiresAt > :now and h.resultRevisionCase.active = true
+                    where h.mediaAsset.id = m.id and h.expiresAt > :now
                   )
                 order by m.mission.order.resultExpiresAt, m.id
                 """)

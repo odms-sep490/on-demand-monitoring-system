@@ -8,9 +8,6 @@ import jakarta.persistence.*;
 import java.time.Instant;
 import lombok.Getter;
 import lombok.Setter;
-import com.fasterxml.jackson.databind.JsonNode;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "result_review_rounds",
@@ -45,7 +42,4 @@ public class ResultReviewRound extends BaseEntity {
     @Column(name = "status", nullable = false, length = 40)
     private ResultReviewRoundStatus status = ResultReviewRoundStatus.OPEN;
 
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "published_payload", columnDefinition = "jsonb", updatable = false)
-    private JsonNode publishedPayload;
 }

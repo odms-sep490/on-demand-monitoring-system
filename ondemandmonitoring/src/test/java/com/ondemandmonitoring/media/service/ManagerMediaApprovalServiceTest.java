@@ -7,11 +7,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.ondemandmonitoring.media.domain.MediaAsset;
-import com.ondemandmonitoring.media.domain.MediaNotificationOutbox;
 import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.mapper.MediaWorkflowMapper;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
-import com.ondemandmonitoring.media.repository.MediaNotificationOutboxRepository;
 import com.ondemandmonitoring.media.service.impl.ManagerMediaApprovalServiceImpl;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -19,14 +17,14 @@ import org.junit.jupiter.api.Test;
 class ManagerMediaApprovalServiceTest {
 
     private final MediaAssetRepository media = mock(MediaAssetRepository.class);
-    private final MediaNotificationOutboxRepository outbox = mock(MediaNotificationOutboxRepository.class);
+
     private final IMediaObjectStorage storage = mock(IMediaObjectStorage.class);
     private final MediaWorkflowMapper mapper = org.mapstruct.factory.Mappers.getMapper(MediaWorkflowMapper.class);
     private final ManagerMediaApprovalServiceImpl service =
-            new ManagerMediaApprovalServiceImpl(media, outbox, storage, mapper, mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class));
+            new ManagerMediaApprovalServiceImpl(media, storage, mapper, mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class));
 
     @Test
-    void approvePublishesMediaForCustomer() {
+    void approveMakesMediaAvailableForDelivery() {
         MediaAsset asset = asset();
         when(media.findByIdForUpdate("media-1")).thenReturn(Optional.of(asset));
         when(media.save(asset)).thenReturn(asset);
@@ -38,7 +36,7 @@ class ManagerMediaApprovalServiceTest {
         assertThat(asset.getMediaStatus()).isEqualTo(MediaStatus.AVAILABLE);
         assertThat(asset.getAvailableAt()).isNotNull();
         assertThat(response.getStatus()).isEqualTo(MediaStatus.AVAILABLE);
-        verify(outbox).save(any(MediaNotificationOutbox.class));
+
     }
 
     private MediaAsset asset() {

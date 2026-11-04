@@ -110,12 +110,12 @@ public class ChecklistDeliveryQueryService {
                     .filter(link -> evidencePolicy.mediaTypeMatches(item.getRequiredEvidenceType(), link.getMediaAsset().getType()))
                     .filter(link -> evidencePolicy.ineligibilityReason(link.getMediaAsset(), true) == null)
                     .map(link -> mapAsset(link.getMediaAsset(), link.getMissionId(), missionCodes.get(link.getMissionId()),
-                            currentByMedia.get(link.getMediaAsset().getId()), expiresAt))
+                            currentByMedia.get(link.getMediaAsset().getId()), expiresAt, activeCase == null ? null : activeCase.getId()))
                     .toList();
             List<ManagerDeliveryChecklistsResponse.Asset> current = currentEvidenceByChecklist
                     .getOrDefault(item.getId(), List.of()).stream()
                     .map(evidence -> mapAsset(evidence.getMediaAsset(), evidence.getMediaAsset().getMissionId(),
-                            missionCodes.get(evidence.getMediaAsset().getMissionId()), evidence, expiresAt))
+                            missionCodes.get(evidence.getMediaAsset().getMissionId()), evidence, expiresAt, activeCase == null ? null : activeCase.getId()))
                     .toList();
             return new ManagerDeliveryChecklistsResponse.Checklist(item.getId(), item.getContent(),
                     item.getMinimumImageCount(), item.getMinimumVideoCount(), item.getMinimumEvidenceCount(),
@@ -128,11 +128,12 @@ public class ChecklistDeliveryQueryService {
     }
 
     private ManagerDeliveryChecklistsResponse.Asset mapAsset(MediaAsset asset, String missionId, String missionCode,
-            ResultReviewRoundEvidence currentEvidence, Instant expiresAt) {
+            ResultReviewRoundEvidence currentEvidence, Instant expiresAt, String caseId) {
         String url = null;
         String reason = null;
         try {
-            retentionAccess.requireAccessible(asset);
+            if (caseId == null) retentionAccess.requireAccessible(asset);
+            else retentionAccess.requireAccessibleForRevision(asset, caseId);
             url = storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key());
         } catch (ApiException ex) {
             if (ex.getErrorCode() == ErrorCode.RESULT_RETENTION_EXPIRED) reason = "RETENTION_EXPIRED";

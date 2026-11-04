@@ -90,8 +90,6 @@ public class ResultReviewRoundPublisher {
         round.setPublishedBy(publishedBy);
         round.setSchemaVersion(1);
         round.setStatus(ResultReviewRoundStatus.OPEN);
-        round.setPublishedPayload(mapper.valueToTree(Map.of("selectedMediaAssetIds", selectedMediaIds,
-                "checklistRevision", order.getChecklistRevision(), "schemaVersion", 1)));
         round = rounds.save(round);
 
         int displayOrder = 0;

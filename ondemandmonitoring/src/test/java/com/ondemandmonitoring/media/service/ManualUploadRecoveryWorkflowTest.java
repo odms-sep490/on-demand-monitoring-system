@@ -49,7 +49,7 @@ class ManualUploadRecoveryWorkflowTest {
     private final ManualUploadTaskRepository manualTasks = mock(ManualUploadTaskRepository.class);
     private final IMediaObjectStorage storage = mock(IMediaObjectStorage.class);
     private final StorageEventInboxRepository inbox = mock(StorageEventInboxRepository.class);
-    private final MediaNotificationOutboxRepository outbox = mock(MediaNotificationOutboxRepository.class);
+
     private final IMediaAuditService auditService = mock(IMediaAuditService.class);
 
     private final ManualUploadTaskServiceImpl manualTaskService = new ManualUploadTaskServiceImpl(manualTasks);

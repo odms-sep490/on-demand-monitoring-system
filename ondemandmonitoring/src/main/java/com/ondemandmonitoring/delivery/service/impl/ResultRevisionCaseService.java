@@ -3,16 +3,13 @@ package com.ondemandmonitoring.delivery.service.impl;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.delivery.domain.ResultRevisionCase;
-import com.ondemandmonitoring.delivery.domain.ResultRevisionCaseDecision;
 import com.ondemandmonitoring.delivery.domain.ResultRevisionCaseItem;
 import com.ondemandmonitoring.delivery.dto.request.NotifyOutOfScopeRequest;
 import com.ondemandmonitoring.delivery.dto.request.ResultRevisionDecisionRequest;
 import com.ondemandmonitoring.delivery.dto.response.ResultRevisionCaseResponse;
 import com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus;
-import com.ondemandmonitoring.delivery.enums.ResultRevisionCaseStatus;
 import com.ondemandmonitoring.delivery.enums.ResultRevisionScope;
 import com.ondemandmonitoring.delivery.enums.ResultRevisionStrategy;
-import com.ondemandmonitoring.delivery.repository.ResultRevisionCaseDecisionRepository;
 import com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository;
 import com.ondemandmonitoring.delivery.repository.ResultRevisionCaseRepository;
 import com.ondemandmonitoring.delivery.repository.ResultRevisionRequestItemRepository;
@@ -33,8 +30,8 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class ResultRevisionCaseService implements IResultRevisionCaseService {
     private final ResultRevisionCaseRepository cases;
+    private final ResultRevisionMediaRetention mediaRetention;
     private final ResultRevisionCaseItemRepository caseItems;
-    private final ResultRevisionCaseDecisionRepository decisions;
     private final ResultRevisionRequestItemRepository requestItems;
     private final SupportCustomerTicketRepository tickets;
     private final SupportTicketService supportTickets;
@@ -85,14 +82,6 @@ public class ResultRevisionCaseService implements IResultRevisionCaseService {
         String reason = request.reason().trim();
         String instructions = request.managerInstructions() == null || request.managerInstructions().isBlank()
                 ? null : request.managerInstructions().trim();
-        ResultRevisionCaseDecision audit = new ResultRevisionCaseDecision();
-        audit.setCaseItem(item);
-        audit.setScopeDecision(request.scopeDecision());
-        audit.setStrategy(request.strategy());
-        audit.setReason(reason);
-        audit.setManagerInstructions(instructions);
-        audit.setDecidedBy(currentUser.getCurrentUserId());
-        decisions.save(audit);
 
         item.setScopeDecision(request.scopeDecision());
         item.setStrategy(request.strategy());
@@ -157,9 +146,8 @@ public class ResultRevisionCaseService implements IResultRevisionCaseService {
                 item.getStatus() == ResultRevisionCaseItemStatus.RESOLVED
                         || item.getStatus() == ResultRevisionCaseItemStatus.OUT_OF_SCOPE_ACKNOWLEDGED);
         if (finished) {
-            revisionCase.setStatus(ResultRevisionCaseStatus.CLOSED);
-            revisionCase.setActive(false);
-            revisionCase.setClosedAt(Instant.now());
+            revisionCase.close(Instant.now());
+            mediaRetention.release(revisionCase.getId(), revisionCase.getClosedAt());
             supportTickets.resolveResultRevisionTicket(revisionCase.getTicketId(), null);
             deliveryWorkflow.completeAcceptedRevisionCase(revisionCase.getOrder().getId());
         }
@@ -200,10 +188,14 @@ public class ResultRevisionCaseService implements IResultRevisionCaseService {
         var reworkMissions = missionRepository.findAllById(caseItemRows.stream().map(ResultRevisionCaseItem::getAssignedReworkMissionId)
                 .filter(Objects::nonNull).distinct().toList()).stream()
                 .collect(java.util.stream.Collectors.toMap(com.ondemandmonitoring.mission.domain.Mission::getId, row -> row));
+        var feedbackByItem = caseItemRows.isEmpty()
+                ? java.util.Map.<String, List<com.ondemandmonitoring.delivery.domain.ResultRevisionRequestItem>>of()
+                : requestItems.findByCaseItemIdInOrderByCreatedAtAscIdAsc(
+                        caseItemRows.stream().map(ResultRevisionCaseItem::getId).toList()).stream()
+                    .collect(java.util.stream.Collectors.groupingBy(row -> row.getCaseItem().getId()));
         List<ResultRevisionCaseResponse.Item> items = caseItemRows.stream()
                 .map(item -> {
-                    List<ResultRevisionCaseResponse.Feedback> feedback = requestItems
-                            .findByCaseItemIdOrderByCreatedAtAsc(item.getId()).stream()
+                    List<ResultRevisionCaseResponse.Feedback> feedback = feedbackByItem.getOrDefault(item.getId(), List.of()).stream()
                             .map(row -> new ResultRevisionCaseResponse.Feedback(row.getRequest().getId(),
                                     row.getRequest().getRound().getRoundNumber(), row.getReasonCode(), row.getNote(),
                                     row.getRequest().getSubmittedAt()))

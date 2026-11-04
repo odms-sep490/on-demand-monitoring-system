@@ -21,8 +21,13 @@ public class MissionReworkContextSnapshotService implements IMissionReworkContex
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public void capture(Mission mission, List<ResultRevisionCaseItem> caseItems) {
+        var feedbackRows = caseItems.isEmpty() ? List.<com.ondemandmonitoring.delivery.domain.ResultRevisionRequestItem>of()
+                : requestItems.findByCaseItemIdInOrderByCreatedAtAscIdAsc(
+                        caseItems.stream().map(ResultRevisionCaseItem::getId).toList());
+        var feedbackByItem = feedbackRows.stream().collect(java.util.stream.Collectors.groupingBy(
+                row -> row.getCaseItem().getId()));
         var snapshots = caseItems.stream().map(item -> {
-            var feedback = requestItems.findByCaseItemIdOrderByCreatedAtAsc(item.getId());
+            var feedback = feedbackByItem.getOrDefault(item.getId(), List.of());
             var latestRoundItem = feedback.isEmpty() ? null : feedback.getLast().getRoundItem();
             MissionReworkChecklistContext snapshot = new MissionReworkChecklistContext();
             snapshot.setMission(mission);

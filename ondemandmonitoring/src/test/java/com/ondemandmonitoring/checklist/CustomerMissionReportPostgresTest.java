@@ -50,7 +50,7 @@ class CustomerMissionReportPostgresTest extends OrderAggregateCompletionPostgres
         var access=new com.ondemandmonitoring.mission.service.impl.MissionMediaAccessServiceImpl(missions,
                 org.mockito.Mockito.mock(MissionDeviceAssignmentRepository.class),resolver,auth);
         var gallery=new com.ondemandmonitoring.media.service.impl.CustomerMediaServiceImpl(access,mediaRepository,
-                org.mockito.Mockito.mock(com.ondemandmonitoring.media.repository.MediaNotificationOutboxRepository.class),
+                org.mockito.Mockito.
                 org.mockito.Mockito.mock(com.ondemandmonitoring.media.service.IMediaObjectStorage.class),
                 Mappers.getMapper(com.ondemandmonitoring.media.mapper.MediaWorkflowMapper.class),
                 org.mockito.Mockito.mock(com.ondemandmonitoring.media.service.IResultRetentionAccessService.class));

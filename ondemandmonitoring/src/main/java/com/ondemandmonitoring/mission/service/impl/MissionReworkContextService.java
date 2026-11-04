@@ -53,27 +53,26 @@ public class MissionReworkContextService implements com.ondemandmonitoring.missi
         if (!manager && !assignedStaff) throw new ApiException(ErrorCode.ACCESS_DENIED);
 
         var rows = contexts.findByMissionIdOrderByCreatedAtAsc(missionId);
+        var feedbackIds = rows.stream().flatMap(row -> row.getSourceFeedbackItemIds().stream()).distinct().toList();
+        var feedbackById = feedbackIds.isEmpty() ? java.util.Map.<String, ResultRevisionRequestItem>of()
+                : requestItems.findByIdIn(feedbackIds).stream().collect(java.util.stream.Collectors.toMap(
+                        ResultRevisionRequestItem::getId, row -> row));
+        var mediaByFeedback = feedbackIds.isEmpty()
+                ? java.util.Map.<String, List<com.ondemandmonitoring.delivery.domain.ResultReviewRoundEvidence>>of()
+                : requestMedia.findByRequestItemIdIn(feedbackIds).stream()
+                    .collect(java.util.stream.Collectors.groupingBy(link -> link.getRequestItem().getId(),
+                            java.util.stream.Collectors.mapping(
+                                    com.ondemandmonitoring.delivery.domain.ResultRevisionRequestItemMedia::getRoundEvidence,
+                                    java.util.stream.Collectors.toList())));
         List<MissionReworkContextResponse.Checklist> result = new ArrayList<>();
         for (var snapshot : rows) {
             var item = snapshot.getCaseItem();
-            List<ResultRevisionRequestItem> loadedFeedback = requestItems.findAllById(snapshot.getSourceFeedbackItemIds())
-                    .stream().toList();
-            var feedbackById = loadedFeedback.stream().collect(java.util.stream.Collectors.toMap(
-                    ResultRevisionRequestItem::getId, row -> row));
-            List<ResultRevisionRequestItem> feedbackRows = snapshot.getSourceFeedbackItemIds().stream()
-                    .map(feedbackById::get).filter(java.util.Objects::nonNull).toList();
-            List<String> feedbackItemIds = feedbackRows.stream().map(ResultRevisionRequestItem::getId).toList();
-            var mediaByFeedback = feedbackItemIds.isEmpty() ? java.util.Map.<String, List<com.ondemandmonitoring.delivery.domain.ResultReviewRoundEvidence>>of()
-                    : requestMedia.findByRequestItemIdIn(feedbackItemIds).stream()
-                            .collect(java.util.stream.Collectors.groupingBy(
-                                    link -> link.getRequestItem().getId(),
-                                    java.util.stream.Collectors.mapping(
-                                            com.ondemandmonitoring.delivery.domain.ResultRevisionRequestItemMedia::getRoundEvidence,
-                                            java.util.stream.Collectors.toList())));
+            var feedbackRows = snapshot.getSourceFeedbackItemIds().stream().map(feedbackById::get)
+                    .filter(java.util.Objects::nonNull).toList();
             var feedback = feedbackRows.stream().map(row -> new MissionReworkContextResponse.Feedback(
                     row.getRequest().getRound().getRoundNumber(), row.getReasonCode(), row.getNote(),
                     row.getRequest().getSubmittedAt(), mediaByFeedback.getOrDefault(row.getId(), List.of()).stream()
-                            .map(this::mapEvidence).toList())).toList();
+                            .map(evidence -> mapEvidence(evidence, mission.getResultRevisionCaseId())).toList())).toList();
             var guidance = snapshot.getGuidanceSnapshot();
             result.add(new MissionReworkContextResponse.Checklist(item.getId(),
                     snapshot.getOrderChecklistItemIdSnapshot(), snapshot.getChecklistTitleSnapshot(),
@@ -87,10 +86,10 @@ public class MissionReworkContextService implements com.ondemandmonitoring.missi
     }
 
     private MissionReworkContextResponse.Evidence mapEvidence(
-            com.ondemandmonitoring.delivery.domain.ResultReviewRoundEvidence evidence) {
+            com.ondemandmonitoring.delivery.domain.ResultReviewRoundEvidence evidence, String caseId) {
         var asset = evidence.getMediaAsset();
         try {
-            retentionAccess.requireAccessible(asset);
+            retentionAccess.requireAccessibleForRevision(asset, caseId);
             return new MissionReworkContextResponse.Evidence(evidence.getId(), asset.getId(),
                     evidence.getFileNameSnapshot(), evidence.getMediaTypeSnapshot(),
                     storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key()),

@@ -64,16 +64,18 @@ public class ResultReviewService implements IResultReviewService {
         if (page < 0 || size < 1 || size > 100) throw new ApiException(ErrorCode.INVALID_REQUEST, "page must be nonnegative and size must be between 1 and 100");
         OrderDelivery delivery = deliveries.findByOrderId(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESULT_NOT_READY_FOR_REVIEW));
         ResultReviewRound round = currentRound(delivery);
-        List<ResultReviewRoundItem> all = roundItems.findByRoundIdOrderByDisplayOrderAsc(round.getId());
-        boolean hasActiveCase = revisionCases.findByOrderIdAndActiveTrue(orderId).isPresent();
+        var itemPage = roundItems.findByRoundIdOrderByDisplayOrderAscIdAsc(round.getId(),
+                org.springframework.data.domain.PageRequest.of(page, size));
+        var activeCase = revisionCases.findByOrderIdAndActiveTrue(orderId).orElse(null);
+        boolean hasActiveCase = activeCase != null;
         ResultRevisionRequest revision = requests.findByRoundId(round.getId()).orElse(null);
-        List<ResultReviewRoundItem> pageItems = all.stream().skip((long) page * size).limit(size).toList();
+        List<ResultReviewRoundItem> pageItems = itemPage.getContent();
         Map<String, List<ResultReviewRoundEvidence>> evidenceByItem = pageItems.isEmpty() ? Map.of()
                 : evidence.findByRoundItemIdInOrderByRoundItemIdAscCreatedAtAsc(pageItems.stream().map(ResultReviewRoundItem::getId).toList())
                         .stream().collect(Collectors.groupingBy(e -> e.getRoundItem().getId()));
         List<ResultReviewResponse.Item> items = pageItems.stream()
                 .map(item -> mapItem(item, evidenceByItem.getOrDefault(item.getId(), List.of()),
-                        !hasActiveCase || item.isChangedInRound())).toList();
+                        !hasActiveCase || item.isChangedInRound(), activeCase == null ? null : activeCase.getId())).toList();
         boolean open = round.getStatus() == ResultReviewRoundStatus.OPEN && delivery.getStatus() == DeliveryStatus.CUSTOMER_REVIEW && revision == null;
         String blocked = open ? null : revision != null ? "REVISION_ALREADY_SUBMITTED" : round.getStatus().name();
         ResultReviewResponse.RevisionSummary summary = null;
@@ -82,7 +84,7 @@ public class ResultReviewService implements IResultReviewService {
             summary = new ResultReviewResponse.RevisionSummary(revision.getId(), revision.getTicketId(), ticket == null ? null : ticket.getTicketCode());
         }
         return new ResultReviewResponse(round.getId(), round.getRoundNumber(), round.getVersion(), round.getPublishedAt(),
-                round.getChecklistRevision(), open, open, blocked, summary, page, size, all.size(), items);
+                round.getChecklistRevision(), open, open, blocked, summary, page, size, itemPage.getTotalElements(), items);
     }
 
     @Override
@@ -92,20 +94,24 @@ public class ResultReviewService implements IResultReviewService {
         assertOwner(order);
         if (page < 0 || size < 1 || size > 50)
             throw new ApiException(ErrorCode.INVALID_REQUEST, "page must be nonnegative and size must be between 1 and 50");
-        List<ResultReviewRound> all = rounds.findByOrderIdOrderByRoundNumberDesc(orderId);
-        List<ResultReviewRound> selected = all.stream().skip((long) page * size).limit(size).toList();
+        var roundPage = rounds.findByOrderIdOrderByRoundNumberDesc(orderId,
+                org.springframework.data.domain.PageRequest.of(page, size));
+        List<ResultReviewRound> selected = roundPage.getContent();
+        var selectedIds = selected.stream().map(ResultReviewRound::getId).toList();
+        var rows = selectedIds.isEmpty() ? List.<ResultReviewRoundItem>of()
+                : roundItems.findByRoundIdInOrderByRoundIdAscDisplayOrderAscIdAsc(selectedIds);
+        var rowsByRound = rows.stream().collect(Collectors.groupingBy(row -> row.getRound().getId()));
+        var rowIds = rows.stream().map(ResultReviewRoundItem::getId).toList();
+        Map<String, List<ResultReviewRoundEvidence>> evidenceByItem = rowIds.isEmpty() ? Map.of()
+                : evidence.findByRoundItemIdInOrderByRoundItemIdAscCreatedAtAsc(rowIds).stream()
+                    .collect(Collectors.groupingBy(row -> row.getRoundItem().getId()));
         List<ResultReviewHistoryResponse.Round> history = selected.stream().map(round -> {
-            List<ResultReviewRoundItem> rows = roundItems.findByRoundIdOrderByDisplayOrderAsc(round.getId());
-            List<String> rowIds = rows.stream().map(ResultReviewRoundItem::getId).toList();
-            Map<String, List<ResultReviewRoundEvidence>> evidenceByItem = rowIds.isEmpty() ? Map.of()
-                    : evidence.findByRoundItemIdInOrderByRoundItemIdAscCreatedAtAsc(rowIds).stream()
-                            .collect(Collectors.groupingBy(row -> row.getRoundItem().getId()));
-            List<ResultReviewResponse.Item> itemDtos = rows.stream().map(item -> mapItem(item,
-                    evidenceByItem.getOrDefault(item.getId(), List.of()), false)).toList();
+            var itemDtos = rowsByRound.getOrDefault(round.getId(), List.of()).stream()
+                    .map(item -> mapItem(item, evidenceByItem.getOrDefault(item.getId(), List.of()), false, null)).toList();
             return new ResultReviewHistoryResponse.Round(round.getId(), round.getRoundNumber(), round.getVersion(),
                     round.getPublishedAt(), round.getStatus(), itemDtos);
         }).toList();
-        return new ResultReviewHistoryResponse(page, size, all.size(), history);
+        return new ResultReviewHistoryResponse(page, size, roundPage.getTotalElements(), history);
     }
 
     @Override
@@ -229,10 +235,11 @@ public class ResultReviewService implements IResultReviewService {
                         requestRows.stream().map(ResultRevisionRequestItem::getId).toList()).stream()
                 .collect(Collectors.groupingBy(link -> link.getRequestItem().getId(),
                         Collectors.mapping(ResultRevisionRequestItemMedia::getRoundEvidence, Collectors.toList())));
+        var ticketCase = revisionCases.findByTicketId(ticketId).orElse(null);
         List<ResultRevisionTicketReviewResponse.Item> items = requestRows.stream().map(row -> {
             List<ResultReviewRoundEvidence> selectedEvidence = evidenceByRequestItem.getOrDefault(row.getId(), List.of());
             List<ResultReviewResponse.Evidence> mediaRows = selectedEvidence.stream()
-                    .map(e -> mapEvidence(e, manager, true)).toList();
+                    .map(e -> mapEvidence(e, manager, ticketCase == null || !ticketCase.isActive() ? null : ticketCase.getId())).toList();
             ResultReviewRoundItem source = row.getRoundItem();
             var guidance = source.getGuidanceSnapshot();
             return new ResultRevisionTicketReviewResponse.Item(source.getId(), source.getOrderChecklistItem().getId(), source.getContentSnapshot(),
@@ -240,8 +247,7 @@ public class ResultReviewService implements IResultReviewService {
                     strings(guidance, "expectedOutputs"), source.getMissionId(), null, row.getReasonCode().name(), row.getNote(),
                     selectedEvidence.stream().map(ResultReviewRoundEvidence::getId).toList(), mediaRows);
         }).toList();
-        List<ResultRevisionTicketReviewResponse.OutOfScopeItem> outOfScopeItems = revisionCases
-                .findByTicketId(ticketId).stream()
+        List<ResultRevisionTicketReviewResponse.OutOfScopeItem> outOfScopeItems = Optional.ofNullable(ticketCase).stream()
                 .flatMap(revisionCase -> caseItems.findByResultRevisionCaseIdOrderByCreatedAtAsc(revisionCase.getId()).stream())
                 .filter(caseItem -> caseItem.getScopeDecision() == ResultRevisionScope.OUT_OF_SCOPE)
                 .map(caseItem -> new ResultRevisionTicketReviewResponse.OutOfScopeItem(caseItem.getId(),
@@ -254,18 +260,19 @@ public class ResultReviewService implements IResultReviewService {
     }
 
     private ResultReviewResponse.Item mapItem(ResultReviewRoundItem item, List<ResultReviewRoundEvidence> evidenceRows,
-            boolean canRequestRevision) {
-        List<ResultReviewResponse.Evidence> mediaRows = evidenceRows.stream().map(e -> mapEvidence(e, false, false)).toList();
+            boolean canRequestRevision, String caseId) {
+        List<ResultReviewResponse.Evidence> mediaRows = evidenceRows.stream().map(e -> mapEvidence(e, false, caseId)).toList();
         return new ResultReviewResponse.Item(item.getId(), item.getOrderChecklistItem().getId(), item.getContentSnapshot(),
                 text(item.getGuidanceSnapshot(), "description"), strings(item.getGuidanceSnapshot(), "executionSteps"),
                 strings(item.getGuidanceSnapshot(), "inputRequirements"), strings(item.getGuidanceSnapshot(), "expectedOutputs"),
                 item.getMissionId(), null, mediaRows, item.isChangedInRound(), canRequestRevision);
     }
 
-    private ResultReviewResponse.Evidence mapEvidence(ResultReviewRoundEvidence row, boolean downloadable, boolean ticketContext) {
+    private ResultReviewResponse.Evidence mapEvidence(ResultReviewRoundEvidence row, boolean downloadable, String caseId) {
         var asset = row.getMediaAsset();
         try {
-            retentionAccess.requireAccessible(asset);
+            if (caseId == null) retentionAccess.requireAccessible(asset);
+            else retentionAccess.requireAccessibleForRevision(asset, caseId);
         } catch (ApiException ex) {
             if (ex.getErrorCode() != ErrorCode.RESULT_RETENTION_EXPIRED && ex.getErrorCode() != ErrorCode.MEDIA_NOT_FOUND) throw ex;
             return new ResultReviewResponse.Evidence(row.getId(), asset.getId(), row.getMediaTypeSnapshot(), row.getFileNameSnapshot(),
@@ -332,8 +339,7 @@ public class ResultReviewService implements IResultReviewService {
         Instant retentionDeadline = asset.getMission().getOrder().getResultExpiresAt();
         Instant now = Instant.now();
         if (retentionDeadline == null || !retentionDeadline.isAfter(now)) return;
-        Instant holdDeadline = revisionCase.getOpenedAt().plus(java.time.Duration.ofDays(14));
-        if (!holdDeadline.isAfter(now)) return;
+        Instant holdDeadline = now;
         mediaHolds.findByResultRevisionCaseIdAndMediaAssetId(revisionCase.getId(), asset.getId()).orElseGet(() -> {
             ResultRevisionMediaHold hold = new ResultRevisionMediaHold();
             hold.setResultRevisionCase(revisionCase);

@@ -5,7 +5,6 @@ import com.ondemandmonitoring.media.domain.MediaAsset;
 import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.mapper.MediaWorkflowMapper;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
-import com.ondemandmonitoring.media.repository.MediaNotificationOutboxRepository;
 import com.ondemandmonitoring.media.service.impl.CustomerMediaServiceImpl;
 import com.ondemandmonitoring.mission.service.IMissionMediaAccessService;
 
@@ -22,21 +21,24 @@ class CustomerMissionMediaServiceTest {
     final IMissionMediaAccessService access = mock(IMissionMediaAccessService.class);
     final MediaAssetRepository media = mock(MediaAssetRepository.class);
     final IMediaObjectStorage storage = mock(IMediaObjectStorage.class);
-    final ICustomerMediaService service = new CustomerMediaServiceImpl(access, media,
-            mock(MediaNotificationOutboxRepository.class), storage,
+    final ICustomerMediaService service = new CustomerMediaServiceImpl(access, media, storage,
             org.mapstruct.factory.Mappers.getMapper(MediaWorkflowMapper.class),
             mock(IResultRetentionAccessService.class));
 
     @BeforeEach
     void setup() {
         when(access.authorizeCustomer("MS-1")).thenReturn("mission");
+        var delivery = mock(com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "deliveryWorkflow", delivery);
+        when(delivery.publishedMediaAssetIds(List.of("mission"))).thenReturn(java.util.Set.of("media", "second"));
+        when(delivery.originalAccessibleMissionIds(List.of("mission"))).thenReturn(List.of("mission"));
     }
 
     @Test
     void pagesOnlyAvailableMediaUsingCanonicalMissionId() {
-        when(media.findByMissionIdAndMediaStatus(eq("mission"), eq(MediaStatus.AVAILABLE), any(Pageable.class)))
+        when(media.findByMissionIdAndIdInAndMediaStatus(eq("mission"), eq(java.util.Set.of("media", "second")), eq(MediaStatus.AVAILABLE), any(Pageable.class)))
                 .thenAnswer(call -> new PageImpl<>(List.of(asset("mission", MediaStatus.AVAILABLE)),
-                        call.getArgument(2), 1));
+                        call.getArgument(3), 1));
         when(storage.createPresignedGetUrl("bucket", "final/key")).thenReturn("signed");
         var response = service.listAvailablePage("MS-1", 0, 12);
         assertThat(response.getItems().getFirst().getDownloadUrl()).isEqualTo("signed");

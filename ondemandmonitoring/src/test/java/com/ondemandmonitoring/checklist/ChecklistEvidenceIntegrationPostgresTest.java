@@ -157,10 +157,10 @@ String mission=mission(1),media=asset(mission,MediaStatus.PENDING_MANAGER_APPROV
     }
     @Configuration @Import(MissionChecklistPostgresTest.ExecutionConfig.class)
     static class EvidenceConfig {
-        @Bean MediaNotificationOutboxRepository outbox(EntityManagerFactory factory) {return new JpaRepositoryFactory(SharedEntityManagerCreator.createSharedEntityManager(factory)).getRepository(MediaNotificationOutboxRepository.class);}
+
         @Bean com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard mediaLock(MediaAssetRepository media,MissionRepository missions,MissionResultRepository results,MissionChecklistEvidenceRepository evidence) {return new com.ondemandmonitoring.mission.service.impl.MissionMediaEvidenceGuardImpl(media,missions,results,evidence);}
-        @Bean IManagerMediaApprovalService approvalService(MediaAssetRepository media,MediaNotificationOutboxRepository outbox,IMediaObjectStorage storage,com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard lock) {
-            return new ManagerMediaApprovalServiceImpl(media,outbox,storage,org.mapstruct.factory.Mappers.getMapper(MediaWorkflowMapper.class),lock);
+        @Bean IManagerMediaApprovalService approvalService(MediaAssetRepository media,IMediaObjectStorage storage,com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard lock) {
+            return new ManagerMediaApprovalServiceImpl(media,storage,org.mapstruct.factory.Mappers.getMapper(MediaWorkflowMapper.class),lock);
         }
     }
 }

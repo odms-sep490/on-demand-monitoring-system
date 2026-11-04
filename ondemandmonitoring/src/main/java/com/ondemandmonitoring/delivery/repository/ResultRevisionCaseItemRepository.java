@@ -12,6 +12,7 @@ import java.util.Optional;
 import java.util.Collection;
 
 public interface ResultRevisionCaseItemRepository extends JpaRepository<ResultRevisionCaseItem, String> {
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"orderChecklistItem"})
     List<ResultRevisionCaseItem> findByResultRevisionCaseIdOrderByCreatedAtAsc(String caseId);
     List<ResultRevisionCaseItem> findByResultRevisionCaseIdAndIdInOrderByCreatedAtAsc(String caseId, Collection<String> ids);
     List<ResultRevisionCaseItem> findByResultRevisionCaseIdAndOrderChecklistItemIdInOrderByCreatedAtAsc(

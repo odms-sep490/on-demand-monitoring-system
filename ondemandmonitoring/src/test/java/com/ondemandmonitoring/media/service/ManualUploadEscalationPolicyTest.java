@@ -67,7 +67,7 @@ class ManualUploadEscalationPolicyTest {
     private final IMissionAuthorizationService authorization = mock(IMissionAuthorizationService.class);
     private final IMissionMediaEvidenceGuard missionLock = mock(IMissionMediaEvidenceGuard.class);
     private final StorageEventInboxRepository inbox = mock(StorageEventInboxRepository.class);
-    private final MediaNotificationOutboxRepository outbox = mock(MediaNotificationOutboxRepository.class);
+
     private final IMediaAuditService auditService = mock(IMediaAuditService.class);
 
     private ManualUploadTaskServiceImpl manualTaskService;

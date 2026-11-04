@@ -5,7 +5,6 @@ import com.ondemandmonitoring.common.api.PageResponse;
 import com.ondemandmonitoring.media.dto.response.CustomerMissionMediaStatusResponse;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Max;
-import com.ondemandmonitoring.media.dto.response.CustomerMediaNotificationResponse;
 import com.ondemandmonitoring.media.dto.response.CustomerMediaResponse;
 import com.ondemandmonitoring.media.service.ICustomerMediaService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -63,11 +62,6 @@ public class CustomerMediaController {
         return ResponseEntity.ok(ApiResponse.ok(customerMedia.listAllAvailable()));
     }
 
-    @Operation(summary = "List all media notifications for customer", description = "Retrieves media notification outbox items for customer's orders")
-    @GetMapping("/customer/media-notifications")
-    public ResponseEntity<ApiResponse<List<CustomerMediaNotificationResponse>>> allNotifications() {
-        return ResponseEntity.ok(ApiResponse.ok(customerMedia.listAllNotifications()));
-    }
 
     @Operation(summary = "List available media by mission", description = "Retrieves available media assets for a specific mission")
     @GetMapping("/missions/{missionId}/available-media")
@@ -81,10 +75,4 @@ public class CustomerMediaController {
         return ResponseEntity.ok(ApiResponse.ok(customerMedia.getAvailable(mediaId)));
     }
 
-    @Operation(summary = "List media notifications by mission", description = "Retrieves media notifications for a specific mission")
-    @GetMapping("/missions/{missionId}/media-notifications")
-    public ResponseEntity<ApiResponse<List<CustomerMediaNotificationResponse>>> notifications(
-            @PathVariable String missionId) {
-        return ResponseEntity.ok(ApiResponse.ok(customerMedia.listNotifications(missionId)));
-    }
 }

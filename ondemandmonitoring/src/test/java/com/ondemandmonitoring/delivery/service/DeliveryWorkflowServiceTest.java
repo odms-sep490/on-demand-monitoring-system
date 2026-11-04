@@ -12,6 +12,8 @@ import com.ondemandmonitoring.delivery.dto.request.RevisionRequest;
 import com.ondemandmonitoring.delivery.enums.DeliveryStatus;
 import com.ondemandmonitoring.delivery.repository.OrderDeliveryRepository;
 import com.ondemandmonitoring.delivery.domain.ResultReviewRound;
+import com.ondemandmonitoring.delivery.domain.ResultReviewRoundItem;
+import com.ondemandmonitoring.order.domain.OrderChecklistItem;
 import com.ondemandmonitoring.delivery.repository.ResultReviewRoundRepository;
 import com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository;
 import com.ondemandmonitoring.delivery.repository.ResultReviewRoundItemRepository;
@@ -67,11 +69,14 @@ class DeliveryWorkflowServiceTest {
     ChecklistEvidencePolicy evidencePolicy = mock(ChecklistEvidencePolicy.class);
     ResultRevisionCaseRepository revisionCases = mock(ResultRevisionCaseRepository.class);
     ResultRevisionCaseItemRepository revisionCaseItems = mock(ResultRevisionCaseItemRepository.class);
+    com.ondemandmonitoring.delivery.repository.ResultRevisionMediaHoldRepository holds = mock(com.ondemandmonitoring.delivery.repository.ResultRevisionMediaHoldRepository.class);
+    com.ondemandmonitoring.media.infrastructure.s3.ResultRetentionProperties retentionProperties = new com.ondemandmonitoring.media.infrastructure.s3.ResultRetentionProperties();
     DeliveryWorkflowServiceImpl service = new DeliveryWorkflowServiceImpl(
             deliveries, orders, missions, missionResults, invoices, media, storage,
-            new com.ondemandmonitoring.media.service.impl.ResultRetentionAccessServiceImpl(media, java.time.Clock.systemUTC()),
+            new com.ondemandmonitoring.media.service.impl.ResultRetentionAccessServiceImpl(media, java.time.Clock.systemUTC(), mock(com.ondemandmonitoring.delivery.repository.ResultRevisionMediaHoldRepository.class)),
             users, completion, reviewPublisher, reviewRounds, roundEvidence, roundItems, missionEvidence,
-            checklistItems, evidencePolicy, revisionCases, revisionCaseItems);
+            checklistItems, evidencePolicy, revisionCases, revisionCaseItems,
+            new com.ondemandmonitoring.delivery.service.impl.ResultRevisionMediaRetention(holds, retentionProperties));
     User customer; Order order; Mission mission; Invoice invoice; OrderDelivery delivery;
 
     @BeforeEach void setUp() {
@@ -291,6 +296,34 @@ class DeliveryWorkflowServiceTest {
         service.markReadyForManagerReview("order");
         assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.READY_FOR_MANAGER_REVIEW);
         assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.COMPLETED);
+    }
+
+    @Test void acceptingReworkClosesTheCaseAndStartsAFreshDownloadGraceExactlyOnce() {
+        order.setOrderStatus(OrderStatus.COMPLETED);
+        order.setResultExpiresAt(java.time.Instant.now().minusSeconds(86400));
+        invoice.setStatus(InvoiceStatus.PAID); invoice.setRemainingAmount(BigDecimal.ZERO);
+        invoice.setPaidAmount(invoice.getTotalAmount());
+        var revisionCase = new com.ondemandmonitoring.delivery.domain.ResultRevisionCase();
+        revisionCase.setId("case"); revisionCase.setOrder(order); revisionCase.setTicketId("ticket");
+        when(revisionCases.findByOrderIdAndActiveTrueForUpdate("order")).thenReturn(Optional.of(revisionCase));
+        var checklist = new OrderChecklistItem(); checklist.setId("checklist");
+        var roundItem = new ResultReviewRoundItem(); roundItem.setChangedInRound(true); roundItem.setOrderChecklistItem(checklist);
+        when(roundItems.findByRoundIdOrderByDisplayOrderAsc("round")).thenReturn(List.of(roundItem));
+        var item = new com.ondemandmonitoring.delivery.domain.ResultRevisionCaseItem();
+        item.setStatus(com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.WAITING_CUSTOMER);
+        when(revisionCaseItems.findByResultRevisionCaseIdAndOrderChecklistItemIdInOrderByCreatedAtAsc(eq("case"), anyCollection()))
+                .thenReturn(List.of(item));
+        when(revisionCaseItems.findByResultRevisionCaseIdOrderByCreatedAtAsc("case")).thenReturn(List.of(item));
+        retentionProperties.setRevisionGraceDays(7);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "supportTickets",
+                mock(com.ondemandmonitoring.support.service.impl.SupportTicketService.class));
+        assertThat(service.acceptResult("order", "round", 2L).deliveryStatus()).isEqualTo(DeliveryStatus.READY_FOR_DELIVERY);
+        assertThat(revisionCase.isActive()).isFalse();
+        assertThat(item.getStatus()).isEqualTo(com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.RESOLVED);
+        var until = revisionCase.getClosedAt().plus(java.time.Duration.ofDays(7));
+        assertThat(order.getResultExpiresAt()).isEqualTo(until);
+        service.acceptResult("order", "round", 2L);
+        verify(holds).releaseCase("case", until);
     }
 
     private User user(String id, RoleCode code) {

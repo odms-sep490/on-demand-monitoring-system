@@ -26,11 +26,11 @@ import java.time.Instant;
 @Getter
 @Setter
 public class ResultRevisionCaseItem extends BaseEntity {
-    @ManyToOne(optional = false)
+    @ManyToOne(fetch = jakarta.persistence.FetchType.LAZY, optional = false)
     @JoinColumn(name = "case_id", nullable = false, updatable = false)
     private ResultRevisionCase resultRevisionCase;
 
-    @ManyToOne(optional = false)
+    @ManyToOne(fetch = jakarta.persistence.FetchType.LAZY, optional = false)
     @JoinColumn(name = "order_checklist_item_id", nullable = false, updatable = false)
     private OrderChecklistItem orderChecklistItem;
 

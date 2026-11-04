@@ -5,12 +5,10 @@ import com.ondemandmonitoring.common.api.PageResponse;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.media.domain.MediaAsset;
-import com.ondemandmonitoring.media.domain.MediaNotificationOutbox;
 import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.dto.response.OperatorMissionMediaResponse;
 import com.ondemandmonitoring.media.mapper.MediaWorkflowMapper;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
-import com.ondemandmonitoring.media.repository.MediaNotificationOutboxRepository;
 import com.ondemandmonitoring.media.service.IManagerMediaApprovalService;
 import com.ondemandmonitoring.media.service.IMediaObjectStorage;
 import java.time.Instant;
@@ -27,10 +25,8 @@ import org.springframework.transaction.annotation.Transactional;
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class ManagerMediaApprovalServiceImpl implements IManagerMediaApprovalService {
 
-    static String AVAILABLE_EVENT = "CUSTOMER_MEDIA_AVAILABLE";
 
     MediaAssetRepository media;
-    MediaNotificationOutboxRepository outbox;
     IMediaObjectStorage storage;
     MediaWorkflowMapper mapper;
     IMissionMediaEvidenceGuard missionLock;
@@ -57,13 +53,6 @@ public class ManagerMediaApprovalServiceImpl implements IManagerMediaApprovalSer
         asset.setAvailableAt(now);
         MediaAsset saved = media.save(asset);
 
-        if (!outbox.existsByMediaIdAndEventType(saved.getId(), AVAILABLE_EVENT)) {
-            MediaNotificationOutbox notification = new MediaNotificationOutbox();
-            notification.setMedia(saved);
-            notification.setMissionId(saved.getMissionId());
-            notification.setEventType(AVAILABLE_EVENT);
-            outbox.save(notification);
-        }
 
         return toResponse(saved);
     }

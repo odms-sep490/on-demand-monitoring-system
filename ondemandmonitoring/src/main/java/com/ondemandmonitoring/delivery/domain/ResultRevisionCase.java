@@ -23,7 +23,7 @@ import java.time.Instant;
 @Getter
 @Setter
 public class ResultRevisionCase extends BaseEntity {
-    @ManyToOne(optional = false)
+    @ManyToOne(fetch = jakarta.persistence.FetchType.LAZY, optional = false)
     @JoinColumn(name = "order_id", nullable = false, updatable = false)
     private Order order;
 
@@ -42,4 +42,18 @@ public class ResultRevisionCase extends BaseEntity {
 
     @Column(name = "closed_at")
     private Instant closedAt;
+
+    public void close(Instant at) {
+        status = ResultRevisionCaseStatus.CLOSED;
+        active = false;
+        closedAt = java.util.Objects.requireNonNull(at);
+    }
+
+    @jakarta.persistence.PrePersist
+    @jakarta.persistence.PreUpdate
+    private void validateState() {
+        if ((status == ResultRevisionCaseStatus.OPEN) != active || (active && closedAt != null)
+                || (!active && closedAt == null))
+            throw new IllegalStateException("Revision case status, active flag and closure time are inconsistent");
+    }
 }

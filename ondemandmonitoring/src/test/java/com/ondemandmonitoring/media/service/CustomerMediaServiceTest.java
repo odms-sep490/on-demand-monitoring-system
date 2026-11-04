@@ -8,7 +8,6 @@ import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.media.domain.MediaAsset;
 import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
-import com.ondemandmonitoring.media.repository.MediaNotificationOutboxRepository;
 import com.ondemandmonitoring.media.service.impl.CustomerMediaServiceImpl;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
@@ -21,13 +20,14 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 
 class CustomerMediaServiceTest {
     @Test
     void metadataRemainsVisibleButOriginalRequiresDeliveryGate() {
         var access = mock(com.ondemandmonitoring.mission.service.IMissionMediaAccessService.class);
         var delivery = mock(com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService.class);
-        var gated = new CustomerMediaServiceImpl(access, media, notifications, storage,
+        var gated = new CustomerMediaServiceImpl(access, media, storage,
                 org.mapstruct.factory.Mappers.getMapper(com.ondemandmonitoring.media.mapper.MediaWorkflowMapper.class),
                 mock(IResultRetentionAccessService.class));
         org.springframework.test.util.ReflectionTestUtils.setField(gated, "deliveryWorkflow", delivery);
@@ -36,6 +36,7 @@ class CustomerMediaServiceTest {
         asset.setMediaStatus(MediaStatus.AVAILABLE); asset.setFileSize(12L);
         asset.setS3Bucket("test"); asset.setS3Key("original");
         when(media.findByMissionIdOrderByCapturedAtDesc("m")).thenReturn(List.of(asset));
+        when(delivery.publishedMediaAssetIds(List.of("m"))).thenReturn(java.util.Set.of("asset"));
         when(delivery.originalAccessibleMissionIds(List.of("m"))).thenReturn(List.of());
         assertThat(gated.listAvailable("m")).singleElement().satisfies(response -> {
             assertThat(response.getMediaId()).isEqualTo("asset");
@@ -48,14 +49,21 @@ class CustomerMediaServiceTest {
     }
     private final MissionRepository missions = mock(MissionRepository.class);
     private final MediaAssetRepository media = mock(MediaAssetRepository.class);
-    private final MediaNotificationOutboxRepository notifications = mock(MediaNotificationOutboxRepository.class);
+
     private final IMediaObjectStorage storage = mock(IMediaObjectStorage.class);
     private final AuthenticatedUserResolver currentUser = mock(AuthenticatedUserResolver.class);
     private final CustomerMediaServiceImpl service = new CustomerMediaServiceImpl(
             new MissionMediaAccessServiceImpl(missions, mock(MissionDeviceAssignmentRepository.class),
-                    currentUser, mock(com.ondemandmonitoring.mission.service.IMissionAuthorizationService.class)), media, notifications, storage,
+                    currentUser, mock(com.ondemandmonitoring.mission.service.IMissionAuthorizationService.class)), media, storage,
             org.mapstruct.factory.Mappers.getMapper(com.ondemandmonitoring.media.mapper.MediaWorkflowMapper.class),
             mock(IResultRetentionAccessService.class));
+
+    @BeforeEach void publishedFixture() {
+        var delivery = mock(com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "deliveryWorkflow", delivery);
+        when(delivery.publishedMediaAssetIds(anyList())).thenReturn(java.util.Set.of("ready-1"));
+        when(delivery.originalAccessibleMissionIds(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
+    }
 
     @Test
     void onlyAvailableMediaGetsDownloadUrl() {
@@ -69,7 +77,7 @@ class CustomerMediaServiceTest {
         mission.setOrder(order);
         when(missions.findById("mission-1")).thenReturn(Optional.of(mission));
 
-        MediaAsset staged = new MediaAsset();
+        MediaAsset staged = new MediaAsset(); staged.setId("staged");
         staged.setMediaStatus(MediaStatus.VALIDATING);
         MediaAsset ready = new MediaAsset();
         ready.setId("ready-1");
@@ -93,12 +101,13 @@ class CustomerMediaServiceTest {
     void libraryRetainsUndeliveredSiblingMetadataAndSignsOnlyDeliveredMission() {
         var access = mock(com.ondemandmonitoring.mission.service.IMissionMediaAccessService.class);
         var delivery = mock(com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService.class);
-        var gated = new CustomerMediaServiceImpl(access, media, notifications, storage,
+        var gated = new CustomerMediaServiceImpl(access, media, storage,
                 org.mapstruct.factory.Mappers.getMapper(com.ondemandmonitoring.media.mapper.MediaWorkflowMapper.class),
                 mock(IResultRetentionAccessService.class));
         org.springframework.test.util.ReflectionTestUtils.setField(gated, "deliveryWorkflow", delivery);
         var ids = List.of("m1", "m2");
         when(access.ownCustomerMissionIds()).thenReturn(ids);
+        when(delivery.publishedMediaAssetIds(ids)).thenReturn(java.util.Set.of("a1", "a2"));
         when(delivery.originalAccessibleMissionIds(ids)).thenReturn(List.of("m1"));
         var first = new MediaAsset(); first.setId("a1"); first.setMissionId("m1");
         first.setFileSize(10L); first.setMediaStatus(MediaStatus.AVAILABLE);

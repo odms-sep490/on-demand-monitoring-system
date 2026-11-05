@@ -543,18 +543,6 @@ ALTER TABLE result_revision_case_items DROP CONSTRAINT IF EXISTS ck_result_revis
 ALTER TABLE result_revision_case_items ADD CONSTRAINT ck_result_revision_case_item_status
     CHECK (status IN ('NEEDS_TRIAGE','IN_PROGRESS','WAITING_CUSTOMER','RESOLVED','OUT_OF_SCOPE_RESPONDED','OUT_OF_SCOPE_ACKNOWLEDGED'));
 
-CREATE TABLE IF NOT EXISTS result_revision_media_holds (
-    id VARCHAR(255) PRIMARY KEY,
-    case_id VARCHAR(255) NOT NULL REFERENCES result_revision_cases(id) ON DELETE RESTRICT,
-    media_asset_id VARCHAR(255) NOT NULL REFERENCES drone_media(id) ON DELETE RESTRICT,
-    expires_at TIMESTAMPTZ NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ, version BIGINT NOT NULL DEFAULT 0,
-    CONSTRAINT uk_result_revision_media_hold UNIQUE (case_id, media_asset_id)
-);
-CREATE INDEX IF NOT EXISTS ix_result_revision_media_hold_media_expiry
-    ON result_revision_media_holds(media_asset_id, expires_at);
-
-
 ALTER TABLE missions ADD COLUMN IF NOT EXISTS mission_purpose VARCHAR(20) NOT NULL DEFAULT 'ORIGINAL'
     CHECK (mission_purpose IN ('ORIGINAL','REWORK'));
 ALTER TABLE missions ADD COLUMN IF NOT EXISTS result_revision_case_id VARCHAR(255);
@@ -601,6 +589,7 @@ CREATE INDEX IF NOT EXISTS ix_result_revision_request_case_item
 ALTER TABLE result_review_rounds DROP COLUMN IF EXISTS published_payload;
 DROP TABLE IF EXISTS result_revision_case_decisions;
 DROP TABLE IF EXISTS media_notification_outbox;
+DROP TABLE IF EXISTS result_revision_media_holds;
 
 -- Review/rework invariants. Never infer physical foreign keys solely from scalar Java IDs.
 DO $$ DECLARE invariant record; BEGIN

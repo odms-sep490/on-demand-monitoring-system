@@ -72,7 +72,7 @@ public class MissionReworkContextService implements com.ondemandmonitoring.missi
             var feedback = feedbackRows.stream().map(row -> new MissionReworkContextResponse.Feedback(
                     row.getRequest().getRound().getRoundNumber(), row.getReasonCode(), row.getNote(),
                     row.getRequest().getSubmittedAt(), mediaByFeedback.getOrDefault(row.getId(), List.of()).stream()
-                            .map(evidence -> mapEvidence(evidence, mission.getResultRevisionCaseId())).toList())).toList();
+                            .map(this::mapEvidence).toList())).toList();
             var guidance = snapshot.getGuidanceSnapshot();
             result.add(new MissionReworkContextResponse.Checklist(item.getId(),
                     snapshot.getOrderChecklistItemIdSnapshot(), snapshot.getChecklistTitleSnapshot(),
@@ -86,10 +86,10 @@ public class MissionReworkContextService implements com.ondemandmonitoring.missi
     }
 
     private MissionReworkContextResponse.Evidence mapEvidence(
-            com.ondemandmonitoring.delivery.domain.ResultReviewRoundEvidence evidence, String caseId) {
+            com.ondemandmonitoring.delivery.domain.ResultReviewRoundEvidence evidence) {
         var asset = evidence.getMediaAsset();
         try {
-            retentionAccess.requireAccessibleForRevision(asset, caseId);
+            retentionAccess.requireAccessible(asset);
             return new MissionReworkContextResponse.Evidence(evidence.getId(), asset.getId(),
                     evidence.getFileNameSnapshot(), evidence.getMediaTypeSnapshot(),
                     storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key()),

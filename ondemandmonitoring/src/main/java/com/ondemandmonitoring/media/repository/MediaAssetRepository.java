@@ -25,14 +25,6 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, String> 
                 where m.mission.order.resultExpiresAt is not null
                   and m.mission.order.resultExpiresAt <= :now
                   and m.storageStatus in :statuses
-                  and not exists (
-                    select c.id from ResultRevisionCase c
-                    where c.order.id = m.mission.order.id and c.active = true
-                  )
-                  and not exists (
-                    select h.id from ResultRevisionMediaHold h
-                    where h.mediaAsset.id = m.id and h.expiresAt > :now
-                  )
                 order by m.mission.order.resultExpiresAt, m.id
                 """)
         Page<String> findExpiredStorageCandidateIds(

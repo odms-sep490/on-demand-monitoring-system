@@ -17,25 +17,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class ResultRetentionAccessServiceImpl implements IResultRetentionAccessService {
     private final Clock clock;
     private final MediaAssetRepository mediaAssets;
-    private final com.ondemandmonitoring.delivery.repository.ResultRevisionMediaHoldRepository revisionHolds;
 
     @Autowired
-    public ResultRetentionAccessServiceImpl(MediaAssetRepository mediaAssets, Clock clock,
-            com.ondemandmonitoring.delivery.repository.ResultRevisionMediaHoldRepository revisionHolds) {
+    public ResultRetentionAccessServiceImpl(MediaAssetRepository mediaAssets, Clock clock) {
         this.mediaAssets = mediaAssets;
-        this.revisionHolds = revisionHolds;
         this.clock = clock;
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public void requireAccessibleForRevision(MediaAsset asset, String caseId) {
-        if (!revisionHolds.belongsToActiveCase(asset.getId(), caseId)) {
-            requireAccessible(asset);
-            return;
-        }
-        if (asset.getStorageStatus() != MediaStorageStatus.AVAILABLE)
-            throw new ApiException(ErrorCode.MEDIA_NOT_FOUND, "Media is not available for revision review");
     }
 
     @Override

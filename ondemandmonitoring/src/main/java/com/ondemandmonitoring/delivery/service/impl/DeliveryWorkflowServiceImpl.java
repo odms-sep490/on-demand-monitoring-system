@@ -80,7 +80,6 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     private final ChecklistEvidencePolicy evidencePolicy;
     private final ResultRevisionCaseRepository revisionCases;
     private final ResultRevisionCaseItemRepository revisionCaseItems;
-    private final ResultRevisionMediaRetention revisionMediaRetention;
     @Autowired @NonFinal
     private com.ondemandmonitoring.support.service.impl.SupportTicketService supportTickets;
 
@@ -194,7 +193,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         List<OrderChecklistItem> orderItems = checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId);
         Map<String, OrderChecklistItem> itemById = orderItems.stream()
                 .collect(Collectors.toMap(OrderChecklistItem::getId, item -> item));
-        Map<String, Map<String, MissionChecklistEvidence>> eligibleByChecklist = eligibleEvidenceByChecklist(orderItems, publishableMissions, activeRevisionCase == null ? null : activeRevisionCase.getId());
+        Map<String, Map<String, MissionChecklistEvidence>> eligibleByChecklist = eligibleEvidenceByChecklist(orderItems, publishableMissions);
         Map<String, List<com.ondemandmonitoring.delivery.domain.ResultReviewRoundEvidence>> previousByChecklist = new HashMap<>();
         if (previousRound != null) {
             List<String> previousRoundItemIds = reviewRoundItems.findByRoundIdOrderByDisplayOrderAsc(previousRound.getId())
@@ -443,11 +442,6 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                         || item.getStatus() == com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.OUT_OF_SCOPE_ACKNOWLEDGED);
         if (finished) {
             revisionCase.close(Instant.now());
-            Instant protectedUntil = revisionMediaRetention.release(revisionCase.getId(), revisionCase.getClosedAt());
-            // Give the customer the configured review grace to collect the accepted rework result.
-            Order revisedOrder = revisionCase.getOrder();
-            if (revisedOrder.getResultExpiresAt() != null && revisedOrder.getResultExpiresAt().isBefore(protectedUntil))
-                revisedOrder.setResultExpiresAt(protectedUntil);
             supportTickets.resolveResultRevisionTicket(revisionCase.getTicketId(), null);
         }
         return finished;
@@ -644,7 +638,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                 .toList();
     }
     private Map<String, Map<String, MissionChecklistEvidence>> eligibleEvidenceByChecklist(
-            List<OrderChecklistItem> items, List<Mission> effective, String caseId) {
+            List<OrderChecklistItem> items, List<Mission> effective) {
         Map<String, Map<String, MissionChecklistEvidence>> byChecklist = new HashMap<>();
         Set<String> currentItemIds = items.stream().map(OrderChecklistItem::getId).collect(Collectors.toSet());
         for (Mission mission : effective) {
@@ -653,8 +647,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                 if (!currentItemIds.contains(itemId) || link.getMediaAsset().getMediaStatus() != MediaStatus.AVAILABLE
                         || evidencePolicy.ineligibilityReason(link.getMediaAsset(), true) != null) continue;
                 try {
-                    if (caseId == null) retentionAccess.requireAccessible(link.getMediaAsset());
-                    else retentionAccess.requireAccessibleForRevision(link.getMediaAsset(), caseId);
+                    retentionAccess.requireAccessible(link.getMediaAsset());
                 } catch (ApiException ex) {
                     if (ex.getErrorCode() == ErrorCode.RESULT_RETENTION_EXPIRED || ex.getErrorCode() == ErrorCode.MEDIA_NOT_FOUND) continue;
                     throw ex;

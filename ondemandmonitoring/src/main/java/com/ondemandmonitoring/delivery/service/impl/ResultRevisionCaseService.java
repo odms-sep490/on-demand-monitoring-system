@@ -8,6 +8,7 @@ import com.ondemandmonitoring.delivery.dto.request.NotifyOutOfScopeRequest;
 import com.ondemandmonitoring.delivery.dto.request.ResultRevisionDecisionRequest;
 import com.ondemandmonitoring.delivery.dto.response.ResultRevisionCaseResponse;
 import com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus;
+import com.ondemandmonitoring.delivery.enums.ResultRevisionCaseStatus;
 import com.ondemandmonitoring.delivery.enums.ResultRevisionScope;
 import com.ondemandmonitoring.delivery.enums.ResultRevisionStrategy;
 import com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository;
@@ -30,7 +31,6 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class ResultRevisionCaseService implements IResultRevisionCaseService {
     private final ResultRevisionCaseRepository cases;
-    private final ResultRevisionMediaRetention mediaRetention;
     private final ResultRevisionCaseItemRepository caseItems;
     private final ResultRevisionRequestItemRepository requestItems;
     private final SupportCustomerTicketRepository tickets;
@@ -147,7 +147,6 @@ public class ResultRevisionCaseService implements IResultRevisionCaseService {
                         || item.getStatus() == ResultRevisionCaseItemStatus.OUT_OF_SCOPE_ACKNOWLEDGED);
         if (finished) {
             revisionCase.close(Instant.now());
-            mediaRetention.release(revisionCase.getId(), revisionCase.getClosedAt());
             supportTickets.resolveResultRevisionTicket(revisionCase.getTicketId(), null);
             deliveryWorkflow.completeAcceptedRevisionCase(revisionCase.getOrder().getId());
         }

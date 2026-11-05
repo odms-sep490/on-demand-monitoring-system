@@ -49,6 +49,8 @@ import java.math.BigDecimal;
 import java.util.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class DeliveryWorkflowServiceTest {
     OrderDeliveryRepository deliveries = mock(OrderDeliveryRepository.class);
@@ -69,14 +71,11 @@ class DeliveryWorkflowServiceTest {
     ChecklistEvidencePolicy evidencePolicy = mock(ChecklistEvidencePolicy.class);
     ResultRevisionCaseRepository revisionCases = mock(ResultRevisionCaseRepository.class);
     ResultRevisionCaseItemRepository revisionCaseItems = mock(ResultRevisionCaseItemRepository.class);
-    com.ondemandmonitoring.delivery.repository.ResultRevisionMediaHoldRepository holds = mock(com.ondemandmonitoring.delivery.repository.ResultRevisionMediaHoldRepository.class);
-    com.ondemandmonitoring.media.infrastructure.s3.ResultRetentionProperties retentionProperties = new com.ondemandmonitoring.media.infrastructure.s3.ResultRetentionProperties();
     DeliveryWorkflowServiceImpl service = new DeliveryWorkflowServiceImpl(
             deliveries, orders, missions, missionResults, invoices, media, storage,
-            new com.ondemandmonitoring.media.service.impl.ResultRetentionAccessServiceImpl(media, java.time.Clock.systemUTC(), mock(com.ondemandmonitoring.delivery.repository.ResultRevisionMediaHoldRepository.class)),
+            new com.ondemandmonitoring.media.service.impl.ResultRetentionAccessServiceImpl(media, java.time.Clock.systemUTC()),
             users, completion, reviewPublisher, reviewRounds, roundEvidence, roundItems, missionEvidence,
-            checklistItems, evidencePolicy, revisionCases, revisionCaseItems,
-            new com.ondemandmonitoring.delivery.service.impl.ResultRevisionMediaRetention(holds, retentionProperties));
+            checklistItems, evidencePolicy, revisionCases, revisionCaseItems);
     User customer; Order order; Mission mission; Invoice invoice; OrderDelivery delivery;
 
     @BeforeEach void setUp() {
@@ -229,7 +228,11 @@ class DeliveryWorkflowServiceTest {
         verify(reviewPublisher).publish(any(), any(), anyList(), anySet(), any(), any());
     }
 
-    @Test void originalsRequirePaidInvoiceAndManagerRelease() {
+    @ParameterizedTest
+    @ValueSource(ints = {30, 90, 120})
+    void originalsRequirePaidInvoiceAndStartTheSelectedRetentionPeriodOnlyOnce(int days) {
+        order.setDataRetentionDays(days);
+        assertThat(order.getResultExpiresAt()).isNull();
         assertThatThrownBy(() -> service.requireOriginalAccess("order"))
                 .isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.FINAL_PAYMENT_REQUIRED);
         invoice.setStatus(InvoiceStatus.PAID); invoice.setPaidAmount(invoice.getTotalAmount()); invoice.setRemainingAmount(BigDecimal.ZERO);
@@ -242,7 +245,7 @@ class DeliveryWorkflowServiceTest {
         service.releaseOriginals("order");
         assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.DELIVERED);
         assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.COMPLETED);
-        assertThat(order.getResultExpiresAt()).isEqualTo(delivery.getOriginalsReleasedAt().plusSeconds(90L * 24 * 60 * 60));
+        assertThat(order.getResultExpiresAt()).isEqualTo(delivery.getOriginalsReleasedAt().plusSeconds(days * 24L * 60 * 60));
 
         var firstExpiry = order.getResultExpiresAt();
         service.releaseOriginals("order");
@@ -298,9 +301,12 @@ class DeliveryWorkflowServiceTest {
         assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.COMPLETED);
     }
 
-    @Test void acceptingReworkClosesTheCaseAndStartsAFreshDownloadGraceExactlyOnce() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void acceptingReworkClosesTheCaseWithoutStartingOrExtendingRetention(boolean existingDeadline) {
         order.setOrderStatus(OrderStatus.COMPLETED);
-        order.setResultExpiresAt(java.time.Instant.now().minusSeconds(86400));
+        var originalExpiry = existingDeadline ? java.time.Instant.now().minusSeconds(86400) : null;
+        order.setResultExpiresAt(originalExpiry);
         invoice.setStatus(InvoiceStatus.PAID); invoice.setRemainingAmount(BigDecimal.ZERO);
         invoice.setPaidAmount(invoice.getTotalAmount());
         var revisionCase = new com.ondemandmonitoring.delivery.domain.ResultRevisionCase();
@@ -314,16 +320,16 @@ class DeliveryWorkflowServiceTest {
         when(revisionCaseItems.findByResultRevisionCaseIdAndOrderChecklistItemIdInOrderByCreatedAtAsc(eq("case"), anyCollection()))
                 .thenReturn(List.of(item));
         when(revisionCaseItems.findByResultRevisionCaseIdOrderByCreatedAtAsc("case")).thenReturn(List.of(item));
-        retentionProperties.setRevisionGraceDays(7);
         org.springframework.test.util.ReflectionTestUtils.setField(service, "supportTickets",
                 mock(com.ondemandmonitoring.support.service.impl.SupportTicketService.class));
         assertThat(service.acceptResult("order", "round", 2L).deliveryStatus()).isEqualTo(DeliveryStatus.READY_FOR_DELIVERY);
         assertThat(revisionCase.isActive()).isFalse();
         assertThat(item.getStatus()).isEqualTo(com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.RESOLVED);
-        var until = revisionCase.getClosedAt().plus(java.time.Duration.ofDays(7));
-        assertThat(order.getResultExpiresAt()).isEqualTo(until);
+        assertThat(order.getResultExpiresAt()).isEqualTo(originalExpiry);
+        var closedAt = revisionCase.getClosedAt();
         service.acceptResult("order", "round", 2L);
-        verify(holds).releaseCase("case", until);
+        assertThat(order.getResultExpiresAt()).isEqualTo(originalExpiry);
+        assertThat(revisionCase.getClosedAt()).isEqualTo(closedAt);
     }
 
     private User user(String id, RoleCode code) {

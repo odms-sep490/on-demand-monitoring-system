@@ -20,7 +20,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class ResultRetentionCleanupServiceImpl implements IResultRetentionCleanupService {
     private final MediaAssetRepository media;
     private final com.ondemandmonitoring.order.repository.OrderRepository orders;
-    private final com.ondemandmonitoring.delivery.repository.ResultRevisionMediaHoldRepository revisionHolds;
     private final IMediaObjectStorage storage;
     private final ResultRetentionProperties properties;
     private final PlatformTransactionManager transactionManager;
@@ -60,7 +59,6 @@ public class ResultRetentionCleanupServiceImpl implements IResultRetentionCleanu
             return media.findByIdForUpdate(id).filter(asset -> {
                 Instant expiresAt = asset.getMission().getOrder().getResultExpiresAt();
                 return expiresAt != null && !expiresAt.isAfter(now)
-                        && !revisionHolds.hasActiveHold(asset.getId(), now)
                         && (asset.getStorageStatus() == MediaStorageStatus.AVAILABLE
                         || asset.getStorageStatus() == MediaStorageStatus.DELETE_FAILED);
             }).map(asset -> {

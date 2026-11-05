@@ -22,8 +22,7 @@ class ReviewRepositoryMappingTest {
         for (var bean : scanner.findCandidateComponents("com.ondemandmonitoring"))
             configuration.addAnnotatedClass(Class.forName(bean.getBeanClassName()));
         try (var factory = configuration.buildSessionFactory(); var session = factory.openSession()) {
-            for (var repository : new Class<?>[] {ResultRevisionMediaHoldRepository.class,
-                    ResultRevisionCaseRepository.class, ResultReviewRoundEvidenceRepository.class, MediaAssetRepository.class}) {
+            for (var repository : new Class<?>[] {ResultRevisionCaseRepository.class, ResultReviewRoundEvidenceRepository.class, MediaAssetRepository.class}) {
                 for (var method : repository.getMethods()) {
                     var query = method.getAnnotation(Query.class);
                     if (query != null && !query.nativeQuery()) {

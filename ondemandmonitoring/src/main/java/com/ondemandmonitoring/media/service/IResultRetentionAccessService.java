@@ -4,5 +4,4 @@ import com.ondemandmonitoring.media.domain.MediaAsset;
 
 public interface IResultRetentionAccessService {
     void requireAccessible(MediaAsset asset);
-    void requireAccessibleForRevision(MediaAsset asset, String caseId);
 }

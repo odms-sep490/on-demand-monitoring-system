@@ -7,13 +7,14 @@ import com.ondemandmonitoring.user.domain.User;
 import com.ondemandmonitoring.user.domain.UserIdentity;
 import com.ondemandmonitoring.user.repository.UserIdentityRepository;
 import com.ondemandmonitoring.user.service.IUserIdentityService;
+import com.ondemandmonitoring.user.service.IdentityLinkLock;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.UUID;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -21,16 +22,19 @@ import java.util.UUID;
 public class UserIdentityServiceImpl implements IUserIdentityService {
 
     UserIdentityRepository identityRepository;
+    IdentityLinkLock identityLinkLock;
 
     @Override
     @Transactional
     public UserIdentity create(User user, IdentityProvider provider,
                                String cognitoUsername, String cognitoSub) {
+        identityLinkLock.lock(user.getId(), cognitoSub, cognitoUsername);
+        ensureOwnership(user, cognitoSub, cognitoUsername);
         if (identityRepository.existsByCognitoSubAndProvider(cognitoSub, provider)) {
             throw new ApiException(ErrorCode.RESOURCE_ALREADY_EXISTS,
                     "Cognito identity is already linked to an account");
         }
-        return identityRepository.save(UserIdentity.builder()
+        return identityRepository.saveAndFlush(UserIdentity.builder()
                 .user(user)
                 .provider(provider)
                 .cognitoUsername(cognitoUsername)
@@ -42,9 +46,12 @@ public class UserIdentityServiceImpl implements IUserIdentityService {
     @Transactional
     public UserIdentity link(User user, IdentityProvider provider,
                              String cognitoUsername, String cognitoSub) {
+        identityLinkLock.lock(user.getId(), cognitoSub, cognitoUsername);
+        ensureOwnership(user, cognitoSub, cognitoUsername);
         return identityRepository.findByUserIdAndProvider(user.getId(), provider)
                 .map(existing -> {
-                    if (!existing.getCognitoSub().equals(cognitoSub)) {
+                    if (!existing.getCognitoSub().equals(cognitoSub)
+                            || !existing.getCognitoUsername().equals(cognitoUsername)) {
                         throw new ApiException(ErrorCode.RESOURCE_ALREADY_EXISTS,
                                 "An identity for this provider is already linked to this account");
                     }
@@ -57,7 +64,10 @@ public class UserIdentityServiceImpl implements IUserIdentityService {
     @Transactional
     public void unlink(User user, IdentityProvider provider) {
         identityRepository.findByUserIdAndProvider(user.getId(), provider)
-                .ifPresent(identityRepository::delete);
+                .ifPresent(identity -> {
+                    identityLinkLock.lock(user.getId(), identity.getCognitoSub(), identity.getCognitoUsername());
+                    identityRepository.delete(identity);
+                });
     }
 
     @Override
@@ -78,16 +88,32 @@ public class UserIdentityServiceImpl implements IUserIdentityService {
     @Override
     @Transactional(readOnly = true)
     public User findUserByCognitoSub(String cognitoSub) {
-        return identityRepository.findByCognitoSub(cognitoSub)
-                .map(UserIdentity::getUser)
-                .orElseThrow(() -> new ApiException(ErrorCode.USER_NOT_FOUND));
+        return resolveUniqueUser(identityRepository.findAllByCognitoSub(cognitoSub));
     }
 
     @Override
     @Transactional(readOnly = true)
     public User findUserByCognitoUsername(String cognitoUsername) {
-        return identityRepository.findByCognitoUsername(cognitoUsername)
-                .map(UserIdentity::getUser)
-                .orElseThrow(() -> new ApiException(ErrorCode.USER_NOT_FOUND));
+        return resolveUniqueUser(identityRepository.findAllByCognitoUsername(cognitoUsername));
+    }
+
+    private User resolveUniqueUser(List<UserIdentity> identities) {
+        if (identities.isEmpty()) {
+            throw new ApiException(ErrorCode.USER_NOT_FOUND);
+        }
+        User user = identities.getFirst().getUser();
+        if (identities.stream().anyMatch(identity -> !user.getId().equals(identity.getUser().getId()))) {
+            throw new ApiException(ErrorCode.IDENTITY_OWNERSHIP_CONFLICT);
+        }
+        return user;
+    }
+
+    private void ensureOwnership(User user, String cognitoSub, String cognitoUsername) {
+        if (java.util.stream.Stream.concat(
+                        identityRepository.findAllByCognitoSub(cognitoSub).stream(),
+                        identityRepository.findAllByCognitoUsername(cognitoUsername).stream())
+                .anyMatch(identity -> !user.getId().equals(identity.getUser().getId()))) {
+            throw new ApiException(ErrorCode.IDENTITY_OWNERSHIP_CONFLICT);
+        }
     }
 }

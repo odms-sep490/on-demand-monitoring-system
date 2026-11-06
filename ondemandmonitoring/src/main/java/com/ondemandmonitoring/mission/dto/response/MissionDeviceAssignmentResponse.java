@@ -11,7 +11,7 @@ import lombok.experimental.FieldDefaults;
 import java.time.Instant;
 
 @Getter
-@Builder
+@Builder(toBuilder = true)
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class MissionDeviceAssignmentResponse {
     String id;
@@ -24,4 +24,8 @@ public class MissionDeviceAssignmentResponse {
     MissionDeviceAssignmentStatus status;
     MissionDeviceCheckStatus checkupStatus;
     Instant assignedAt;
+    Instant replacementRequestedAt;
+    String replacementRequestReason;
+    String replacementRequestedBy;
+    boolean replacementCompleted;
 }

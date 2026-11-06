@@ -104,7 +104,7 @@ public class PreDeviceCheckCompletionServiceImpl implements IPreDeviceCheckCompl
         if (hasNonPassingItem) {
             throw new ApiException(
                     ErrorCode.INVALID_REQUEST,
-                    "Every required pre-flight item must pass before the mission can be marked ready to fly.");
+                    "Tất cả hạng mục kiểm tra trước bay bắt buộc phải đạt thì nhiệm vụ mới được chuyển sang trạng thái sẵn sàng bay.");
         }
         return run;
     }

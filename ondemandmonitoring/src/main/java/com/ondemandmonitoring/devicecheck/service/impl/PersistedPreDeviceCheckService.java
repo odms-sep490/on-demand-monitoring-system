@@ -50,6 +50,10 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
     private static final long START_IDEMPOTENCY_WINDOW_SECONDS = 30;
     private static final double DEFAULT_MIN_PREFLIGHT_BATTERY_PERCENT = 30.0;
     private static final Set<PreDeviceCheckType> REMOVED_CHECKS = Set.of(
+            PreDeviceCheckType.AIRSPACE_PERMISSION,
+            PreDeviceCheckType.FLIGHT_VISIBILITY,
+            PreDeviceCheckType.TAKEOFF_AREA,
+            PreDeviceCheckType.LANDING_AREA,
             PreDeviceCheckType.SATELLITE_SIGNAL,
             PreDeviceCheckType.POSITIONING_HEALTH,
             PreDeviceCheckType.COMPASS_HEALTH,
@@ -86,7 +90,8 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
             "flight_route", "flight_limits", "mission_energy", "landing_destination",
             "rental_booking", "aircraft_permission", "aircraft_handover",
             "maintenance_status", "management_connection", "media_storage",
-            "weather_conditions");
+            "weather_conditions", "airspace_permission", "flight_visibility",
+            "takeoff_area", "landing_area");
     private static final Set<String> CONNECTION_MANUAL_FALLBACK_TYPES = Set.of(
             "aircraft_connection", "command_link", "flight_controller",
             "aircraft_readiness", "monitoring_connection");
@@ -141,7 +146,11 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                 .filter(run -> run.getStatus() == PreDeviceCheckStatus.CHECKING
                         && run.getStartedAt() != null
                         && run.getStartedAt().isAfter(
-                                Instant.now().minusSeconds(START_IDEMPOTENCY_WINDOW_SECONDS)))
+                                Instant.now().minusSeconds(START_IDEMPOTENCY_WINDOW_SECONDS))
+                        && run.getDeviceConnection() != null
+                        && run.getDeviceConnection().getDevice() != null
+                        && connection.getDevice().getId().equals(
+                                run.getDeviceConnection().getDevice().getId()))
                 .orElse(null);
         if (activeRun != null) {
             return PersistedPreDeviceCheckResponse.from(activeRun);
@@ -398,12 +407,11 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
         int passed = (int) activeItems.stream().filter(i -> i.getStatus() == PreDeviceItemStatus.PASSED
                 || i.getStatus() == PreDeviceItemStatus.NOT_APPLICABLE).count();
         int failed = (int) activeItems.stream().filter(i -> i.getStatus() == PreDeviceItemStatus.FAILED).count();
-        boolean failedRequired = activeItems.stream().anyMatch(i -> Boolean.TRUE.equals(i.getRequired())
-                && i.getStatus() == PreDeviceItemStatus.FAILED);
+        boolean hasFailedCheck = failed > 0;
         boolean allResolved = activeItems.stream().allMatch(i -> i.getStatus() == PreDeviceItemStatus.PASSED
                 || i.getStatus() == PreDeviceItemStatus.WARNING || i.getStatus() == PreDeviceItemStatus.NOT_APPLICABLE);
         run.setTotalChecks(activeItems.size()); run.setPassedChecks(passed); run.setFailedChecks(failed);
-        run.setStatus(failedRequired ? PreDeviceCheckStatus.FAILED : allResolved ? PreDeviceCheckStatus.PASSED : PreDeviceCheckStatus.CHECKING);
+        run.setStatus(hasFailedCheck ? PreDeviceCheckStatus.FAILED : allResolved ? PreDeviceCheckStatus.PASSED : PreDeviceCheckStatus.CHECKING);
         if (run.getStatus() != PreDeviceCheckStatus.CHECKING) run.setCompletedAt(Instant.now());
 
         DeviceConnection connection = run.getDeviceConnection();
@@ -418,6 +426,9 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                         } else if (run.getStatus() == PreDeviceCheckStatus.PASSED) {
                             assignment.setStatus(MissionDeviceAssignmentStatus.READY_TO_FLY);
                             assignment.setCheckupStatus(MissionDeviceCheckStatus.PASSED);
+                            assignment.setReplacementRequestedAt(null);
+                            assignment.setReplacementRequestReason(null);
+                            assignment.setReplacementRequestedBy(null);
                         } else {
                             assignment.setStatus(MissionDeviceAssignmentStatus.FAILED);
                             assignment.setCheckupStatus(MissionDeviceCheckStatus.FAILED);

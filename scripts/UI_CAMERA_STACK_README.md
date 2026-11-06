@@ -1,22 +1,31 @@
 # OMSS UI Camera Stack
 
-Run this package when you want the drone camera inside the OMSS web UI, with an extra weather control screen.
+Run this package to open the OMSS operator UI and backend API. PX4/Gazebo is not started by default.
 
 ## Start
 
 From `on-demand-monitoring-system`:
 
 ```cmd
-scripts\start-ui-camera-stack.cmd
+scripts\RUN_DRONE_STACK.cmd
 ```
 
-The launcher opens:
+`scripts\start-ui-camera-stack.cmd` runs the same UI-only default directly.
+
+The default launcher opens:
 
 - `BE - OMSS API`
 - `FE - OMSS UI`
-- `SIM - PX4 + Gazebo Headless`
-- `CTRL - Flight Control Stream`
-- a separate `WEATHER - Controls` window
+- the operator UI in your browser
+
+Connect a live flight-control service at `http://localhost:8090` for telemetry, camera video, and flight commands.
+This UI-only mode does not start or arm a drone.
+
+To start the PX4/Gazebo simulation too, pass `-WithSimulation`:
+
+```cmd
+scripts\start-ui-camera-stack.cmd -WithSimulation
+```
 
 Open the UI:
 
@@ -26,7 +35,7 @@ http://localhost:5173/#portal/drone-operator
 
 The script normally opens it automatically.
 
-## Weather Controls
+## Weather Controls (simulation mode)
 
 Use these weather keys in the `CTRL - Flight Control Stream` terminal, or in
 the separate `WEATHER - Controls` terminal. Press one key once; no Enter needed:
@@ -62,10 +71,10 @@ Do not use `-SimWorld legacy` for this demo.
 
 ## Faster Restart
 
-After dependencies are installed once:
+After dependencies are installed once, simulation mode can skip its bootstrap:
 
 ```cmd
-scripts\start-ui-camera-stack.cmd -SkipBootstrap
+scripts\start-ui-camera-stack.cmd -WithSimulation -SkipBootstrap
 ```
 
 If Backend or Frontend is already running:

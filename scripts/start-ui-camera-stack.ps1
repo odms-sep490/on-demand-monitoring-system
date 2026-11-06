@@ -5,11 +5,16 @@ param(
     [switch]$SkipBackend,
     [switch]$SkipFrontend,
     [switch]$SkipDrone,
+    [switch]$WithSimulation,
     [switch]$RealFlight,
     [switch]$NoBrowser
 )
 
 $ErrorActionPreference = "Stop"
+
+# The full simulator is the default again. Keep -WithSimulation accepted for
+# compatibility with existing shortcuts; use -SkipDrone for an intentional
+# UI-only launch.
 
 function Write-Step([string]$Message) {
     Write-Host ""
@@ -73,11 +78,12 @@ function Start-TerminalTab([string]$Title, [string]$Command, [string]$WorkingDir
     $escapedDirectory = $WorkingDirectory.Replace('"', '\"')
 
     if (Get-Command wt.exe -ErrorAction SilentlyContinue) {
-        Start-Process wt.exe -ArgumentList @(
+        $terminalArguments = @(
             "new-tab", "--title", $Title, "--startingDirectory", $WorkingDirectory,
             "powershell.exe", "-NoExit", "-ExecutionPolicy", "Bypass",
             "-Command", "Set-Location `"$escapedDirectory`"; $escapedCommand"
         )
+        & wt.exe @terminalArguments | Out-Null
         return
     }
 
@@ -89,10 +95,11 @@ function Start-TerminalTab([string]$Title, [string]$Command, [string]$WorkingDir
 
 function Start-WslTab([string]$Title, [string]$Command) {
     if (Get-Command wt.exe -ErrorAction SilentlyContinue) {
-        Start-Process wt.exe -ArgumentList @(
+        $terminalArguments = @(
             "new-tab", "--title", $Title,
             "wsl.exe", "-d", $UbuntuDistro, "--", "bash", "-lc", $Command
         )
+        & wt.exe @terminalArguments | Out-Null
         return
     }
 
@@ -278,8 +285,8 @@ $systemRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $workspaceRoot = (Resolve-Path (Join-Path $systemRoot "..")).Path
 $backendRoot = Join-Path $systemRoot "ondemandmonitoring"
 $webRoot = Join-Path $workspaceRoot "ondemand-monitoring-web"
-$packagedWorld = "light"
-$packagedWorldName = "PX4 light world"
+$packagedWorld = "compact"
+$packagedWorldName = "Forest3D compact world"
 $fastDemoMode = if ($RealFlight) { "0" } else { "1" }
 $controlMoveSpeed = if ($RealFlight) { "12" } else { "220" }
 $controlVerticalSpeed = if ($RealFlight) { "2" } else { "80" }
@@ -306,41 +313,52 @@ if (-not (Test-Path $webRoot)) {
     $SkipFrontend = $true
 }
 $forest3DPath = $null
+if (-not $SkipDrone) {
+    $forest3DPath = Resolve-Forest3DPath $systemRoot
+    Assert-CompactMapAssets $systemRoot $forest3DPath
+}
 
 $backendEnvFile = Join-Path $systemRoot ".env"
 $rootEnvFile = $backendEnvFile
 if (-not (Test-Path -LiteralPath $backendEnvFile -PathType Leaf)) {
     throw "Missing shared backend and drone configuration: $backendEnvFile"
 }
-Set-EnvValue $backendEnvFile "SIM_WORLD" "light"
-Set-EnvValue $backendEnvFile "FOREST3D_WEB_ONLY" "1"
-Set-EnvValue $backendEnvFile "FAST_DEMO_MODE" $fastDemoMode
-Set-EnvValue $backendEnvFile "CONTROL_MOVE_SPEED_M_S" $controlMoveSpeed
-Set-EnvValue $backendEnvFile "CONTROL_VERTICAL_SPEED_M_S" $controlVerticalSpeed
-Set-EnvValue $backendEnvFile "PX4_SPEED_LIMIT_M_S" $px4SpeedLimit
-Set-EnvValue $backendEnvFile "AUTO_PLAN_REACHED_RADIUS_M" $autoPlanReachedRadius
-Set-EnvValue $backendEnvFile "AUTO_PLAN_MAX_SPEED_M_S" $autoPlanMaxSpeed
-Set-EnvValue $backendEnvFile "AUTO_PLAN_MIN_SPEED_M_S" $autoPlanMinSpeed
-Set-EnvValue $backendEnvFile "AUTO_PLAN_SLOWDOWN_RADIUS_M" $autoPlanSlowdownRadius
-Set-EnvValue $backendEnvFile "AUTO_PLAN_ALTITUDE_TOLERANCE_M" $autoPlanAltitudeTolerance
-Set-EnvValue $backendEnvFile "AUTO_PLAN_VERTICAL_MAX_SPEED_M_S" $autoPlanVerticalMaxSpeed
-Set-EnvValue $backendEnvFile "AUTO_PLAN_VERTICAL_GAIN" $autoPlanVerticalGain
-Set-EnvValue $backendEnvFile "AUTO_PLAN_SETPOINT_SMOOTHING" $autoPlanSmoothing
-Set-EnvValue $backendEnvFile "AUTO_PLAN_ALTITUDE_RAMP_M" $autoPlanAltitudeRamp
-Set-EnvValue $backendEnvFile "GPS_ROUTE_EXPECTED_SPEED_M_S" $gpsRouteExpectedSpeed
-Set-EnvValue $backendEnvFile "GAZEBO_CAMERA_TOPIC" "/world/default/model/x500_0/link/camera_link/sensor/camera_down/image"
-Set-EnvValue $backendEnvFile "GAZEBO_CAMERA_DOWN_TOPIC" "/world/default/model/x500_0/link/camera_link/sensor/camera_down/image"
-Set-EnvValue $backendEnvFile "GAZEBO_CAMERA_FRONT_TOPIC" "/world/default/model/x500_0/link/camera_link/sensor/camera_front/image"
-Set-EnvValue $backendEnvFile "CAMERA_DEFAULT_VIEW" "FRONT"
+if (-not $SkipDrone) {
+    Set-EnvValue $backendEnvFile "SIM_WORLD" $packagedWorld
+    Set-EnvValue $backendEnvFile "FOREST3D_WEB_ONLY" "1"
+    Set-EnvValue $backendEnvFile "FAST_DEMO_MODE" $fastDemoMode
+    Set-EnvValue $backendEnvFile "FAST_DEMO_LIDAR_ENABLED" "1"
+    Set-EnvValue $backendEnvFile "CONTROL_MOVE_SPEED_M_S" $controlMoveSpeed
+    Set-EnvValue $backendEnvFile "CONTROL_VERTICAL_SPEED_M_S" $controlVerticalSpeed
+    Set-EnvValue $backendEnvFile "PX4_SPEED_LIMIT_M_S" $px4SpeedLimit
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_REACHED_RADIUS_M" $autoPlanReachedRadius
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_MAX_SPEED_M_S" $autoPlanMaxSpeed
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_MIN_SPEED_M_S" $autoPlanMinSpeed
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_SLOWDOWN_RADIUS_M" $autoPlanSlowdownRadius
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_ALTITUDE_TOLERANCE_M" $autoPlanAltitudeTolerance
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_VERTICAL_MAX_SPEED_M_S" $autoPlanVerticalMaxSpeed
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_VERTICAL_GAIN" $autoPlanVerticalGain
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_SETPOINT_SMOOTHING" $autoPlanSmoothing
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_ALTITUDE_RAMP_M" $autoPlanAltitudeRamp
+    Set-EnvValue $backendEnvFile "GPS_ROUTE_EXPECTED_SPEED_M_S" $gpsRouteExpectedSpeed
+    Set-EnvValue $backendEnvFile "GAZEBO_CAMERA_TOPIC" $downTopic
+    Set-EnvValue $backendEnvFile "GAZEBO_CAMERA_DOWN_TOPIC" $downTopic
+    Set-EnvValue $backendEnvFile "GAZEBO_CAMERA_FRONT_TOPIC" $frontTopic
+    Set-EnvValue $backendEnvFile "CAMERA_DEFAULT_VIEW" "FRONT"
+}
 
 Write-Host "========================================" -ForegroundColor Green
 Write-Host " OMSS UI Camera Stack" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "Backend : http://localhost:8080"
 Write-Host "Frontend: http://localhost:5173/#portal/drone-operator"
-Write-Host "Control : http://localhost:8090/stream.mjpg"
-Write-Host "World   : PX4 light world"
-Write-Host "Mode    : $(if ($RealFlight) { 'Real PX4 takeoff + mapping flight' } else { 'Fast demo, drone only, sensors disabled' })"
+if (-not $SkipDrone) {
+    Write-Host "Control : http://localhost:8090/stream.mjpg"
+    Write-Host "World   : $packagedWorldName"
+    Write-Host "Mode    : $(if ($RealFlight) { 'Real PX4 takeoff + mapping flight' } else { 'Fast demo in the Forest3D world' })"
+} else {
+    Write-Host "Mode    : UI only; PX4/Gazebo is not started"
+}
 
 Ensure-WindowsBuildTools
 
@@ -349,7 +367,7 @@ if (-not $SkipBuild) {
         Invoke-Checked `
             -Label "Building Backend API" `
             -FilePath (Join-Path $backendRoot "mvnw.cmd") `
-            -Arguments @("-DskipTests", "package") `
+            -Arguments @("-Dmaven.test.skip=true", "package") `
             -WorkingDirectory $backendRoot
     }
 
@@ -378,35 +396,48 @@ if (-not $SkipFrontend) {
     $envFile = Join-Path $webRoot ".env.local"
     Write-Utf8NoBomLines $envFile @(
         "VITE_API_BASE_URL=$(Get-EnvValue $rootEnvFile 'VITE_API_BASE_URL' 'http://localhost:8080')",
-        "VITE_FLIGHT_CONTROL_API_URL=$(Get-EnvValue $rootEnvFile 'VITE_FLIGHT_CONTROL_API_URL' 'http://localhost:8090')"
+        "VITE_FLIGHT_CONTROL_API_URL=$(Get-EnvValue $rootEnvFile 'VITE_FLIGHT_CONTROL_API_URL' 'http://localhost:8090')",
+        "VITE_FLIGHT_MAP_ONLY=false"
     )
     Start-TerminalTab -Title "FE - OMSS UI" -WorkingDirectory $webRoot -Command "if (-not (Test-Path node_modules)) { npm install }; npm run dev -- --host 0.0.0.0 --port 5173"
 }
 
-if (-not $SkipBootstrap) {
+if ((-not $SkipDrone) -and (-not $SkipBootstrap)) {
     Write-Step "Checking WSL/PX4/Gazebo dependencies"
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "bootstrap-drone-stack.ps1") -UbuntuDistro $UbuntuDistro
     if ($LASTEXITCODE -ne 0) { throw "Drone dependency bootstrap failed." }
 }
 
 $systemRootWsl = ConvertTo-WslPath $systemRoot
+$forest3DPathWsl = if ($forest3DPath) { ConvertTo-WslPath $forest3DPath } else { "" }
 $scriptRootWsl = "$systemRootWsl/scripts"
 
 if ($SkipDrone) {
-    Write-Step "Build/setup finished; drone startup was skipped"
+    if ((-not $NoBrowser) -and (-not $SkipFrontend)) {
+        Write-Step "Waiting for UI, then opening Mission Control"
+        if (Wait-HttpOk "http://localhost:5173" 90) {
+            Start-Process "http://localhost:5173/#portal/drone-operator"
+        } else {
+            Write-Host "Frontend did not answer yet. Open manually: http://localhost:5173/#portal/drone-operator" -ForegroundColor Yellow
+        }
+    }
+
+    Write-Step "UI started; PX4/Gazebo simulation was not started"
+    Write-Host "Connect a live flight-control service at http://localhost:8090 to enable live telemetry and commands." -ForegroundColor Yellow
     exit 0
 }
 
 Write-Step "Cleaning old PX4/Gazebo/MAVSDK processes"
 & wsl.exe -d $UbuntuDistro -- bash -lc "PROJECT_PATH='$systemRootWsl' FAST_DEMO_MODE=$fastDemoMode exec '$scriptRootWsl/wsl-clean-drone-stack.sh'" | Out-Null
 
-Write-Step "Starting fast PX4/Gazebo light world and Flight Control"
-$baseWslEnv = "PROJECT_PATH='$systemRootWsl' FAST_DEMO_MODE=$fastDemoMode CONTROL_MOVE_SPEED_M_S=$controlMoveSpeed CONTROL_VERTICAL_SPEED_M_S=$controlVerticalSpeed PX4_SPEED_LIMIT_M_S=$px4SpeedLimit GPS_ROUTE_EXPECTED_SPEED_M_S=$gpsRouteExpectedSpeed"
-$simCommand = "$baseWslEnv FOREST3D_WEB_ONLY=1 SIM_WORLD=light exec '$scriptRootWsl/wsl-sim-pane.sh' 'light'"
-$controlCommand = "$baseWslEnv FOREST3D_WEB_ONLY=1 SIM_WORLD=light exec '$scriptRootWsl/wsl-control.sh'"
+Write-Step "Starting PX4/Gazebo Forest3D world and Flight Control"
+$baseWslEnv = "PROJECT_PATH='$systemRootWsl' FAST_DEMO_MODE=$fastDemoMode FAST_DEMO_LIDAR_ENABLED=1 CONTROL_MOVE_SPEED_M_S=$controlMoveSpeed CONTROL_VERTICAL_SPEED_M_S=$controlVerticalSpeed PX4_SPEED_LIMIT_M_S=$px4SpeedLimit GPS_ROUTE_EXPECTED_SPEED_M_S=$gpsRouteExpectedSpeed"
+if ($forest3DPathWsl) { $baseWslEnv += " FOREST3D_PATH='$forest3DPathWsl'" }
+$simCommand = "$baseWslEnv FOREST3D_WEB_ONLY=1 SIM_WORLD=$packagedWorld exec '$scriptRootWsl/wsl-sim-pane.sh' '$packagedWorld'"
+$controlCommand = "$baseWslEnv FOREST3D_WEB_ONLY=1 SIM_WORLD=$packagedWorld exec '$scriptRootWsl/wsl-control.sh'"
 $telemetryCommand = "$baseWslEnv exec '$scriptRootWsl/wsl-telemetry.sh'"
 
-Start-WslTab -Title "SIM - PX4 + Gazebo Headless" -Command $simCommand
+Start-WslTab -Title "SIM - PX4 + Gazebo Server" -Command $simCommand
 Start-Sleep -Seconds 3
 Start-WslTab -Title "$(if ($RealFlight) { 'CTRL - Real Flight Control' } else { 'CTRL - Fast Flight Control' })" -Command $controlCommand
 Start-Sleep -Seconds 2
@@ -425,5 +456,5 @@ Write-Step "Started"
 if ($RealFlight) {
     Write-Host "Real flight mode is active: use the UI GPS target/mapping action to arm, take off, and fly the PX4 drone." -ForegroundColor Yellow
 } else {
-    Write-Host "Fast demo mode is active: light Gazebo world, no sensor panels, boosted PX4 route speed." -ForegroundColor Yellow
+    Write-Host "Fast demo mode is active in the Forest3D compact world. Use the web UI to view and control the drone." -ForegroundColor Yellow
 }

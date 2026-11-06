@@ -1089,6 +1089,51 @@ public class MissionService implements IMissionService {
         return missionMapper.toResponse(missionRepository.save(mission));
     }
 
+    @Override
+    @Transactional
+    @PreAuthorize("@missionAuthorizationService.canControlFlight(#missionId) or @missionAuthorizationService.canOperatePayload(#missionId)")
+    public MissionResponse requestDeviceReplacement(String missionId, RequestDeviceReplacementRequest request) {
+        Mission mission = missionRepository.findByIdForUpdate(missionId)
+                .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
+        if (!Set.of(MissionStatus.PENDING_CONFIRMATION, MissionStatus.READY).contains(mission.getStatus())) {
+            throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
+                    "A drone replacement can only be requested during preflight");
+        }
+
+        MissionDeviceAssignment assignment = missionDeviceAssignmentRepository
+                .findAllByMissionIdAndDeviceRoleAndIsCurrentTrueOrderByCreatedAtDesc(missionId, DeviceRole.MAIN)
+                .stream()
+                .filter(candidate -> candidate.getReleasedAt() == null)
+                .findFirst()
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND,
+                        "Current main device assignment not found"));
+        boolean hasFailedCheckForAssignedDrone = assignment.getDevice() != null
+                && preDeviceCheckRepository.findFirstByMissionIdOrderByCreatedAtDesc(missionId)
+                        .filter(run -> run.getDeviceConnection() != null
+                                && run.getDeviceConnection().getDevice() != null
+                                && java.util.Objects.equals(run.getDeviceConnection().getDevice().getId(),
+                                        assignment.getDevice().getId()))
+                        .map(run -> run.getFailedChecks() != null && run.getFailedChecks() > 0)
+                        .orElse(false);
+        if (!hasFailedCheckForAssignedDrone) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "A drone replacement request requires a failed preflight check");
+        }
+
+        // Older persisted runs may still have the failed item stored as optional.
+        // The operator UI treats an explicit failed inspection as flight-blocking,
+        // so use that current run as the source of truth for this request.
+        assignment.setStatus(MissionDeviceAssignmentStatus.FAILED);
+        assignment.setCheckupStatus(MissionDeviceCheckStatus.FAILED);
+        if (assignment.getReplacementRequestedAt() == null) {
+            assignment.setReplacementRequestedAt(Instant.now());
+            assignment.setReplacementRequestReason(request.reason().trim());
+            assignment.setReplacementRequestedBy(authenticatedUserResolver.getCurrentUserId());
+            missionDeviceAssignmentRepository.save(assignment);
+        }
+        return missionMapper.toResponse(mission);
+    }
+
 
     @Override
     @Transactional

@@ -156,6 +156,20 @@ class AuthenticatedUserResolverTest {
                 .build();
     }
 
+    @Test
+    void identityConflictDoesNotFallBackToEmail() {
+        SecurityContextHolder.getContext().setAuthentication(
+                new JwtAuthenticationToken(jwt("conflicted-sub", "user@example.com"), List.of()));
+        when(userIdentityService.findUserByCognitoSub("conflicted-sub"))
+                .thenThrow(new ApiException(ErrorCode.IDENTITY_OWNERSHIP_CONFLICT));
+
+        assertThatThrownBy(resolver::getCurrentUser)
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo(ErrorCode.IDENTITY_OWNERSHIP_CONFLICT));
+        verify(userRepository, never()).findByEmailIgnoreCase("user@example.com");
+    }
+
     private User user() {
         User user = User.builder()
                 .email("user@example.com")

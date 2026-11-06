@@ -25,6 +25,7 @@ public enum ErrorCode {
             "Email đã đăng ký bằng Google. Hãy đăng nhập bằng Google để thiết lập mật khẩu đăng nhập local",
             HttpStatus.CONFLICT),
     USER_NOT_FOUND("Không tìm thấy người dùng", HttpStatus.NOT_FOUND),
+    IDENTITY_OWNERSHIP_CONFLICT("Danh tính đăng nhập đang liên kết không nhất quán. Vui lòng liên hệ hỗ trợ", HttpStatus.CONFLICT),
     INVALID_CREDENTIALS("Email hoặc mật khẩu không đúng", HttpStatus.UNAUTHORIZED),
     USER_NOT_CONFIRMED("Tài khoản chưa được xác thực email", HttpStatus.FORBIDDEN),
     ACCOUNT_DISABLED("Tài khoản đã bị vô hiệu hóa", HttpStatus.FORBIDDEN),

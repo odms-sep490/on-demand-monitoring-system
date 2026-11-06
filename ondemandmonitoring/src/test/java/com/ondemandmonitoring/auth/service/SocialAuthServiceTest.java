@@ -48,7 +48,8 @@ class SocialAuthServiceTest {
         cookies = mock(RefreshTokenCookieService.class);
         service = new SocialAuthService(
                 socialProvider, cognito, compensationPort, users, cookies,
-                Mappers.getMapper(AuthenticatedUserMapper.class));
+                Mappers.getMapper(AuthenticatedUserMapper.class),
+                mock(com.ondemandmonitoring.user.service.IdentityLinkLock.class));
     }
 
     @ParameterizedTest
@@ -164,7 +165,7 @@ class SocialAuthServiceTest {
     }
 
     @Test
-    void linkLocalIdentityCompensatesDatabaseWhenCognitoRejectsPassword() {
+    void linkLocalIdentityPropagatesPasswordFailureForTransactionRollback() {
         User user = customer();
         when(users.findByCognitoSub("sub")).thenReturn(user);
         when(users.hasIdentity(user.getId(), IdentityProvider.LOCAL)).thenReturn(false);
@@ -175,7 +176,7 @@ class SocialAuthServiceTest {
                 () -> service.linkLocalIdentity("sub", "google_123", "weak-pass"));
 
         assertEquals(ErrorCode.PASSWORD_POLICY_VIOLATED, exception.getErrorCode());
-        verify(users).unlinkIdentity(user, IdentityProvider.LOCAL);
+        verify(users, never()).unlinkIdentity(any(), any());
     }
 
     private SocialSyncRequest request(SocialAuthIntent intent) {

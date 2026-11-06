@@ -16,6 +16,7 @@ import com.ondemandmonitoring.user.domain.User;
 import com.ondemandmonitoring.role.enumeration.RoleCode;
 import com.ondemandmonitoring.user.enumeration.IdentityProvider;
 import com.ondemandmonitoring.user.service.IUserService;
+import com.ondemandmonitoring.user.service.IdentityLinkLock;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -40,6 +41,7 @@ public class SocialAuthService {
     IUserService userService;
     RefreshTokenCookieService refreshTokenCookieService;
     AuthenticatedUserMapper authenticatedUserMapper;
+    IdentityLinkLock identityLinkLock;
 
     @Transactional
     public AuthResponse sync(SocialSyncRequest request, HttpServletResponse response) {
@@ -143,8 +145,10 @@ public class SocialAuthService {
         }
     }
 
+    @Transactional
     public void linkLocalIdentity(String cognitoSub, String cognitoUsername, String password) {
         User user = userService.findByCognitoSub(cognitoSub);
+        identityLinkLock.lock(user.getId(), cognitoSub, cognitoUsername);
         if (userService.hasIdentity(user.getId(), IdentityProvider.LOCAL)) {
             throw new ApiException(ErrorCode.RESOURCE_ALREADY_EXISTS,
                     "A local login is already linked to this account");
@@ -154,18 +158,7 @@ public class SocialAuthService {
         try {
             cognitoUserDirectory.setPermanentPassword(cognitoUsername, password);
         } catch (RuntimeException exception) {
-            compensateLocalIdentityLink(user, exception);
             throw mapLocalIdentityProviderFailure(exception);
-        }
-    }
-
-    private void compensateLocalIdentityLink(User user, RuntimeException originalException) {
-        try {
-            userService.unlinkIdentity(user, IdentityProvider.LOCAL);
-        } catch (RuntimeException compensationException) {
-            originalException.addSuppressed(compensationException);
-            log.error("Unable to compensate LOCAL identity link for user {}",
-                    user.getId(), compensationException);
         }
     }
 

@@ -1,6 +1,6 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="Start Drone Stack" type="ShConfigurationType">
-    <option name="SCRIPT_TEXT" value="$script = Join-Path &quot;$PROJECT_DIR$&quot; &quot;scripts\start-drone-stack.ps1&quot;; if (-not (Test-Path $script)) { $script = Join-Path &quot;$PROJECT_DIR$&quot; &quot;on-demand-monitoring-system\scripts\start-drone-stack.ps1&quot; }; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script -SimWorld light -ShowGazeboGui -SkipBootstrap -NoTelemetry" />
+    <option name="SCRIPT_TEXT" value="$script = Join-Path &quot;$PROJECT_DIR$&quot; &quot;scripts\RUN_DRONE_SIM_ONLY.ps1&quot;; if (-not (Test-Path $script)) { $script = Join-Path &quot;$PROJECT_DIR$&quot; &quot;on-demand-monitoring-system\scripts\RUN_DRONE_SIM_ONLY.ps1&quot; }; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script" />
     <option name="INDEPENDENT_SCRIPT_PATH" value="false" />
     <option name="SCRIPT_PATH" value="" />
     <option name="SCRIPT_OPTIONS" value="" />

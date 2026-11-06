@@ -389,7 +389,6 @@ CREATE TABLE IF NOT EXISTS result_review_rounds (
     published_by VARCHAR(255) REFERENCES users(id),
     schema_version INTEGER NOT NULL DEFAULT 1 CHECK (schema_version > 0),
     status VARCHAR(40) NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN','REVISION_REQUESTED','ACCEPTED','SUPERSEDED')),
-    published_payload JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ,
     version BIGINT NOT NULL DEFAULT 0,
@@ -544,29 +543,6 @@ ALTER TABLE result_revision_case_items DROP CONSTRAINT IF EXISTS ck_result_revis
 ALTER TABLE result_revision_case_items ADD CONSTRAINT ck_result_revision_case_item_status
     CHECK (status IN ('NEEDS_TRIAGE','IN_PROGRESS','WAITING_CUSTOMER','RESOLVED','OUT_OF_SCOPE_RESPONDED','OUT_OF_SCOPE_ACKNOWLEDGED'));
 
-CREATE TABLE IF NOT EXISTS result_revision_media_holds (
-    id VARCHAR(255) PRIMARY KEY,
-    case_id VARCHAR(255) NOT NULL REFERENCES result_revision_cases(id) ON DELETE RESTRICT,
-    media_asset_id VARCHAR(255) NOT NULL REFERENCES drone_media(id) ON DELETE RESTRICT,
-    expires_at TIMESTAMPTZ NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ, version BIGINT NOT NULL DEFAULT 0,
-    CONSTRAINT uk_result_revision_media_hold UNIQUE (case_id, media_asset_id)
-);
-CREATE INDEX IF NOT EXISTS ix_result_revision_media_hold_media_expiry
-    ON result_revision_media_holds(media_asset_id, expires_at);
-
-CREATE TABLE IF NOT EXISTS result_revision_case_decisions (
-    id VARCHAR(255) PRIMARY KEY,
-    case_item_id VARCHAR(255) NOT NULL REFERENCES result_revision_case_items(id),
-    scope_decision VARCHAR(30) NOT NULL CHECK (scope_decision IN ('IN_SCOPE','OUT_OF_SCOPE')),
-    strategy VARCHAR(30) NOT NULL CHECK (strategy IN ('UNDECIDED','RESERVE_MEDIA','REWORK')),
-    reason VARCHAR(2000) NOT NULL, manager_instructions VARCHAR(2000),
-    decided_by VARCHAR(255) NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ, version BIGINT NOT NULL DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS ix_result_revision_decision_item_time
-    ON result_revision_case_decisions(case_item_id, created_at);
-
 ALTER TABLE missions ADD COLUMN IF NOT EXISTS mission_purpose VARCHAR(20) NOT NULL DEFAULT 'ORIGINAL'
     CHECK (mission_purpose IN ('ORIGINAL','REWORK'));
 ALTER TABLE missions ADD COLUMN IF NOT EXISTS result_revision_case_id VARCHAR(255);
@@ -607,5 +583,56 @@ CREATE INDEX IF NOT EXISTS ix_result_revision_request_case_item
     ON result_revision_request_items(case_item_id, created_at);
 
 -- END RESULT REVISION CASE
+
+-- Review/rework cleanup, kept in this single post-Hibernate bootstrap.
+-- The fresh-database guard above must pass before these obsolete objects are removed.
+ALTER TABLE result_review_rounds DROP COLUMN IF EXISTS published_payload;
+DROP TABLE IF EXISTS result_revision_case_decisions;
+DROP TABLE IF EXISTS media_notification_outbox;
+DROP TABLE IF EXISTS result_revision_media_holds;
+
+-- Review/rework invariants. Never infer physical foreign keys solely from scalar Java IDs.
+DO $$ DECLARE invariant record; BEGIN
+    FOR invariant IN SELECT * FROM (VALUES
+        ('result_revision_cases','ck_revision_case_lifecycle',
+         'CHECK ((status = ''OPEN'' AND active AND closed_at IS NULL) OR (status = ''CLOSED'' AND NOT active AND closed_at IS NOT NULL))'),
+        ('result_revision_case_items','ck_revision_case_scope_strategy',
+         'CHECK ((scope_decision = ''PENDING'' AND strategy = ''UNDECIDED'') OR (scope_decision = ''OUT_OF_SCOPE'' AND strategy = ''UNDECIDED'') OR (scope_decision = ''IN_SCOPE'' AND strategy IN (''RESERVE_MEDIA'',''REWORK'')))'),
+        ('result_revision_cases','fk_revision_case_ticket','FOREIGN KEY(ticket_id) REFERENCES support_customer_tickets(id) ON DELETE RESTRICT'),
+        ('result_revision_case_items','fk_revision_case_assigned_mission','FOREIGN KEY(assigned_rework_mission_id) REFERENCES missions(id) ON DELETE RESTRICT'),
+        ('result_revision_case_items','fk_revision_case_source_mission','FOREIGN KEY(source_mission_id) REFERENCES missions(id) ON DELETE RESTRICT'),
+        ('result_review_rounds','fk_review_round_delivery','FOREIGN KEY(delivery_id) REFERENCES order_deliveries(id) ON DELETE RESTRICT'),
+        ('order_deliveries','fk_delivery_review_round','FOREIGN KEY(current_review_round_id) REFERENCES result_review_rounds(id) ON DELETE RESTRICT'),
+        ('result_revision_requests','fk_revision_request_customer','FOREIGN KEY(customer_id) REFERENCES users(id) ON DELETE RESTRICT'),
+        ('result_revision_requests','fk_revision_request_ticket','FOREIGN KEY(ticket_id) REFERENCES support_customer_tickets(id) ON DELETE RESTRICT'),
+        ('result_review_round_evidence','fk_review_evidence_source','FOREIGN KEY(source_round_evidence_id) REFERENCES result_review_round_evidence(id) ON DELETE RESTRICT'),
+        ('result_review_round_evidence','fk_review_evidence_replaced','FOREIGN KEY(supersedes_round_evidence_id) REFERENCES result_review_round_evidence(id) ON DELETE RESTRICT'),
+        ('checklist_delivery_drafts','fk_delivery_draft_case','FOREIGN KEY(case_id) REFERENCES result_revision_cases(id) ON DELETE RESTRICT'),
+        ('checklist_delivery_drafts','fk_delivery_draft_round','FOREIGN KEY(base_review_round_id) REFERENCES result_review_rounds(id) ON DELETE RESTRICT'),
+        ('checklist_delivery_drafts','fk_delivery_draft_actor','FOREIGN KEY(updated_by) REFERENCES users(id) ON DELETE RESTRICT')
+    ) AS definitions(table_name,constraint_name,definition) LOOP
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conrelid = to_regclass('public.' || invariant.table_name)
+                  AND (conname = invariant.constraint_name OR (
+                    contype = 'f' AND confdeltype IN ('a','r')
+                    AND invariant.definition LIKE 'FOREIGN KEY%'
+                    AND replace(regexp_replace(pg_get_constraintdef(oid), '\s', '', 'g'), 'public.', '')
+                        LIKE regexp_replace(split_part(invariant.definition, ' ON DELETE ', 1), '\s', '', 'g') || '%'
+                  ))) THEN
+            EXECUTE format('ALTER TABLE public.%I ADD CONSTRAINT %I %s',
+                    invariant.table_name,invariant.constraint_name,invariant.definition);
+        END IF;
+    END LOOP;
+END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_result_revision_case_active_order
+    ON result_revision_cases(order_id) WHERE active;
+CREATE INDEX IF NOT EXISTS ix_revision_feedback_case_created
+    ON result_revision_request_items(case_item_id,created_at,id);
+CREATE INDEX IF NOT EXISTS ix_revision_case_assigned_mission
+    ON result_revision_case_items(assigned_rework_mission_id) WHERE assigned_rework_mission_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_review_evidence_source
+    ON result_review_round_evidence(source_round_evidence_id) WHERE source_round_evidence_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_review_evidence_replaced
+    ON result_review_round_evidence(supersedes_round_evidence_id) WHERE supersedes_round_evidence_id IS NOT NULL;
 
 COMMIT;

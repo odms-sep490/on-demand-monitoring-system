@@ -7,14 +7,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.ondemandmonitoring.media.domain.MediaAsset;
-import com.ondemandmonitoring.media.domain.MediaNotificationOutbox;
 import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.domain.MediaUploadAttempt;
 import com.ondemandmonitoring.media.domain.StorageEventInbox;
 import com.ondemandmonitoring.media.enums.UploadAttemptStatus;
 import com.ondemandmonitoring.media.repository.ManualUploadTaskRepository;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
-import com.ondemandmonitoring.media.repository.MediaNotificationOutboxRepository;
 import com.ondemandmonitoring.media.repository.MediaUploadAttemptRepository;
 import com.ondemandmonitoring.media.repository.StorageEventInboxRepository;
 import com.ondemandmonitoring.media.service.impl.MediaValidationServiceImpl;
@@ -39,7 +37,7 @@ class MediaValidationServiceImplTest {
     @Mock ManualUploadTaskRepository manualTasks;
     @Mock IMediaAuditService auditService;
     @org.mockito.Spy com.ondemandmonitoring.media.policy.MediaUploadPolicy policy;
-    @Mock MediaNotificationOutboxRepository outbox;
+
     @Mock IMediaObjectStorage storage;
     MediaValidationServiceImpl service;
 
@@ -92,7 +90,6 @@ class MediaValidationServiceImplTest {
         verify(storage).delete("bucket","staging/late.jpg");
         verify(storage,never()).copy(any(),any(),any());verify(media,never()).save(any());
         verify(inbox).save(any(StorageEventInbox.class));
-        org.mockito.Mockito.verifyNoInteractions(outbox);
     }
 
     @Test
@@ -134,7 +131,6 @@ class MediaValidationServiceImplTest {
         // No per-file manager approval any more: the media is available right after technical validation.
         assertThat(captured.getMediaStatus()).isEqualTo(com.ondemandmonitoring.media.enums.MediaStatus.AVAILABLE);
         assertThat(captured.getAvailableAt()).isNotNull();
-        verify(outbox, never()).save(any());
 
         ArgumentCaptor<StorageEventInbox> event = ArgumentCaptor.forClass(StorageEventInbox.class);
         verify(inbox).save(event.capture());

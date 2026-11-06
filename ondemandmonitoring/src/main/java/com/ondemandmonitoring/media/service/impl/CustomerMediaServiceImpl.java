@@ -5,12 +5,10 @@ import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService;
 import com.ondemandmonitoring.media.domain.MediaAsset;
 import com.ondemandmonitoring.media.enums.MediaStatus;
-import com.ondemandmonitoring.media.dto.response.CustomerMediaNotificationResponse;
 import com.ondemandmonitoring.media.dto.response.CustomerMediaResponse;
 import com.ondemandmonitoring.media.dto.response.CustomerMissionMediaStatusResponse;
 import com.ondemandmonitoring.media.mapper.MediaWorkflowMapper;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
-import com.ondemandmonitoring.media.repository.MediaNotificationOutboxRepository;
 import com.ondemandmonitoring.media.service.ICustomerMediaService;
 import com.ondemandmonitoring.mission.service.IMissionMediaAccessService;
 import com.ondemandmonitoring.media.service.IMediaObjectStorage;
@@ -35,7 +33,6 @@ public class CustomerMediaServiceImpl implements ICustomerMediaService {
 
     IMissionMediaAccessService missionAccess;
     MediaAssetRepository media;
-    MediaNotificationOutboxRepository notifications;
     IMediaObjectStorage storage;
     MediaWorkflowMapper mapper;
     IResultRetentionAccessService retentionAccess;
@@ -121,32 +118,6 @@ public class CustomerMediaServiceImpl implements ICustomerMediaService {
             throw new ApiException(ErrorCode.MEDIA_NOT_FOUND);
         }
         return toResponse(asset, deliveredMissionIds(List.of(asset.getMissionId())).contains(asset.getMissionId()));
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public List<CustomerMediaNotificationResponse> listNotifications(String missionId) {
-        String canonicalId = missionAccess.authorizeCustomer(missionId);
-        var visibleIds = publishedMediaIds(List.of(canonicalId));
-        return notifications.findByMedia_MissionIdOrderByCreatedAtDesc(canonicalId).stream()
-                .filter(event -> event.getMedia().getMediaStatus() == MediaStatus.AVAILABLE)
-                .filter(event -> visibleIds.contains(event.getMedia().getId()))
-                .map(mapper::toNotificationResponse)
-                .toList();
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public List<CustomerMediaNotificationResponse> listAllNotifications() {
-        List<String> missionIds = ownMissionIds();
-        if (missionIds.isEmpty())
-            return List.of();
-        var visibleIds = publishedMediaIds(missionIds);
-        return notifications.findByMedia_MissionIdInOrderByCreatedAtDesc(missionIds).stream()
-                .filter(event -> event.getMedia().getMediaStatus() == MediaStatus.AVAILABLE)
-                .filter(event -> visibleIds.contains(event.getMedia().getId()))
-                .map(mapper::toNotificationResponse)
-                .toList();
     }
 
     private List<String> ownMissionIds() {

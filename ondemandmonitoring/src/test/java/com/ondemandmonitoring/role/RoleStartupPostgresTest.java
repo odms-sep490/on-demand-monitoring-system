@@ -89,10 +89,10 @@ class RoleStartupPostgresTest {
         void roleAndIdentityCanBeReadOutsideTransactionWithOpenInViewDisabled() {
                 assertThat(users.findByEmailIgnoreCase("seed.manager@odms.local").orElseThrow().getRole().getCode())
                                 .isEqualTo(RoleCode.MANAGER);
-                assertThat(identities.findByCognitoSub("c9cab55c-0081-705a-a1e0-4358cd45d47e")
-                                .orElseThrow().getUser().getRole().getCode()).isEqualTo(RoleCode.STAFF);
-                assertThat(identities.findByCognitoUsername("39ea75ec-c001-7087-152e-e76ebbf4740b")
-                                .orElseThrow().getUser().getRole().getCode()).isEqualTo(RoleCode.CUSTOMER);
+                assertThat(identities.findAllByCognitoSub("c9cab55c-0081-705a-a1e0-4358cd45d47e")
+                                .getFirst().getUser().getRole().getCode()).isEqualTo(RoleCode.STAFF);
+                assertThat(identities.findAllByCognitoUsername("39ea75ec-c001-7087-152e-e76ebbf4740b")
+                                .getFirst().getUser().getRole().getCode()).isEqualTo(RoleCode.CUSTOMER);
         }
 
         @Test
@@ -134,7 +134,7 @@ class RoleStartupPostgresTest {
                                 .build();
                 var saved = identities.saveAndFlush(google);
                 try {
-                        var linked = identities.findByCognitoSub("verification-google-sub").orElseThrow().getUser();
+                        var linked = identities.findAllByCognitoSub("verification-google-sub").getFirst().getUser();
                         assertThat(linked.getId()).isEqualTo(user.getId());
                         assertThat(linked.getRole().getCode()).isEqualTo(RoleCode.STAFF);
                         var duplicateLocal = com.ondemandmonitoring.user.domain.UserIdentity.builder().user(user)

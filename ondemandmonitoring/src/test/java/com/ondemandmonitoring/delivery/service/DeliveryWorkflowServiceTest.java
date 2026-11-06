@@ -12,6 +12,8 @@ import com.ondemandmonitoring.delivery.dto.request.RevisionRequest;
 import com.ondemandmonitoring.delivery.enums.DeliveryStatus;
 import com.ondemandmonitoring.delivery.repository.OrderDeliveryRepository;
 import com.ondemandmonitoring.delivery.domain.ResultReviewRound;
+import com.ondemandmonitoring.delivery.domain.ResultReviewRoundItem;
+import com.ondemandmonitoring.order.domain.OrderChecklistItem;
 import com.ondemandmonitoring.delivery.repository.ResultReviewRoundRepository;
 import com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository;
 import com.ondemandmonitoring.delivery.repository.ResultReviewRoundItemRepository;
@@ -47,6 +49,8 @@ import java.math.BigDecimal;
 import java.util.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class DeliveryWorkflowServiceTest {
     OrderDeliveryRepository deliveries = mock(OrderDeliveryRepository.class);
@@ -224,7 +228,11 @@ class DeliveryWorkflowServiceTest {
         verify(reviewPublisher).publish(any(), any(), anyList(), anySet(), any(), any());
     }
 
-    @Test void originalsRequirePaidInvoiceAndManagerRelease() {
+    @ParameterizedTest
+    @ValueSource(ints = {30, 90, 120})
+    void originalsRequirePaidInvoiceAndStartTheSelectedRetentionPeriodOnlyOnce(int days) {
+        order.setDataRetentionDays(days);
+        assertThat(order.getResultExpiresAt()).isNull();
         assertThatThrownBy(() -> service.requireOriginalAccess("order"))
                 .isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.FINAL_PAYMENT_REQUIRED);
         invoice.setStatus(InvoiceStatus.PAID); invoice.setPaidAmount(invoice.getTotalAmount()); invoice.setRemainingAmount(BigDecimal.ZERO);
@@ -237,7 +245,7 @@ class DeliveryWorkflowServiceTest {
         service.releaseOriginals("order");
         assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.DELIVERED);
         assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.COMPLETED);
-        assertThat(order.getResultExpiresAt()).isEqualTo(delivery.getOriginalsReleasedAt().plusSeconds(90L * 24 * 60 * 60));
+        assertThat(order.getResultExpiresAt()).isEqualTo(delivery.getOriginalsReleasedAt().plusSeconds(days * 24L * 60 * 60));
 
         var firstExpiry = order.getResultExpiresAt();
         service.releaseOriginals("order");
@@ -291,6 +299,37 @@ class DeliveryWorkflowServiceTest {
         service.markReadyForManagerReview("order");
         assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.READY_FOR_MANAGER_REVIEW);
         assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.COMPLETED);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void acceptingReworkClosesTheCaseWithoutStartingOrExtendingRetention(boolean existingDeadline) {
+        order.setOrderStatus(OrderStatus.COMPLETED);
+        var originalExpiry = existingDeadline ? java.time.Instant.now().minusSeconds(86400) : null;
+        order.setResultExpiresAt(originalExpiry);
+        invoice.setStatus(InvoiceStatus.PAID); invoice.setRemainingAmount(BigDecimal.ZERO);
+        invoice.setPaidAmount(invoice.getTotalAmount());
+        var revisionCase = new com.ondemandmonitoring.delivery.domain.ResultRevisionCase();
+        revisionCase.setId("case"); revisionCase.setOrder(order); revisionCase.setTicketId("ticket");
+        when(revisionCases.findByOrderIdAndActiveTrueForUpdate("order")).thenReturn(Optional.of(revisionCase));
+        var checklist = new OrderChecklistItem(); checklist.setId("checklist");
+        var roundItem = new ResultReviewRoundItem(); roundItem.setChangedInRound(true); roundItem.setOrderChecklistItem(checklist);
+        when(roundItems.findByRoundIdOrderByDisplayOrderAsc("round")).thenReturn(List.of(roundItem));
+        var item = new com.ondemandmonitoring.delivery.domain.ResultRevisionCaseItem();
+        item.setStatus(com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.WAITING_CUSTOMER);
+        when(revisionCaseItems.findByResultRevisionCaseIdAndOrderChecklistItemIdInOrderByCreatedAtAsc(eq("case"), anyCollection()))
+                .thenReturn(List.of(item));
+        when(revisionCaseItems.findByResultRevisionCaseIdOrderByCreatedAtAsc("case")).thenReturn(List.of(item));
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "supportTickets",
+                mock(com.ondemandmonitoring.support.service.impl.SupportTicketService.class));
+        assertThat(service.acceptResult("order", "round", 2L).deliveryStatus()).isEqualTo(DeliveryStatus.READY_FOR_DELIVERY);
+        assertThat(revisionCase.isActive()).isFalse();
+        assertThat(item.getStatus()).isEqualTo(com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.RESOLVED);
+        assertThat(order.getResultExpiresAt()).isEqualTo(originalExpiry);
+        var closedAt = revisionCase.getClosedAt();
+        service.acceptResult("order", "round", 2L);
+        assertThat(order.getResultExpiresAt()).isEqualTo(originalExpiry);
+        assertThat(revisionCase.getClosedAt()).isEqualTo(closedAt);
     }
 
     private User user(String id, RoleCode code) {

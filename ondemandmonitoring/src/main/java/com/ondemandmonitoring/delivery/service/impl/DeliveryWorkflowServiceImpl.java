@@ -441,9 +441,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                 item.getStatus() == com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.RESOLVED
                         || item.getStatus() == com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.OUT_OF_SCOPE_ACKNOWLEDGED);
         if (finished) {
-            revisionCase.setStatus(com.ondemandmonitoring.delivery.enums.ResultRevisionCaseStatus.CLOSED);
-            revisionCase.setActive(false);
-            revisionCase.setClosedAt(Instant.now());
+            revisionCase.close(Instant.now());
             supportTickets.resolveResultRevisionTicket(revisionCase.getTicketId(), null);
         }
         return finished;

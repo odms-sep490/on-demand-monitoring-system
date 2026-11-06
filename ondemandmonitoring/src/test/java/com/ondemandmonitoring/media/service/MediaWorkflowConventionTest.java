@@ -36,9 +36,9 @@ class MediaWorkflowConventionTest {
     }
 
     @Test
-    void buildersPreserveTaskAndOutboxDefaults() {
+    void buildersPreserveManualTaskDefaults() {
         assertThat(ManualUploadTask.builder().build().getStatus()).isEqualTo(ManualUploadTaskStatus.OPEN);
-        assertThat(MediaNotificationOutbox.builder().build().getStatus()).isEqualTo("PENDING");
+
     }
 
     @Test

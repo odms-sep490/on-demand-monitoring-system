@@ -19,7 +19,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Slf4j
 public class ResultRetentionCleanupServiceImpl implements IResultRetentionCleanupService {
     private final MediaAssetRepository media;
-    private final com.ondemandmonitoring.delivery.repository.ResultRevisionMediaHoldRepository revisionHolds;
+    private final com.ondemandmonitoring.order.repository.OrderRepository orders;
     private final IMediaObjectStorage storage;
     private final ResultRetentionProperties properties;
     private final PlatformTransactionManager transactionManager;
@@ -53,18 +53,21 @@ public class ResultRetentionCleanupServiceImpl implements IResultRetentionCleanu
     }
 
     private ClaimedAsset claim(String id, Instant now) {
-        return tx().execute(status -> media.findByIdForUpdate(id).filter(asset -> {
-            Instant expiresAt = asset.getMission().getOrder().getResultExpiresAt();
-            return expiresAt != null && !expiresAt.isAfter(now)
-                    && !revisionHolds.hasActiveHold(asset.getId(), now)
-                    && (asset.getStorageStatus() == MediaStorageStatus.AVAILABLE
-                    || asset.getStorageStatus() == MediaStorageStatus.DELETE_FAILED);
-        }).map(asset -> {
-            asset.setStorageStatus(MediaStorageStatus.DELETE_PENDING);
-            asset.setStorageDeletionError(null);
-            media.save(asset);
-            return new ClaimedAsset(asset.getS3Bucket(), asset.getS3Key());
-        }).orElse(null));
+        return tx().execute(status -> {
+            String orderId = media.findOrderIdByMediaId(id).orElse(null);
+            if (orderId == null || orders.findByIdForUpdate(orderId).isEmpty()) return null;
+            return media.findByIdForUpdate(id).filter(asset -> {
+                Instant expiresAt = asset.getMission().getOrder().getResultExpiresAt();
+                return expiresAt != null && !expiresAt.isAfter(now)
+                        && (asset.getStorageStatus() == MediaStorageStatus.AVAILABLE
+                        || asset.getStorageStatus() == MediaStorageStatus.DELETE_FAILED);
+            }).map(asset -> {
+                asset.setStorageStatus(MediaStorageStatus.DELETE_PENDING);
+                asset.setStorageDeletionError(null);
+                media.save(asset);
+                return new ClaimedAsset(asset.getS3Bucket(), asset.getS3Key());
+            }).orElse(null);
+        });
     }
 
     private void markDeleted(String id, Instant deletedAt) {

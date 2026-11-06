@@ -39,10 +39,6 @@ public interface MediaWorkflowMapper {
     @Mapping(target = "fileName", source = "asset.originalFileName")
     CustomerMediaResponse toCustomerResponse(MediaAsset asset, String downloadUrl);
 
-    @Mapping(target = "notificationId", source = "id")
-    @Mapping(target = "mediaId", source = "media.id")
-    @Mapping(target = "missionId", expression = "java(event.getMedia().getMissionId())")
-    CustomerMediaNotificationResponse toNotificationResponse(MediaNotificationOutbox event);
 
     @Mapping(target = "mediaId", source = "asset.id")
     @Mapping(target = "attemptId", source = "attempt.id")

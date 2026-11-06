@@ -146,8 +146,7 @@ class CustomerMissionReportQueryServiceTest {
         when(media.findByMissionIdAndMediaStatus(eq("m1"),eq(MediaStatus.AVAILABLE),any(org.springframework.data.domain.Pageable.class)))
                 .thenAnswer(i -> new org.springframework.data.domain.PageImpl<>(List.of(asset),i.getArgument(2),1));
         var storage = mock(com.ondemandmonitoring.media.service.IMediaObjectStorage.class);
-        var gallery = new com.ondemandmonitoring.media.service.impl.CustomerMediaServiceImpl(access,media,
-                mock(com.ondemandmonitoring.media.repository.MediaNotificationOutboxRepository.class),storage,
+        var gallery = new com.ondemandmonitoring.media.service.impl.CustomerMediaServiceImpl(access,media,storage,
                 Mappers.getMapper(com.ondemandmonitoring.media.mapper.MediaWorkflowMapper.class),
                 mock(com.ondemandmonitoring.media.service.IResultRetentionAccessService.class));
         assertEquals("X",gallery.listAvailablePage("m1",0,12).getItems().getFirst().getMediaId());

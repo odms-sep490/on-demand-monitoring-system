@@ -31,7 +31,7 @@ resolve_forest3d_path() {
     return 1
 }
 
-SIM_WORLD="${1:-${SIM_WORLD:-light}}"
+SIM_WORLD="${1:-${SIM_WORLD:-compact}}"
 requested_home_lat="${PX4_HOME_LAT:-}"
 requested_home_lon="${PX4_HOME_LON:-}"
 requested_home_alt="${PX4_HOME_ALT:-}"
@@ -54,7 +54,7 @@ if [ -f "$ENV_FILE" ]; then
     set +a
 fi
 
-SIM_WORLD="${1:-${SIM_WORLD:-light}}"
+SIM_WORLD="${1:-${SIM_WORLD:-compact}}"
 if [ -n "$requested_home_lat" ] && [ -n "$requested_home_lon" ]; then
     export PX4_HOME_LAT="$requested_home_lat"
     export PX4_HOME_LON="$requested_home_lon"

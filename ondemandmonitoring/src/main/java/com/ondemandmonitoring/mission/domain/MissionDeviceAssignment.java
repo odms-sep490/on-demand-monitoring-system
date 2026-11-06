@@ -69,6 +69,15 @@ public class MissionDeviceAssignment extends BaseEntity {
     @Column(name = "release_reason", length = 500)
     String releaseReason;
 
+    @Column(name = "replacement_requested_at")
+    Instant replacementRequestedAt;
+
+    @Column(name = "replacement_request_reason", length = 500)
+    String replacementRequestReason;
+
+    @Column(name = "replacement_requested_by", length = 100)
+    String replacementRequestedBy;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "replaced_by_assignment_id")
     MissionDeviceAssignment replacementAssignment;

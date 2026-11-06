@@ -84,7 +84,11 @@ EARLY_FAST_DEMO_MODE = (
     os.getenv("FAST_DEMO_MODE", "false").strip().lower()
     in {"1", "true", "yes", "on"}
 )
-if EARLY_FAST_DEMO_MODE:
+FAST_DEMO_LIDAR_ENABLED = (
+    os.getenv("FAST_DEMO_LIDAR_ENABLED", "false").strip().lower()
+    in {"1", "true", "yes", "on"}
+)
+if EARLY_FAST_DEMO_MODE and not FAST_DEMO_LIDAR_ENABLED:
     LidarGateway = None
     AvoidanceController = None
     OBSTACLE_DISTANCE_M = 5.0
@@ -2755,7 +2759,8 @@ async def main() -> None:
     print(f"PX4 control: {PX4_CONTROL_SYSTEM_ADDRESS}")
     print(f"MAVSDK gRPC: localhost:{MAVSDK_CONTROL_GRPC_PORT}")
     if FAST_DEMO_MODE:
-        print("[FAST] Demo mode: light world, sensors/media probes disabled, GPS route speed boosted")
+        lidar_mode = "LiDAR enabled" if FAST_DEMO_LIDAR_ENABLED else "LiDAR disabled"
+        print(f"[FAST] Demo mode: {SIM_WORLD} world, {lidar_mode}, GPS route speed boosted")
     print()
     print("Keys: t takeoff | w forward | s back | a left | d right")
     print("      f up | v down | q yaw left | e yaw right | k stop")

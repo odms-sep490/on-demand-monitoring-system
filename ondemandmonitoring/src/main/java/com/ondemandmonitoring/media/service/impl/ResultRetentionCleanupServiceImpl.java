@@ -38,7 +38,7 @@ public class ResultRetentionCleanupServiceImpl implements IResultRetentionCleanu
             ClaimedAsset claimed = claim(id, now);
             if (claimed == null) continue;
             try {
-                storage.delete(claimed.bucket(), claimed.key());
+                for (String key : claimed.keys()) storage.delete(claimed.bucket(), key);
                 markDeleted(id, Instant.now());
                 deleted++;
             } catch (RuntimeException exception) {
@@ -65,7 +65,12 @@ public class ResultRetentionCleanupServiceImpl implements IResultRetentionCleanu
                 asset.setStorageStatus(MediaStorageStatus.DELETE_PENDING);
                 asset.setStorageDeletionError(null);
                 media.save(asset);
-                return new ClaimedAsset(asset.getS3Bucket(), asset.getS3Key());
+                var keys = new java.util.LinkedHashSet<String>();
+                keys.add(asset.getS3Key());
+                if (asset.getThumbnailKey() != null) keys.add(asset.getThumbnailKey());
+                if (asset.getPreviewKey() != null) keys.add(asset.getPreviewKey());
+                keys.removeIf(key -> key == null || key.isBlank());
+                return new ClaimedAsset(asset.getS3Bucket(), java.util.List.copyOf(keys));
             }).orElse(null);
         });
     }
@@ -98,5 +103,5 @@ public class ResultRetentionCleanupServiceImpl implements IResultRetentionCleanu
         return value.length() <= 500 ? value : value.substring(0, 500);
     }
 
-    private record ClaimedAsset(String bucket, String key) {}
+    private record ClaimedAsset(String bucket, java.util.List<String> keys) {}
 }

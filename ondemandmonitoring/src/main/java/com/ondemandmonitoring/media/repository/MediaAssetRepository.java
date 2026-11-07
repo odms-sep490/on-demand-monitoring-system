@@ -15,6 +15,25 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface MediaAssetRepository extends JpaRepository<MediaAsset, String> {
+        @Query("""
+                select m.id from MediaAsset m
+                where m.storageProvider = 'S3'
+                  and m.storageStatus = com.ondemandmonitoring.media.enums.MediaStorageStatus.AVAILABLE
+                  and (m.validatedAt is not null or m.mediaStatus is null)
+                  and m.type = 'IMAGE'
+                  and (m.derivativeStatus = com.ondemandmonitoring.media.enums.MediaDerivativeStatus.PENDING
+                    or (m.derivativeStatus = com.ondemandmonitoring.media.enums.MediaDerivativeStatus.FAILED
+                        and m.derivativeAttemptCount < :maxAttempts
+                        and (m.derivativeProcessedAt is null or m.derivativeProcessedAt < :retryBefore))
+                    or (m.derivativeStatus = com.ondemandmonitoring.media.enums.MediaDerivativeStatus.PROCESSING
+                        and (m.derivativeProcessedAt is null or m.derivativeProcessedAt < :staleBefore)))
+                order by m.createdAt, m.id
+                """)
+        List<String> findDerivativeCandidates(@Param("staleBefore") Instant staleBefore,
+                                              @Param("retryBefore") Instant retryBefore,
+                                              @Param("maxAttempts") int maxAttempts,
+                                              Pageable pageable);
+
         @Query("select m.mission.order.id from MediaAsset m where m.id = :mediaId")
         Optional<String> findOrderIdByMediaId(@Param("mediaId") String mediaId);
 

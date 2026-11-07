@@ -11,6 +11,7 @@ import com.ondemandmonitoring.delivery.repository.*;
 import com.ondemandmonitoring.delivery.service.IResultReviewService;
 import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.media.service.IMediaObjectStorage;
+import com.ondemandmonitoring.media.service.impl.MediaDerivativeService;
 import com.ondemandmonitoring.media.service.IResultRetentionAccessService;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.order.domain.Order;
@@ -51,6 +52,7 @@ public class ResultReviewService implements IResultReviewService {
     private final ISupportAuthorizationService supportAuthorization;
     private final AuthenticatedUserResolver currentUser;
     private final IMediaObjectStorage storage;
+    private final MediaDerivativeService derivatives;
     private final IResultRetentionAccessService retentionAccess;
     private final ObjectMapper mapper;
 
@@ -273,11 +275,14 @@ public class ResultReviewService implements IResultReviewService {
             if (ex.getErrorCode() != ErrorCode.RESULT_RETENTION_EXPIRED && ex.getErrorCode() != ErrorCode.MEDIA_NOT_FOUND) throw ex;
             return new ResultReviewResponse.Evidence(row.getId(), asset.getId(), row.getMediaTypeSnapshot(), row.getFileNameSnapshot(),
                     asset.getFileSize(), row.getCapturedAtSnapshot(), null, null, false,
-                    ex.getErrorCode() == ErrorCode.RESULT_RETENTION_EXPIRED ? "RETENTION_EXPIRED" : "MEDIA_UNAVAILABLE");
+                    ex.getErrorCode() == ErrorCode.RESULT_RETENTION_EXPIRED ? "RETENTION_EXPIRED" : "MEDIA_UNAVAILABLE", null, null);
         }
         Instant expires = Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds());
+        String originalUrl = storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key());
+        String previewUrl = "VIDEO".equals(asset.getType()) ? originalUrl : derivatives.previewUrl(asset);
         return new ResultReviewResponse.Evidence(row.getId(), asset.getId(), row.getMediaTypeSnapshot(), row.getFileNameSnapshot(),
-                asset.getFileSize(), row.getCapturedAtSnapshot(), storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key()), expires, downloadable, null);
+                asset.getFileSize(), row.getCapturedAtSnapshot(), downloadable ? originalUrl : null, expires, downloadable, null,
+                derivatives.thumbnailUrl(asset), previewUrl);
     }
 
     private String text(com.fasterxml.jackson.databind.JsonNode node, String field) {

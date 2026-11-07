@@ -34,6 +34,8 @@ public record ManagerDeliveryChecklistsResponse(
             String missionId,
             String missionCode,
             String url,
+            String thumbnailUrl,
+            String previewUrl,
             Instant urlExpiresAt,
             String accessReason,
             DeliveryEvidenceChangeType changeType) {}

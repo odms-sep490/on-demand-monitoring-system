@@ -5,4 +5,4 @@ import java.util.List;
 public record ChecklistEvidenceCandidate(String mediaId, String fileName, String mediaType, String contentType,
         MediaStatus status, String sourceType, Instant capturedAt, Instant validatedAt,
         boolean attachable, boolean eligibleForOperationalReadiness, boolean eligibleForFinalApproval,
-        String ineligibilityReason, String previewUrl, Instant urlExpiresAt, List<String> alreadyAttachedExecutionIds) {}
+        String ineligibilityReason, String previewUrl, String thumbnailUrl, Instant urlExpiresAt, List<String> alreadyAttachedExecutionIds) {}

@@ -34,6 +34,7 @@ public class CustomerMediaServiceImpl implements ICustomerMediaService {
     IMissionMediaAccessService missionAccess;
     MediaAssetRepository media;
     IMediaObjectStorage storage;
+    MediaDerivativeService derivatives;
     MediaWorkflowMapper mapper;
     IResultRetentionAccessService retentionAccess;
     @Autowired @NonFinal IDeliveryWorkflowService deliveryWorkflow;
@@ -138,7 +139,12 @@ public class CustomerMediaServiceImpl implements ICustomerMediaService {
 
     private CustomerMediaResponse toResponse(MediaAsset asset, boolean originalsAvailable) {
         if (originalsAvailable) retentionAccess.requireAccessible(asset);
-        return mapper.toCustomerResponse(asset,
+        var response = mapper.toCustomerResponse(asset,
                 originalsAvailable ? storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key()) : null);
+        response.setThumbnailUrl(derivatives.thumbnailUrl(asset));
+        response.setPreviewUrl("VIDEO".equals(asset.getType())
+                ? storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key())
+                : derivatives.previewUrl(asset));
+        return response;
     }
 }

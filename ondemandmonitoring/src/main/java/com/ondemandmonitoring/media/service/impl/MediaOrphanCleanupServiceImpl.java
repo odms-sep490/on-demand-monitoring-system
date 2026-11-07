@@ -103,6 +103,8 @@ public class MediaOrphanCleanupServiceImpl implements IMediaOrphanCleanupService
         var keys = new LinkedHashSet<String>();
         history.forEach(a -> keys.add(a.getStorageKey()));
         keys.add(asset.getS3Key());
+        if (asset.getThumbnailKey() != null) keys.add(asset.getThumbnailKey());
+        if (asset.getPreviewKey() != null) keys.add(asset.getPreviewKey());
         keys.removeIf(k -> k == null || k.isBlank());
         asset.setStorageStatus(MediaStorageStatus.DELETE_PENDING);
         asset.setMediaStatus(MediaStatus.RETRY_REQUIRED);

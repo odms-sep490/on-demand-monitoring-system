@@ -72,6 +72,14 @@ app:
     demo-drones: ${APP_SEED_DEMO_DRONES:false}
     staff-licenses: ${APP_SEED_STAFF_LICENSES:true}
   media:
+    derivatives:
+      enabled: ${APP_MEDIA_DERIVATIVES_ENABLED:true}
+      interval-ms: ${APP_MEDIA_DERIVATIVES_INTERVAL_MS:15000}
+      initial-delay-ms: ${APP_MEDIA_DERIVATIVES_INITIAL_DELAY_MS:10000}
+      batch-size: ${APP_MEDIA_DERIVATIVES_BATCH_SIZE:8}
+      stale-minutes: ${APP_MEDIA_DERIVATIVES_STALE_MINUTES:15}
+      retry-delay-seconds: ${APP_MEDIA_DERIVATIVES_RETRY_DELAY_SECONDS:300}
+      max-attempts: ${APP_MEDIA_DERIVATIVES_MAX_ATTEMPTS:5}
     orphan-cleanup:
       enabled: ${APP_MEDIA_ORPHAN_CLEANUP_ENABLED:true}
       delay-seconds: ${APP_MEDIA_ORPHAN_CLEANUP_DELAY_SECONDS:300}

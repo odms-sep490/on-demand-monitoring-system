@@ -28,5 +28,7 @@ public class OperatorMissionMediaResponse {
     Instant availableAt;
     MediaStatus status;
     String downloadUrl;
+    String thumbnailUrl;
+    String previewUrl;
     Instant urlExpiresAt;
 }

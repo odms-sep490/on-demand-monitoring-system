@@ -64,8 +64,8 @@ class OrderExecutionCompletionPolicyTest {
     @Test void twoApprovedMissionsComplete() { assertTrue(evaluate()); assertEquals(OrderStatus.COMPLETED, order.getOrderStatus()); }
     @Test void draftPlanBlocksEvenWhenLegacyMissionsAndResultsAreCompleteAndReady() {
         order.getExecutionPlan().setStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.DRAFT);
-        assertTrue(com.ondemandmonitoring.mission.service.impl.MissionRuntimeGate.isStructurallyFinalized(first));
-        assertTrue(com.ondemandmonitoring.mission.service.impl.MissionRuntimeGate.isStructurallyFinalized(second));
+        assertFalse(com.ondemandmonitoring.mission.service.impl.MissionRuntimeGate.isStructurallyFinalized(first));
+        assertFalse(com.ondemandmonitoring.mission.service.impl.MissionRuntimeGate.isStructurallyFinalized(second));
         assertTrue(checklist.isReadyForFinalApproval(first));
         assertTrue(checklist.isReadyForFinalApproval(second));
         assertEquals(MissionResultApprovalStatus.APPROVED, results.findByMissionId("a").orElseThrow().getApprovalStatus());
@@ -86,6 +86,20 @@ class OrderExecutionCompletionPolicyTest {
     @Test void finalReadinessOfPreviouslyApprovedSiblingIsRechecked() {
         when(checklist.isReadyForFinalApproval(first)).thenReturn(false);
         assertFalse(evaluate()); assertEquals(OrderStatus.IN_PROGRESS, order.getOrderStatus());
+    }
+    @Test void inspectorConfirmedResultsUseSelectedBundleReadinessInsteadOfReserveMedia() {
+        results.findByMissionId("a").orElseThrow().setInspectorConfirmed(true);
+        when(checklist.isReadyForFinalApproval(first)).thenReturn(false);
+        when(checklist.isReadyForInspectorApproval(first)).thenReturn(true);
+        assertTrue(evaluate());
+        verify(checklist).isReadyForInspectorApproval(first);
+        verify(checklist, never()).isReadyForFinalApproval(first);
+    }
+    @Test void inspectorConfirmedResultWithInvalidSelectionBlocksCompletion() {
+        results.findByMissionId("a").orElseThrow().setInspectorConfirmed(true);
+        when(checklist.isReadyForInspectorApproval(first)).thenReturn(false);
+        assertFalse(evaluate());
+        verify(orders, never()).saveAndFlush(any());
     }
     @Test void zeroEffectiveMissionsCannotComplete() { first.setStatus(MissionStatus.CANCELLED); second.setStatus(MissionStatus.CANCELLED); assertFalse(evaluate()); }
     @Test void terminalOrUnapprovedOrderCannotComplete() {

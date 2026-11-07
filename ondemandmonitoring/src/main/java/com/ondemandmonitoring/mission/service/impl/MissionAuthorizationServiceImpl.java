@@ -31,13 +31,12 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
     private static final Set<MissionStatus> TERMINAL_STATUSES = Set.of(
             MissionStatus.AWAITING_REVIEW, MissionStatus.PENDING_REVIEW, MissionStatus.COMPLETED,
             MissionStatus.FAILED, MissionStatus.CANCELLED);
-    private static final Set<MissionStatus> PILOT_UPLOAD_STATUSES = Set.of(
-            MissionStatus.IN_PROGRESS);
     private final MissionStaffAssignmentRepository assignments;
     private final MissionRepository missions;
     private final AuthenticatedUserResolver currentUser;
     private final com.ondemandmonitoring.mission.repository.MissionResultRepository results;
     private final com.ondemandmonitoring.mission.service.IMissionChecklistScopeService checklistScope;
+    private final com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository publishedEvidence;
     @Autowired
     private MissionDeviceAssignmentRepository deviceAssignments;
     @Autowired
@@ -47,11 +46,9 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
 
     @Override
     public boolean canAttachChecklistEvidence(String missionId) {
-        return findRuntimeMissionById(missionId).filter(m -> PILOT_UPLOAD_STATUSES.contains(m.getStatus()))
-                .filter(m -> results.findByMissionId(m.getId()).map(r -> r.getApprovalStatus() != com.ondemandmonitoring.mission.enums.MissionResultApprovalStatus.APPROVED
-                        && r.getApprovalStatus() != com.ondemandmonitoring.mission.enums.MissionResultApprovalStatus.PENDING_MANAGER_APPROVAL).orElse(true))
-                .map(m -> hasEligibleInspectorAssignment(m, currentUser.getCurrentUser())
-                        || hasEligiblePilotAssignment(m, currentUser.getCurrentUser())
+        return findRuntimeMissionById(missionId).filter(this::reportingStage)
+                .filter(this::reportEditable)
+                .map(m -> hasEligiblePilotAssignment(m, currentUser.getCurrentUser())
                         || canExecuteAsReportingCrew(m, currentUser.getCurrentUser()))
                 .orElse(false);
     }
@@ -181,11 +178,20 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
         User user = currentUser.getCurrentUser();
         if (!hasRole(user, RoleCode.STAFF)) return false;
         return findRuntimeMissionById(missionId)
-                .filter(mission -> mission.getStatus() == MissionStatus.IN_PROGRESS)
-                .map(mission -> {
-                    return hasEligiblePilotAssignment(mission, user)
-                            || canExecuteAsReportingCrew(mission, user);
-                }).orElse(false);
+                .filter(this::reportingStage)
+                .filter(this::reportEditable)
+                .map(mission -> canExecuteAsReportingCrew(mission, user)).orElse(false);
+    }
+
+    private boolean reportEditable(Mission mission) {
+        return results.findByMissionId(mission.getId()).map(result ->
+                result.getApprovalStatus() != com.ondemandmonitoring.mission.enums.MissionResultApprovalStatus.APPROVED
+                        && result.getApprovalStatus() != com.ondemandmonitoring.mission.enums.MissionResultApprovalStatus.PENDING_MANAGER_APPROVAL)
+                .orElse(true);
+    }
+
+    private boolean reportingStage(Mission mission) {
+        return mission.getStatus() == MissionStatus.IN_PROGRESS || mission.getStatus() == MissionStatus.COMPLETED;
     }
 
     private boolean canExecuteAsReportingCrew(Mission mission, User user) {
@@ -225,6 +231,17 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
     }
 
     @Override
+    public boolean canSelectCustomerEvidence(String missionId) {
+        if (!canAssessMonitoringChecklist(missionId)
+                || publishedEvidence.existsByMediaAsset_Mission_Id(missionId)) return false;
+        return results.findByMissionId(missionId).map(result ->
+                result.getApprovalStatus() == com.ondemandmonitoring.mission.enums.MissionResultApprovalStatus.DRAFT
+                        || result.getApprovalStatus() == com.ondemandmonitoring.mission.enums.MissionResultApprovalStatus.REJECTED
+                        || result.getApprovalStatus() == com.ondemandmonitoring.mission.enums.MissionResultApprovalStatus.APPROVED
+                            && result.isInspectorConfirmed()).orElse(true);
+    }
+
+    @Override
     public boolean canMaintainDevice(String missionId) {
         // Postflight records actualEndAt before inspector acceptance. Keep the assigned
         // maintainer authorized while the mission is still active; canPerform rejects
@@ -244,11 +261,10 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
         User user = currentUser.getCurrentUser();
         if (!hasRole(user, RoleCode.STAFF)) return false;
         return findRuntimeMissionById(missionId)
-                .map(mission -> (mission.getStatus() == MissionStatus.IN_PROGRESS
-                                && mission.getActualEndAt() != null
-                                && hasEligibleInspectorAssignment(mission, user))
-                        || (PILOT_UPLOAD_STATUSES.contains(mission.getStatus())
-                                && hasEligiblePilotAssignment(mission, user)))
+                .filter(this::reportingStage)
+                .filter(this::reportEditable)
+                .map(mission -> hasEligiblePilotAssignment(mission, user)
+                        || canExecuteAsReportingCrew(mission, user))
                 .orElse(false);
     }
 
@@ -257,8 +273,11 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
         User user = currentUser.getCurrentUser();
         if (!hasRole(user, RoleCode.STAFF)) return false;
         return findRuntimeMissionById(missionId)
-                .filter(mission -> mission.getStatus() == MissionStatus.IN_PROGRESS
-                        && mission.getActualEndAt() != null)
+                .filter(this::reportingStage)
+                .filter(mission -> mission.getActualEndAt() != null)
+                .filter(mission -> results.findByMissionId(mission.getId())
+                        .map(result -> result.getApprovalStatus() != com.ondemandmonitoring.mission.enums.MissionResultApprovalStatus.APPROVED
+                                || !result.isInspectorConfirmed()).orElse(true))
                 .map(mission -> hasEligibleInspectorAssignment(mission, user))
                 .orElse(false);
     }
@@ -274,7 +293,7 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
     @Override
     public boolean canSubmitMissionResult(String missionId) {
         // The inspector owns the final acceptance package. Pilot/operator finish the flight
-        // and upload data; the inspector reviews everything and submits once to the manager.
+        // and upload data; the inspector reviews and confirms the final customer package.
         return findRuntimeMissionById(missionId)
                 .filter(mission -> (mission.getStatus() == MissionStatus.IN_PROGRESS
                             && mission.getCompletedAt() != null)
@@ -319,10 +338,9 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
                         && hasRole(entry.getStaff(), RoleCode.STAFF)
                         && entry.getAssignedRole() == role
                         && entry.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED
-                        && Boolean.TRUE.equals(entry.getIsCurrent())
                         && (mission.getStatus() == MissionStatus.COMPLETED || mission.getCompletedAt() != null
                             ? entry.getReleasedAt() != null && "MISSION_COMPLETE".equals(entry.getReleaseReason())
-                            : entry.getReleasedAt() == null));
+                            : Boolean.TRUE.equals(entry.getIsCurrent()) && entry.getReleasedAt() == null));
     }
 
     private Optional<Mission> findMissionById(String missionId) {

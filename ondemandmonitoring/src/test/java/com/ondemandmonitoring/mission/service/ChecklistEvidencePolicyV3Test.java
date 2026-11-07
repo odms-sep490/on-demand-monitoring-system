@@ -139,4 +139,20 @@ class ChecklistEvidencePolicyV3Test {
         item.setEvidencePolicyVersion(0); item.setMinimumEvidenceCount(0);
         assertTrue(service.ready(execution, links(), true));
     }
+    @Test void inspectorApprovalRequiresBothSelectedThresholdsAndCompliantCompletedReport() {
+        var list = links("IMAGE", "IMAGE", "VIDEO");
+        execution.setAssessmentStatus(com.ondemandmonitoring.mission.enums.ChecklistAssessmentStatus.COMPLIANT);
+        assertTrue(service.ready(execution, list, true), "Legacy approval does not require selection");
+        assertFalse(service.readyForInspectorApproval(execution, list));
+        list.forEach(link -> link.setSelectedForCustomer(true));
+        assertTrue(service.readyForInspectorApproval(execution, list));
+        list.getLast().setSelectedForCustomer(false); assertFalse(service.readyForInspectorApproval(execution, list));
+        list.getLast().setSelectedForCustomer(true);
+        execution.setAssessmentStatus(com.ondemandmonitoring.mission.enums.ChecklistAssessmentStatus.NON_COMPLIANT);
+        assertFalse(service.readyForInspectorApproval(execution, list));
+        execution.setAssessmentStatus(com.ondemandmonitoring.mission.enums.ChecklistAssessmentStatus.COMPLIANT);
+        execution.setExecutionStatus(ChecklistExecutionStatus.UNABLE_TO_VERIFY); execution.setUnableToVerifyReason("Weather");
+        assertTrue(service.ready(execution, list, true)); assertFalse(service.readyForInspectorApproval(execution, list));
+    }
+
 }

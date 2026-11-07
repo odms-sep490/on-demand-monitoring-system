@@ -30,6 +30,12 @@ public class MissionChecklistEvidence extends BaseEntity {
     private String attachedBy;
     @Column(name = "attached_at", nullable = false, updatable = false)
     private Instant attachedAt;
+    @Column(name = "selected_for_customer", nullable = false, columnDefinition = "boolean default false")
+    private boolean selectedForCustomer = false;
+    @Column(name = "selected_by", length = 255)
+    private String selectedBy;
+    @Column(name = "selected_at")
+    private Instant selectedAt;
     @Column(length = 1000)
     private String note;
     @Column(name = "detached_by")

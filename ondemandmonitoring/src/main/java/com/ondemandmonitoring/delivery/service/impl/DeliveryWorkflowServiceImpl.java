@@ -55,8 +55,8 @@ import org.springframework.transaction.annotation.Transactional;
  * Transactional implementation of the order delivery state machine.
  *
  * <p>The service is the single authority for advancing delivery state. It also
- * prevents original media from being exposed before both final payment and the
- * manager's explicit release have completed.</p>
+ * prevents original media from being exposed before final payment and customer
+ * acceptance, and retains explicit release for legacy recovery.</p>
  */
 @Service
 @RequiredArgsConstructor(onConstructor_ = @org.springframework.beans.factory.annotation.Autowired)
@@ -101,6 +101,120 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
             delivery.setStatus(DeliveryStatus.READY_FOR_MANAGER_REVIEW);
         }
         keepOrderInProgress(order);
+    }
+
+    @Override
+    @Transactional
+    public boolean publishInspectedResults(String orderId) {
+        // Order -> all Missions serializes the last two confirmations and publication retries.
+        var aggregate = completionPolicy.lockAggregate(orderId);
+        Order order = aggregate.order();
+        var effective = aggregate.missions().stream()
+                .filter(com.ondemandmonitoring.mission.service.impl.ExecutionPlanCoverageService::effective).toList();
+        var originals = effective.stream().filter(m -> m.getPurpose() != com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK).toList();
+        if (originals.isEmpty()) return false;
+        var inspectedPackages = missionResults.findByMissionIds(effective.stream().map(Mission::getId).toList());
+        var approved = inspectedPackages.stream()
+                .filter(r -> r.getApprovalStatus() == MissionResultApprovalStatus.APPROVED
+                        && r.getStatus() != com.ondemandmonitoring.mission.enums.MissionResultStatus.FAILED)
+                .map(r -> r.getMission().getId()).collect(Collectors.toSet());
+        if (originals.stream().anyMatch(m -> m.getStatus() != MissionStatus.COMPLETED || !approved.contains(m.getId())))
+            return false;
+        OrderDelivery delivery = deliveries.findByOrderIdForUpdate(orderId).orElse(null);
+        var revisionCase = revisionCases.findByOrderIdAndActiveTrueForUpdate(orderId).orElse(null);
+        var inspected = inspectedPackages.stream()
+                .filter(com.ondemandmonitoring.mission.domain.MissionResult::isInspectorConfirmed)
+                .map(r -> r.getMission().getId()).collect(Collectors.toSet());
+        if (revisionCase == null && originals.stream().anyMatch(m -> !inspected.contains(m.getId()))) return false;
+
+        if (delivery != null && (delivery.getStatus() == DeliveryStatus.CUSTOMER_REVIEW
+                || delivery.getStatus() == DeliveryStatus.READY_FOR_DELIVERY
+                || delivery.getStatus() == DeliveryStatus.DELIVERED
+                || delivery.getStatus() == DeliveryStatus.FINAL_PAYMENT_PENDING)) return false;
+        if (revisionCase == null && delivery != null && delivery.getCurrentReviewRoundId() != null) return false;
+        var items = checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId);
+        if (items.isEmpty()) return false;
+        Map<String, com.ondemandmonitoring.delivery.domain.ResultRevisionCaseItem> reworkByItem = new LinkedHashMap<>();
+        if (revisionCase != null) {
+            for (var item : revisionCaseItems.findByResultRevisionCaseIdOrderByCreatedAtAsc(revisionCase.getId())) {
+                if (item.getStatus() == com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.RESOLVED
+                        || item.getStatus() == com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.OUT_OF_SCOPE_ACKNOWLEDGED)
+                    continue;
+                // Reserve-media decisions remain the Manager's work; never publish them implicitly.
+                if (item.getScopeDecision() != com.ondemandmonitoring.delivery.enums.ResultRevisionScope.IN_SCOPE
+                        || item.getStrategy() != com.ondemandmonitoring.delivery.enums.ResultRevisionStrategy.REWORK
+                        || item.getStatus() != com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.IN_PROGRESS
+                        || item.getAssignedReworkMissionId() == null) return false;
+                var mission = effective.stream().filter(m -> m.getId().equals(item.getAssignedReworkMissionId())).findFirst().orElse(null);
+                if (mission == null || mission.getPurpose() != com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK
+                        || !revisionCase.getId().equals(mission.getResultRevisionCaseId())
+                        || mission.getStatus() != MissionStatus.COMPLETED || !approved.contains(mission.getId())
+                        || !inspected.contains(mission.getId())) return false;
+                reworkByItem.put(item.getOrderChecklistItem().getId(), item);
+            }
+            if (reworkByItem.isEmpty()) return false;
+        } else if (order.getOrderStatus() != OrderStatus.COMPLETED && !completionPolicy.completeIfReady(aggregate)) {
+            return false;
+        }
+        Map<String, List<MissionChecklistEvidence>> selected = new LinkedHashMap<>();
+        for (var mission : effective) {
+            if (mission.getStatus() != MissionStatus.COMPLETED || !approved.contains(mission.getId())) continue;
+            if (revisionCase == null && mission.getPurpose() == com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK) continue;
+            for (var link : missionEvidence.findActiveByMissionId(mission.getId())) {
+                String itemId = link.getMissionChecklistExecution().getOrderChecklistItemId();
+                if (!link.isSelectedForCustomer() || link.getDetachedAt() != null) continue;
+                if (revisionCase != null && (!reworkByItem.containsKey(itemId)
+                        || !ReworkDeliveryEvidencePolicy.allows(reworkByItem.get(itemId), mission.getId()))) continue;
+                selected.computeIfAbsent(itemId, ignored -> new ArrayList<>()).add(link);
+            }
+        }
+        String baseRoundId = delivery == null ? null : delivery.getCurrentReviewRoundId();
+        var baseRound = baseRoundId == null ? null : reviewRounds.findByIdForUpdate(baseRoundId).orElseThrow();
+        Map<String, List<com.ondemandmonitoring.delivery.domain.ResultReviewRoundEvidence>> previous = new HashMap<>();
+        if (baseRound != null) {
+            var rowIds = reviewRoundItems.findByRoundIdOrderByDisplayOrderAsc(baseRoundId).stream().map(com.ondemandmonitoring.delivery.domain.ResultReviewRoundItem::getId).toList();
+            if (!rowIds.isEmpty()) roundEvidence.findByRoundItemIdInOrderByRoundItemIdAscCreatedAtAsc(rowIds).forEach(row ->
+                    previous.computeIfAbsent(row.getRoundItem().getOrderChecklistItem().getId(), ignored -> new ArrayList<>()).add(row));
+        }
+        List<ChecklistDeliveryPublishRequest.ChecklistSelection> operations = new ArrayList<>();
+        for (var item : items) {
+            if (revisionCase != null && !reworkByItem.containsKey(item.getId())) continue;
+            var links = selected.getOrDefault(item.getId(), List.of());
+            var assets = links.stream().map(MissionChecklistEvidence::getMediaAsset)
+                    .collect(Collectors.toMap(MediaAsset::getId, asset -> asset, (left, right) -> left, TreeMap::new));
+            for (var asset : assets.values()) {
+                if (evidencePolicy.ineligibilityReason(asset, true) != null)
+                    throw new ApiException(ErrorCode.EVIDENCE_NOT_ELIGIBLE);
+                retentionAccess.requireAccessible(asset);
+            }
+            validateChecklistMinimum(item, List.copyOf(assets.values()));
+            var newIds = new ArrayList<>(assets.keySet());
+            var old = previous.getOrDefault(item.getId(), List.of());
+            List<ChecklistDeliveryPublishRequest.Replacement> replacements = new ArrayList<>();
+            int paired = Math.min(old.size(), newIds.size());
+            for (int i = 0; i < paired; i++) replacements.add(new ChecklistDeliveryPublishRequest.Replacement(old.get(i).getId(), newIds.get(i)));
+            operations.add(new ChecklistDeliveryPublishRequest.ChecklistSelection(item.getId(),
+                    newIds.subList(paired, newIds.size()), old.subList(paired, old.size()).stream().map(com.ondemandmonitoring.delivery.domain.ResultReviewRoundEvidence::getId).toList(), replacements));
+        }
+        if (operations.isEmpty()) return false;
+        if (revisionCase == null) {
+            validateSelectedOrderQuantity(order, selected.values().stream().flatMap(List::stream)
+                    .map(MissionChecklistEvidence::getMediaAsset).toList());
+        }
+        if (delivery != null && delivery.getStatus() == DeliveryStatus.PROCESSING) {
+            delivery.setStatus(DeliveryStatus.READY_FOR_MANAGER_REVIEW);
+            // Capture the command version after Hibernate persists this transition. Otherwise
+            // the first query in releaseChecklistPreview auto-flushes and makes our own version stale.
+            deliveries.flush();
+        }
+        // Surplus has already been explicitly confirmed by the Inspector on each selection command.
+        var draft = new ChecklistDeliveryPublishRequest(UUID.randomUUID(), delivery == null ? null : delivery.getVersion(),
+                baseRoundId, baseRound == null ? null : baseRound.getVersion(), null, true, null, operations);
+        String fingerprint = checklistPublishFingerprint(orderId, draft);
+        var command = new ChecklistDeliveryPublishRequest(draft.clientRequestId(), draft.expectedDeliveryVersion(),
+                draft.baseReviewRoundId(), draft.expectedReviewRoundVersion(), null, true, fingerprint, operations);
+        releaseChecklistPreview(orderId, command);
+        return true;
     }
 
     @Override
@@ -245,7 +359,6 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                             .orElseThrow(() -> new ApiException(ErrorCode.RESULT_REVIEW_ITEM_INVALID));
                     candidate.remove(old.getMediaAsset().getId());
                     sourceEvidenceByMedia.remove(provenanceKey(itemId, old.getMediaAsset().getId()));
-                    selectedAssetsById.remove(old.getMediaAsset().getId());
                     changedChecklistIds.add(itemId);
                 }
                 for (var replacement : Objects.requireNonNullElse(operation.replacements(), List.<ChecklistDeliveryPublishRequest.Replacement>of())) {
@@ -263,7 +376,6 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                     sourceEvidenceByMedia.remove(provenanceKey(itemId, old.getMediaAsset().getId()));
                     sourceEvidenceByMedia.put(provenanceKey(itemId, replacement.newMediaAssetId()), old.getId());
                     supersededEvidenceByMedia.put(provenanceKey(itemId, replacement.newMediaAssetId()), old.getId());
-                    selectedAssetsById.remove(old.getMediaAsset().getId());
                     selectedAssetsById.put(replacement.newMediaAssetId(), newLink.getMediaAsset());
                     changedChecklistIds.add(itemId);
                 }
@@ -381,6 +493,8 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                     || delivery.getStatus() == DeliveryStatus.DELIVERED)) {
             if (delivery.getStatus() == DeliveryStatus.FINAL_PAYMENT_PENDING && isInvoiceFullyPaid(invoice))
                 delivery.setStatus(DeliveryStatus.READY_FOR_DELIVERY);
+            if (delivery.getStatus() == DeliveryStatus.READY_FOR_DELIVERY && isInvoiceFullyPaid(invoice))
+                return releaseOriginals(orderId);
             return response(delivery, effective, List.of(), false);
         }
         if (!Objects.equals(round.getVersion(), expectedRoundVersion))
@@ -398,6 +512,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         delivery.setStatus(activeRevisionCase != null && !caseResolved
                 ? DeliveryStatus.READY_FOR_MANAGER_REVIEW
                 : isInvoiceFullyPaid(invoice) ? DeliveryStatus.READY_FOR_DELIVERY : DeliveryStatus.FINAL_PAYMENT_PENDING);
+        if (delivery.getStatus() == DeliveryStatus.READY_FOR_DELIVERY) return releaseOriginals(orderId);
         return response(delivery, effective, List.of(), false);
     }
 
@@ -421,6 +536,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         delivery.setStatus(isInvoiceFullyPaid(invoice)
                 ? DeliveryStatus.READY_FOR_DELIVERY
                 : DeliveryStatus.FINAL_PAYMENT_PENDING);
+        if (delivery.getStatus() == DeliveryStatus.READY_FOR_DELIVERY) releaseOriginals(orderId);
     }
 
     private boolean resolveAcceptedRevisionItems(
@@ -680,6 +796,29 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
             case IMAGE_OR_VIDEO, IMAGE_AND_VIDEO -> unique.size() >= item.getMinimumEvidenceCount();
         };
         if (!satisfied) throw new ApiException(ErrorCode.ORDER_MEDIA_QUANTITY_NOT_MET);
+    }
+
+    private void validateSelectedOrderQuantity(Order order, List<MediaAsset> selected) {
+        long requiredImages = 0, requiredVideos = 0;
+        for (var deliverable : order.getDeliverables()) {
+            var requirement = deliverable.getRequirement();
+            if (requirement == null) continue;
+            requiredImages += mediaQuantity(requirement.get("imageQuantity"));
+            requiredVideos += mediaQuantity(requirement.get("videoQuantity"));
+        }
+        var distinct = selected.stream().collect(Collectors.toMap(DeliveryWorkflowServiceImpl::contentKey,
+                asset -> asset, (left, right) -> left));
+        long images = distinct.values().stream().filter(asset -> "IMAGE".equals(asset.getType())).count();
+        long videos = distinct.values().stream().filter(asset -> "VIDEO".equals(asset.getType())).count();
+        if (images < requiredImages || videos < requiredVideos)
+            throw new ApiException(ErrorCode.ORDER_MEDIA_QUANTITY_NOT_MET,
+                    "The customer selection must include the distinct image and video quantities ordered");
+    }
+
+    private static long mediaQuantity(Object value) {
+        if (value instanceof Number number) return Math.max(0, number.longValue());
+        try { return value == null ? 0 : Math.max(0, Long.parseLong(value.toString())); }
+        catch (NumberFormatException ignored) { return 0; }
     }
 
     private boolean exceedsChecklistMinimum(OrderChecklistItem item, List<MediaAsset> assets) {

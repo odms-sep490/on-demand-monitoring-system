@@ -42,6 +42,10 @@ public class MissionResult extends BaseEntity {
     @Column(name = "approval_status", nullable = false, length = 40)
     MissionResultApprovalStatus approvalStatus;
 
+    /** True only after the inspector freezes the selected customer bundle. */
+    @Column(name = "inspector_confirmed", nullable = false, columnDefinition = "boolean default false")
+    boolean inspectorConfirmed;
+
     @Column(name = "started_at")
     Instant startedAt;
 

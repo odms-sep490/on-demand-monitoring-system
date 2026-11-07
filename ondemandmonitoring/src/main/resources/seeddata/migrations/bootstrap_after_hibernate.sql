@@ -584,6 +584,17 @@ CREATE INDEX IF NOT EXISTS ix_result_revision_request_case_item
 
 -- END RESULT REVISION CASE
 
+-- Inspector acceptance and per-checklist customer bundle; reserve media remains unpublished.
+ALTER TABLE mission_results ADD COLUMN IF NOT EXISTS inspector_confirmed BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE mission_checklist_executions
+    ADD COLUMN IF NOT EXISTS assessment_note VARCHAR(2000),
+    ADD COLUMN IF NOT EXISTS assessed_by VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS assessed_at TIMESTAMPTZ;
+ALTER TABLE mission_checklist_evidence
+    ADD COLUMN IF NOT EXISTS selected_for_customer BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS selected_by VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS selected_at TIMESTAMPTZ;
+
 -- Review/rework cleanup, kept in this single post-Hibernate bootstrap.
 -- The fresh-database guard above must pass before these obsolete objects are removed.
 ALTER TABLE result_review_rounds DROP COLUMN IF EXISTS published_payload;

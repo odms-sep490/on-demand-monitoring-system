@@ -9,6 +9,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface ResultReviewRoundEvidenceRepository extends JpaRepository<ResultReviewRoundEvidence, String> {
+    boolean existsByMediaAsset_Mission_Id(String missionId);
+
     List<ResultReviewRoundEvidence> findByRoundItemIdOrderByCreatedAtAsc(String roundItemId);
     @EntityGraph(attributePaths = {"mediaAsset", "roundItem"})
     List<ResultReviewRoundEvidence> findByRoundItemIdInOrderByRoundItemIdAscCreatedAtAsc(Iterable<String> roundItemIds);

@@ -51,6 +51,12 @@ public class MissionChecklistExecution extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "assessment_status", nullable = false, length = 30)
     private ChecklistAssessmentStatus assessmentStatus = ChecklistAssessmentStatus.NOT_ASSESSED;
+    @Column(name = "assessment_note", length = 2000)
+    private String assessmentNote;
+    @Column(name = "assessed_by", length = 255)
+    private String assessedBy;
+    @Column(name = "assessed_at")
+    private Instant assessedAt;
     @Column(length = 2000)
     private String observation;
     @Column(name = "unable_to_verify_reason", length = 1000)

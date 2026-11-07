@@ -68,7 +68,8 @@ public class OrderExecutionCompletionPolicy implements IOrderExecutionCompletion
             // Expected incompleteness is a boolean, not an exception caught from a transactional
             // proxy (which would mark the approval transaction rollback-only).
             // NON_COMPLIANT and justified UNABLE_TO_VERIFY retain their existing semantics.
-            if (!checklist.isReadyForFinalApproval(mission)) return false;
+            if (result.isInspectorConfirmed()
+                    ? !checklist.isReadyForInspectorApproval(mission) : !checklist.isReadyForFinalApproval(mission)) return false;
         }
         if (order.getOrderStatus() != OrderStatus.COMPLETED) {
             order.setOrderStatus(OrderStatus.COMPLETED);

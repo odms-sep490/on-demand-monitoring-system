@@ -36,8 +36,79 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
     private final ChecklistEvidencePolicy policy;
     private final ChecklistEvidenceMapper mapper;
     private final IMediaObjectStorage storage;
+    private final com.ondemandmonitoring.order.repository.OrderRepository orders;
+    private final com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository publishedEvidence;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.ondemandmonitoring.media.service.IMediaOrphanCleanupService orphanCleanup;
+
+    /** Replace this execution's customer selection; unselected attachments remain staff reserve evidence. */
+    @Override
+    @Transactional
+    public List<ChecklistEvidenceResponse> selectForCustomer(String missionId, String executionId,
+            ChecklistCustomerSelectionRequest request) {
+        // Publication holds the same aggregate locks in this order.
+        String orderId = missions.findOrderIdByMissionId(missionId)
+                .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
+        orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        Mission mission = mission(missionId, true);
+        if (!orderId.equals(mission.getOrder().getId())) throw new ApiException(ErrorCode.CONCURRENT_UPDATE);
+        if (!authorization.canSelectCustomerEvidence(missionId)) throw new ApiException(ErrorCode.ACCESS_DENIED);
+        boolean approvedCorrection = editableSelection(missionId);
+        if (request == null || request.expectedVersion() == null || request.expectedVersion() < 0
+                || request.evidenceIds() == null || request.evidenceIds().size() > 1000
+                || request.evidenceIds().stream().anyMatch(id -> id == null || id.isBlank()))
+            throw new ApiException(ErrorCode.INVALID_REQUEST);
+        if (new HashSet<>(request.evidenceIds()).size() != request.evidenceIds().size())
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Duplicate evidence IDs are not allowed");
+        var locked = executions.findByIdForUpdate(executionId)
+                .orElseThrow(() -> new ApiException(ErrorCode.CHECKLIST_EXECUTION_NOT_FOUND));
+        // Reuse the same assignment/order integrity validation as attachment mutations.
+        MissionChecklistExecution execution = validateExecution(mission, locked);
+        version(execution, request.expectedVersion());
+        var applicable = active(missionId).stream()
+                .filter(link -> link.getDetachedAt() == null && executionId.equals(link.getMissionChecklistExecution().getId())).toList();
+        var requested = new HashSet<>(request.evidenceIds());
+        var selected = applicable.stream().filter(link -> requested.contains(link.getId())).toList();
+        if (selected.size() != requested.size())
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Evidence must be active and belong to this mission and execution");
+        var item = execution.getOrderChecklistItem();
+        var type = item.getEvidencePolicyVersion() == 1 ? RequiredEvidenceType.IMAGE_OR_VIDEO : item.getRequiredEvidenceType();
+        // Lock media in stable order before validating its current approval and storage state.
+        for (var link : selected.stream().sorted(Comparator.comparing(e -> e.getMediaAsset().getId())).toList()) {
+            var asset = media.findByIdForUpdate(link.getMediaAsset().getId())
+                    .orElseThrow(() -> new ApiException(ErrorCode.MEDIA_NOT_FOUND));
+            if (!missionId.equals(asset.getMissionId()) || !policy.mediaTypeMatches(type, asset.getType())
+                    || policy.ineligibilityReason(asset, true) != null)
+                throw new ApiException(ErrorCode.EVIDENCE_NOT_ELIGIBLE,
+                        "Only validated, approved evidence of the saved checklist type can be selected");
+        }
+        if (approvedCorrection && !evidenceRequirementsSatisfied(execution, selected, true))
+            throw new ApiException(ErrorCode.CHECKLIST_NOT_READY,
+                    "An approved mission must retain a complete customer selection satisfying its saved evidence policy");
+        // Surplus uses actual selected rows; identical content cannot evade confirmation or inflate minima.
+        boolean surplus;
+        if (item.getEvidencePolicyVersion() == 3) {
+            long images = selected.stream().filter(e -> "IMAGE".equals(e.getMediaAsset().getType())).count();
+            long videos = selected.stream().filter(e -> "VIDEO".equals(e.getMediaAsset().getType())).count();
+            surplus = images > item.getMinimumImageCount() || videos > item.getMinimumVideoCount();
+        } else surplus = selected.size() > item.getMinimumEvidenceCount();
+        if (surplus && !request.confirmSurplus()) throw new ApiException(ErrorCode.DELIVERY_SURPLUS_CONFIRMATION_REQUIRED);
+        boolean changed = false;
+        Instant now = Instant.now();
+        for (var link : applicable) {
+            boolean next = requested.contains(link.getId());
+            if (next == link.isSelectedForCustomer()) continue;
+            link.setSelectedForCustomer(next);
+            link.setSelectedBy(next ? currentUser.getCurrentUserId() : null);
+            link.setSelectedAt(next ? now : null);
+            changed = true;
+        }
+        if (changed) {
+            evidence.saveAllAndFlush(applicable);
+            touch(execution, false);
+        }
+        return applicable.stream().map(this::toResponse).toList();
+    }
 
     @Override
     @Transactional
@@ -131,20 +202,27 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
     @Override
     public List<MissionChecklistEvidence> active(String missionId) {
         var links = evidence.findActiveByMissionId(missionId);
-        if (links.stream().anyMatch(link -> !missionId.equals(link.getMissionChecklistExecution().getMissionId())
+        if (links.stream().anyMatch(link -> !missionId.equals(link.getMissionId())
+                || !missionId.equals(link.getMissionChecklistExecution().getMissionId())
                 || !missionId.equals(link.getMediaAsset().getMissionId())))
             throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_INTEGRITY_INVALID);
         return links;
     }
 
     @Override
+    public boolean readyForInspectorApproval(MissionChecklistExecution execution, List<MissionChecklistEvidence> links) {
+        return execution.getExecutionStatus() == ChecklistExecutionStatus.COMPLETED
+                && execution.getAssessmentStatus() == ChecklistAssessmentStatus.COMPLIANT
+                && evidenceRequirementsSatisfied(execution,
+                        links.stream().filter(MissionChecklistEvidence::isSelectedForCustomer).toList(), true);
+    }
+
+    @Override
     public boolean ready(MissionChecklistExecution execution, List<MissionChecklistEvidence> links, boolean finalApproval) {
         if (execution.getExecutionStatus() == ChecklistExecutionStatus.UNABLE_TO_VERIFY)
             return execution.getUnableToVerifyReason() != null && !execution.getUnableToVerifyReason().isBlank();
-        // Assessment is the operator-facing completion signal. Keep COMPLETED as a
-        // compatibility path for older checklist records that predate assessments.
-        if (execution.getAssessmentStatus() == ChecklistAssessmentStatus.NOT_ASSESSED
-                && execution.getExecutionStatus() != ChecklistExecutionStatus.COMPLETED) return false;
+        if (execution.getExecutionStatus() != ChecklistExecutionStatus.COMPLETED
+                && (!finalApproval || execution.getAssessmentStatus() == ChecklistAssessmentStatus.NOT_ASSESSED)) return false;
         return evidenceRequirementsSatisfied(execution, links, finalApproval);
     }
 
@@ -163,7 +241,7 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
                 ? RequiredEvidenceType.IMAGE_OR_VIDEO : item.getRequiredEvidenceType();
         var applicable = links.stream().filter(e -> e.getDetachedAt() == null && execution.getId().equals(e.getMissionChecklistExecution().getId())).toList();
         long count = policy.eligibleDistinctCount(applicable, execution.getId(), requiredType, finalApproval);
-        // Required packages cannot retain rejected, pending, invalid-type, or otherwise ineligible extra evidence at final approval.
+        // The caller supplies selected links for inspector approval and all links for legacy approval.
         return count >= item.getMinimumEvidenceCount() && (!finalApproval || applicable.stream().allMatch(e ->
                 policy.mediaTypeMatches(requiredType, e.getMediaAsset().getType())
                         && policy.ineligibilityReason(e.getMediaAsset(), true) == null));
@@ -171,7 +249,7 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
 
     /**
      * Policy V3 needs the requested images AND the requested videos. A pile of one type never stands in for the other, and at
-     * final approval every attached asset must be eligible.
+     * final approval every selected asset must be eligible.
      */
     private boolean v3Satisfied(OrderChecklistItem item, MissionChecklistExecution execution, List<MissionChecklistEvidence> links, boolean finalApproval) {
         if (item.getMinimumImageCount() < 0 || item.getMinimumVideoCount() < 0
@@ -181,12 +259,17 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
         long images = policy.eligibleDistinctCount(applicable, execution.getId(), RequiredEvidenceType.IMAGE, finalApproval);
         long videos = policy.eligibleDistinctCount(applicable, execution.getId(), RequiredEvidenceType.VIDEO, finalApproval);
         return images >= item.getMinimumImageCount() && videos >= item.getMinimumVideoCount()
-                && (!finalApproval || applicable.stream().allMatch(e -> policy.ineligibilityReason(e.getMediaAsset(), true) == null));
+                && (!finalApproval || applicable.stream().allMatch(e ->
+                        policy.mediaTypeMatches(item.getRequiredEvidenceType(), e.getMediaAsset().getType())
+                                && policy.ineligibilityReason(e.getMediaAsset(), true) == null));
     }
 
     @Override
     public String readinessFailure(MissionChecklistExecution execution, List<MissionChecklistEvidence> links, boolean finalApproval) {
-        if (ready(execution, links, finalApproval) || execution.getExecutionStatus() == ChecklistExecutionStatus.UNABLE_TO_VERIFY) return null;
+        if (ready(execution, links, finalApproval)) return null;
+        if (execution.getExecutionStatus() == ChecklistExecutionStatus.UNABLE_TO_VERIFY)
+            return "UNABLE_REASON_REQUIRED";
+        if (execution.getExecutionStatus() != ChecklistExecutionStatus.COMPLETED) return "EXECUTION_NOT_COMPLETED";
         var item = execution.getOrderChecklistItem();
         if (item.getEvidencePolicyVersion() == 3) {
             long images = policy.eligibleDistinctCount(links, execution.getId(), RequiredEvidenceType.IMAGE, finalApproval);
@@ -249,10 +332,9 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
                         && response.getEligibleVideoCount() >= response.getMinimumVideoCount()
                 : response.getEligibleEvidenceCount() >= response.getMinimumEvidenceCount()));
         response.setEvidenceReady(ready(execution, links, false));
+        response.setReadyForFinalApproval(readyForInspectorApproval(execution, links));
         var blockers = new LinkedHashSet<String>();
-        if (!execution.getExecutionStatus().isTerminal()
-                && execution.getAssessmentStatus() == ChecklistAssessmentStatus.NOT_ASSESSED)
-            blockers.add("ASSESSMENT_REQUIRED");
+        if (!execution.getExecutionStatus().isTerminal()) blockers.add("EXECUTION_NOT_COMPLETED");
         if (!response.isEvidenceRequirementSatisfied()) {
             blockers.add("INSUFFICIENT_EVIDENCE");
             applicable.stream().map(link -> {
@@ -289,7 +371,10 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
         return (lock ? missions.findByIdForUpdate(id) : missions.findById(id)).orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
     }
     private MissionChecklistExecution execution(Mission mission, String id) {
-        var execution = executions.findById(id).orElseThrow(() -> new ApiException(ErrorCode.CHECKLIST_EXECUTION_NOT_FOUND));
+        return validateExecution(mission, executions.findById(id)
+                .orElseThrow(() -> new ApiException(ErrorCode.CHECKLIST_EXECUTION_NOT_FOUND)));
+    }
+    private MissionChecklistExecution validateExecution(Mission mission, MissionChecklistExecution execution) {
         if (!mission.getId().equals(execution.getMissionId())) throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_PARENT_MISMATCH);
         MissionRuntimeGate.requireFinalizedStructure(mission);
         if (!ChecklistAssignmentIntegrity.matches(mission, execution))
@@ -298,6 +383,16 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
                 || !mission.getOrder().getId().equals(execution.getOrderChecklistItem().getOrder().getId()))
             throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_INTEGRITY_INVALID);
         return execution;
+    }
+    private boolean editableSelection(String missionId) {
+        if (publishedEvidence.existsByMediaAsset_Mission_Id(missionId))
+            throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_LOCKED, "Published customer evidence cannot be changed");
+        var result = results.findByMissionId(missionId);
+        if (result.isEmpty() || result.get().getApprovalStatus() == MissionResultApprovalStatus.DRAFT
+                || result.get().getApprovalStatus() == MissionResultApprovalStatus.REJECTED) return false;
+        if (result.get().getApprovalStatus() == MissionResultApprovalStatus.APPROVED && result.get().isInspectorConfirmed())
+            return true;
+        throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_LOCKED);
     }
     private void editable(String missionId) {
         if (results.findByMissionId(missionId).map(r -> r.getApprovalStatus() == MissionResultApprovalStatus.APPROVED
@@ -308,6 +403,15 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
         if (expected == null || expected < 0 || !Objects.equals(expected, execution.getVersion())) throw new ApiException(ErrorCode.CONCURRENT_UPDATE);
     }
     private void touch(MissionChecklistExecution execution) {
+        touch(execution, true);
+    }
+    private void touch(MissionChecklistExecution execution, boolean invalidateAssessment) {
+        if (invalidateAssessment) {
+            execution.setAssessmentStatus(ChecklistAssessmentStatus.NOT_ASSESSED);
+            execution.setAssessmentNote(null);
+            execution.setAssessedBy(null);
+            execution.setAssessedAt(null);
+        }
         execution.setUpdatedAt(Instant.now()); execution.setLastModifiedBy(currentUser.getCurrentUserId()); executions.saveAndFlush(execution);
     }
     private String trimmed(String value) {

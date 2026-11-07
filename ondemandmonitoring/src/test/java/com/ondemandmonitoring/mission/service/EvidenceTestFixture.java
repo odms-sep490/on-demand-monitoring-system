@@ -12,6 +12,6 @@ public final class EvidenceTestFixture {
         return new ChecklistEvidenceServiceImpl(mock(MissionRepository.class), mock(MissionChecklistExecutionRepository.class),
                 mock(MissionChecklistEvidenceRepository.class), mock(MediaAssetRepository.class), mock(MissionResultRepository.class),
                 mock(IMissionAuthorizationService.class), mock(AuthenticatedUserResolver.class), new ChecklistEvidencePolicy(),
-                org.mapstruct.factory.Mappers.getMapper(ChecklistEvidenceMapper.class), mock(IMediaObjectStorage.class));
+                org.mapstruct.factory.Mappers.getMapper(ChecklistEvidenceMapper.class), mock(IMediaObjectStorage.class), mock(com.ondemandmonitoring.order.repository.OrderRepository.class), mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class));
     }
 }

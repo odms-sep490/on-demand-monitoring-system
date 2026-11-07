@@ -16,6 +16,8 @@ import java.util.Set;
 public interface IDeliveryWorkflowService {
     void markProcessing(String orderId);
     void markReadyForManagerReview(String orderId);
+    /** Publishes frozen inspector selections when the complete order/remediation scope is ready. */
+    boolean publishInspectedResults(String orderId);
     void requireOriginalAccess(String orderId);
     List<String> originalAccessibleMissionIds(List<String> missionIds);
     Set<String> publishedMediaAssetIds(List<String> missionIds);

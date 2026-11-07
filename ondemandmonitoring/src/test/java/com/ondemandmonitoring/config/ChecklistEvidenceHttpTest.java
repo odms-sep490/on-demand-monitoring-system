@@ -62,6 +62,33 @@ class ChecklistEvidenceHttpTest {
         mvc.perform(delete("/api/missions/m/checklist-executions/e/evidence/link?expectedVersion=4").with(jwt().authorities(()->"ROLE_STAFF")))
                 .andExpect(status().isOk()); verify(evidence).detach("m","e","link",4,null);
     }
+    @Test void selectionUsesExecutionVersionAndEvidenceIdsWithEnvelope() throws Exception {
+        var selected = new com.ondemandmonitoring.mission.dto.response.ChecklistEvidenceResponse();
+        selected.setEvidenceId("evidence-1"); selected.setSelectedForCustomer(true); selected.setSelectedBy("inspector");
+        when(evidence.selectForCustomer(eq("m"), eq("e"), any())).thenReturn(List.of(selected));
+        mvc.perform(put("/api/missions/m/checklist-executions/e/customer-selection")
+                .with(jwt().authorities(() -> "ROLE_STAFF")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"expectedVersion\":4,\"evidenceIds\":[\"evidence-1\"],\"confirmSurplus\":true}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].selectedForCustomer").value(true))
+                .andExpect(jsonPath("$.data[0].selectedBy").value("inspector"));
+        verify(evidence).selectForCustomer(eq("m"), eq("e"), argThat(request -> request.expectedVersion() == 4L
+                && request.evidenceIds().equals(List.of("evidence-1")) && request.confirmSurplus()));
+    }
+
+    @Test void selectionPayloadRequiresNonnegativeVersionAndAtMostThousandNonblankIds() throws Exception {
+        String url = "/api/missions/m/checklist-executions/e/customer-selection";
+        for (String body : List.of("{}", "{\"expectedVersion\":-1,\"evidenceIds\":[],\"confirmSurplus\":false}",
+                "{\"expectedVersion\":0,\"evidenceIds\":[\"\"],\"confirmSurplus\":false}")) {
+            mvc.perform(put(url).with(jwt().authorities(() -> "ROLE_STAFF"))
+                    .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isBadRequest());
+        }
+        String ids = String.join(",", java.util.Collections.nCopies(1001, "\"evidence\""));
+        mvc.perform(put(url).with(jwt().authorities(() -> "ROLE_STAFF")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"expectedVersion\":0,\"evidenceIds\":[" + ids + "],\"confirmSurplus\":false}"))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(evidence);
+    }
+
     @Configuration static class Beans {
         @Bean static org.springframework.validation.beanvalidation.MethodValidationPostProcessor methodValidation() {
             var processor = new org.springframework.validation.beanvalidation.MethodValidationPostProcessor();

@@ -5,7 +5,7 @@ import java.util.Map;
 
 /**
  * Starting prices for the bootstrap checklists in {@link ChecklistDefaults}, keyed by number (1-based, same as
- * {@link ChecklistDefaults#code(int)}). Calibrated so each default service totals about its former catalog price:
+ * {@link ChecklistDefaults#code(int)}). Calibrated so each default service keeps its current catalog price:
  * construction 3.5M, factory 3.0M, area 2.5M, forest 4.0M (checklists 4 and 6 are shared by several services).
  * Media prices come from the DEFAULT pricing profile, so only the base price and the included allowance live here.
  * They are starting values an Admin is expected to adjust; the initializer never overwrites a checklist that already
@@ -25,7 +25,7 @@ public final class ChecklistDefaultPricing {
             Map.entry(2, Pricing.of(800_000, 10, 1)),   // Ghi nhận tiến độ các khu vực đang thi công
             Map.entry(3, Pricing.of(700_000, 15, 1)),   // Kiểm tra mặt ngoài công trình
             Map.entry(4, Pricing.of(400_000, 10, 1)),   // Quan sát khu vực khó tiếp cận (shared)
-            Map.entry(5, Pricing.of(500_000, 20, 0)),   // Chụp ảnh tổng quan công trình
+            Map.entry(5, Pricing.of(500_000, 4, 0)),    // Chụp ảnh tổng quan công trình
             Map.entry(6, Pricing.of(300_000, 5, 1)),    // Ghi nhận hiện trạng sau khi hoàn tất kiểm tra (shared)
             Map.entry(7, Pricing.of(700_000, 10, 1)),   // Kiểm tra tình trạng tổng thể nhà xưởng
             Map.entry(8, Pricing.of(700_000, 15, 1)),   // Kiểm tra mái nhà xưởng
@@ -39,7 +39,9 @@ public final class ChecklistDefaultPricing {
             Map.entry(16, Pricing.of(800_000, 10, 1)),  // Quan sát tình trạng khu vực cây xanh
             Map.entry(17, Pricing.of(700_000, 10, 1)),  // Quan sát khu vực có dấu hiệu bất thường
             Map.entry(18, Pricing.of(600_000, 15, 0)),  // Chụp ảnh các vị trí được chỉ định
-            Map.entry(19, Pricing.of(600_000, 5, 1)));  // Ghi nhận hiện trạng sau khi hoàn tất giám sát
+            Map.entry(19, Pricing.of(600_000, 5, 1)),   // Ghi nhận hiện trạng sau khi hoàn tất giám sát
+            Map.entry(20, Pricing.of(1_750_000, 4, 0)),  // Chụp ảnh tổng quan công trình
+            Map.entry(21, Pricing.of(1_750_000, 0, 1))); // Quay video quanh công trình
 
     public static Pricing forNumber(int number) { return BY_NUMBER.get(number); }
 }

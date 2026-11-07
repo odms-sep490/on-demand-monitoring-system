@@ -85,6 +85,8 @@ public class MissionResponse {
 
     Double radiusM;
 
+    Double altitudeM;
+
     String deviceId;
 
     String deviceCode;

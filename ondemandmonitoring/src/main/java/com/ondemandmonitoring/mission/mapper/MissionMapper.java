@@ -25,6 +25,7 @@ public interface MissionMapper {
     @Mapping(source = "order.customer.fullName", target = "customerName")
     @Mapping(source = "order.description", target = "description")
     @Mapping(source = "order.address", target = "address")
+    @Mapping(source = "order.altitudeM", target = "altitudeM")
     @Mapping(source = "order.rejectReason", target = "rejectionReason")
     @Mapping(source = "flightPermit.status", target = "flightPermitStatus", defaultValue = "PENDING")
     @Mapping(source = "flightPermit.note", target = "flightPermitNote")

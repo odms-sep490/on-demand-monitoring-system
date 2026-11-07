@@ -99,6 +99,15 @@ case "$SIM_WORLD" in
         ;;
 esac
 
+# The checklist demo uses a lightweight scene with the same world name and
+# site coordinates. Keep the complete Forest3D scene for realistic simulation.
+if [ "$SIM_WORLD" = "compact" ] && [ "${FAST_DEMO_MODE:-0}" = "1" ]; then
+    fast_demo_world="$FOREST3D_PATH/worlds/forest_monitoring_compact_fast_demo.sdf"
+    if [ -f "$fast_demo_world" ]; then
+        FOREST3D_WORLD_FILE="$fast_demo_world"
+    fi
+fi
+
 source "$PX4_BUILD/rootfs/gz_env.sh"
 export PATH="$PROJECT_PATH/scripts/wsl-bin:$PATH"
 export FOREST3D_GZ_GUI_CONFIG
@@ -144,6 +153,7 @@ fi
 if [ "$SIM_WORLD" = "compact" ]; then
     required_models=(
         compact_terrain
+        compact_terrain_fast_demo
         compact_water
         compact_roads
         compact_bridges

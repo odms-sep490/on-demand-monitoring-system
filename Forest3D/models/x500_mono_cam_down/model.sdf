@@ -43,8 +43,8 @@
         <camera>
           <horizontal_fov>1.74</horizontal_fov>
           <image>
-            <width>720</width>
-            <height>540</height>
+            <width>960</width>
+            <height>720</height>
           </image>
           <clip>
             <near>0.1</near>
@@ -52,7 +52,7 @@
           </clip>
         </camera>
         <always_on>false</always_on>
-        <update_rate>12</update_rate>
+        <update_rate>8</update_rate>
         <visualize>false</visualize>
       </sensor>
       <sensor name="camera_down" type="camera">
@@ -61,8 +61,8 @@
         <camera>
           <horizontal_fov>1.74</horizontal_fov>
           <image>
-            <width>640</width>
-            <height>480</height>
+            <width>960</width>
+            <height>720</height>
           </image>
           <clip>
             <near>0.1</near>
@@ -186,13 +186,13 @@
       </visual>
       <sensor name="lidar" type="gpu_lidar">
         <always_on>false</always_on>
-        <update_rate>8</update_rate>
+        <update_rate>4</update_rate>
         <visualize>false</visualize>
         <topic>lidar</topic>
         <lidar>
           <scan>
             <horizontal>
-              <samples>180</samples>
+              <samples>90</samples>
               <resolution>1</resolution>
               <min_angle>-3.14159265359</min_angle>
               <max_angle>3.14159265359</max_angle>

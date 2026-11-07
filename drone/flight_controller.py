@@ -185,6 +185,7 @@ FAST_DEMO_MODE = (
     os.getenv("FAST_DEMO_MODE", "false").strip().lower()
     in {"1", "true", "yes", "on"}
 )
+REALISTIC_FLIGHT = os.getenv("REALISTIC_FLIGHT", "true").strip().lower() in {"1", "true", "yes", "on"}
 GPS_TARGET_REAL_FLIGHT = (
     os.getenv("GPS_TARGET_REAL_FLIGHT", "true").strip().lower()
     in {"1", "true", "yes", "on"}
@@ -199,25 +200,56 @@ VERTICAL_SPEED_M_S = float(
 YAW_STEP_DEG = float(
     os.getenv("CONTROL_YAW_STEP_DEG", "5.0")
 )
-AUTO_PLAN_REACHED_RADIUS_M = float(os.getenv("AUTO_PLAN_REACHED_RADIUS_M", "18.0" if FAST_DEMO_MODE else "5.0"))
-AUTO_PLAN_ALTITUDE_TOLERANCE_M = float(os.getenv("AUTO_PLAN_ALTITUDE_TOLERANCE_M", "8.0" if FAST_DEMO_MODE else "4.0"))
-AUTO_PLAN_MAX_SPEED_M_S = float(os.getenv("AUTO_PLAN_MAX_SPEED_M_S", "220.0" if FAST_DEMO_MODE else "8.0"))
-AUTO_PLAN_MIN_SPEED_M_S = float(os.getenv("AUTO_PLAN_MIN_SPEED_M_S", "80.0" if FAST_DEMO_MODE else "1.2"))
-AUTO_PLAN_SLOWDOWN_RADIUS_M = float(os.getenv("AUTO_PLAN_SLOWDOWN_RADIUS_M", "18.0" if FAST_DEMO_MODE else "35.0"))
-AUTO_PLAN_VERTICAL_MAX_SPEED_M_S = float(os.getenv("AUTO_PLAN_VERTICAL_MAX_SPEED_M_S", "80.0" if FAST_DEMO_MODE else "0.5"))
-AUTO_PLAN_VERTICAL_GAIN = float(os.getenv("AUTO_PLAN_VERTICAL_GAIN", "2.0" if FAST_DEMO_MODE else "0.08"))
-AUTO_PLAN_SETPOINT_SMOOTHING = float(os.getenv("AUTO_PLAN_SETPOINT_SMOOTHING", "1.0" if FAST_DEMO_MODE else "0.35"))
-AUTO_PLAN_ALTITUDE_RAMP_M = float(os.getenv("AUTO_PLAN_ALTITUDE_RAMP_M", "80.0" if FAST_DEMO_MODE else "1.0"))
+AUTO_PLAN_REACHED_RADIUS_M = float(os.getenv(
+    "AUTO_PLAN_REACHED_RADIUS_M",
+    "4.0" if REALISTIC_FLIGHT else "18.0" if FAST_DEMO_MODE else "5.0",
+))
+AUTO_PLAN_ALTITUDE_TOLERANCE_M = float(os.getenv(
+    "AUTO_PLAN_ALTITUDE_TOLERANCE_M",
+    "1.5" if REALISTIC_FLIGHT else "2.0" if FAST_DEMO_MODE else "4.0",
+))
+AUTO_PLAN_MAX_SPEED_M_S = float(os.getenv(
+    "AUTO_PLAN_MAX_SPEED_M_S",
+    "4.0" if REALISTIC_FLIGHT else "220.0" if FAST_DEMO_MODE else "8.0",
+))
+AUTO_PLAN_MIN_SPEED_M_S = float(os.getenv(
+    "AUTO_PLAN_MIN_SPEED_M_S",
+    "1.0" if REALISTIC_FLIGHT else "80.0" if FAST_DEMO_MODE else "1.2",
+))
+AUTO_PLAN_SLOWDOWN_RADIUS_M = float(os.getenv(
+    "AUTO_PLAN_SLOWDOWN_RADIUS_M",
+    "42.0" if REALISTIC_FLIGHT else "18.0" if FAST_DEMO_MODE else "35.0",
+))
+AUTO_PLAN_VERTICAL_MAX_SPEED_M_S = float(os.getenv(
+    "AUTO_PLAN_VERTICAL_MAX_SPEED_M_S",
+    "1.5" if REALISTIC_FLIGHT else "80.0" if FAST_DEMO_MODE else "0.5",
+))
+AUTO_PLAN_VERTICAL_GAIN = float(os.getenv(
+    "AUTO_PLAN_VERTICAL_GAIN",
+    "0.7" if REALISTIC_FLIGHT else "2.0" if FAST_DEMO_MODE else "0.08",
+))
+AUTO_PLAN_SETPOINT_SMOOTHING = float(os.getenv(
+    "AUTO_PLAN_SETPOINT_SMOOTHING",
+    "0.25" if REALISTIC_FLIGHT else "1.0" if FAST_DEMO_MODE else "0.35",
+))
+AUTO_PLAN_HORIZONTAL_ACCEL_M_S2 = float(os.getenv("AUTO_PLAN_HORIZONTAL_ACCEL_M_S2", "2.5"))
+AUTO_PLAN_VERTICAL_ACCEL_M_S2 = float(os.getenv("AUTO_PLAN_VERTICAL_ACCEL_M_S2", "1.5"))
+AUTO_PLAN_ALTITUDE_RAMP_M = float(os.getenv(
+    "AUTO_PLAN_ALTITUDE_RAMP_M",
+    "1.0" if REALISTIC_FLIGHT else "80.0" if FAST_DEMO_MODE else "1.0",
+))
+AUTO_PLAN_MEDIA_SETTLE_S = float(os.getenv("AUTO_PLAN_MEDIA_SETTLE_S", "1.4"))
+AUTO_PLAN_MEDIA_STOP_SPEED_M_S = float(os.getenv("AUTO_PLAN_MEDIA_STOP_SPEED_M_S", "0.8"))
 GPS_ROUTE_EXPECTED_SPEED_M_S = float(os.getenv("GPS_ROUTE_EXPECTED_SPEED_M_S", "220.0" if FAST_DEMO_MODE else "6.0"))
 
 # Realistic flight dynamics for the real Gazebo/PX4 flight. The demo knobs above (220 m/s,
 # 80 m/s climb, 220 m/s^2 accel) made PX4 "teleport" on takeoff and jerk between setpoints.
 # These caps are applied to PX4 itself, so every command (takeoff, manual, GPS route) flies
 # like a real quadcopter: gentle takeoff, smooth acceleration, steady cruise.
-REALISTIC_FLIGHT = os.getenv("REALISTIC_FLIGHT", "true").strip().lower() in {"1", "true", "yes", "on"}
 REAL_TAKEOFF_SPEED_M_S = float(os.getenv("REAL_TAKEOFF_SPEED_M_S", "2.0"))
 REAL_CLIMB_SPEED_M_S = float(os.getenv("REAL_CLIMB_SPEED_M_S", "2.5"))
 REAL_DESCENT_SPEED_M_S = float(os.getenv("REAL_DESCENT_SPEED_M_S", "1.5"))
+DEMO_LAND_SPEED_M_S = float(os.getenv("DEMO_LAND_SPEED_M_S", "3.0"))
 REAL_MAX_XY_SPEED_M_S = float(os.getenv("REAL_MAX_XY_SPEED_M_S", "12.0"))
 REAL_ACC_HOR_M_S2 = float(os.getenv("REAL_ACC_HOR_M_S2", "2.5"))
 REAL_ACC_VERT_M_S2 = float(os.getenv("REAL_ACC_VERT_M_S2", "2.0"))
@@ -364,7 +396,7 @@ CAMERA_LEGACY_DOWN_SENSOR_ENABLED = (
     os.getenv("CAMERA_LEGACY_DOWN_SENSOR_ENABLED", "false").strip().lower()
     in {"1", "true", "yes", "on"}
 )
-CAMERA_STREAM_JPEG_QUALITY = int(os.getenv("CAMERA_STREAM_JPEG_QUALITY", "88"))
+CAMERA_STREAM_JPEG_QUALITY = int(os.getenv("CAMERA_STREAM_JPEG_QUALITY", "92"))
 CAMERA_CAPTURE_JPEG_QUALITY = int(os.getenv("CAMERA_CAPTURE_JPEG_QUALITY", "88"))
 GAZEBO_THERMAL_CAMERA_TOPIC = os.getenv(
     "GAZEBO_THERMAL_CAMERA_TOPIC",
@@ -751,6 +783,7 @@ class CameraGateway:
         self.current_mode = CAMERA_DEFAULT_VIEW if CAMERA_DEFAULT_VIEW in {"DOWN", "FRONT"} else "FRONT"
         self.lock = threading.Lock()
         self.node = None
+        self.active_topic: str | None = None
         self.video_recorder = video_recorder
         self.media_library = media_library
 
@@ -762,12 +795,22 @@ class CameraGateway:
 
         self.node = Node()
         topics = {"FRONT": CAMERA_FRONT_TOPIC, "DOWN": CAMERA_DOWN_TOPIC}
-        for mode, topic in topics.items():
-            self.node.subscribe(GzImage, topic, self._make_frame_handler(mode))
-            print(f"[CAMERA] Listening to {mode.lower()} sensor: {topic}")
+        self._subscribe_mode(self.current_mode)
         if CAMERA_LEGACY_DOWN_SENSOR_ENABLED and CAMERA_TOPIC not in topics.values():
             self.node.subscribe(GzImage, CAMERA_TOPIC, self._make_frame_handler(self.current_mode))
             print(f"[CAMERA] Listening to fallback sensor: {CAMERA_TOPIC}")
+
+    def _subscribe_mode(self, mode: str) -> None:
+        if self.node is None:
+            return
+        topic = CAMERA_DOWN_TOPIC if mode == "DOWN" else CAMERA_FRONT_TOPIC
+        if self.active_topic == topic:
+            return
+        if self.active_topic is not None:
+            self.node.unsubscribe(self.active_topic)
+        self.node.subscribe(GzImage, topic, self._make_frame_handler(mode))
+        self.active_topic = topic
+        print(f"[CAMERA] Listening to {mode.lower()} sensor: {topic}", flush=True)
 
     def _make_frame_handler(self, mode: str):
         def _on_frame(msg: GzImage, *_args) -> None:
@@ -797,6 +840,7 @@ class CameraGateway:
             return
         with self.lock:
             self.current_mode = normalized
+        self._subscribe_mode(normalized)
 
     def _latest_jpeg(self, *, preview: bool = False) -> bytes | None:
         with self.lock:
@@ -1033,6 +1077,7 @@ async def configure_px4_speed_limits(
             "MPC_ACC_HOR_MAX": limit,
             "MPC_ACC_UP_MAX": limit,
             "MPC_ACC_DOWN_MAX": limit,
+            "MPC_LAND_SPEED": DEMO_LAND_SPEED_M_S,
         }
 
     applied = []
@@ -1196,6 +1241,29 @@ def normalize_auto_plan_waypoints(payload: dict) -> list[dict]:
             speed_mps = AUTO_PLAN_MAX_SPEED_M_S
         if not math.isfinite(speed_mps) or speed_mps <= 0.0:
             speed_mps = AUTO_PLAN_MAX_SPEED_M_S
+        def optional_positive_number(key: str, default: float) -> float:
+            try:
+                value = float(point.get(key, default))
+            except (TypeError, ValueError):
+                return default
+            return value if math.isfinite(value) and value > 0.0 else default
+        def optional_nonnegative_number(key: str, default: float) -> float:
+            try:
+                value = float(point.get(key, default))
+            except (TypeError, ValueError):
+                return default
+            return value if math.isfinite(value) and value >= 0.0 else default
+        raw_yaw = point.get("yawDeg")
+        try:
+            yaw_deg = float(raw_yaw) % 360.0 if raw_yaw is not None else None
+        except (TypeError, ValueError):
+            yaw_deg = None
+        allowed_media_actions = {"photo", "video_start", "video_stop"}
+        media_actions = [
+            str(action).strip().lower()
+            for action in point.get("mediaActions", [])
+            if str(action).strip().lower() in allowed_media_actions
+        ] if isinstance(point.get("mediaActions"), list) else []
         normalized.append(
             {
                 "sequence": int(point.get("sequence", index)),
@@ -1203,7 +1271,19 @@ def normalize_auto_plan_waypoints(payload: dict) -> list[dict]:
                 "simY": sim_y,
                 "altitudeM": max(0.0, altitude_m),
                 "speedMps": min(speed_mps, AUTO_PLAN_MAX_SPEED_M_S),
+                "minSpeedMps": min(
+                    optional_nonnegative_number("minSpeedMps", AUTO_PLAN_MIN_SPEED_M_S),
+                    speed_mps,
+                ),
+                "reachedRadiusM": optional_positive_number(
+                    "reachedRadiusM", AUTO_PLAN_REACHED_RADIUS_M
+                ),
+                "slowdownRadiusM": optional_positive_number(
+                    "slowdownRadiusM", AUTO_PLAN_SLOWDOWN_RADIUS_M
+                ),
                 "reason": str(point.get("reason", "CRUISE")),
+                "yawDeg": yaw_deg,
+                "mediaActions": media_actions,
             }
         )
     return sorted(normalized, key=lambda item: item["sequence"])
@@ -1729,7 +1809,13 @@ class FlightControlApi:
                     if len(waypoints) < 1:
                         self._write_json(400, {"ok": False, "error": "missing waypoints"})
                         return
-                    owner.commands.put({"type": "auto_plan_start", "waypoints": waypoints})
+                    owner.commands.put(
+                        {
+                            "type": "auto_plan_start",
+                            "waypoints": waypoints,
+                            "ignore_obstacle_safety": bool(payload.get("ignoreObstacleSafety", False)),
+                        }
+                    )
                     self._write_json(202, {"ok": True, "command": command, "waypoints": len(waypoints)})
                     return
                 if command == "gps_target_start":
@@ -1838,6 +1924,7 @@ class MavsdkConnectionManager:
         self._offboard_sender_task: asyncio.Task | None = None
         self._desired_velocity = VelocityNedYaw(0.0, 0.0, 0.0, 0.0)
         self._desired_velocity_dirty = False
+        self._offboard_generation = -1
         self._setpoint_intervals: list[float] = []
         self._last_setpoint_sent_s: float | None = None
         self._last_setpoint_stats_s = 0.0
@@ -1950,7 +2037,9 @@ class MavsdkConnectionManager:
         )
 
     async def activate_desired_motion(self, drone: System) -> None:
-        await ensure_offboard_started(drone)
+        if self._offboard_generation != self.generation:
+            await ensure_offboard_started(drone)
+            self._offboard_generation = self.generation
         await drone.offboard.set_velocity_ned(self._desired_velocity)
         self.ensure_offboard_sender()
 
@@ -1962,6 +2051,7 @@ class MavsdkConnectionManager:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
             print("[OFFBOARD] Sender stopped", flush=True)
+        self._offboard_generation = -1
 
     async def stop_connection_monitor(self) -> None:
         task = self._connection_monitor_task
@@ -1985,9 +2075,10 @@ class MavsdkConnectionManager:
 
             try:
                 if offboard_generation != self.generation:
-                    await ensure_offboard_started(drone)
+                    if self._offboard_generation != self.generation:
+                        await ensure_offboard_started(drone)
+                        self._offboard_generation = self.generation
                     offboard_generation = self.generation
-                    self._offboard_generation = self.generation
                     print(
                         f"[OFFBOARD] Started generation={self.generation}",
                         flush=True,
@@ -2631,6 +2722,7 @@ async def obstacle_safety_loop(
         stop_manual_motion,
         set_safety_speed_scale,
         is_launch_pad_clear,
+        should_ignore_obstacles,
 ):
     last_status = "CLEAR"
     unavailable_reported = False
@@ -2639,6 +2731,14 @@ async def obstacle_safety_loop(
     last_warning_log_s = 0.0
 
     while True:
+        if should_ignore_obstacles():
+            last_status = "CLEAR"
+            set_safety_speed_scale(1.0)
+            if get_motion_owner() == MotionOwner.EMERGENCY:
+                set_motion_owner(MotionOwner.AUTO_PLAN)
+            await asyncio.sleep(SAFETY_POLL_INTERVAL_S)
+            continue
+
         if not is_safety_sensor_enabled():
             last_status = "CLEAR"
             set_safety_speed_scale(1.0)
@@ -2902,7 +3002,11 @@ async def main() -> None:
     auto_plan_active = False
     auto_plan_status = "IDLE"
     auto_plan_desired_altitude_m: float | None = None
+    auto_plan_last_update_s: float | None = None
     auto_plan_land_on_complete = False
+    auto_plan_ignore_obstacles = False
+    auto_plan_media_hold_index: int | None = None
+    auto_plan_media_hold_started_s: float | None = None
     demo_gps_route_points: list[dict] = []
     demo_gps_route_schedule: list[float] = []
     demo_gps_started_s: float | None = None
@@ -3360,6 +3464,7 @@ async def main() -> None:
                 stop_manual_motion,
                 set_safety_speed_scale,
                 launch_pad_clear,
+                lambda: auto_plan_active and auto_plan_ignore_obstacles,
             ),
             name="obstacle-safety",
         )
@@ -3497,6 +3602,9 @@ async def main() -> None:
     def stop_auto_plan(reason: str = "stopped") -> None:
         nonlocal auto_plan_active, auto_plan_points, auto_plan_index, auto_plan_status
         nonlocal auto_plan_desired_altitude_m, auto_plan_land_on_complete
+        nonlocal auto_plan_last_update_s
+        nonlocal auto_plan_ignore_obstacles
+        nonlocal auto_plan_media_hold_index, auto_plan_media_hold_started_s
         if auto_plan_active:
             print(f"[AUTO-PLAN] {reason}", flush=True)
         auto_plan_active = False
@@ -3504,14 +3612,44 @@ async def main() -> None:
         auto_plan_index = 0
         auto_plan_status = reason
         auto_plan_desired_altitude_m = None
+        auto_plan_last_update_s = None
         auto_plan_land_on_complete = False
+        auto_plan_ignore_obstacles = False
+        auto_plan_media_hold_index = None
+        auto_plan_media_hold_started_s = None
 
-    def start_auto_plan(points: list[dict]) -> None:
+    async def settle_auto_plan_before_landing() -> None:
+        stable_samples = 0
+        for _ in range(32):
+            horizontal_speed = math.hypot(
+                current_velocity_north_m_s,
+                current_velocity_east_m_s,
+            )
+            if horizontal_speed <= 0.6:
+                stable_samples += 1
+                if stable_samples >= 4:
+                    break
+            else:
+                stable_samples = 0
+            await asyncio.sleep(0.2)
+        print(
+            f"[AUTO-PLAN] Landing brake settled at "
+            f"{math.hypot(current_velocity_north_m_s, current_velocity_east_m_s):.2f}m/s",
+            flush=True,
+        )
+
+    def start_auto_plan(points: list[dict], ignore_obstacles: bool = False) -> None:
         nonlocal auto_plan_active, auto_plan_points, auto_plan_index, auto_plan_status
         nonlocal auto_plan_desired_altitude_m, auto_plan_land_on_complete
+        nonlocal auto_plan_last_update_s
+        nonlocal auto_plan_ignore_obstacles
+        nonlocal auto_plan_media_hold_index, auto_plan_media_hold_started_s
         auto_plan_points, auto_plan_land_on_complete = build_auto_plan_route(points)
         auto_plan_index = 0
         auto_plan_desired_altitude_m = max(0.0, -current_local_down_m)
+        auto_plan_last_update_s = None
+        auto_plan_media_hold_index = None
+        auto_plan_media_hold_started_s = None
         if local_position_ready and auto_plan_points:
             sim_x_m, sim_y_m = px4_ned_to_sim_xy(current_local_north_m, current_local_east_m)
             nearest_index = min(
@@ -3529,25 +3667,86 @@ async def main() -> None:
                 else nearest_index
             )
         auto_plan_active = True
+        auto_plan_ignore_obstacles = ignore_obstacles
+        if auto_plan_ignore_obstacles:
+            set_safety_speed_scale(1.0)
         auto_plan_status = "RUNNING"
         set_motion_owner(MotionOwner.AUTO_PLAN)
         print(
             f"[AUTO-PLAN] Started with {len(auto_plan_points)} waypoint(s), "
-            f"current target index={auto_plan_index}",
+            f"current target index={auto_plan_index}, "
+            f"obstacle safety={'IGNORED' if auto_plan_ignore_obstacles else 'ACTIVE'}",
             flush=True,
         )
+
+    async def start_auto_plan_after_takeoff(
+        points: list[dict],
+        ignore_obstacles: bool = False,
+    ) -> None:
+        nonlocal current_armed
+        if not current_in_air:
+            active_drone = await safe_arm(connection_manager)
+            if active_drone is None:
+                print("[AUTO-PLAN] Cancelled: drone could not arm", flush=True)
+                return
+            current_armed = True
+            if avoidance is not None:
+                avoidance.set_drone(active_drone)
+            try:
+                await active_drone.action.takeoff()
+                print("[AUTO-PLAN] Automatic takeoff started", flush=True)
+                await wait_for_takeoff_confirm(active_drone)
+            except (ActionError, OffboardError) as exc:
+                print_command_denied("automatic takeoff", exc)
+                return
+            except grpc.aio.AioRpcError as exc:
+                print_mavsdk_unavailable("automatic takeoff", exc)
+                return
+        start_auto_plan(points, ignore_obstacles=ignore_obstacles)
+
+    async def run_auto_plan_media_actions(target: dict) -> None:
+        for action in target.get("mediaActions", []):
+            if action == "video_start":
+                if video_recorder.is_recording():
+                    continue
+                if not active_mission_id:
+                    print("[AUTO-PLAN] Video skipped: no bound mission", flush=True)
+                    continue
+                try:
+                    path = video_recorder.start_recording(active_mission_id)
+                    print(f"[AUTO-PLAN] Checklist video started path={path}", flush=True)
+                except RuntimeError as exc:
+                    print(f"[AUTO-PLAN] Video unavailable: {exc}", flush=True)
+            elif action == "photo":
+                if not active_mission_id:
+                    print("[AUTO-PLAN] Photo skipped: no bound mission", flush=True)
+                    continue
+                await camera.capture_for_review()
+                print(
+                    f"[AUTO-PLAN] Checklist photo captured at waypoint {target['sequence']}",
+                    flush=True,
+                )
+            elif action == "video_stop":
+                stop_video_recording(retain=True)
+                print("[AUTO-PLAN] Checklist video completed", flush=True)
 
     async def update_auto_plan() -> None:
         nonlocal auto_plan_index, auto_plan_status
         nonlocal current_forward_m_s, current_right_m_s
         nonlocal current_north_m_s, current_east_m_s, current_down_m_s, current_yaw_deg
         nonlocal auto_plan_desired_altitude_m
+        nonlocal auto_plan_last_update_s
+        nonlocal auto_plan_media_hold_index, auto_plan_media_hold_started_s
 
         if not auto_plan_active:
             return
         if not local_position_ready:
             print("[AUTO-PLAN] Waiting for local position", flush=True)
             return
+        now_s = time.monotonic()
+        delta_s = 0.1 if auto_plan_last_update_s is None else now_s - auto_plan_last_update_s
+        auto_plan_last_update_s = now_s
+        delta_s = min(0.2, max(0.05, delta_s))
         if auto_plan_index >= len(auto_plan_points):
             should_land = auto_plan_land_on_complete
             auto_plan_status = "LANDING" if should_land else "COMPLETE"
@@ -3557,6 +3756,7 @@ async def main() -> None:
                 avoidance.set_drone(active_drone)
             set_motion_owner(MotionOwner.MANUAL)
             if should_land:
+                await settle_auto_plan_before_landing()
                 auto_plan_status = "LANDING"
                 await land_current_drone("return complete")
             return
@@ -3568,6 +3768,11 @@ async def main() -> None:
         dx = target["simX"] - sim_x_m
         dy = target["simY"] - sim_y_m
         horizontal_distance = math.hypot(dx, dy)
+        reached_radius_m = float(target.get("reachedRadiusM", AUTO_PLAN_REACHED_RADIUS_M))
+        slowdown_radius_m = max(
+            reached_radius_m,
+            float(target.get("slowdownRadiusM", AUTO_PLAN_SLOWDOWN_RADIUS_M)),
+        )
         if auto_plan_desired_altitude_m is None:
             auto_plan_desired_altitude_m = altitude_m
         altitude_target_delta = target["altitudeM"] - auto_plan_desired_altitude_m
@@ -3578,30 +3783,79 @@ async def main() -> None:
         altitude_error = auto_plan_desired_altitude_m - altitude_m
 
         if (
-                horizontal_distance <= AUTO_PLAN_REACHED_RADIUS_M
+                horizontal_distance <= reached_radius_m
                 and abs(altitude_error) <= AUTO_PLAN_ALTITUDE_TOLERANCE_M
+                and (
+                    str(target.get("reason", "")).upper() != "RETURN"
+                    or math.hypot(
+                        current_velocity_north_m_s,
+                        current_velocity_east_m_s,
+                    ) <= 0.6
+                )
         ):
+            target_yaw_deg = target.get("yawDeg")
+            if target_yaw_deg is not None and target.get("mediaActions"):
+                current_forward_m_s = 0.0
+                current_right_m_s = 0.0
+                current_north_m_s = 0.0
+                current_east_m_s = 0.0
+                current_down_m_s = 0.0
+                current_yaw_deg = float(target_yaw_deg) % 360.0
+                active_drone = await set_motion(
+                    connection_manager,
+                    0.0,
+                    0.0,
+                    0.0,
+                    current_yaw_deg,
+                )
+                if active_drone is not None and avoidance is not None:
+                    avoidance.set_drone(active_drone)
+
+                horizontal_speed = math.hypot(
+                    current_velocity_north_m_s,
+                    current_velocity_east_m_s,
+                )
+                if horizontal_speed > AUTO_PLAN_MEDIA_STOP_SPEED_M_S:
+                    auto_plan_media_hold_index = auto_plan_index
+                    auto_plan_media_hold_started_s = None
+                    return
+
+                if auto_plan_media_hold_index != auto_plan_index:
+                    auto_plan_media_hold_index = auto_plan_index
+                    auto_plan_media_hold_started_s = now_s
+                elif auto_plan_media_hold_started_s is None:
+                    auto_plan_media_hold_started_s = now_s
+                if now_s - auto_plan_media_hold_started_s < AUTO_PLAN_MEDIA_SETTLE_S:
+                    return
+
             print(
                 f"[AUTO-PLAN] Reached waypoint {target['sequence']} "
                 f"dist={horizontal_distance:.1f}m alt_err={altitude_error:.1f}m",
                 flush=True,
             )
+            await run_auto_plan_media_actions(target)
             auto_plan_index += 1
+            auto_plan_media_hold_index = None
+            auto_plan_media_hold_started_s = None
             return
 
         plan_speed = min(float(target["speedMps"]), control_speed_m_s, AUTO_PLAN_MAX_SPEED_M_S)
-        if horizontal_distance <= AUTO_PLAN_REACHED_RADIUS_M:
+        if horizontal_distance <= reached_radius_m:
             speed = 0.0
         else:
-            slowdown_span = max(1.0, AUTO_PLAN_SLOWDOWN_RADIUS_M - AUTO_PLAN_REACHED_RADIUS_M)
+            slowdown_span = max(1.0, slowdown_radius_m - reached_radius_m)
             slowdown_ratio = min(
                 1.0,
-                max(0.0, (horizontal_distance - AUTO_PLAN_REACHED_RADIUS_M) / slowdown_span),
+                max(0.0, (horizontal_distance - reached_radius_m) / slowdown_span),
             )
-            speed = AUTO_PLAN_MIN_SPEED_M_S + (plan_speed - AUTO_PLAN_MIN_SPEED_M_S) * slowdown_ratio
-            speed = min(plan_speed, max(AUTO_PLAN_MIN_SPEED_M_S, speed))
+            minimum_speed = min(
+                plan_speed,
+                float(target.get("minSpeedMps", AUTO_PLAN_MIN_SPEED_M_S)),
+            )
+            speed = minimum_speed + (plan_speed - minimum_speed) * slowdown_ratio
+            speed = min(plan_speed, max(minimum_speed, speed))
 
-        if horizontal_distance <= AUTO_PLAN_REACHED_RADIUS_M:
+        if horizontal_distance <= reached_radius_m:
             north_m_s = 0.0
             east_m_s = 0.0
         else:
@@ -3618,6 +3872,24 @@ async def main() -> None:
             )
             down_m_s = -vertical_speed if altitude_error > 0.0 else vertical_speed
 
+        # Slew velocity setpoints at a physical acceleration rate. The previous
+        # demo profile stepped from one full velocity vector to another every
+        # 100 ms, which made the drone lurch at each orbit waypoint.
+        horizontal_delta_n = north_m_s - current_north_m_s
+        horizontal_delta_e = east_m_s - current_east_m_s
+        horizontal_delta = math.hypot(horizontal_delta_n, horizontal_delta_e)
+        max_horizontal_delta = max(0.1, AUTO_PLAN_HORIZONTAL_ACCEL_M_S2 * delta_s)
+        if horizontal_delta > max_horizontal_delta:
+            scale = max_horizontal_delta / horizontal_delta
+            north_m_s = current_north_m_s + horizontal_delta_n * scale
+            east_m_s = current_east_m_s + horizontal_delta_e * scale
+
+        max_vertical_delta = max(0.1, AUTO_PLAN_VERTICAL_ACCEL_M_S2 * delta_s)
+        vertical_delta = down_m_s - current_down_m_s
+        down_m_s = current_down_m_s + max(
+            -max_vertical_delta,
+            min(max_vertical_delta, vertical_delta),
+        )
         smoothing = min(1.0, max(0.0, AUTO_PLAN_SETPOINT_SMOOTHING))
         north_m_s = current_north_m_s + (north_m_s - current_north_m_s) * smoothing
         east_m_s = current_east_m_s + (east_m_s - current_east_m_s) * smoothing
@@ -3625,7 +3897,10 @@ async def main() -> None:
         if abs(down_m_s) < 0.08:
             down_m_s = 0.0
 
-        if horizontal_distance > 0.001:
+        target_yaw_deg = target.get("yawDeg")
+        if target_yaw_deg is not None and not target.get("mediaActions"):
+            current_yaw_deg = float(target_yaw_deg) % 360.0
+        elif horizontal_distance > 0.001:
             current_yaw_deg = (math.degrees(math.atan2(east_m_s, north_m_s)) + 360.0) % 360.0
         current_forward_m_s = math.hypot(north_m_s, east_m_s)
         current_right_m_s = 0.0
@@ -4123,7 +4398,10 @@ async def main() -> None:
 
         if isinstance(command_message, dict):
             if command_message.get("type") == "auto_plan_start":
-                start_auto_plan(command_message.get("waypoints", []))
+                await start_auto_plan_after_takeoff(
+                    command_message.get("waypoints", []),
+                    ignore_obstacles=bool(command_message.get("ignore_obstacle_safety", False)),
+                )
                 continue
             if command_message.get("type") == "gps_target_start":
                 if gps_target_task is not None and not gps_target_task.done():

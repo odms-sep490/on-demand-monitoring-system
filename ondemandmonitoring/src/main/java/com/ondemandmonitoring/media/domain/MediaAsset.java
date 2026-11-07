@@ -4,6 +4,7 @@ import com.ondemandmonitoring.common.entity.BaseEntity;
 import com.ondemandmonitoring.device.domain.Device;
 import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.enums.MediaStorageStatus;
+import com.ondemandmonitoring.media.enums.MediaDerivativeStatus;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import jakarta.persistence.*;
@@ -130,6 +131,31 @@ public class MediaAsset extends BaseEntity {
     /** Manager-controlled exposure in the pre-payment customer preview. */
     @Column(name = "preview_selected", nullable = false)
     boolean previewSelected;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "derivative_status", nullable = false, length = 24)
+    MediaDerivativeStatus derivativeStatus = MediaDerivativeStatus.PENDING;
+
+    @Column(name = "thumbnail_key", length = 1000)
+    String thumbnailKey;
+
+    @Column(name = "preview_key", length = 1000)
+    String previewKey;
+
+    @Column(name = "thumbnail_size_bytes")
+    Long thumbnailSizeBytes;
+
+    @Column(name = "preview_size_bytes")
+    Long previewSizeBytes;
+
+    @Column(name = "derivative_attempt_count", nullable = false)
+    int derivativeAttemptCount;
+
+    @Column(name = "derivative_processed_at")
+    Instant derivativeProcessedAt;
+
+    @Column(name = "derivative_error_code", length = 80)
+    String derivativeErrorCode;
 
     public String getMissionId() {
         if (mission != null) {

@@ -19,5 +19,8 @@ public interface MediaAssetMapper {
     @Mapping(source = "mediaAsset.mediaStatus", target = "status")
     @Mapping(source = "presignedUrl", target = "url")
     @Mapping(source = "expiresInSeconds", target = "expiresIn")
-    MediaResponse toMediaResponse(MediaAsset mediaAsset, String presignedUrl, long expiresInSeconds);
+    @Mapping(target = "thumbnailUrl", source = "thumbnailUrl")
+    @Mapping(target = "previewUrl", source = "previewUrl")
+    MediaResponse toMediaResponse(MediaAsset mediaAsset, String presignedUrl, long expiresInSeconds,
+                                  String thumbnailUrl, String previewUrl);
 }

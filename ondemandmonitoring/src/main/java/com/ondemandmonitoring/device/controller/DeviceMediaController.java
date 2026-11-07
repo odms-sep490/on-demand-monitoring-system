@@ -6,6 +6,7 @@ import com.ondemandmonitoring.media.dto.response.MediaAssetResponse;
 import com.ondemandmonitoring.media.dto.response.MediaResponse;
 import com.ondemandmonitoring.media.mapper.MediaAssetMapper;
 import com.ondemandmonitoring.media.service.IMediaAssetService;
+import com.ondemandmonitoring.media.service.impl.MediaDerivativeService;
 import com.ondemandmonitoring.media.service.IMediaAssetService.MediaContent;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -35,6 +36,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class DeviceMediaController {
 
     IMediaAssetService mediaAssetService;
+    MediaDerivativeService derivatives;
     MediaAssetMapper mediaAssetMapper;
 
     @Operation(summary = "List Device Media", description = "Lists image/video metadata captured by a device")
@@ -61,7 +63,8 @@ public class DeviceMediaController {
         return ResponseEntity.ok(ApiResponse.ok(mediaAssetMapper.toMediaResponse(
                 mediaAsset,
                 presignedUrl,
-                mediaAssetService.presignedUrlExpiresSeconds())));
+                mediaAssetService.presignedUrlExpiresSeconds(), derivatives.thumbnailUrl(mediaAsset),
+                "VIDEO".equals(mediaAsset.getType()) ? presignedUrl : derivatives.previewUrl(mediaAsset))));
     }
 
     @Operation(summary = "Get Device Media file", description = "Streams the original image/video file from S3 or local storage")

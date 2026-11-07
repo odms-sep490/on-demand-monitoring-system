@@ -28,6 +28,7 @@ public class ManagerMediaApprovalServiceImpl implements IManagerMediaApprovalSer
 
     MediaAssetRepository media;
     IMediaObjectStorage storage;
+    MediaDerivativeService derivatives;
     MediaWorkflowMapper mapper;
     IMissionMediaEvidenceGuard missionLock;
 
@@ -81,6 +82,10 @@ public class ManagerMediaApprovalServiceImpl implements IManagerMediaApprovalSer
         return mapper.toOperatorResponse(
                 asset,
                 storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key()),
+                derivatives.thumbnailUrl(asset),
+                "VIDEO".equals(asset.getType())
+                        ? storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key())
+                        : derivatives.previewUrl(asset),
                 Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds()));
     }
 }

@@ -646,4 +646,19 @@ CREATE INDEX IF NOT EXISTS ix_review_evidence_source
 CREATE INDEX IF NOT EXISTS ix_review_evidence_replaced
     ON result_review_round_evidence(supersedes_round_evidence_id) WHERE supersedes_round_evidence_id IS NOT NULL;
 
+ALTER TABLE public.drone_media
+    ADD COLUMN IF NOT EXISTS derivative_status varchar(24) NOT NULL DEFAULT 'PENDING',
+    ADD COLUMN IF NOT EXISTS thumbnail_key varchar(1000),
+    ADD COLUMN IF NOT EXISTS preview_key varchar(1000),
+    ADD COLUMN IF NOT EXISTS thumbnail_size_bytes bigint,
+    ADD COLUMN IF NOT EXISTS preview_size_bytes bigint,
+    ADD COLUMN IF NOT EXISTS derivative_attempt_count integer NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS derivative_processed_at timestamptz,
+    ADD COLUMN IF NOT EXISTS derivative_error_code varchar(80);
+
+CREATE INDEX IF NOT EXISTS ix_drone_media_derivative_queue
+    ON public.drone_media (created_at, id)
+    WHERE storage_provider = 'S3' AND storage_status = 'AVAILABLE'
+      AND media_type = 'IMAGE' AND derivative_status IN ('PENDING', 'FAILED', 'PROCESSING');
+
 COMMIT;

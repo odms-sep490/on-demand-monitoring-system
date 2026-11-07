@@ -8,6 +8,7 @@ import com.ondemandmonitoring.delivery.repository.ResultRevisionRequestItemMedia
 import com.ondemandmonitoring.delivery.repository.ResultRevisionRequestItemRepository;
 import com.ondemandmonitoring.media.service.IMediaObjectStorage;
 import com.ondemandmonitoring.media.service.IResultRetentionAccessService;
+import com.ondemandmonitoring.media.service.impl.MediaDerivativeService;
 import com.ondemandmonitoring.mission.enums.MissionPurpose;
 import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
@@ -35,6 +36,7 @@ public class MissionReworkContextService implements com.ondemandmonitoring.missi
     private final AuthenticatedUserResolver currentUser;
     private final IResultRetentionAccessService retentionAccess;
     private final IMediaObjectStorage storage;
+    private final MediaDerivativeService derivatives;
 
     @Override
     @Transactional(readOnly = true)
@@ -90,15 +92,17 @@ public class MissionReworkContextService implements com.ondemandmonitoring.missi
         var asset = evidence.getMediaAsset();
         try {
             retentionAccess.requireAccessible(asset);
+            String url = storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key());
             return new MissionReworkContextResponse.Evidence(evidence.getId(), asset.getId(),
                     evidence.getFileNameSnapshot(), evidence.getMediaTypeSnapshot(),
-                    storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key()),
+                    url, derivatives.thumbnailUrl(asset),
+                    "VIDEO".equals(asset.getType()) ? url : derivatives.previewUrl(asset),
                     Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds()), null);
         } catch (ApiException ex) {
             if (ex.getErrorCode() != ErrorCode.RESULT_RETENTION_EXPIRED && ex.getErrorCode() != ErrorCode.MEDIA_NOT_FOUND)
                 throw ex;
             return new MissionReworkContextResponse.Evidence(evidence.getId(), asset.getId(),
-                    evidence.getFileNameSnapshot(), evidence.getMediaTypeSnapshot(), null, null,
+                    evidence.getFileNameSnapshot(), evidence.getMediaTypeSnapshot(), null, null, null, null,
                     ex.getErrorCode() == ErrorCode.RESULT_RETENTION_EXPIRED ? "RETENTION_EXPIRED" : "MEDIA_UNAVAILABLE");
         }
     }

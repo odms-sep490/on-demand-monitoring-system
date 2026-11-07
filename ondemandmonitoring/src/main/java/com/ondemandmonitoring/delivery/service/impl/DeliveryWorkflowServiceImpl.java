@@ -22,6 +22,7 @@ import com.ondemandmonitoring.media.domain.MediaAsset;
 import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
 import com.ondemandmonitoring.media.service.IMediaObjectStorage;
+import com.ondemandmonitoring.media.service.impl.MediaDerivativeService;
 import com.ondemandmonitoring.media.service.IResultRetentionAccessService;
 import com.ondemandmonitoring.mission.domain.MissionChecklistEvidence;
 import com.ondemandmonitoring.mission.repository.MissionChecklistEvidenceRepository;
@@ -68,6 +69,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     private final InvoiceRepository invoices;
     private final MediaAssetRepository media;
     private final IMediaObjectStorage storage;
+    private final MediaDerivativeService derivatives;
     private final IResultRetentionAccessService retentionAccess;
     private final AuthenticatedUserResolver currentUser;
     private final com.ondemandmonitoring.order.service.IOrderExecutionCompletionPolicy completionPolicy;
@@ -890,8 +892,9 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         Invoice invoice = invoice(d.getOrder().getId());
         Instant expires = Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds());
         List<DeliveryAssetResponse> mapped = assets.stream().map(a -> new DeliveryAssetResponse(a.getId(), a.getType(),
-                a.getOriginalFileName(), a.getFileSize(), retainedUrl(a),
-                expires, downloadable)).toList();
+                a.getOriginalFileName(), a.getFileSize(), downloadable ? retainedUrl(a) : null,
+                expires, downloadable, derivatives.thumbnailUrl(a), "VIDEO".equals(a.getType())
+                        ? retainedUrl(a) : derivatives.previewUrl(a))).toList();
         return new DeliveryResponse(d.getOrder().getId(), d.getStatus(), executionStatus(effective), d.getOrder().getOrderStatus(),
                 invoice.getStatus(), invoice.getTotalAmount(), invoice.getPaidAmount(), invoice.getRemainingAmount(),
                 d.getDeliveryNotes(), d.getPreviewReleasedAt(), d.getCustomerAcceptedAt(), d.getRevisionRequestedAt(),

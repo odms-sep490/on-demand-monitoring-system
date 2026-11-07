@@ -288,19 +288,26 @@ $webRoot = Join-Path $workspaceRoot "ondemand-monitoring-web"
 $packagedWorld = "compact"
 $packagedWorldName = "Forest3D compact world"
 $fastDemoMode = if ($RealFlight) { "0" } else { "1" }
-$controlMoveSpeed = if ($RealFlight) { "12" } else { "220" }
-$controlVerticalSpeed = if ($RealFlight) { "2" } else { "80" }
-$px4SpeedLimit = if ($RealFlight) { "18" } else { "220" }
+$realisticFlight = if ($RealFlight) { "1" } else { "0" }
+$controlMoveSpeed = if ($RealFlight) { "12" } else { "20" }
+$controlVerticalSpeed = if ($RealFlight) { "2" } else { "10" }
+$px4SpeedLimit = if ($RealFlight) { "18" } else { "20" }
 $gpsRouteExpectedSpeed = if ($RealFlight) { "10" } else { "220" }
-$autoPlanReachedRadius = if ($RealFlight) { "5" } else { "18" }
-$autoPlanMaxSpeed = if ($RealFlight) { "8" } else { "220" }
-$autoPlanMinSpeed = if ($RealFlight) { "1.2" } else { "80" }
-$autoPlanSlowdownRadius = if ($RealFlight) { "35" } else { "18" }
-$autoPlanAltitudeTolerance = if ($RealFlight) { "4" } else { "8" }
-$autoPlanVerticalMaxSpeed = if ($RealFlight) { "0.5" } else { "80" }
+$autoPlanReachedRadius = if ($RealFlight) { "5" } else { "12" }
+$autoPlanMaxSpeed = if ($RealFlight) { "8" } else { "20" }
+$autoPlanMinSpeed = if ($RealFlight) { "1.2" } else { "10" }
+$autoPlanSlowdownRadius = if ($RealFlight) { "35" } else { "80" }
+$autoPlanAltitudeTolerance = if ($RealFlight) { "4" } else { "2" }
+$autoPlanVerticalMaxSpeed = if ($RealFlight) { "0.5" } else { "10" }
 $autoPlanVerticalGain = if ($RealFlight) { "0.08" } else { "2" }
 $autoPlanSmoothing = if ($RealFlight) { "0.35" } else { "1" }
 $autoPlanAltitudeRamp = if ($RealFlight) { "1" } else { "80" }
+$autoPlanHorizontalAccel = if ($RealFlight) { "2.5" } else { "12" }
+$autoPlanVerticalAccel = if ($RealFlight) { "2" } else { "6" }
+$demoLandSpeed = if ($RealFlight) { "0.7" } else { "3" }
+$autoPlanMediaSettle = if ($RealFlight) { "1.4" } else { "0.6" }
+# Run the Gazebo demo faster than wall-clock time; real-flight profiles stay at realtime.
+$px4SimSpeedFactor = if ($RealFlight) { "1" } else { "10" }
 $downTopic = "/world/forest_monitoring_compact/model/x500_mono_cam_down_0/link/camera_link/sensor/camera_down/image"
 $frontTopic = "/world/forest_monitoring_compact/model/x500_mono_cam_down_0/link/camera_link/sensor/camera_front/image"
 
@@ -327,6 +334,7 @@ if (-not $SkipDrone) {
     Set-EnvValue $backendEnvFile "SIM_WORLD" $packagedWorld
     Set-EnvValue $backendEnvFile "FOREST3D_WEB_ONLY" "1"
     Set-EnvValue $backendEnvFile "FAST_DEMO_MODE" $fastDemoMode
+    Set-EnvValue $backendEnvFile "REALISTIC_FLIGHT" $realisticFlight
     Set-EnvValue $backendEnvFile "FAST_DEMO_LIDAR_ENABLED" "1"
     Set-EnvValue $backendEnvFile "CONTROL_MOVE_SPEED_M_S" $controlMoveSpeed
     Set-EnvValue $backendEnvFile "CONTROL_VERTICAL_SPEED_M_S" $controlVerticalSpeed
@@ -340,6 +348,11 @@ if (-not $SkipDrone) {
     Set-EnvValue $backendEnvFile "AUTO_PLAN_VERTICAL_GAIN" $autoPlanVerticalGain
     Set-EnvValue $backendEnvFile "AUTO_PLAN_SETPOINT_SMOOTHING" $autoPlanSmoothing
     Set-EnvValue $backendEnvFile "AUTO_PLAN_ALTITUDE_RAMP_M" $autoPlanAltitudeRamp
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_HORIZONTAL_ACCEL_M_S2" $autoPlanHorizontalAccel
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_VERTICAL_ACCEL_M_S2" $autoPlanVerticalAccel
+    Set-EnvValue $backendEnvFile "DEMO_LAND_SPEED_M_S" $demoLandSpeed
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_MEDIA_SETTLE_S" $autoPlanMediaSettle
+    Set-EnvValue $backendEnvFile "PX4_SIM_SPEED_FACTOR" $px4SimSpeedFactor
     Set-EnvValue $backendEnvFile "GPS_ROUTE_EXPECTED_SPEED_M_S" $gpsRouteExpectedSpeed
     Set-EnvValue $backendEnvFile "GAZEBO_CAMERA_TOPIC" $downTopic
     Set-EnvValue $backendEnvFile "GAZEBO_CAMERA_DOWN_TOPIC" $downTopic
@@ -431,7 +444,7 @@ Write-Step "Cleaning old PX4/Gazebo/MAVSDK processes"
 & wsl.exe -d $UbuntuDistro -- bash -lc "PROJECT_PATH='$systemRootWsl' FAST_DEMO_MODE=$fastDemoMode exec '$scriptRootWsl/wsl-clean-drone-stack.sh'" | Out-Null
 
 Write-Step "Starting PX4/Gazebo Forest3D world and Flight Control"
-$baseWslEnv = "PROJECT_PATH='$systemRootWsl' FAST_DEMO_MODE=$fastDemoMode FAST_DEMO_LIDAR_ENABLED=1 CONTROL_MOVE_SPEED_M_S=$controlMoveSpeed CONTROL_VERTICAL_SPEED_M_S=$controlVerticalSpeed PX4_SPEED_LIMIT_M_S=$px4SpeedLimit GPS_ROUTE_EXPECTED_SPEED_M_S=$gpsRouteExpectedSpeed"
+$baseWslEnv = "PROJECT_PATH='$systemRootWsl' FAST_DEMO_MODE=$fastDemoMode REALISTIC_FLIGHT=$realisticFlight FAST_DEMO_LIDAR_ENABLED=1 CONTROL_MOVE_SPEED_M_S=$controlMoveSpeed CONTROL_VERTICAL_SPEED_M_S=$controlVerticalSpeed PX4_SPEED_LIMIT_M_S=$px4SpeedLimit GPS_ROUTE_EXPECTED_SPEED_M_S=$gpsRouteExpectedSpeed"
 if ($forest3DPathWsl) { $baseWslEnv += " FOREST3D_PATH='$forest3DPathWsl'" }
 $simCommand = "$baseWslEnv FOREST3D_WEB_ONLY=1 SIM_WORLD=$packagedWorld exec '$scriptRootWsl/wsl-sim-pane.sh' '$packagedWorld'"
 $controlCommand = "$baseWslEnv FOREST3D_WEB_ONLY=1 SIM_WORLD=$packagedWorld exec '$scriptRootWsl/wsl-control.sh'"

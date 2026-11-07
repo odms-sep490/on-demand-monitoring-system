@@ -33,6 +33,7 @@ public class MissionResponse {
     String resultRevisionCaseId;
 
     FlightPermitStatus flightPermitStatus;
+    Instant flightPermitUpdatedAt;
     String flightPermitNote;
     String flightPermitFileName;
     String flightPermitContentType;
@@ -84,6 +85,8 @@ public class MissionResponse {
     Double longitude;
 
     Double radiusM;
+
+    Double altitudeM;
 
     String deviceId;
 

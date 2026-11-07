@@ -59,6 +59,12 @@ public class ChecklistDefaultSeedInitializer implements ApplicationRunner {
             var service = services.findByIdForUpdate(matches.getFirst().getId()).orElse(null);
             if (service == null) continue;
             var current = assignments.findAllByServiceIdOrderByDisplayOrderAscIdAsc(service.getId());
+            if (isLegacyConstructionTemplate(mapping.getKey(), current)) {
+                assignments.deleteAll(current);
+                assignments.flush();
+                current = List.of();
+                log.info("Replaced the six-item legacy checklist template for service {}", service.getId());
+            }
             if (current.isEmpty() && Boolean.TRUE.equals(service.getIsActive())) {
                 int order = 0;
                 var linkedIds = new HashSet<String>();
@@ -77,6 +83,20 @@ public class ChecklistDefaultSeedInitializer implements ApplicationRunner {
             }
         }
         assignments.flush();
+    }
+
+    /** Replaces only the known six seeded construction links; administrator-customized templates stay untouched. */
+    private boolean isLegacyConstructionTemplate(String serviceName, List<ServiceChecklist> current) {
+        if (!"Giám sát công trình".equalsIgnoreCase(ChecklistContentNormalizer.canonicalize(serviceName))
+                || current.size() != 6) return false;
+        var expected = Set.of(ChecklistDefaults.code(1), ChecklistDefaults.code(2), ChecklistDefaults.code(3),
+                ChecklistDefaults.code(4), ChecklistDefaults.code(5), ChecklistDefaults.code(6));
+        var currentCodes = new HashSet<String>();
+        for (var assignment : current) {
+            if (assignment.getChecklist() == null || assignment.getChecklist().getSeedCode() == null) return false;
+            currentCodes.add(assignment.getChecklist().getSeedCode());
+        }
+        return currentCodes.equals(expected);
     }
 
     /** Gives seeded checklists default guidance, but never overwrites anything an administrator wrote.

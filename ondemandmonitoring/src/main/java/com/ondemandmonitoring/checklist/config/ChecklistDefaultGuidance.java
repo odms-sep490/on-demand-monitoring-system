@@ -74,5 +74,15 @@ final class ChecklistDefaultGuidance {
                     List.of("Ảnh từng vị trí được chỉ định")),
             g("Ghi nhận hiện trạng cuối cùng sau khi hoàn tất giám sát.",
                     List.of("Rà lại các khu vực đã giám sát", "Chụp bổ sung nếu còn thiếu", "Xác nhận hoàn tất giám sát"),
-                    List.of("Ảnh hiện trạng sau giám sát", "Ghi chú kết luận")));
+                    List.of("Ảnh hiện trạng sau giám sát", "Ghi chú kết luận")),
+            g("Drone bay một vòng quanh công trình theo chiều kim đồng hồ và chụp ảnh các mặt bên ngoài.",
+                    List.of("Cất cánh và giữ độ cao ổn định.",
+                            "Bay theo đường bao quanh công trình theo chiều kim đồng hồ.",
+                            "Chụp ảnh các mặt bên ngoài trong lúc bay, sau đó quay về điểm xuất phát."),
+                    List.of("Ảnh các mặt bên ngoài công trình.")),
+            g("Drone quay video liên tục khi bay một vòng quanh công trình theo chiều kim đồng hồ.",
+                    List.of("Cất cánh và bắt đầu quay video.",
+                            "Bay theo đường bao quanh công trình, giữ độ cao ổn định.",
+                            "Kết thúc quay và đưa drone về điểm xuất phát."),
+                    List.of("1 video toàn cảnh công trình.")));
 }

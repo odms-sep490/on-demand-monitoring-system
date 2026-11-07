@@ -4,6 +4,7 @@ import com.ondemandmonitoring.common.api.ApiResponse;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.mission.domain.Mission;
+import com.ondemandmonitoring.mission.enums.FlightPermitStatus;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import com.ondemandmonitoring.weather.domain.MissionWeatherCheck;
@@ -55,13 +56,17 @@ public class WeatherPreflightController {
         // Weather is mission-wide readiness, independent from the device check run.
         String deviceId = null;
 
-        WeatherPreflightCheckResponse response = weatherPreflightService.checkCurrent(
-                missionId, deviceId, latitude, longitude);
-
+        Mission mission = null;
         if (missionId != null && !missionId.isBlank()) {
-            Mission mission = missionRepository.findById(missionId)
+            mission = missionRepository.findByIdWithOrder(missionId)
                     .orElseThrow(() -> new ApiException(
                             ErrorCode.RESOURCE_NOT_FOUND, "Mission not found: " + missionId));
+            requireFlightPermitApproved(mission);
+        }
+
+        WeatherPreflightCheckResponse response = weatherPreflightService.checkCurrent(
+                missionId, deviceId, latitude, longitude);
+        if (mission != null) {
             MissionWeatherCheck saved = toEntity(mission, response);
             response = toResponse(weatherCheckRepository.save(saved));
         }
@@ -86,11 +91,17 @@ public class WeatherPreflightController {
     public ResponseEntity<ApiResponse<WeatherPreflightCheckResponse>> acceptLatest(
             @PathVariable("missionId") String missionId,
             @PathVariable("checkId") String checkId) {
+        Mission mission = missionRepository.findByIdWithOrder(missionId)
+                .orElseThrow(() -> new ApiException(
+                        ErrorCode.RESOURCE_NOT_FOUND, "Mission not found: " + missionId));
+        requireFlightPermitApproved(mission);
         MissionWeatherCheck check = weatherCheckRepository
                 .findFirstByMissionIdOrderByCreatedAtDesc(missionId)
                 .filter(latest -> latest.getId().equals(checkId))
                 .filter(latest -> latest.getCheckedAt() != null
                         && latest.getCheckedAt().isAfter(Instant.now().minusSeconds(15 * 60L)))
+                .filter(latest -> mission.getFlightPermit().getUpdatedAt() == null
+                        || latest.getCheckedAt().isAfter(mission.getFlightPermit().getUpdatedAt()))
                 .filter(latest -> Boolean.TRUE.equals(latest.getSafeToFly()))
                 .orElseThrow(() -> new ApiException(ErrorCode.INVALID_REQUEST,
                         "Thời tiết phải an toàn và được kiểm tra trong vòng 15 phút trước khi xác nhận."));
@@ -101,6 +112,14 @@ public class WeatherPreflightController {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Weather conditions accepted by inspector",
                 toResponse(weatherCheckRepository.save(check))));
+    }
+
+    private static void requireFlightPermitApproved(Mission mission) {
+        if (mission.getFlightPermit() == null
+                || mission.getFlightPermit().getStatus() != FlightPermitStatus.APPROVED) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "Flight permit must be approved before weather can be checked");
+        }
     }
 
     private static MissionWeatherCheck toEntity(

@@ -1,0 +1,33 @@
+{
+  "image": "/simulation-viewer/simulation_map_top.png",
+  "imageVersion": "20260924211422",
+  "sourceBlender": "C:\\Users\\ACER\\Documents\\GitHub\\doan\\on-demand-monitoring-system\\Blender\\uav-monitoring-compact-world-v7.blend",
+  "sourceWorld": "C:\\Users\\ACER\\Documents\\GitHub\\doan\\on-demand-monitoring-system\\Forest3D\\worlds\\forest_monitoring_compact.sdf",
+  "worldName": "forest_monitoring_compact",
+  "minX": -452.0,
+  "maxX": 450.0,
+  "minY": -415.0,
+  "maxY": 686.497,
+  "widthM": 902.0,
+  "heightM": 1101.4969999999998,
+  "imageBounds": {
+    "minX": -417.15933531249993,
+    "maxX": 415.15933531249993,
+    "minY": -414.65578218749977,
+    "maxY": 417.66288843749993
+  },
+  "coordinateSystem": "LOCAL_SIMULATION_METERS_GAZEBO_XY",
+  "imageOrientation": {
+    "xIncreasesRight": true,
+    "yIncreasesUp": true,
+    "browserYInverted": true,
+    "xySwapped": false,
+    "rotationDegrees": 0
+  },
+  "px4Mapping": {
+    "gazeboX": "PX4 local East axis",
+    "gazeboY": "PX4 local North axis",
+    "px4NedNorth": "simulation Y",
+    "px4NedEast": "simulation X"
+  }
+}

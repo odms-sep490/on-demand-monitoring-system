@@ -36,12 +36,12 @@ class ChecklistDefaultSeedInitializerTest {
 
     @Test void bootstrapIsIdempotentAndDoesNotCreateServices() {
         seed.run(null); seed.run(null);
-        assertEquals(19, catalog.size()); assertEquals(6, templates.get("s").size());
-        assertEquals(java.util.stream.IntStream.range(0, 6).boxed().toList(), templates.get("s").stream().map(ServiceChecklist::getDisplayOrder).toList());
+        assertEquals(21, catalog.size()); assertEquals(2, templates.get("s").size());
+        assertEquals(java.util.stream.IntStream.range(0, 2).boxed().toList(), templates.get("s").stream().map(ServiceChecklist::getDisplayOrder).toList());
         assertTrue(catalog.values().stream().allMatch(row -> row.getDescription() != null
                 && !row.getExecutionSteps().isEmpty() && !row.getInputRequirements().isEmpty() && !row.getExpectedOutputs().isEmpty()));
         assertTrue(service.getChecklistDefaultsInitialized());
-        verify(definitions, times(19)).saveAndFlush(any());
+        verify(definitions, times(21)).saveAndFlush(any());
         verify(services).save(service);
     }
 
@@ -51,7 +51,7 @@ class ChecklistDefaultSeedInitializerTest {
         templates.get("s").clear(); seed.run(null);
         assertEquals("Admin edited", catalog.get(ChecklistDefaults.code(1)).getContent());
         assertFalse(catalog.get(ChecklistDefaults.code(1)).getIsActive());
-        assertEquals(5, templates.get("s").size()); assertEquals(19, catalog.size());
+        assertEquals(2, templates.get("s").size()); assertEquals(21, catalog.size());
     }
 
     @Test void restartKeepsGuidanceWrittenByAdministrator() {
@@ -71,7 +71,7 @@ class ChecklistDefaultSeedInitializerTest {
 
     @Test void missingAndAmbiguousServicesAreSkipped() {
         when(services.findAll()).thenReturn(List.of()); seed.run(null);
-        assertEquals(19, catalog.size()); verify(assignments, never()).save(any());
+        assertEquals(21, catalog.size()); verify(assignments, never()).save(any());
         var duplicate = Service.builder().name(service.getName().toUpperCase(Locale.ROOT)).build(); duplicate.setId("other");
         when(services.findAll()).thenReturn(List.of(service, duplicate)); seed.run(null);
         verify(services, never()).findByIdForUpdate(anyString());
@@ -82,7 +82,7 @@ class ChecklistDefaultSeedInitializerTest {
         existing.setNormalizedContent(existing.getContent().toLowerCase(Locale.ROOT)); existing.setIsActive(false);
         when(definitions.findByNormalizedContent(existing.getNormalizedContent())).thenReturn(Optional.of(existing));
         seed.run(null); assertSame(existing, catalog.get(ChecklistDefaults.code(1))); assertFalse(existing.getIsActive());
-        assertEquals(5, templates.get("s").size());
+        assertEquals(2, templates.get("s").size());
     }
 
     @Test void inactiveAndRenamedServicesDoNotReceiveWrongMappings() {

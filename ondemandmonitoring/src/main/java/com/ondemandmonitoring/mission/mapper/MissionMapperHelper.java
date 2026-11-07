@@ -26,6 +26,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
@@ -165,13 +167,26 @@ public class MissionMapperHelper {
         if (mission == null || mission.getId() == null) {
             return List.of();
         }
+        var allAssignments = missionDeviceAssignmentRepository.findByMissionId(mission.getId());
+        Set<String> completedReplacementIds = allAssignments.stream()
+                .filter(assignment -> assignment.getReplacementRequestedAt() != null
+                        && assignment.getReplacementAssignment() != null)
+                .map(assignment -> assignment.getReplacementAssignment().getId())
+                .collect(Collectors.toSet());
         var assignments = mission.getStatus() == com.ondemandmonitoring.mission.enums.MissionStatus.PLANNING
-                ? missionDeviceAssignmentRepository.findByMissionId(mission.getId())
-                : missionDeviceAssignmentRepository.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc(mission.getId());
+                ? allAssignments
+                : allAssignments.stream()
+                        .filter(assignment -> Boolean.TRUE.equals(assignment.getIsCurrent())
+                                && assignment.getReleasedAt() == null)
+                        .sorted(Comparator.comparing(MissionDeviceAssignment::getCreatedAt,
+                                Comparator.nullsLast(Comparator.reverseOrder())))
+                        .toList();
         return assignments.stream()
                 .sorted(Comparator.comparing(MissionDeviceAssignment::getDeviceRole,
                         Comparator.nullsLast(Comparator.naturalOrder())))
-                .map(missionDeviceAssignmentMapper::toResponse)
+                .map(assignment -> missionDeviceAssignmentMapper.toResponse(assignment).toBuilder()
+                        .replacementCompleted(completedReplacementIds.contains(assignment.getId()))
+                        .build())
                 .toList();
     }
 

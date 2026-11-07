@@ -31,7 +31,7 @@ resolve_forest3d_path() {
     return 1
 }
 
-SIM_WORLD="${1:-${SIM_WORLD:-light}}"
+SIM_WORLD="${1:-${SIM_WORLD:-compact}}"
 requested_home_lat="${PX4_HOME_LAT:-}"
 requested_home_lon="${PX4_HOME_LON:-}"
 requested_home_alt="${PX4_HOME_ALT:-}"
@@ -54,7 +54,7 @@ if [ -f "$ENV_FILE" ]; then
     set +a
 fi
 
-SIM_WORLD="${1:-${SIM_WORLD:-light}}"
+SIM_WORLD="${1:-${SIM_WORLD:-compact}}"
 if [ -n "$requested_home_lat" ] && [ -n "$requested_home_lon" ]; then
     export PX4_HOME_LAT="$requested_home_lat"
     export PX4_HOME_LON="$requested_home_lon"
@@ -98,6 +98,15 @@ case "$SIM_WORLD" in
         exit 2
         ;;
 esac
+
+# The checklist demo uses a lightweight scene with the same world name and
+# site coordinates. Keep the complete Forest3D scene for realistic simulation.
+if [ "$SIM_WORLD" = "compact" ] && [ "${FAST_DEMO_MODE:-0}" = "1" ]; then
+    fast_demo_world="$FOREST3D_PATH/worlds/forest_monitoring_compact_fast_demo.sdf"
+    if [ -f "$fast_demo_world" ]; then
+        FOREST3D_WORLD_FILE="$fast_demo_world"
+    fi
+fi
 
 source "$PX4_BUILD/rootfs/gz_env.sh"
 export PATH="$PROJECT_PATH/scripts/wsl-bin:$PATH"
@@ -144,6 +153,7 @@ fi
 if [ "$SIM_WORLD" = "compact" ]; then
     required_models=(
         compact_terrain
+        compact_terrain_fast_demo
         compact_water
         compact_roads
         compact_bridges

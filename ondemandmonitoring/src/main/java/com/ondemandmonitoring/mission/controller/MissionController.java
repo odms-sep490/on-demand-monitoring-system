@@ -26,6 +26,7 @@ import com.ondemandmonitoring.mission.service.IMissionMediaUploadService;
 import com.ondemandmonitoring.mission.service.IMissionService;
 import com.ondemandmonitoring.flightpermit.service.IFlightPermitService;
 import com.ondemandmonitoring.mission.dto.request.MissionCreateRequest;
+import com.ondemandmonitoring.mission.dto.request.RequestDeviceReplacementRequest;
 import jakarta.validation.Valid;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -217,6 +218,15 @@ public class MissionController {
             @Valid @RequestBody ReplaceDeviceRequest request) {
         MissionResponse response = missionService.replaceDevice(id, assignmentId, request);
         return ResponseEntity.ok(ApiResponse.ok("Thay thiết bị cho mission thành công", response));
+    }
+
+    @PostMapping("/{id}/device-replacement-requests")
+    @PreAuthorize("@missionAuthorizationService.canControlFlight(#id) or @missionAuthorizationService.canOperatePayload(#id)")
+    public ResponseEntity<ApiResponse<MissionResponse>> requestDeviceReplacement(
+            @PathVariable String id,
+            @Valid @RequestBody RequestDeviceReplacementRequest request) {
+        MissionResponse response = missionService.requestDeviceReplacement(id, request);
+        return ResponseEntity.ok(ApiResponse.ok("Đã gửi yêu cầu đổi thiết bị", response));
     }
 
     @PostMapping("/{id}/staff-assignments")

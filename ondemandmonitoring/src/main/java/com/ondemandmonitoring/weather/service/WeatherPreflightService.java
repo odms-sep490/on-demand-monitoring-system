@@ -105,9 +105,6 @@ public class WeatherPreflightService {
         if (visibilityKm < MIN_VISIBILITY_KM) {
             values.add("Tầm nhìn thấp, không đủ điều kiện bay an toàn.");
         }
-        if (values.isEmpty()) {
-            values.add("Dữ liệu Open-Meteo hiện tại đáp ứng ngưỡng kiểm tra preflight.");
-        }
         return List.copyOf(values);
     }
 

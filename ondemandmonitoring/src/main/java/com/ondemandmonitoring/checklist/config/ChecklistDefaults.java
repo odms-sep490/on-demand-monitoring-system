@@ -4,7 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Version-one bootstrap data, not a policy reconciling administrator-managed templates. */
+/** Bootstrap catalog data; only the construction service's exact legacy template is migrated. */
 public final class ChecklistDefaults {
     private ChecklistDefaults() {}
 
@@ -27,13 +27,15 @@ public final class ChecklistDefaults {
             "Quan sát tình trạng khu vực cây xanh",
             "Quan sát khu vực có dấu hiệu bất thường",
             "Chụp ảnh các vị trí được chỉ định",
-            "Ghi nhận hiện trạng sau khi hoàn tất giám sát");
+            "Ghi nhận hiện trạng sau khi hoàn tất giám sát",
+            "Chụp ảnh tổng quan công trình",
+            "Quay video quanh công trình");
 
     public static String code(int number) { return "S4%03d".formatted(number); }
 
     public static Map<String, List<Integer>> templates() {
         var mappings = new LinkedHashMap<String, List<Integer>>();
-        mappings.put("Giám sát công trình", List.of(1, 2, 3, 4, 5, 6));
+        mappings.put("Giám sát công trình", List.of(20, 21));
         mappings.put("Kiểm tra nhà xưởng", List.of(7, 8, 9, 4, 10, 6));
         mappings.put("Giám sát khu vực", List.of(11, 12, 4, 13, 14));
         mappings.put("Giám sát rừng", List.of(15, 16, 17, 4, 18, 19));

@@ -4,6 +4,7 @@ import com.ondemandmonitoring.devicecheck.dto.response.PreDeviceCheckResponse;
 import com.ondemandmonitoring.mission.dto.request.AssignDeviceRequest;
 import com.ondemandmonitoring.mission.dto.request.AssignStaffRequest;
 import com.ondemandmonitoring.mission.dto.request.ReplaceDeviceRequest;
+import com.ondemandmonitoring.mission.dto.request.RequestDeviceReplacementRequest;
 import com.ondemandmonitoring.mission.dto.request.ReplaceStaffRequest;
 import com.ondemandmonitoring.mission.dto.request.MissionUpdateRequest;
 import com.ondemandmonitoring.mission.domain.Mission;
@@ -57,6 +58,8 @@ public interface IMissionService {
     MissionResponse removeDevice(String missionId, String assignmentId);
 
     MissionResponse replaceDevice(String missionId, String assignmentId, ReplaceDeviceRequest request);
+
+    MissionResponse requestDeviceReplacement(String missionId, RequestDeviceReplacementRequest request);
 
     MissionResponse assignStaff(String missionId, AssignStaffRequest request);
 

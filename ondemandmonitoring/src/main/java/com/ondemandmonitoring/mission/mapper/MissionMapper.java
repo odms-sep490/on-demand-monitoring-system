@@ -28,6 +28,7 @@ public interface MissionMapper {
     @Mapping(source = "order.altitudeM", target = "altitudeM")
     @Mapping(source = "order.rejectReason", target = "rejectionReason")
     @Mapping(source = "flightPermit.status", target = "flightPermitStatus", defaultValue = "PENDING")
+    @Mapping(source = "flightPermit.updatedAt", target = "flightPermitUpdatedAt")
     @Mapping(source = "flightPermit.note", target = "flightPermitNote")
     @Mapping(source = "flightPermit.fileName", target = "flightPermitFileName")
     @Mapping(source = "flightPermit.contentType", target = "flightPermitContentType")

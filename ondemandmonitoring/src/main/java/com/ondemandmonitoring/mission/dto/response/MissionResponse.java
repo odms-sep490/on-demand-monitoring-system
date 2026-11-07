@@ -33,6 +33,7 @@ public class MissionResponse {
     String resultRevisionCaseId;
 
     FlightPermitStatus flightPermitStatus;
+    Instant flightPermitUpdatedAt;
     String flightPermitNote;
     String flightPermitFileName;
     String flightPermitContentType;

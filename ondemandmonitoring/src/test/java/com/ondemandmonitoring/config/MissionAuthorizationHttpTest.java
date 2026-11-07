@@ -62,7 +62,7 @@ class MissionAuthorizationHttpTest {
         user.setId("staff-1");
         mission = new Mission();
         mission.setId("mission-1");
-        mission.setStatus(MissionStatus.SCHEDULED);
+        mission.setStatus(MissionStatus.READY);
         when(resolver.getCurrentUser()).thenReturn(user);
         when(resolver.getCurrentUserId()).thenReturn(user.getId());
         when(missions.findById("mission-1")).thenReturn(Optional.of(mission));
@@ -230,6 +230,16 @@ class MissionAuthorizationHttpTest {
     @Configuration
     @EnableWebMvc
     static class Beans {
+        @Bean com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository deviceAssignments() {
+            return mock(com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository.class);
+        }
+        @Bean com.ondemandmonitoring.mission.repository.ControlHandoverRepository handovers() {
+            return mock(com.ondemandmonitoring.mission.repository.ControlHandoverRepository.class);
+        }
+        @Bean com.ondemandmonitoring.weather.repository.MissionWeatherCheckRepository weatherChecks() {
+            return mock(com.ondemandmonitoring.weather.repository.MissionWeatherCheckRepository.class);
+        }
+
         @Bean com.ondemandmonitoring.mission.service.IMissionResultService missionResultService() {
             return mock(com.ondemandmonitoring.mission.service.IMissionResultService.class);
         }
@@ -243,7 +253,7 @@ class MissionAuthorizationHttpTest {
         @Bean("missionAuthorizationService")
         IMissionAuthorizationService policy(MissionRepository missions,
                 MissionStaffAssignmentRepository assignments, AuthenticatedUserResolver resolver) {
-            return new MissionAuthorizationServiceImpl(assignments, missions, resolver, mock(com.ondemandmonitoring.mission.repository.MissionResultRepository.class), com.ondemandmonitoring.mission.service.ScopeTestFixture.validScope());
+            return new MissionAuthorizationServiceImpl(assignments, missions, resolver, mock(com.ondemandmonitoring.mission.repository.MissionResultRepository.class), com.ondemandmonitoring.mission.service.ScopeTestFixture.validScope(), mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class));
         }
     }
 }

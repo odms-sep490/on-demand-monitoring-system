@@ -11,6 +11,9 @@ public class ChecklistEvidenceResponse {
     private String executionId;
     private String attachedBy;
     private Instant attachedAt;
+    private boolean selectedForCustomer;
+    private String selectedBy;
+    private Instant selectedAt;
     private String note;
     private Long version;
     private String mediaType;

@@ -105,6 +105,9 @@ class DeliveryWorkflowServiceTest {
         when(deliveries.findByOrderId("order")).thenReturn(Optional.of(delivery));
         when(deliveries.save(any(OrderDelivery.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(storage.presignedUrlExpiresSeconds()).thenReturn(600L);
+        when(media.findByMissionIdOrderByCapturedAtDesc("mission")).thenReturn(List.of(asset("original", MediaStatus.AVAILABLE)));
+        when(missions.findAllById(List.of("mission"))).thenReturn(List.of(mission));
+        when(roundEvidence.findCurrentPublishedMediaAssetIdsByOrderIds(List.of("order"))).thenReturn(Set.of("original"));
     }
 
     @Test void legacyUnpaidAcceptanceRemainsPendingReconciliation() {
@@ -125,8 +128,8 @@ class DeliveryWorkflowServiceTest {
         round.setVersion(3L);
         var retry = service.acceptResult("order", "round", 2L);
 
-        assertThat(accepted.deliveryStatus()).isEqualTo(DeliveryStatus.READY_FOR_DELIVERY);
-        assertThat(retry.deliveryStatus()).isEqualTo(DeliveryStatus.READY_FOR_DELIVERY);
+        assertThat(accepted.deliveryStatus()).isEqualTo(DeliveryStatus.DELIVERED);
+        assertThat(retry.deliveryStatus()).isEqualTo(DeliveryStatus.DELIVERED);
         assertThat(delivery.getCustomerAcceptedAt()).isEqualTo(acceptedAt);
         assertThat(round.getStatus()).isEqualTo(com.ondemandmonitoring.delivery.enums.ResultReviewRoundStatus.ACCEPTED);
         assertThat(invoice.getStatus()).isEqualTo(InvoiceStatus.PAID);
@@ -140,6 +143,16 @@ class DeliveryWorkflowServiceTest {
 
         assertThat(service.acceptResult("order", "round", 2L).deliveryStatus())
                 .isEqualTo(DeliveryStatus.DELIVERED);
+    }
+
+    @Test void paidLegacyAcceptanceRetryAutomaticallyReleasesOriginals() {
+        service.acceptResult("order", "round", 2L);
+        assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.FINAL_PAYMENT_PENDING);
+        assertThat(order.getResultExpiresAt()).isNull();
+        invoice.setStatus(InvoiceStatus.PAID); invoice.setRemainingAmount(BigDecimal.ZERO);
+        var released = service.acceptResult("order", "round", 2L);
+        assertThat(released.deliveryStatus()).isEqualTo(DeliveryStatus.DELIVERED);
+        assertThat(order.getResultExpiresAt()).isEqualTo(delivery.getOriginalsReleasedAt().plus(java.time.Duration.ofDays(90)));
     }
 
     @Test void staleRoundCannotAcceptResultsEvenWhenInvoiceIsPaid() {
@@ -303,7 +316,7 @@ class DeliveryWorkflowServiceTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void acceptingReworkClosesTheCaseWithoutStartingOrExtendingRetention(boolean existingDeadline) {
+    void acceptingReworkHandsOverOriginalsAndStartsRetentionOnlyAtHandoff(boolean existingDeadline) {
         order.setOrderStatus(OrderStatus.COMPLETED);
         var originalExpiry = existingDeadline ? java.time.Instant.now().minusSeconds(86400) : null;
         order.setResultExpiresAt(originalExpiry);
@@ -322,13 +335,15 @@ class DeliveryWorkflowServiceTest {
         when(revisionCaseItems.findByResultRevisionCaseIdOrderByCreatedAtAsc("case")).thenReturn(List.of(item));
         org.springframework.test.util.ReflectionTestUtils.setField(service, "supportTickets",
                 mock(com.ondemandmonitoring.support.service.impl.SupportTicketService.class));
-        assertThat(service.acceptResult("order", "round", 2L).deliveryStatus()).isEqualTo(DeliveryStatus.READY_FOR_DELIVERY);
+        assertThat(service.acceptResult("order", "round", 2L).deliveryStatus()).isEqualTo(DeliveryStatus.DELIVERED);
         assertThat(revisionCase.isActive()).isFalse();
         assertThat(item.getStatus()).isEqualTo(com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.RESOLVED);
-        assertThat(order.getResultExpiresAt()).isEqualTo(originalExpiry);
+        var expectedExpiry = originalExpiry == null
+                ? delivery.getOriginalsReleasedAt().plus(java.time.Duration.ofDays(90)) : originalExpiry;
+        assertThat(order.getResultExpiresAt()).isEqualTo(expectedExpiry);
         var closedAt = revisionCase.getClosedAt();
         service.acceptResult("order", "round", 2L);
-        assertThat(order.getResultExpiresAt()).isEqualTo(originalExpiry);
+        assertThat(order.getResultExpiresAt()).isEqualTo(expectedExpiry);
         assertThat(revisionCase.getClosedAt()).isEqualTo(closedAt);
     }
 

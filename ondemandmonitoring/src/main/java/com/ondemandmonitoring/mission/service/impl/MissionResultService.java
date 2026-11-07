@@ -68,30 +68,46 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
     @Transactional
     @PreAuthorize("@missionAuthorizationService.canSubmitMissionResult(#missionId)")
     public MissionResultResponse upsert(String missionId, MissionResultRequest request) {
-        Mission mission = missionRepository.findByIdForUpdate(missionId)
-                .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND,
-                        "Mission not found: " + missionId));
+        String orderId = missionRepository.findOrderIdByMissionId(missionId)
+                .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
+        var aggregate = completionPolicy.lockAggregate(orderId);
+        Mission mission = aggregate.missions().stream().filter(row -> missionId.equals(row.getId())).findFirst()
+                .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
         MissionRuntimeGate.requireFinalizedStructure(mission);
         checklistExecutionService.requireMaterialized(mission);
         if (!authorization.canSubmitMissionResult(missionId)) throw new ApiException(ErrorCode.ACCESS_DENIED);
-        if (mission.getStatus() != MissionStatus.IN_PROGRESS || mission.getCompletedAt() == null)
+        MissionResult result = missionResultRepository.findByMissionId(missionId).orElse(null);
+        // A retry after confirmation must not overwrite the frozen inspection package.
+        if (result != null && result.getApprovalStatus() == MissionResultApprovalStatus.APPROVED) {
+            deliveryWorkflow.publishInspectedResults(orderId);
+            return toResponse(result);
+        }
+        if (mission.getStatus() != MissionStatus.IN_PROGRESS || mission.getActualEndAt() == null
+                || mission.getCompletedAt() == null)
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
-                    "Complete mission acceptance before submitting results to the Manager");
-        checklistExecutionService.requireReadyForSubmission(mission);
-        MissionResult result = missionResultRepository.findByMissionId(missionId)
-                .orElseGet(() -> {
-                    MissionResult created = new MissionResult();
-                    created.setMission(mission);
-                    created.setCreatedBy(currentUser.getCurrentUserId());
-                    return created;
-                });
-        if (result.getApprovalStatus() == MissionResultApprovalStatus.APPROVED
-                || result.getApprovalStatus() == MissionResultApprovalStatus.PENDING_MANAGER_APPROVAL)
-            throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_LOCKED);
+                    "Complete postflight acceptance before confirming the inspection package");
+        if (request == null || request.getStatus() == MissionResultStatus.FAILED)
+            throw new ApiException(ErrorCode.INVALID_REQUEST);
+        checklistExecutionService.requireReadyForInspectorApproval(mission);
+        if (result == null) {
+            result = new MissionResult();
+            result.setMission(mission);
+            result.setCreatedBy(currentUser.getCurrentUserId());
+        }
         applyRequest(result, mission, request);
-        mission.setStatus(MissionStatus.AWAITING_REVIEW);
-        missionRepository.save(mission);
-        return toResponse(missionResultRepository.save(result));
+        Instant now = Instant.now();
+        result.setStatus(MissionResultStatus.COMPLETED);
+        result.setApprovalStatus(MissionResultApprovalStatus.APPROVED);
+        result.setApprovedAt(now);
+        result.setReviewedBy(currentUser.getCurrentUserId());
+        result.setInspectorConfirmed(true);
+        // Detailed inspection reports stay in notes; review_note is a bounded reviewer decision.
+        mission.setStatus(MissionStatus.COMPLETED);
+        missionRepository.saveAndFlush(mission);
+        var saved = missionResultRepository.saveAndFlush(result);
+        completionPolicy.completeIfReady(aggregate);
+        deliveryWorkflow.publishInspectedResults(orderId);
+        return toResponse(saved);
     }
 
     @Override

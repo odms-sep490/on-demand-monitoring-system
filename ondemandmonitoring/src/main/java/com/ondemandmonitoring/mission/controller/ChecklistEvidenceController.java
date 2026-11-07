@@ -29,6 +29,11 @@ public class ChecklistEvidenceController {
         return ApiResponse.ok(service.attach(missionId, new BatchChecklistEvidenceRequest(mediaId,
                 List.of(new BatchChecklistEvidenceRequest.Target(executionId, request.expectedVersion())), request.note())));
     }
+    @PutMapping("/checklist-executions/{executionId}/customer-selection")
+    public ApiResponse<List<ChecklistEvidenceResponse>> selectForCustomer(@PathVariable String missionId,
+            @PathVariable String executionId, @Valid @RequestBody ChecklistCustomerSelectionRequest request) {
+        return ApiResponse.ok(service.selectForCustomer(missionId, executionId, request));
+    }
     @PostMapping("/checklist-evidence/batch")
     public ApiResponse<List<ChecklistEvidenceResponse>> batch(@PathVariable String missionId, @Valid @RequestBody BatchChecklistEvidenceRequest request) {
         return ApiResponse.ok(service.attach(missionId, request));

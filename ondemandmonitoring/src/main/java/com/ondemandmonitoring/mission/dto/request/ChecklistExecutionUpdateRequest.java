@@ -14,6 +14,8 @@ public class ChecklistExecutionUpdateRequest {
     @NotNull
     private ChecklistAssessmentStatus assessmentStatus;
     @Size(max = 2000)
+    private String assessmentNote;
+    @Size(max = 2000)
     private String observation;
     @Size(max = 1000)
     private String unableToVerifyReason;

@@ -33,7 +33,7 @@ class ChecklistEvidenceServiceTest {
     IMediaObjectStorage storage = mock(IMediaObjectStorage.class);
     ChecklistEvidencePolicy policy = new ChecklistEvidencePolicy();
     ChecklistEvidenceServiceImpl service = new ChecklistEvidenceServiceImpl(missions, executions, links, media, results, auth, actor,
-            policy, org.mapstruct.factory.Mappers.getMapper(ChecklistEvidenceMapper.class), storage);
+            policy, org.mapstruct.factory.Mappers.getMapper(ChecklistEvidenceMapper.class), storage, mock(com.ondemandmonitoring.order.repository.OrderRepository.class), mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class));
     Mission mission; MissionChecklistExecution execution; MediaAsset asset;
     @BeforeEach void setup() {
         var order = new Order(); order.setId("o"); mission = new Mission(); mission.setId("m"); mission.setOrder(order); mission.setStatus(MissionStatus.PENDING_REVIEW);

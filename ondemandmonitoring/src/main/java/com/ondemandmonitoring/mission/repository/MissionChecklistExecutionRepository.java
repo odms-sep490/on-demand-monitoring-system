@@ -22,6 +22,9 @@ public interface MissionChecklistExecutionRepository extends JpaRepository<Missi
                set execution_status = :executionStatus,
                    assessment_status = :assessmentStatus,
                    observation = :observation,
+                   assessment_note = :assessmentNote,
+                   assessed_by = :assessedBy,
+                   assessed_at = :assessedAt,
                    unable_to_verify_reason = :unableToVerifyReason,
                    started_at = :startedAt,
                    completed_at = :completedAt,
@@ -40,7 +43,10 @@ public interface MissionChecklistExecutionRepository extends JpaRepository<Missi
             @Param("startedAt") Instant startedAt,
             @Param("completedAt") Instant completedAt,
             @Param("lastModifiedBy") String lastModifiedBy,
-            @Param("updatedAt") Instant updatedAt);
+            @Param("updatedAt") Instant updatedAt,
+            @Param("assessmentNote") String assessmentNote,
+            @Param("assessedBy") String assessedBy,
+            @Param("assessedAt") Instant assessedAt);
 
     @Query("select e from MissionChecklistExecution e join fetch e.orderChecklistItem join fetch e.missionChecklistAssignment a where e.missionId = :missionId order by a.displayOrder, a.id")
     List<MissionChecklistExecution> findOrderedByMissionId(@Param("missionId") String missionId);

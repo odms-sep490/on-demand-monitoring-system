@@ -20,6 +20,9 @@ public class ChecklistExecutionResponse {
     private OrderChecklistSourceType sourceType;
     private ChecklistExecutionStatus executionStatus;
     private ChecklistAssessmentStatus assessmentStatus;
+    private String assessmentNote;
+    private String assessedBy;
+    private Instant assessedAt;
     private String observation;
     private String unableToVerifyReason;
     private Instant startedAt;
@@ -39,6 +42,8 @@ public class ChecklistExecutionResponse {
     private int eligibleVideoCount;
     private boolean evidenceRequirementSatisfied;
     private boolean evidenceReady;
+    private boolean readyForFinalApproval;
+    private boolean customerSelectionEditable;
     private java.util.List<String> blockingReasons = java.util.List.of();
     private java.util.List<ChecklistEvidenceResponse> evidence = java.util.List.of();
 }

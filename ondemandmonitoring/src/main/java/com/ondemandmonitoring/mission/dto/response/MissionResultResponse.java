@@ -24,6 +24,7 @@ public class MissionResultResponse {
     String missionCode;
     MissionResultStatus status;
     MissionResultApprovalStatus approvalStatus;
+    boolean inspectorConfirmed;
     Instant startedAt;
     Instant endedAt;
     Instant completedAt;

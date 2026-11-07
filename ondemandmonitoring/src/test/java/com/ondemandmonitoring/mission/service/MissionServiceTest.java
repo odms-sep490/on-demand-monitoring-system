@@ -1237,7 +1237,7 @@ class MissionServiceTest {
         when(postDeviceCheckRepository.findFirstByMissionIdOrderByCreatedAtDesc("integrated"))
                 .thenReturn(Optional.of(new PersistedPostDeviceCheck()));
         var policy = new com.ondemandmonitoring.mission.service.impl.MissionAuthorizationServiceImpl(
-                missionStaffAssignmentRepository, missionRepository, authenticatedUserResolver, mock(com.ondemandmonitoring.mission.repository.MissionResultRepository.class), ScopeTestFixture.validScope());
+                missionStaffAssignmentRepository, missionRepository, authenticatedUserResolver, mock(com.ondemandmonitoring.mission.repository.MissionResultRepository.class), ScopeTestFixture.validScope(), mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class));
         var items = mock(com.ondemandmonitoring.order.repository.OrderChecklistItemRepository.class);
         var executions = mock(com.ondemandmonitoring.mission.repository.MissionChecklistExecutionRepository.class);
         var resultRepo = mock(com.ondemandmonitoring.mission.repository.MissionResultRepository.class);
@@ -1254,7 +1254,7 @@ class MissionServiceTest {
         when(executions.findByIdForUpdate(execution.getId())).thenReturn(Optional.of(execution));
         when(executions.updateIfVersionMatches(anyString(), anyLong(), anyString(), anyString(),
                 nullable(String.class), nullable(String.class), nullable(Instant.class), nullable(Instant.class),
-                nullable(String.class), any(Instant.class))).thenAnswer(call -> {
+                nullable(String.class), any(Instant.class), nullable(String.class), nullable(String.class), nullable(Instant.class))).thenAnswer(call -> {
                     execution.setExecutionStatus(com.ondemandmonitoring.mission.enums.ChecklistExecutionStatus.valueOf(call.getArgument(2)));
                     execution.setAssessmentStatus(com.ondemandmonitoring.mission.enums.ChecklistAssessmentStatus.valueOf(call.getArgument(3)));
                     execution.setObservation(call.getArgument(4));
@@ -1263,6 +1263,9 @@ class MissionServiceTest {
                     execution.setCompletedAt(call.getArgument(7));
                     execution.setLastModifiedBy(call.getArgument(8));
                     execution.setUpdatedAt(call.getArgument(9));
+                    execution.setAssessmentNote(call.getArgument(10));
+                    execution.setAssessedBy(call.getArgument(11));
+                    execution.setAssessedAt(call.getArgument(12));
                     execution.setVersion(execution.getVersion() + 1);
                     return 1;
                 });

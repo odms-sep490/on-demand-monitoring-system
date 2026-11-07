@@ -53,7 +53,9 @@ class MissionChecklistExecutionHttpTest {
         mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
         actor = User.builder().isActive(true).role(Role.builder().code(RoleCode.STAFF).active(true).build()).build(); actor.setId("actor");
         var order = new Order(); order.setId("o");
-        mission = new Mission(); mission.setId("m"); mission.setOrder(order); mission.setStatus(MissionStatus.IN_FLIGHT);
+        order.getExecutionPlan().setStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
+        order.getExecutionPlan().setRevision(1);
+        mission = new Mission(); mission.setId("m"); mission.setOrder(order); mission.setStatus(MissionStatus.IN_PROGRESS);
         var item = new OrderChecklistItem(); item.setId("i"); item.setOrder(order); item.setContent("Historical requirement");
         item.setEvidencePolicyVersion(0); item.setMinimumEvidenceCount(0);
         execution = new MissionChecklistExecution(); execution.setId("e"); execution.setVersion(0L);
@@ -67,7 +69,7 @@ class MissionChecklistExecutionHttpTest {
         when(executions.findByIdForUpdate("e")).thenReturn(Optional.of(execution));
         when(executions.updateIfVersionMatches(anyString(), anyLong(), anyString(), anyString(),
                 nullable(String.class), nullable(String.class), nullable(Instant.class), nullable(Instant.class),
-                nullable(String.class), any(Instant.class))).thenAnswer(call -> {
+                nullable(String.class), any(Instant.class), nullable(String.class), nullable(String.class), nullable(Instant.class))).thenAnswer(call -> {
                     execution.setExecutionStatus(ChecklistExecutionStatus.valueOf(call.getArgument(2)));
                     execution.setAssessmentStatus(ChecklistAssessmentStatus.valueOf(call.getArgument(3)));
                     execution.setObservation(call.getArgument(4));
@@ -76,6 +78,9 @@ class MissionChecklistExecutionHttpTest {
                     execution.setCompletedAt(call.getArgument(7));
                     execution.setLastModifiedBy(call.getArgument(8));
                     execution.setUpdatedAt(call.getArgument(9));
+                    execution.setAssessmentNote(call.getArgument(10));
+                    execution.setAssessedBy(call.getArgument(11));
+                    execution.setAssessedAt(call.getArgument(12));
                     execution.setVersion(execution.getVersion() + 1);
                     return 1;
                 });
@@ -101,8 +106,8 @@ class MissionChecklistExecutionHttpTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.lastModifiedBy").value("actor"));
     }
 
-    @Test void pendingReviewAllowsOperatorMutationButLocksSubmittedResults() throws Exception {
-        mission.setStatus(MissionStatus.PENDING_REVIEW);
+    @Test void postflightAllowsOperatorMutationButLocksSubmittedResults() throws Exception {
+        mission.setActualEndAt(Instant.now());
         mvc.perform(patch(URL + "/e").with(jwt().authorities(() -> "ROLE_STAFF")).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content(BODY)).andExpect(status().isOk());
         var submitted = new MissionResult(); submitted.setApprovalStatus(MissionResultApprovalStatus.PENDING_MANAGER_APPROVAL);

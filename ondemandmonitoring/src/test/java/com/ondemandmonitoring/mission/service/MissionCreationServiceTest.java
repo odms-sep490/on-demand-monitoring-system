@@ -102,7 +102,7 @@ class MissionCreationServiceTest {
         when(fixture.authenticatedUserResolver.getCurrentUser()).thenReturn(caller);
         when(fixture.missionRepository.findById("m")).thenReturn(Optional.of(mission));
         when(fixture.missionStaffAssignmentRepository.existsByMissionIdAndStaffId("m","crew")).thenReturn(true);
-        var auth=new com.ondemandmonitoring.mission.service.impl.MissionAuthorizationServiceImpl(fixture.missionStaffAssignmentRepository,fixture.missionRepository,fixture.authenticatedUserResolver,mock(com.ondemandmonitoring.mission.repository.MissionResultRepository.class), ScopeTestFixture.validScope());
+        var auth=new com.ondemandmonitoring.mission.service.impl.MissionAuthorizationServiceImpl(fixture.missionStaffAssignmentRepository,fixture.missionRepository,fixture.authenticatedUserResolver,mock(com.ondemandmonitoring.mission.repository.MissionResultRepository.class), ScopeTestFixture.validScope(), mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class));
         assertTrue(auth.canViewMission("m"));assertFalse(auth.canControlFlight("m"));assertFalse(auth.canOperatePayload("m"));
         assertFalse(auth.canExecuteMonitoringChecklist("m"));assertFalse(auth.canUploadMissionMedia("m"));
         assertFalse(auth.canInspectDevice("m"));assertFalse(auth.canMaintainDevice("m"));assertFalse(auth.canAttachChecklistEvidence("m"));

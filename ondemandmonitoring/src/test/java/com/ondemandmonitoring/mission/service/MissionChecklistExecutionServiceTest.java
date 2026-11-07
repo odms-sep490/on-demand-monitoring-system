@@ -39,7 +39,7 @@ class MissionChecklistExecutionServiceTest {
         // Operational execution requires a finalized plan as well as valid assignment/execution rows.
         order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED);
         order.getExecutionPlan().setRevision(1);
-        mission = new Mission(); mission.setId("m"); mission.setOrder(order); mission.setStatus(MissionStatus.IN_FLIGHT);
+        mission = new Mission(); mission.setId("m"); mission.setOrder(order); mission.setStatus(MissionStatus.IN_PROGRESS);
         item = new OrderChecklistItem(); item.setId("i"); item.setOrder(order); item.setContent("Historical");
         item.setEvidencePolicyVersion(0); item.setMinimumEvidenceCount(0); item.setRequiredEvidenceType(RequiredEvidenceType.IMAGE_OR_VIDEO);
         execution = new MissionChecklistExecution(); execution.setId("e"); execution.setVersion(0L);
@@ -53,7 +53,7 @@ class MissionChecklistExecutionServiceTest {
         when(executions.findById("e")).thenReturn(Optional.of(execution));
         when(executions.updateIfVersionMatches(anyString(), anyLong(), anyString(), anyString(),
                 nullable(String.class), nullable(String.class), any(), nullable(java.time.Instant.class),
-                anyString(), any(java.time.Instant.class))).thenAnswer(call -> {
+                anyString(), any(java.time.Instant.class), nullable(String.class), nullable(String.class), nullable(java.time.Instant.class))).thenAnswer(call -> {
                     execution.setExecutionStatus(ChecklistExecutionStatus.valueOf(call.getArgument(2)));
                     execution.setAssessmentStatus(ChecklistAssessmentStatus.valueOf(call.getArgument(3)));
                     execution.setObservation(call.getArgument(4));
@@ -61,10 +61,14 @@ class MissionChecklistExecutionServiceTest {
                     execution.setStartedAt(call.getArgument(6));
                     execution.setCompletedAt(call.getArgument(7));
                     execution.setLastModifiedBy(call.getArgument(8));
+                    execution.setAssessmentNote(call.getArgument(10));
+                    execution.setAssessedBy(call.getArgument(11));
+                    execution.setAssessedAt(call.getArgument(12));
                     execution.setVersion(execution.getVersion() + 1);
                     return 1;
                 });
         when(auth.canExecuteMonitoringChecklist("m")).thenReturn(true);
+        when(auth.canAssessMonitoringChecklist("m")).thenReturn(true);
         when(auth.canSubmitMissionResult("m")).thenReturn(true);
         when(auth.canReviewMissionMedia("m")).thenReturn(true);
         when(auth.canViewMission("m")).thenReturn(true);
@@ -145,6 +149,7 @@ class MissionChecklistExecutionServiceTest {
                         "Accepted", List.of("Accepted step"), List.of("Accepted input"), List.of("Accepted output"))));
     }
     @Test void pilotMayChangeExecutionStatusButCannotChangeAssessment() {
+        when(auth.canAssessMonitoringChecklist("m")).thenReturn(false);
         when(auth.canSubmitMissionResult("m")).thenReturn(false);
         when(auth.canReviewMissionMedia("m")).thenReturn(false);
         service.update("m", "e", request(ChecklistExecutionStatus.IN_PROGRESS));
@@ -178,7 +183,7 @@ class MissionChecklistExecutionServiceTest {
         var response = service.update("m", "e", request);
         assertEquals("Fence damaged", response.getObservation()); assertNull(response.getUnableToVerifyReason());
         assertEquals("authenticated-actor", response.getLastModifiedBy()); assertNotNull(response.getCompletedAt());
-        assertEquals(MissionStatus.IN_FLIGHT, mission.getStatus()); assertEquals("Historical", item.getContent());
+        assertEquals(MissionStatus.IN_PROGRESS, mission.getStatus()); assertEquals("Historical", item.getContent());
         verify(items, never()).save(any()); verify(missions, never()).save(any());
     }
 
@@ -262,6 +267,7 @@ class MissionChecklistExecutionServiceTest {
     }
 
     @Test void serviceRechecksActorUnderMissionLock() {
+        when(auth.canAssessMonitoringChecklist("m")).thenReturn(false);
         when(auth.canExecuteMonitoringChecklist("m")).thenReturn(false);
         when(auth.canReviewMissionMedia("m")).thenReturn(false);
         error(ErrorCode.ACCESS_DENIED, () -> service.update("m", "e", request(ChecklistExecutionStatus.COMPLETED)));
@@ -269,4 +275,90 @@ class MissionChecklistExecutionServiceTest {
         when(auth.canViewMission("m")).thenReturn(false);
         error(ErrorCode.ACCESS_DENIED, () -> service.getByMissionId("m"));
     }
+    @Test void inspectorAssessmentNoteNeverOverwritesStaffObservationOrCompletesProgress() {
+        execution.setObservation("Staff finding");
+        when(auth.canExecuteMonitoringChecklist("m")).thenReturn(false);
+        var assessment = request(ChecklistExecutionStatus.PENDING);
+        assessment.setAssessmentStatus(ChecklistAssessmentStatus.NON_COMPLIANT);
+        assessment.setAssessmentNote("  Needs another angle  ");
+        var response = service.update("m", "e", assessment);
+        assertEquals("Staff finding", response.getObservation());
+        assertEquals("Needs another angle", response.getAssessmentNote());
+        assertEquals("authenticated-actor", response.getAssessedBy()); assertNotNull(response.getAssessedAt());
+        assertEquals(ChecklistExecutionStatus.PENDING, response.getExecutionStatus());
+        assertNull(response.getStartedAt()); assertNull(response.getCompletedAt()); assertFalse(service.isReadyForSubmission(mission));
+        var forbidden = request(ChecklistExecutionStatus.COMPLETED);
+        forbidden.setAssessmentStatus(ChecklistAssessmentStatus.COMPLIANT);
+        error(ErrorCode.ACCESS_DENIED, () -> service.update("m", "e", forbidden));
+        forbidden.setExecutionStatus(ChecklistExecutionStatus.PENDING); forbidden.setObservation("Inspector replacing staff");
+        error(ErrorCode.ACCESS_DENIED, () -> service.update("m", "e", forbidden));
+    }
+
+    @Test void operatorCorrectionInvalidatesAssessmentAndInspectorCanReassessCompletedExecution() {
+        execution.setExecutionStatus(ChecklistExecutionStatus.COMPLETED);
+        execution.setStartedAt(java.time.Instant.now()); execution.setCompletedAt(java.time.Instant.now());
+        execution.setAssessmentStatus(ChecklistAssessmentStatus.NON_COMPLIANT); execution.setAssessmentNote("Needs correction");
+        execution.setAssessedBy("inspector"); execution.setAssessedAt(java.time.Instant.now());
+        when(auth.canAssessMonitoringChecklist("m")).thenReturn(false);
+        var correction = request(ChecklistExecutionStatus.COMPLETED);
+        correction.setAssessmentStatus(ChecklistAssessmentStatus.NON_COMPLIANT); correction.setObservation("Corrected report");
+        var corrected = service.update("m", "e", correction);
+        assertEquals(ChecklistAssessmentStatus.NOT_ASSESSED, corrected.getAssessmentStatus());
+        assertNull(corrected.getAssessmentNote()); assertNull(corrected.getAssessedBy()); assertNull(corrected.getAssessedAt());
+        when(auth.canExecuteMonitoringChecklist("m")).thenReturn(false);
+        when(auth.canAssessMonitoringChecklist("m")).thenReturn(true);
+        var reassessment = request(ChecklistExecutionStatus.COMPLETED);
+        reassessment.setAssessmentStatus(ChecklistAssessmentStatus.COMPLIANT); reassessment.setAssessmentNote("Correction verified");
+        var response = service.update("m", "e", reassessment);
+        assertEquals("Corrected report", response.getObservation());
+        assertEquals(ChecklistAssessmentStatus.COMPLIANT, response.getAssessmentStatus());
+        assertEquals("Correction verified", response.getAssessmentNote());
+    }
+
+    @Test void dualRoleMustExplicitlyChangeAssessmentToReassessAlongsideStaffChanges() {
+        execution.setAssessmentStatus(ChecklistAssessmentStatus.COMPLIANT); execution.setAssessmentNote("Old acceptance");
+        var echo = request(ChecklistExecutionStatus.IN_PROGRESS); echo.setAssessmentStatus(ChecklistAssessmentStatus.COMPLIANT);
+        service.update("m", "e", echo);
+        assertEquals(ChecklistAssessmentStatus.NOT_ASSESSED, execution.getAssessmentStatus());
+        assertNull(execution.getAssessedAt()); assertNull(execution.getAssessmentNote());
+        var explicit = request(ChecklistExecutionStatus.COMPLETED);
+        explicit.setAssessmentStatus(ChecklistAssessmentStatus.COMPLIANT); explicit.setAssessmentNote("New assessment");
+        explicit.setObservation("Staff observation");
+        var response = service.update("m", "e", explicit);
+        assertEquals(ChecklistExecutionStatus.COMPLETED, response.getExecutionStatus());
+        assertEquals(ChecklistAssessmentStatus.COMPLIANT, response.getAssessmentStatus()); assertNotNull(response.getAssessedAt());
+    }
+
+    @Test void assessmentNoteLimitAndReporterOwnershipAreEnforced() {
+        var request = request(ChecklistExecutionStatus.PENDING); request.setAssessmentNote("x".repeat(2001));
+        error(ErrorCode.INVALID_REQUEST, () -> service.update("m", "e", request));
+        request.setAssessmentNote("x".repeat(2000));
+        assertEquals(2000, service.update("m", "e", request).getAssessmentNote().length());
+        when(auth.canAssessMonitoringChecklist("m")).thenReturn(false);
+        var reporter = request(ChecklistExecutionStatus.PENDING); reporter.setAssessmentNote(" ");
+        error(ErrorCode.ACCESS_DENIED, () -> service.update("m", "e", reporter));
+    }
+
+    @Test void inspectorReadinessAndLegacyApprovalAreSeparateAndResponseUsesStrictReadiness() {
+        execution.setExecutionStatus(ChecklistExecutionStatus.COMPLETED);
+        when(evidence.ready(execution, List.of(), true)).thenReturn(true);
+        assertTrue(service.isReadyForFinalApproval(mission));
+        assertDoesNotThrow(() -> service.requireReadyForFinalApproval(mission));
+        assertFalse(service.isReadyForInspectorApproval(mission));
+        assertFalse(service.getByMissionId("m").readyForFinalApproval());
+        error(ErrorCode.CHECKLIST_NOT_READY, () -> service.requireReadyForInspectorApproval(mission));
+        execution.setAssessmentStatus(ChecklistAssessmentStatus.COMPLIANT);
+        when(evidence.readyForInspectorApproval(execution, List.of())).thenReturn(true);
+        assertTrue(service.isReadyForInspectorApproval(mission));
+        assertTrue(service.getByMissionId("m").readyForFinalApproval());
+        assertDoesNotThrow(() -> service.requireReadyForInspectorApproval(mission));
+    }
+
+    @Test void checklistResponseExposesSelectionCapabilityOnEachExecution() {
+        when(auth.canSelectCustomerEvidence("m")).thenReturn(true);
+        assertTrue(service.getByMissionId("m").executions().getFirst().isCustomerSelectionEditable());
+        when(auth.canSelectCustomerEvidence("m")).thenReturn(false);
+        assertFalse(service.getByMissionId("m").executions().getFirst().isCustomerSelectionEditable());
+    }
+
 }

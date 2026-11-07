@@ -39,8 +39,9 @@ public final class MissionResultSubmissionFixture {
     public final IMissionChecklistExecutionService checklist = mock(IMissionChecklistExecutionService.class);
     public final IOrderExecutionCompletionPolicy completion = mock(IOrderExecutionCompletionPolicy.class);
     public final IMissionAuthorizationService authorization = new MissionAuthorizationServiceImpl(
-            assignments, missions, resolver, results, ScopeTestFixture.validScope());
+            assignments, missions, resolver, results, ScopeTestFixture.validScope(), mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class));
     public final MissionResultService service;
+    public final com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService delivery = mock(com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService.class);
     public Mission mission;
     public MissionResult result;
     public User actor;
@@ -54,18 +55,21 @@ public final class MissionResultSubmissionFixture {
         when(mapper.toResponse(any(), anyList(), eq(mediaService))).thenAnswer(call -> {
             MissionResult value = call.getArgument(0);
             return MissionResultResponse.builder().id(value.getId()).missionId(value.getMission().getId())
-                    .approvalStatus(value.getApprovalStatus()).summary(value.getSummary()).build();
+                    .approvalStatus(value.getApprovalStatus()).inspectorConfirmed(value.isInspectorConfirmed()).summary(value.getSummary()).build();
         });
         service = new MissionResultService(results, missions, media, mediaService, mapper,
                 completion, checklist, resolver, authorization);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "deliveryWorkflow", delivery);
     }
 
     public void prepare(Scenario scenario) {
-        reset(missions, assignments, results, resolver, checklist, completion);
+        reset(missions, assignments, results, resolver, checklist, completion, delivery);
         var order = new Order(); order.setId("order-1"); order.getExecutionPlan().setRevision(2);
         order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED);
         mission = mission("mission-1", order);
         var sibling = mission("mission-2", order);
+        when(missions.findOrderIdByMissionId(anyString())).thenReturn(Optional.of(order.getId()));
+        when(completion.lockAggregate(order.getId())).thenReturn(new IOrderExecutionCompletionPolicy.LockedExecution(order, List.of(mission,sibling)));
         crew = new ArrayList<>();
         for (var role : MissionStaffRole.values()) crew.add(assignment(mission, role, "staff-" + role.name()));
         var operator = crew.stream().filter(a -> a.getAssignedRole() == MissionStaffRole.OPERATOR).findFirst().orElseThrow();
@@ -98,12 +102,13 @@ public final class MissionResultSubmissionFixture {
         result = new MissionResult(); result.setId("result-1"); result.setMission(mission);
         result.setApprovalStatus(MissionResultApprovalStatus.DRAFT);
         when(results.findByMissionId(mission.getId())).thenAnswer(call -> Optional.of(result));
-        when(results.save(any())).thenAnswer(call -> call.getArgument(0));
+        when(results.saveAndFlush(any())).thenAnswer(call -> call.getArgument(0));
     }
 
     private Mission mission(String id, Order order) {
         var value = new Mission(); value.setId(id); value.setMissionCode(id); value.setOrder(order);
-        value.setStatus(MissionStatus.COMPLETED);
+        value.setStatus(MissionStatus.IN_PROGRESS);
+        value.setActualEndAt(Instant.now()); value.setCompletedAt(Instant.now());
         when(missions.findById(id)).thenReturn(Optional.of(value));
         when(missions.findByIdForUpdate(id)).thenReturn(Optional.of(value));
         return value;

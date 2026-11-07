@@ -52,19 +52,42 @@ class MissionResultSubmitAuthorizationHttpTest {
             if (scenario.allowed) {
                 response.andExpect(status().is(method.equals("POST") ? 201 : 200))
                         .andExpect(jsonPath("$.data.missionId").value(fixture.targetId))
-                        .andExpect(jsonPath("$.data.approvalStatus").value("PENDING_MANAGER_APPROVAL"));
-                verify(fixture.results).save(fixture.result);
+                        .andExpect(jsonPath("$.data.approvalStatus").value("APPROVED"))
+                        .andExpect(jsonPath("$.data.inspectorConfirmed").value(true));
+                verify(fixture.results).saveAndFlush(fixture.result);
             } else {
                 response.andExpect(status().isForbidden());
-                verify(fixture.results,never()).save(any());
+                verify(fixture.results,never()).saveAndFlush(any());
             }
             if (scenario == Scenario.INSPECTOR)
-                assertTrue(fixture.authorization.canUploadMissionMedia(fixture.targetId));
+                assertFalse(fixture.authorization.canUploadMissionMedia(fixture.targetId));
         }
+    }
+
+    @org.junit.jupiter.api.Test
+    void oversizedSummaryReturnsBadRequestWithoutWritingTheResult() throws Exception {
+        fixture.prepare(Scenario.INSPECTOR);
+        var mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
+        mvc.perform(MockMvcRequestBuilders.post("/api/missions/{id}/result", fixture.targetId)
+                .with(jwt().jwt(j -> j.subject(fixture.actor.getId())).authorities(() -> "ROLE_STAFF"))
+                .with(csrf()).contentType("application/json")
+                .content("{\"summary\":\"" + "x".repeat(1001) + "\"}"))
+                .andExpect(status().isBadRequest());
+        verify(fixture.results, never()).saveAndFlush(any());
     }
 
     @Configuration @EnableWebMvc
     static class Beans {
+        @Bean com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository deviceAssignments() {
+            return mock(com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository.class);
+        }
+        @Bean com.ondemandmonitoring.mission.repository.ControlHandoverRepository handovers() {
+            return mock(com.ondemandmonitoring.mission.repository.ControlHandoverRepository.class);
+        }
+        @Bean com.ondemandmonitoring.weather.repository.MissionWeatherCheckRepository weatherChecks() {
+            return mock(com.ondemandmonitoring.weather.repository.MissionWeatherCheckRepository.class);
+        }
+
         @Bean com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService deliveryWorkflow() {
             return org.mockito.Mockito.mock(com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService.class);
         }

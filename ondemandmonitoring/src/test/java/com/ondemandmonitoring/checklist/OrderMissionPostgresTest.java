@@ -301,7 +301,7 @@ class OrderMissionPostgresTest extends ChecklistPostgresTest {
                 com.ondemandmonitoring.media.service.IMediaObjectStorage storage) {
             return new com.ondemandmonitoring.mission.service.impl.ChecklistEvidenceServiceImpl(missions, executions, evidence, media, results,
                     auth, resolver, new com.ondemandmonitoring.mission.service.impl.ChecklistEvidencePolicy(),
-                    org.mapstruct.factory.Mappers.getMapper(com.ondemandmonitoring.mission.mapper.ChecklistEvidenceMapper.class), storage);
+                    org.mapstruct.factory.Mappers.getMapper(com.ondemandmonitoring.mission.mapper.ChecklistEvidenceMapper.class), storage, mock(com.ondemandmonitoring.order.repository.OrderRepository.class), mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class));
         }
     }
 }

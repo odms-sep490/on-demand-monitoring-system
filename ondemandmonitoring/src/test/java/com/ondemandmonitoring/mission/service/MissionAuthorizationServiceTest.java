@@ -26,7 +26,7 @@ class MissionAuthorizationServiceTest {
     private final MissionStaffAssignmentRepository assignments = mock(MissionStaffAssignmentRepository.class);
     private final MissionRepository missions = mock(MissionRepository.class);
     private final AuthenticatedUserResolver resolver = mock(AuthenticatedUserResolver.class);
-    private final IMissionAuthorizationService policy = new MissionAuthorizationServiceImpl(assignments, missions, resolver, mock(com.ondemandmonitoring.mission.repository.MissionResultRepository.class), com.ondemandmonitoring.mission.service.ScopeTestFixture.validScope());
+    private final IMissionAuthorizationService policy = new MissionAuthorizationServiceImpl(assignments, missions, resolver, mock(com.ondemandmonitoring.mission.repository.MissionResultRepository.class), com.ondemandmonitoring.mission.service.ScopeTestFixture.validScope(), mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class));
     private User staff;
     private Mission mission;
 
@@ -36,7 +36,10 @@ class MissionAuthorizationServiceTest {
         staff.setId("staff-1");
         mission = new Mission();
         mission.setId("mission-1");
-        mission.setStatus(MissionStatus.SCHEDULED);
+        var order = new com.ondemandmonitoring.order.domain.Order(); order.setId("order-1");
+        order.getExecutionPlan().setStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
+        order.getExecutionPlan().setRevision(1); mission.setOrder(order);
+        mission.setStatus(MissionStatus.READY);
         when(resolver.getCurrentUser()).thenReturn(staff);
         when(resolver.getCurrentUserId()).thenReturn(staff.getId());
         when(missions.findById(mission.getId())).thenReturn(Optional.of(mission));
@@ -57,17 +60,17 @@ class MissionAuthorizationServiceTest {
         assertThat(policy.canRespondToMission("mission-1")).isTrue();
         assertThat(policy.canRespondToMission("mission-1", "staff-2")).isFalse();
         assertThat(policy.canControlFlight("mission-1")).isFalse();
-        mission.setStatus(MissionStatus.IN_FLIGHT);
+        mission.setStatus(MissionStatus.IN_PROGRESS);
         assertThat(policy.canRespondToMission("mission-1")).isFalse();
     }
 
     @Test
     void postflightInspectionRemainsMaintainerOnly() {
-        mission.setStatus(MissionStatus.RETURNING);
+        mission.setStatus(MissionStatus.IN_PROGRESS);
         assign(MissionStaffRole.OPERATOR, MissionStaffAssignmentStatus.ACCEPTED);
         assertThat(policy.canMaintainDevice("mission-1")).isFalse();
         assign(MissionStaffRole.MAINTAINER, MissionStaffAssignmentStatus.ACCEPTED);
-        mission.setStatus(MissionStatus.POSTFLIGHT_CHECKING);
+        mission.setStatus(MissionStatus.IN_PROGRESS);
         assertThat(policy.canMaintainDevice("mission-1")).isTrue();
     }
 
@@ -108,9 +111,11 @@ class MissionAuthorizationServiceTest {
         assertThat(policy.canControlFlight("mission-1")).isTrue();
         assertThat(policy.canMaintainDevice("mission-1")).isTrue();
 
-        mission.setStatus(MissionStatus.PENDING_REVIEW);
+        mission.setStatus(MissionStatus.IN_PROGRESS); mission.setActualEndAt(Instant.now());
         assertThat(policy.canUploadMissionMedia("mission-1")).isTrue();
         assertThat(policy.canCompleteMission("mission-1")).isTrue();
+        mission.setCompletedAt(Instant.now());
+        allRoles.forEach(entry -> { entry.setIsCurrent(false); entry.setReleasedAt(Instant.now()); entry.setReleaseReason("MISSION_COMPLETE"); });
         assertThat(policy.canSubmitMissionResult("mission-1")).isTrue();
     }
 
@@ -144,7 +149,7 @@ class MissionAuthorizationServiceTest {
     }
 
     @Test
-    void historicalCrewCanReadButCannotControlAndOnlyInspectorCanFinishUploads() {
+    void historicalCrewCanReadAndOnlyReportingCrewCanFinishUploads() {
         mission.setStatus(MissionStatus.COMPLETED);
         var entry = MissionStaffAssignment.builder().staff(staff).assignedRole(MissionStaffRole.INSPECTOR)
                 .responseStatus(MissionStaffAssignmentStatus.ACCEPTED).isCurrent(true)
@@ -152,10 +157,11 @@ class MissionAuthorizationServiceTest {
         when(assignments.existsByMissionIdAndStaffId("mission-1", "staff-1")).thenReturn(true);
         when(assignments.findByMissionId("mission-1")).thenReturn(List.of(entry));
         assertThat(policy.canViewMission("mission-1")).isTrue();
-        assertThat(policy.canUploadMissionMedia("mission-1")).isTrue();
-        assertThat(policy.canControlFlight("mission-1")).isFalse();
-        entry.setAssignedRole(MissionStaffRole.OPERATOR);
         assertThat(policy.canUploadMissionMedia("mission-1")).isFalse();
+        assertThat(policy.canControlFlight("mission-1")).isFalse();
+        entry.setAssignedRole(MissionStaffRole.OPERATOR); entry.setIsCurrent(false);
+        assertThat(policy.canUploadMissionMedia("mission-1")).isTrue();
+        assertThat(policy.canExecuteMonitoringChecklist("mission-1")).isTrue();
     }
 
     @Test
@@ -167,7 +173,7 @@ class MissionAuthorizationServiceTest {
 
     @Test
     void historicalCrewCanStillReadNonTerminalMissionForReviewPermissions() {
-        mission.setStatus(MissionStatus.PENDING_REVIEW);
+        mission.setStatus(MissionStatus.IN_PROGRESS);
         var entry = MissionStaffAssignment.builder().staff(staff).mission(mission).assignedRole(MissionStaffRole.INSPECTOR)
                 .responseStatus(MissionStaffAssignmentStatus.ACCEPTED).isCurrent(false)
                 .releasedAt(Instant.now()).releaseReason("MISSION_COMPLETE").build();
@@ -191,10 +197,9 @@ class MissionAuthorizationServiceTest {
 
     @Test
     void siblingsShareOrderContextButNeverMissionPermissions() {
-        var order = new com.ondemandmonitoring.order.domain.Order(); order.setId("order-1");
-        mission.setOrder(order);
+        var order = mission.getOrder();
         var sibling = new Mission(); sibling.setId("mission-2"); sibling.setOrder(order);
-        sibling.setStatus(MissionStatus.PENDING_REVIEW);
+        sibling.setStatus(MissionStatus.IN_PROGRESS);
         when(missions.findById("mission-2")).thenReturn(Optional.of(sibling));
         var crew = java.util.Arrays.stream(MissionStaffRole.values()).map(role ->
                 MissionStaffAssignment.builder().mission(mission).staff(staff).assignedRole(role)
@@ -213,19 +218,24 @@ class MissionAuthorizationServiceTest {
         assertThat(policy.canInspectDevice("mission-2")).isFalse();
         assertThat(policy.canMaintainDevice("mission-1")).isTrue();
         assertThat(policy.canMaintainDevice("mission-2")).isFalse();
-        mission.setStatus(MissionStatus.IN_FLIGHT);
+        mission.setStatus(MissionStatus.IN_PROGRESS);
         assertThat(policy.canExecuteMonitoringChecklist("mission-1")).isTrue();
         assertThat(policy.canExecuteMonitoringChecklist("mission-2")).isFalse();
-        mission.setStatus(MissionStatus.PENDING_REVIEW);
+        mission.setStatus(MissionStatus.IN_PROGRESS);
         assertThat(policy.canAttachChecklistEvidence("mission-1")).isTrue();
         assertThat(policy.canAttachChecklistEvidence("mission-2")).isFalse();
         assertThat(policy.canDetachChecklistEvidence("mission-2")).isFalse();
         assertThat(policy.canUploadMissionMedia("mission-1")).isTrue();
         assertThat(policy.canUploadMissionMedia("mission-2")).isFalse();
+        mission.setActualEndAt(Instant.now());
         assertThat(policy.canCompleteMission("mission-1")).isTrue();
         assertThat(policy.canCompleteMission("mission-2")).isFalse();
+        mission.setCompletedAt(Instant.now());
+        crew.forEach(entry -> { entry.setIsCurrent(false); entry.setReleasedAt(Instant.now()); entry.setReleaseReason("MISSION_COMPLETE"); });
         assertThat(policy.canSubmitMissionResult("mission-1")).isTrue();
         assertThat(policy.canSubmitMissionResult("mission-2")).isFalse();
+        // Released accepted crew retain historical visibility, independently of current operational assignments.
+        when(assignments.existsByMissionIdAndStaffId("mission-1", staff.getId())).thenReturn(true);
         var orders = mock(com.ondemandmonitoring.order.repository.OrderRepository.class);
         when(orders.findById(order.getId())).thenReturn(Optional.of(order));
         when(missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc(order.getId())).thenReturn(List.of(mission, sibling));
@@ -247,27 +257,73 @@ class MissionAuthorizationServiceTest {
     }
 
     @Test
-    void inspectorUploadAndCompletionRequireCurrentOrSuccessfulFinalAssignment() {
-        mission.setStatus(MissionStatus.PENDING_REVIEW);
+    void inspectorReviewsAndSubmitsButNeverReportsOrUploadsWithoutReporterAssignment() {
+        mission.setStatus(MissionStatus.IN_PROGRESS); mission.setActualEndAt(Instant.now());
         var entry = assign(MissionStaffRole.INSPECTOR, MissionStaffAssignmentStatus.ACCEPTED);
-        assertThat(policy.canUploadMissionMedia("mission-1")).isTrue();
+        assertThat(policy.canAssessMonitoringChecklist("mission-1")).isTrue();
+        assertThat(policy.canReviewMissionMedia("mission-1")).isTrue();
         assertThat(policy.canCompleteMission("mission-1")).isTrue();
-        assertThat(policy.canSubmitMissionResult("mission-1")).isTrue();
-        assertThat(policy.canUploadMissionMedia("another-mission")).isFalse();
+        assertThat(policy.canExecuteMonitoringChecklist("mission-1")).isFalse();
+        assertThat(policy.canAttachChecklistEvidence("mission-1")).isFalse();
+        assertThat(policy.canUploadMissionMedia("mission-1")).isFalse();
         entry.setIsCurrent(false);
-        assertThat(policy.canUploadMissionMedia("mission-1")).isFalse();
-        assertThat(policy.canCompleteMission("mission-1")).isFalse();
-        entry.setIsCurrent(true); entry.setReleasedAt(Instant.now()); entry.setReleaseReason("REPLACED");
-        assertThat(policy.canUploadMissionMedia("mission-1")).isFalse();
-        mission.setStatus(MissionStatus.COMPLETED);
-        assertThat(policy.canUploadMissionMedia("mission-1")).isFalse();
+        assertThat(policy.canAssessMonitoringChecklist("mission-1")).isFalse();
+        mission.setStatus(MissionStatus.COMPLETED); mission.setCompletedAt(Instant.now());
+        entry.setReleasedAt(Instant.now()); entry.setReleaseReason("REPLACED");
+        assertThat(policy.canSubmitMissionResult("mission-1")).isFalse();
         entry.setReleaseReason("MISSION_COMPLETE");
-        assertThat(policy.canUploadMissionMedia("mission-1")).isTrue();
-        assertThat(policy.canCompleteMission("mission-1")).isFalse();
         assertThat(policy.canSubmitMissionResult("mission-1")).isTrue();
-        entry.setIsCurrent(false);
-        assertThat(policy.canUploadMissionMedia("mission-1")).isFalse();
-        entry.setIsCurrent(true); staff.setIsActive(false);
-        assertThat(policy.canUploadMissionMedia("mission-1")).isFalse();
+        assertThat(policy.canAssessMonitoringChecklist("mission-1")).isTrue();
+        staff.setIsActive(false);
+        assertThat(policy.canSubmitMissionResult("mission-1")).isFalse();
+    }
+
+    @Test
+    void operatorIsPrimaryReporterWhilePilotKeepsUploadSupportAndFallback() {
+        mission.setStatus(MissionStatus.IN_PROGRESS);
+        var pilot = assign(MissionStaffRole.PILOT, MissionStaffAssignmentStatus.ACCEPTED);
+        assertThat(policy.canExecuteMonitoringChecklist("mission-1")).isTrue();
+        var operatorUser = User.builder().isActive(true).role(staff.getRole()).build(); operatorUser.setId("operator");
+        var operator = MissionStaffAssignment.builder().staff(operatorUser).assignedRole(MissionStaffRole.OPERATOR)
+                .isCurrent(true).responseStatus(MissionStaffAssignmentStatus.ACCEPTED).build();
+        when(assignments.findByMissionId("mission-1")).thenReturn(List.of(pilot, operator));
+        assertThat(policy.canExecuteMonitoringChecklist("mission-1")).isFalse();
+        assertThat(policy.canUploadMissionMedia("mission-1")).isTrue();
+        assertThat(policy.canAttachChecklistEvidence("mission-1")).isTrue();
+        when(resolver.getCurrentUser()).thenReturn(operatorUser);
+        assertThat(policy.canExecuteMonitoringChecklist("mission-1")).isTrue();
+        assertThat(policy.canUploadMissionMedia("mission-1")).isTrue();
+        assertThat(policy.canAttachChecklistEvidence("mission-1")).isTrue();
+        when(resolver.getCurrentUser()).thenReturn(staff);
+        operator.setResponseStatus(MissionStaffAssignmentStatus.PENDING);
+        assertThat(policy.canExecuteMonitoringChecklist("mission-1")).isTrue();
+        operator.setResponseStatus(MissionStaffAssignmentStatus.ACCEPTED); operator.setReleasedAt(Instant.now());
+        operator.setReleaseReason("REPLACED"); operator.setIsCurrent(false);
+        assertThat(policy.canExecuteMonitoringChecklist("mission-1")).isTrue();
+        operator.setReleasedAt(null); operator.setIsCurrent(true); operatorUser.setIsActive(false);
+        assertThat(policy.canExecuteMonitoringChecklist("mission-1")).isTrue();
+    }
+
+    @Test
+    void sameAccountOperatorInspectorCanReportAndAssessButOnlyPostflight() {
+        mission.setStatus(MissionStatus.IN_PROGRESS);
+        var operator = assign(MissionStaffRole.OPERATOR, MissionStaffAssignmentStatus.ACCEPTED);
+        var inspector = MissionStaffAssignment.builder().staff(staff).assignedRole(MissionStaffRole.INSPECTOR)
+                .isCurrent(true).responseStatus(MissionStaffAssignmentStatus.ACCEPTED).build();
+        when(assignments.findByMissionId("mission-1")).thenReturn(List.of(operator, inspector));
+        assertThat(policy.canExecuteMonitoringChecklist("mission-1")).isTrue();
+        assertThat(policy.canAssessMonitoringChecklist("mission-1")).isFalse();
+        mission.setActualEndAt(Instant.now());
+        assertThat(policy.canExecuteMonitoringChecklist("mission-1")).isTrue();
+        assertThat(policy.canAssessMonitoringChecklist("mission-1")).isTrue();
+        mission.setStatus(MissionStatus.COMPLETED); mission.setCompletedAt(Instant.now());
+        for (var entry : List.of(operator, inspector)) {
+            entry.setIsCurrent(false); entry.setReleasedAt(Instant.now()); entry.setReleaseReason("MISSION_COMPLETE");
+        }
+        assertThat(policy.canExecuteMonitoringChecklist("mission-1")).isTrue();
+        assertThat(policy.canAssessMonitoringChecklist("mission-1")).isTrue();
+        assertThat(policy.canSubmitMissionResult("mission-1")).isTrue();
+        operator.setReleaseReason("REPLACED");
+        assertThat(policy.canExecuteMonitoringChecklist("mission-1")).isFalse();
     }
 }

@@ -50,10 +50,14 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
         var links = evidenceService.active(missionId);
         var actual = executions.findOrderedByMissionId(missionId);
         var guidance = new MissionChecklistGuidanceContext(acceptedGuidance.findForOrder(mission.getOrder().getId()));
-        var rows = actual.stream()
-                .map(e -> evidenceService.enrich(mapper.toResponse(e, guidance), e, links)).toList();
+        boolean customerSelectionEditable = authorization.canSelectCustomerEvidence(missionId);
+        var rows = actual.stream().map(e -> {
+            var response = evidenceService.enrich(mapper.toResponse(e, guidance), e, links);
+            response.setCustomerSelectionEditable(customerSelectionEditable);
+            return response;
+        }).toList();
         boolean operational = scope.isMaterialized(mission) && operationalReady(mission, actual, links);
-        boolean finalReady = operational && actual.stream().allMatch(e -> evidenceService.ready(e, links, true));
+        boolean finalReady = operational && actual.stream().allMatch(e -> evidenceService.readyForInspectorApproval(e, links));
         var blockers = new java.util.LinkedHashSet<String>();
         rows.forEach(r -> blockers.addAll(r.getBlockingReasons()));
         if (!operational && blockers.isEmpty()) blockers.add(MissionRuntimeGate.isStructurallyFinalized(mission)
@@ -104,18 +108,22 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
             throw new ApiException(ErrorCode.CONCURRENT_UPDATE);
         ChecklistExecutionStatus next = request.getExecutionStatus();
         ChecklistExecutionStatus previous = execution.getExecutionStatus();
-        boolean assessmentCompletesExecution = canAssess
-                && request.getAssessmentStatus() != ChecklistAssessmentStatus.NOT_ASSESSED
-                && !previous.isTerminal()
-                && next == ChecklistExecutionStatus.COMPLETED;
         String reason = trimmed(request.getUnableToVerifyReason(), 1000);
         String observation = trimmed(request.getObservation(), 2000);
+        // Omitted text preserves its owner's report, including when one account holds both roles.
+        // An explicit blank string clears optional text.
+        if (request.getObservation() == null) observation = execution.getObservation();
+        if (request.getUnableToVerifyReason() == null) reason = execution.getUnableToVerifyReason();
         boolean executionChanged = next != previous
                 || !Objects.equals(observation, execution.getObservation())
                 || !Objects.equals(next == ChecklistExecutionStatus.UNABLE_TO_VERIFY ? reason : null,
                         execution.getUnableToVerifyReason());
-        boolean assessmentChanged = request.getAssessmentStatus() != execution.getAssessmentStatus();
-        if (executionChanged && !canExecute && !assessmentCompletesExecution)
+        String assessmentNote = trimmed(request.getAssessmentNote(), 2000);
+        // Omission preserves inspector-owned text; reporters cannot clear it with a blank.
+        if (request.getAssessmentNote() == null) assessmentNote = execution.getAssessmentNote();
+        boolean assessmentChanged = request.getAssessmentStatus() != execution.getAssessmentStatus()
+                || !Objects.equals(assessmentNote, execution.getAssessmentNote());
+        if (executionChanged && !canExecute)
             throw new ApiException(ErrorCode.ACCESS_DENIED);
         if (assessmentChanged && !canAssess) throw new ApiException(ErrorCode.ACCESS_DENIED);
         if (!validTransition(previous, next, rejected))
@@ -128,13 +136,24 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
         Instant completedAt = next.isTerminal()
                 ? (previous == next ? execution.getCompletedAt() : now) : null;
         String unableToVerifyReason = next == ChecklistExecutionStatus.UNABLE_TO_VERIFY ? reason : null;
-        if (next == ChecklistExecutionStatus.COMPLETED) {
+        if (executionChanged && next == ChecklistExecutionStatus.COMPLETED) {
             var activeEvidence = evidenceService.active(missionId);
             if (!evidenceService.evidenceRequirementsSatisfied(execution, activeEvidence, false)) {
                 String failure = evidenceService.readinessFailure(execution, activeEvidence, false);
                 throw new ApiException(ErrorCode.CHECKLIST_NOT_READY,
                         failure == null ? "Attach eligible evidence before completing this checklist item." : failure);
             }
+        }
+        ChecklistAssessmentStatus nextAssessment = request.getAssessmentStatus();
+        String assessedBy = assessmentChanged ? currentUser.getCurrentUserId() : execution.getAssessedBy();
+        Instant assessedAt = assessmentChanged ? now : execution.getAssessedAt();
+        // Staff changes invalidate acceptance. An account with both roles must explicitly change
+        // the assessment in this command to reassess; echoing an old COMPLIANT value is insufficient.
+        if (executionChanged && !assessmentChanged) {
+            nextAssessment = ChecklistAssessmentStatus.NOT_ASSESSED;
+            assessmentNote = null;
+            assessedBy = null;
+            assessedAt = null;
         }
         // A repeated command still records an audit event and consumes its expected version.
         // Keep the managed entity clean until the atomic version compare-and-set runs;
@@ -144,13 +163,16 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
                     executionId,
                     request.getExpectedVersion(),
                     next.name(),
-                    request.getAssessmentStatus().name(),
+                    nextAssessment.name(),
                     observation,
                     unableToVerifyReason,
                     startedAt,
                     completedAt,
                     currentUser.getCurrentUserId(),
-                    now);
+                    now,
+                    assessmentNote,
+                    assessedBy,
+                    assessedAt);
             if (updated != 1) throw new ApiException(ErrorCode.CONCURRENT_UPDATE);
             MissionChecklistExecution updatedExecution = executions.findById(executionId)
                     .orElseThrow(() -> new ApiException(ErrorCode.CHECKLIST_EXECUTION_NOT_FOUND));
@@ -181,8 +203,7 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
             List<com.ondemandmonitoring.mission.domain.MissionChecklistEvidence> links) {
         return actual.stream().allMatch(execution ->
                 mission.getOrder().getId().equals(execution.getOrderId())
-                && (execution.getExecutionStatus().isTerminal()
-                    || execution.getAssessmentStatus() != ChecklistAssessmentStatus.NOT_ASSESSED)
+                && execution.getExecutionStatus().isTerminal()
                 && execution.getOrderChecklistItem() != null
                 && mission.getOrder().getId().equals(execution.getOrderChecklistItem().getOrder().getId())
                 && evidenceService.ready(execution, links, false)
@@ -199,35 +220,62 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
 
     @Override
     @Transactional(readOnly = true)
-    public boolean isReadyForFinalApproval(Mission mission) {
+    public boolean isReadyForInspectorApproval(Mission mission) {
         if (!scope.isMaterialized(mission)) return false;
         var actual = executions.findOrderedByMissionId(mission.getId());
         var links = evidenceService.active(mission.getId());
         return operationalReady(mission, actual, links)
-                && actual.stream().allMatch(e -> evidenceService.ready(e, links, true));
+                && actual.stream().allMatch(e -> evidenceService.readyForInspectorApproval(e, links));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public void requireReadyForInspectorApproval(Mission mission) {
+        if (!scope.isMaterialized(mission)) throw new ApiException(ErrorCode.CHECKLIST_NOT_READY);
+        var actual = executions.findOrderedByMissionId(mission.getId());
+        var links = evidenceService.active(mission.getId());
+        if (!operationalReady(mission, actual, links))
+            throw new ApiException(ErrorCode.CHECKLIST_NOT_READY, readinessMessage(mission, false));
+        for (var execution : actual) {
+            if (evidenceService.readyForInspectorApproval(execution, links)) continue;
+            String reason;
+            if (execution.getExecutionStatus() != ChecklistExecutionStatus.COMPLETED)
+                reason = "EXECUTION_NOT_COMPLETED";
+            else if (execution.getAssessmentStatus() != ChecklistAssessmentStatus.COMPLIANT)
+                reason = "INSPECTOR_COMPLIANT_ASSESSMENT_REQUIRED";
+            else reason = evidenceService.readinessFailure(execution,
+                    links.stream().filter(com.ondemandmonitoring.mission.domain.MissionChecklistEvidence::isSelectedForCustomer).toList(), true);
+            throw new ApiException(ErrorCode.CHECKLIST_NOT_READY,
+                    reason == null ? "Selected customer evidence does not satisfy the saved checklist policy." : reason);
+        }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean isReadyForFinalApproval(Mission mission) {
+        if (!scope.isMaterialized(mission)) return false;
+        var actual = executions.findOrderedByMissionId(mission.getId());
+        var links = evidenceService.active(mission.getId());
+        return legacyFinalReady(mission, actual, links);
+    }
+
+    // Existing manager recovery and historical approved results retain their original evidence semantics.
+    private boolean legacyFinalReady(Mission mission, List<MissionChecklistExecution> actual,
+            List<com.ondemandmonitoring.mission.domain.MissionChecklistEvidence> links) {
+        return actual.stream().allMatch(execution ->
+                mission.getOrder().getId().equals(execution.getOrderId())
+                && (execution.getExecutionStatus().isTerminal()
+                    || execution.getAssessmentStatus() != ChecklistAssessmentStatus.NOT_ASSESSED)
+                && execution.getOrderChecklistItem() != null
+                && mission.getOrder().getId().equals(execution.getOrderChecklistItem().getOrder().getId())
+                && evidenceService.ready(execution, links, true));
     }
 
     @Override
     @Transactional(readOnly = true)
     public void requireReadyForFinalApproval(Mission mission) {
-        if (!scope.isMaterialized(mission)) throw new ApiException(ErrorCode.CHECKLIST_NOT_READY);
-        var actual = executions.findOrderedByMissionId(mission.getId());
-        var links = evidenceService.active(mission.getId());
-        if (!operationalReady(mission, actual, links)) {
-            String reason = actual.stream().map(e -> evidenceService.readinessFailure(e, links, false))
-                    .filter(Objects::nonNull).findFirst().orElse("Checklist execution is not operationally ready.");
-            throw new ApiException(ErrorCode.CHECKLIST_NOT_READY, reason);
-        }
-        if (!actual.stream().allMatch(e -> evidenceService.ready(e, links, true))) {
-            String reason = actual.stream().filter(e -> !evidenceService.ready(e, links, true))
-                    .map(e -> {
-                        String failure = evidenceService.readinessFailure(e, links, true);
-                        if (failure != null) return failure;
-                        var item = e.getOrderChecklistItem();
-                        return "Checklist item '" + item.getContent() + "' is not eligible for final approval.";
-                    }).filter(Objects::nonNull).findFirst().orElse("Evidence is not ready for final approval.");
-            throw new ApiException(ErrorCode.CHECKLIST_NOT_READY, reason);
-        }
+        if (!isReadyForFinalApproval(mission))
+            throw new ApiException(ErrorCode.CHECKLIST_NOT_READY, readinessMessage(mission, true));
     }
 
     private String readinessMessage(Mission mission, boolean finalApproval) {

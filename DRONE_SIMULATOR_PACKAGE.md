@@ -5,30 +5,39 @@ This folder is portable. Do not edit scripts to point at a personal path like
 
 ## One-click Run
 
-- Full UI + backend + drone simulator:
-  - `RUN_DRONE_STACK.cmd`
-- Drone simulator only:
-  - `RUN_DRONE_SIM_ONLY.cmd`
-- Create a clean zip package for another Windows machine:
-  - `PACKAGE_DRONE_STACK.cmd`
-- Vietnamese A-to-Z guide that can also start the stack:
-  - `HUONG_DAN_CHAY_DRONE_STACK.cmd`
+From the `on-demand-monitoring-system` repository folder, run:
+
+- Full UI + backend + drone simulator: `scripts\RUN_DRONE_STACK.cmd`
+- PX4/Gazebo simulator and flight controller only: `scripts\RUN_DRONE_SIM_ONLY.cmd`
+- Create a clean zip package: `scripts\PACKAGE_DRONE_STACK.cmd`
+- Vietnamese A-to-Z guide: `scripts\HUONG_DAN_CHAY_DRONE_STACK.cmd`
 
 Both launchers use the folder they are stored in as `PROJECT_PATH`, convert it to
 WSL format, then start the scripts from that location.
 
-`RUN_DRONE_STACK.cmd` now checks the Windows-side tools too. If Java 21 or
+`scripts\RUN_DRONE_STACK.cmd` checks the Windows-side tools too. If Java 21 or
 Node.js LTS are missing, it tries to install them with `winget`; if Windows needs
 a restart or a new terminal session afterward, run the same file again. It then
 builds the Spring Boot backend and React frontend before starting the stack.
+
+The launcher creates a private `.env` from `.env.example` on first run and
+generates a local telemetry key. Simulator-only mode skips backend telemetry and
+does not need a database or AWS credentials. The full authenticated web stack needs your development Cognito
+pool values, AWS credentials with Cognito permissions (or a configured AWS
+profile), and a local PostgreSQL server. For Google sign-in, also set the Cognito domain. With the example defaults,
+the launcher starts the included PostgreSQL Compose service on port 5433; install
+and start Docker Desktop first. Real S3 uploads need your own AWS credentials and
+bucket configuration.
 
 ## Packaged Assets
 
 The compact simulator package includes:
 
 - `Forest3D/worlds/forest_monitoring_compact.sdf`
+- `Forest3D/worlds/forest_monitoring_compact_fast_demo.sdf`
 - `Forest3D/models/x500_mono_cam_down`
 - `Forest3D/models/compact_terrain`
+- `Forest3D/models/compact_terrain_fast_demo`
 - `Forest3D/models/compact_water`
 - `Forest3D/models/compact_roads`
 - `Forest3D/models/compact_bridges`
@@ -51,17 +60,20 @@ files fail early with a clear message instead of Gazebo `model://...` errors.
   install `Ubuntu-24.04`.
 - Ubuntu distro name defaults to `Ubuntu-24.04`.
 - Internet access on first bootstrap so PX4 and Python dependencies can install.
+- PX4 bootstrap pins new installations to `cbc6a6f7abbd06fbb2ff0aed3e57e3e95f88232e`.
+- Docker Desktop or a PostgreSQL server when starting the backend UI stack.
+- A development Cognito pool when using authenticated backend/UI features.
 - Frontend folder `ondemand-monitoring-web` should sit next to this folder when
   using `RUN_DRONE_STACK.cmd`.
 
 ## Useful Options
 
 ```powershell
-.\RUN_DRONE_STACK.cmd -SkipBootstrap
-.\RUN_DRONE_STACK.cmd -SkipBuild
-.\RUN_DRONE_STACK.cmd -SkipDrone
-.\RUN_DRONE_STACK.cmd -NoBrowser
-.\RUN_DRONE_SIM_ONLY.cmd -WithWeather
-.\PACKAGE_DRONE_STACK.cmd
-.\HUONG_DAN_CHAY_DRONE_STACK.cmd
+.\scripts\RUN_DRONE_STACK.cmd -SkipBootstrap
+.\scripts\RUN_DRONE_STACK.cmd -SkipBuild
+.\scripts\RUN_DRONE_STACK.cmd -SkipDrone
+.\scripts\RUN_DRONE_STACK.cmd -NoBrowser
+.\scripts\RUN_DRONE_SIM_ONLY.cmd -WithWeather
+.\scripts\PACKAGE_DRONE_STACK.cmd
+.\scripts\HUONG_DAN_CHAY_DRONE_STACK.cmd
 ```

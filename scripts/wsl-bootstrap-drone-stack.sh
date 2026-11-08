@@ -3,6 +3,7 @@ set -euo pipefail
 
 PROJECT_PATH="${PROJECT_PATH:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 PX4_ROOT="${PX4_ROOT:-$HOME/PX4-Autopilot}"
+PX4_COMMIT="${PX4_COMMIT:-cbc6a6f7abbd06fbb2ff0aed3e57e3e95f88232e}"
 DRONE_WORKDIR="${DRONE_WORKDIR:-$HOME/drone-controller}"
 DRONE_ENV="${DRONE_ENV:-$HOME/drone-env}"
 MARKER_DIR="$HOME/.cache/ondemand-drone-stack"
@@ -72,6 +73,8 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
 if [ ! -d "$PX4_ROOT/.git" ]; then
     log "Downloading PX4 Autopilot"
     git clone --recursive https://github.com/PX4/PX4-Autopilot.git "$PX4_ROOT"
+    git -C "$PX4_ROOT" checkout --detach "$PX4_COMMIT"
+    git -C "$PX4_ROOT" submodule update --init --recursive
 else
     log "Updating PX4 Autopilot submodules"
     git -C "$PX4_ROOT" submodule update --init --recursive

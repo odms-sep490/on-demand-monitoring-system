@@ -49,5 +49,6 @@ bin/
 ### Mac OS ###
 .DS_Store
 *.example
+!.env.example
 evd/
 ondemandmonitoring/src/main/resources/application-local.yaml

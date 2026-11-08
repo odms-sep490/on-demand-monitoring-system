@@ -131,6 +131,53 @@ function Test-CommandExists([string]$Name) {
     return $null -ne (Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
+function Test-TcpPort([string]$HostName, [int]$Port) {
+    $client = New-Object System.Net.Sockets.TcpClient
+    try {
+        $pending = $client.BeginConnect($HostName, $Port, $null, $null)
+        if (-not $pending.AsyncWaitHandle.WaitOne(1000)) { return $false }
+        $client.EndConnect($pending)
+        return $true
+    } catch {
+        return $false
+    } finally {
+        $client.Close()
+    }
+}
+
+function Ensure-Postgres([string]$BackendRoot, [string]$EnvFile) {
+    $url = Get-EnvValue $EnvFile "SPRING_DATASOURCE_URL" ""
+    $match = [regex]::Match($url, '^jdbc:postgresql://(?<host>[^/:?]+)(:(?<port>\d+))?/')
+    if (-not $match.Success) {
+        throw "SPRING_DATASOURCE_URL in .env must point to a PostgreSQL server."
+    }
+
+    $hostName = $match.Groups["host"].Value
+    $port = if ($match.Groups["port"].Success) { [int]$match.Groups["port"].Value } else { 5432 }
+    if (Test-TcpPort $hostName $port) { return }
+
+    if ($hostName -notin @("localhost", "127.0.0.1", "::1") -or $port -ne 5433) {
+        throw "PostgreSQL is not reachable at ${hostName}:$port. Start the database configured in .env, or use the local Compose defaults on port 5433."
+    }
+    if (-not (Test-CommandExists "docker.exe")) {
+        throw "PostgreSQL is not running at localhost:5433 and Docker Desktop is unavailable. Install/start Docker Desktop, or point SPRING_DATASOURCE_URL at an existing PostgreSQL server."
+    }
+
+    Write-Step "Starting the local PostgreSQL database"
+    Push-Location $BackendRoot
+    try {
+        & docker.exe compose --env-file $EnvFile up --detach --wait --wait-timeout 120 postgres
+        if ($LASTEXITCODE -ne 0) {
+            throw "Docker Compose could not start PostgreSQL. Make sure Docker Desktop is running."
+        }
+    } finally {
+        Pop-Location
+    }
+    if (-not (Test-TcpPort $hostName $port)) {
+        throw "PostgreSQL did not become reachable at ${hostName}:$port after Docker Compose started it."
+    }
+}
+
 function Get-JavaMajorVersion {
     if (-not (Test-CommandExists "java.exe")) { return 0 }
 
@@ -246,11 +293,13 @@ function Resolve-Forest3DPath([string]$Root) {
 
 function Assert-CompactMapAssets([string]$Root, [string]$Forest3DPath) {
     $worldFile = Join-Path $Forest3DPath "worlds\forest_monitoring_compact.sdf"
+    $fastDemoWorldFile = Join-Path $Forest3DPath "worlds\forest_monitoring_compact_fast_demo.sdf"
     $mapImage = Join-Path $Root "ondemandmonitoring\src\main\resources\static\simulation-viewer\simulation_map_top.png"
     $mapMeta = Join-Path $Root "ondemandmonitoring\src\main\resources\static\simulation-viewer\simulation-map.json"
     $modelRoot = Join-Path $Forest3DPath "models"
     $requiredModels = @(
         "compact_terrain",
+        "compact_terrain_fast_demo",
         "compact_water",
         "compact_roads",
         "compact_bridges",
@@ -266,6 +315,7 @@ function Assert-CompactMapAssets([string]$Root, [string]$Forest3DPath) {
     )
 
     if (-not (Test-Path $worldFile)) { throw "Full compact world is missing: $worldFile" }
+    if (-not (Test-Path $fastDemoWorldFile)) { throw "Compact fast demo world is missing: $fastDemoWorldFile" }
     if (-not (Test-Path $mapImage)) { throw "Full simulation map image is missing: $mapImage" }
     if (-not (Test-Path $mapMeta)) { throw "Simulation map metadata is missing: $mapMeta" }
     foreach ($model in $requiredModels) {
@@ -282,6 +332,8 @@ function Assert-CompactMapAssets([string]$Root, [string]$Forest3DPath) {
 }
 
 $systemRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+. (Join-Path $PSScriptRoot "initialize-local-demo-config.ps1")
+Initialize-LocalDemoConfig -ProjectRoot $systemRoot
 $workspaceRoot = (Resolve-Path (Join-Path $systemRoot "..")).Path
 $backendRoot = Join-Path $systemRoot "ondemandmonitoring"
 $webRoot = Join-Path $workspaceRoot "ondemand-monitoring-web"
@@ -329,6 +381,14 @@ $backendEnvFile = Join-Path $systemRoot ".env"
 $rootEnvFile = $backendEnvFile
 if (-not (Test-Path -LiteralPath $backendEnvFile -PathType Leaf)) {
     throw "Missing shared backend and drone configuration: $backendEnvFile"
+}
+if (-not $SkipBackend) {
+    $missingCognito = @("AWS_REGION", "AWS_COGNITO_REGION", "AWS_COGNITO_USER_POOL_ID", "AWS_COGNITO_CLIENT_ID", "COGNITO_ISSUER_URI") |
+        Where-Object { [string]::IsNullOrWhiteSpace((Get-EnvValue $backendEnvFile $_ "")) }
+    if ($missingCognito.Count -gt 0) {
+        throw "The authenticated web stack needs AWS/Cognito settings in .env: $($missingCognito -join ', '). Set them from your development Cognito pool, or use scripts\RUN_DRONE_SIM_ONLY.cmd for simulator-only mode."
+    }
+    Ensure-Postgres $backendRoot $backendEnvFile
 }
 if (-not $SkipDrone) {
     Set-EnvValue $backendEnvFile "SIM_WORLD" $packagedWorld
@@ -410,6 +470,10 @@ if (-not $SkipFrontend) {
     Write-Utf8NoBomLines $envFile @(
         "VITE_API_BASE_URL=$(Get-EnvValue $rootEnvFile 'VITE_API_BASE_URL' 'http://localhost:8080')",
         "VITE_FLIGHT_CONTROL_API_URL=$(Get-EnvValue $rootEnvFile 'VITE_FLIGHT_CONTROL_API_URL' 'http://localhost:8090')",
+        "VITE_AWS_COGNITO_DOMAIN=$(Get-EnvValue $rootEnvFile 'AWS_COGNITO_DOMAIN' '')",
+        "VITE_AWS_COGNITO_CLIENT_ID=$(Get-EnvValue $rootEnvFile 'AWS_COGNITO_CLIENT_ID' '')",
+        "VITE_COGNITO_REDIRECT_SIGN_IN=$(Get-EnvValue $rootEnvFile 'VITE_COGNITO_REDIRECT_SIGN_IN' 'http://localhost:5173/social/callback')",
+        "VITE_USE_MOCK_API=false",
         "VITE_FLIGHT_MAP_ONLY=false"
     )
     Start-TerminalTab -Title "FE - OMSS UI" -WorkingDirectory $webRoot -Command "if (-not (Test-Path node_modules)) { npm install }; npm run dev -- --host 0.0.0.0 --port 5173"

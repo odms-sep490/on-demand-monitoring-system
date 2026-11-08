@@ -1821,6 +1821,7 @@ public class MissionService implements IMissionService {
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
                     "Mission execution must be in progress before marking the device returning");
         }
+        checklistExecutionService.requireReadyForSubmission(mission);
         deviceAssignment.setStatus(MissionDeviceAssignmentStatus.RETURNING);
         updateDeviceStatus(mission, DeviceStatus.RETURNING);
         log.info("Mission {} – device returning to base", missionId);

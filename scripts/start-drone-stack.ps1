@@ -139,9 +139,11 @@ function Assert-DronePackage([string]$Forest3DPath, [string]$World) {
     if ($World -ne "compact") { return }
 
     $worldFile = Join-Path $Forest3DPath "worlds\forest_monitoring_compact.sdf"
+    $fastDemoWorldFile = Join-Path $Forest3DPath "worlds\forest_monitoring_compact_fast_demo.sdf"
     $modelRoot = Join-Path $Forest3DPath "models"
     $requiredModels = @(
         "compact_terrain",
+        "compact_terrain_fast_demo",
         "compact_water",
         "compact_roads",
         "compact_bridges",
@@ -157,6 +159,7 @@ function Assert-DronePackage([string]$Forest3DPath, [string]$World) {
     )
 
     if (-not (Test-Path $worldFile)) { throw "Compact world is missing: $worldFile" }
+    if (-not (Test-Path $fastDemoWorldFile)) { throw "Compact fast demo world is missing: $fastDemoWorldFile" }
     foreach ($model in $requiredModels) {
         $config = Join-Path $modelRoot "$model\model.config"
         $sdf = Join-Path $modelRoot "$model\model.sdf"
@@ -167,6 +170,8 @@ function Assert-DronePackage([string]$Forest3DPath, [string]$World) {
 
 $ubuntuDistro = "Ubuntu-24.04"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+. (Join-Path $PSScriptRoot "initialize-local-demo-config.ps1")
+Initialize-LocalDemoConfig -ProjectRoot $repoRoot
 Convert-ProjectShellScriptsToLf $repoRoot
 $forest3DPath = if ($SimWorld -eq "light") { $null } else { Resolve-Forest3DPath $repoRoot }
 if ($forest3DPath) { Assert-DronePackage $forest3DPath $SimWorld }

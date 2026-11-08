@@ -201,7 +201,7 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
 
     private boolean operationalReady(Mission mission, List<MissionChecklistExecution> actual,
             List<com.ondemandmonitoring.mission.domain.MissionChecklistEvidence> links) {
-        return actual.stream().allMatch(execution ->
+        return !actual.isEmpty() && actual.stream().allMatch(execution ->
                 mission.getOrder().getId().equals(execution.getOrderId())
                 && execution.getExecutionStatus().isTerminal()
                 && execution.getOrderChecklistItem() != null
@@ -209,7 +209,7 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
                 && evidenceService.ready(execution, links, false)
                 && (execution.getExecutionStatus() != ChecklistExecutionStatus.UNABLE_TO_VERIFY
                     || execution.getUnableToVerifyReason() != null && !execution.getUnableToVerifyReason().isBlank()));
-        // An empty finalized assignment scope is satisfied; never infer current templates or sibling scope.
+        // A flight cannot finish without at least one assigned checklist execution.
     }
 
     @Override

@@ -65,9 +65,6 @@ models/
 !/models/compact_roads/**
 !/models/compact_terrain/
 !/models/compact_terrain/**
-!/models/compact_terrain_fast_demo/
-!/models/compact_terrain_fast_demo/model.config
-!/models/compact_terrain_fast_demo/model.sdf
 !/models/compact_water/
 !/models/compact_water/**
 !/models/compact_zones/

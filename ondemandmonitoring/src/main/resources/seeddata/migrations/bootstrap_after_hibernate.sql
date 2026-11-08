@@ -47,9 +47,11 @@ LOCK TABLE public.orders, public.order_execution_plans, public.order_flight_comp
     public.resource_time_locks, public.mission_device_assignments IN ACCESS EXCLUSIVE MODE;
 
 -- These columns need no migration DDL in current JPA. Still reject incomplete
--- prerequisites: silently omitting safe-stop/release audit is not a bootstrap.
+-- prerequisites: failure-request and safe-stop/release audit are operational state.
 DO $$ DECLARE entry record; BEGIN
     FOR entry IN SELECT * FROM (VALUES
+        ('missions','failure_requested_at','timestamp with time zone'),
+        ('missions','failure_reason','character varying(1000)'),
         ('missions','safe_stop_status','character varying(40)'),
         ('missions','safe_stop_requested_at','timestamp with time zone'),
         ('missions','safe_stop_requested_by','character varying(255)'),

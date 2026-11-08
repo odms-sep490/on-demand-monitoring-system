@@ -1821,7 +1821,11 @@ public class MissionService implements IMissionService {
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
                     "Mission execution must be in progress before marking the device returning");
         }
-        checklistExecutionService.requireReadyForSubmission(mission);
+        // A requested failure may have been caused by an incomplete checklist; safe return must
+        // remain available even when ordinary mission completion readiness is not satisfied.
+        if (mission.getFailureRequestedAt() == null) {
+            checklistExecutionService.requireReadyForSubmission(mission);
+        }
         deviceAssignment.setStatus(MissionDeviceAssignmentStatus.RETURNING);
         updateDeviceStatus(mission, DeviceStatus.RETURNING);
         log.info("Mission {} – device returning to base", missionId);
@@ -1870,6 +1874,10 @@ public class MissionService implements IMissionService {
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
         Mission mission = missionRepository.findById(resolved.getId()).orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
         String resolvedMissionId = mission.getId();
+        if (mission.getFailureRequestedAt() != null) {
+            throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
+                    "A requested mission failure must be finalized after postflight instead of completing the mission");
+        }
         if (mission.getCompletedAt() != null
                 && postDeviceCheckRepository.findFirstByMissionIdOrderByCreatedAtDesc(resolvedMissionId).isPresent()) {
             return missionMapper.toResponse(mission);
@@ -1902,27 +1910,76 @@ public class MissionService implements IMissionService {
     @Override
     @Transactional
     @PreAuthorize("@missionAuthorizationService.canControlFlight(#missionId)")
+    public MissionResponse requestMissionFailure(String missionId, String reason) {
+        Mission mission = missionRepository.findByIdForUpdate(missionId)
+                .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
+        if (mission.getFailureRequestedAt() != null) return missionMapper.toResponse(mission);
+        if (mission.getStatus() != MissionStatus.IN_PROGRESS || mission.getActualStartAt() == null) {
+            throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
+                    "A flight failure can only be requested while a mission is in progress");
+        }
+        String normalizedReason = reason == null ? null : reason.strip();
+        if (normalizedReason == null || normalizedReason.isBlank() || normalizedReason.length() > 1000) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "A failure reason of at most 1000 characters is required");
+        }
+        mission.setFailureReason(normalizedReason);
+        mission.setFailureRequestedAt(Instant.now());
+        return missionMapper.toResponse(missionRepository.save(mission));
+    }
+
+    @Override
+    @Transactional
+    @PreAuthorize("@missionAuthorizationService.canControlFlight(#missionId) or @missionAuthorizationService.canMaintainDevice(#missionId)")
     public MissionResponse failMission(String missionId, String reason) {
         Mission mission = getRuntimeMissionOrThrow(missionId);
-        if (mission.getStatus() == MissionStatus.IN_PROGRESS
+        boolean requestedFlightFailure = mission.getFailureRequestedAt() != null
+                && mission.getActualEndAt() != null
+                && postDeviceCheckRepository.findFirstByMissionIdOrderByCreatedAtDesc(mission.getId())
+                        .map(run -> run.getStatus() == DeviceCheckStatus.PASSED
+                                || run.getStatus() == DeviceCheckStatus.FAILED)
+                        .orElse(false);
+        boolean flightConnectionStillActive = deviceConnectionRepository.findByMissionId(mission.getId()).stream()
+                .anyMatch(c -> "CONNECTED".equals(c.getConnectionStatus())
+                        || Boolean.TRUE.equals(c.getTelemetryActive()));
+        if ((mission.getStatus() == MissionStatus.IN_PROGRESS && !requestedFlightFailure)
                 || (mission.getActualStartAt() != null && mission.getStatus() != MissionStatus.AWAITING_REVIEW
-                    && mission.getStatus() != MissionStatus.COMPLETED)
-                || deviceConnectionRepository.findByMissionId(mission.getId()).stream().anyMatch(c ->
-                    "CONNECTED".equals(c.getConnectionStatus()) || Boolean.TRUE.equals(c.getTelemetryActive())))
+                    && mission.getStatus() != MissionStatus.COMPLETED && !requestedFlightFailure)
+                || flightConnectionStillActive)
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
                     "An active mission cannot be marked failed before flight operations are closed");
-        if (mission.getStatus() == MissionStatus.IN_PROGRESS) {
-            updateDeviceStatus(mission, DeviceStatus.MAINTENANCE);
-        }
+        String effectiveReason = reason == null || reason.isBlank()
+                ? mission.getFailureReason() : reason.strip();
+        if (effectiveReason == null || effectiveReason.isBlank()) effectiveReason = "Mission failed";
+        if (effectiveReason.length() > 1000)
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Failure reason must not exceed 1000 characters");
+        checklistExecutionService.markMissionFailed(mission.getId(), effectiveReason);
         missionDeviceAssignmentRepository.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc(mission.getId())
                 .stream().filter(assignment -> assignment.getReleasedAt() == null)
                 .forEach(assignment -> assignment.setStatus(MissionDeviceAssignmentStatus.FAILED));
         mission.setStatus(MissionStatus.FAILED);
-        mission.setActualEndAt(Instant.now());
+        if (mission.getActualEndAt() == null) mission.setActualEndAt(Instant.now());
+        mission.setFailureReason(effectiveReason);
+        if (checklistAssignmentStatusSync != null) checklistAssignmentStatusSync.syncForMission(mission);
+        releaseFailedMissionChecklistAssignments(mission, effectiveReason);
         releaseMissionResources(mission, "MISSION_FAILED");
-        log.error("Mission {} FAILED – reason: {}", missionId, reason);
+        log.error("Mission {} FAILED – reason: {}", missionId, effectiveReason);
         Mission saved = missionRepository.save(mission);
         return missionMapper.toResponse(saved);
+    }
+
+    private void releaseFailedMissionChecklistAssignments(Mission mission, String reason) {
+        Instant removedAt = Instant.now();
+        String removedBy = authenticatedUserResolver.getCurrentUserId();
+        String removalReason = "MISSION_FAILED: " + reason;
+        if (removalReason.length() > 1000) removalReason = removalReason.substring(0, 1000);
+        var assignments = missionChecklistAssignmentRepository
+                .findByMissionIdAndRemovedAtIsNullOrderByDisplayOrderAscIdAsc(mission.getId());
+        for (MissionChecklistAssignment assignment : assignments) {
+            assignment.setRemovedAt(removedAt);
+            assignment.setRemovedBy(removedBy);
+            assignment.setRemovalReason(removalReason);
+        }
+        missionChecklistAssignmentRepository.saveAll(assignments);
     }
 
 

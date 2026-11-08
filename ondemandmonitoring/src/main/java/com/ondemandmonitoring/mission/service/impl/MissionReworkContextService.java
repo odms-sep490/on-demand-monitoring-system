@@ -96,7 +96,7 @@ public class MissionReworkContextService implements com.ondemandmonitoring.missi
             return new MissionReworkContextResponse.Evidence(evidence.getId(), asset.getId(),
                     evidence.getFileNameSnapshot(), evidence.getMediaTypeSnapshot(),
                     url, derivatives.thumbnailUrl(asset),
-                    "VIDEO".equals(asset.getType()) ? url : derivatives.previewUrl(asset),
+                    derivatives.previewUrl(asset),
                     Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds()), null);
         } catch (ApiException ex) {
             if (ex.getErrorCode() != ErrorCode.RESULT_RETENTION_EXPIRED && ex.getErrorCode() != ErrorCode.MEDIA_NOT_FOUND)

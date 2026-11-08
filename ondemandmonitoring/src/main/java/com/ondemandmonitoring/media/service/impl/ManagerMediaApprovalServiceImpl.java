@@ -83,9 +83,7 @@ public class ManagerMediaApprovalServiceImpl implements IManagerMediaApprovalSer
                 asset,
                 storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key()),
                 derivatives.thumbnailUrl(asset),
-                "VIDEO".equals(asset.getType())
-                        ? storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key())
-                        : derivatives.previewUrl(asset),
+                derivatives.previewUrl(asset),
                 Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds()));
     }
 }

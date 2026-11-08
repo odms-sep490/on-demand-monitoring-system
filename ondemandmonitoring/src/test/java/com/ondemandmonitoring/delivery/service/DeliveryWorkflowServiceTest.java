@@ -29,7 +29,6 @@ import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.media.domain.MediaAsset;
 import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
-import com.ondemandmonitoring.media.service.IMediaObjectStorage;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.enums.MissionResultApprovalStatus;
@@ -59,7 +58,6 @@ class DeliveryWorkflowServiceTest {
     MissionResultRepository missionResults = mock(MissionResultRepository.class);
     InvoiceRepository invoices = mock(InvoiceRepository.class);
     MediaAssetRepository media = mock(MediaAssetRepository.class);
-    IMediaObjectStorage storage = mock(IMediaObjectStorage.class);
     AuthenticatedUserResolver users = mock(AuthenticatedUserResolver.class);
     com.ondemandmonitoring.order.service.IOrderExecutionCompletionPolicy completion = mock(com.ondemandmonitoring.order.service.IOrderExecutionCompletionPolicy.class);
     ResultReviewRoundPublisher reviewPublisher = mock(ResultReviewRoundPublisher.class);
@@ -72,7 +70,8 @@ class DeliveryWorkflowServiceTest {
     ResultRevisionCaseRepository revisionCases = mock(ResultRevisionCaseRepository.class);
     ResultRevisionCaseItemRepository revisionCaseItems = mock(ResultRevisionCaseItemRepository.class);
     DeliveryWorkflowServiceImpl service = new DeliveryWorkflowServiceImpl(
-            deliveries, orders, missions, missionResults, invoices, media, storage,
+            deliveries, orders, missions, missionResults, invoices, media,
+            mock(com.ondemandmonitoring.media.service.impl.MediaDerivativeService.class),
             new com.ondemandmonitoring.media.service.impl.ResultRetentionAccessServiceImpl(media, java.time.Clock.systemUTC()),
             users, completion, reviewPublisher, reviewRounds, roundEvidence, roundItems, missionEvidence,
             checklistItems, evidencePolicy, revisionCases, revisionCaseItems);
@@ -91,6 +90,7 @@ class DeliveryWorkflowServiceTest {
         delivery.setCurrentReviewRoundId("round");
         ResultReviewRound round = new ResultReviewRound(); round.setId("round"); round.setVersion(2L);
         when(reviewRounds.findByIdForUpdate("round")).thenReturn(Optional.of(round));
+        when(reviewRounds.findById("round")).thenReturn(Optional.of(round));
         when(users.getCurrentUser()).thenReturn(customer); when(users.getCurrentUserId()).thenReturn(customer.getId());
         when(orders.findById("order")).thenReturn(Optional.of(order));
         when(orders.findByIdForUpdate("order")).thenReturn(Optional.of(order));
@@ -104,7 +104,6 @@ class DeliveryWorkflowServiceTest {
         when(deliveries.findByOrderIdForUpdate("order")).thenReturn(Optional.of(delivery));
         when(deliveries.findByOrderId("order")).thenReturn(Optional.of(delivery));
         when(deliveries.save(any(OrderDelivery.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(storage.presignedUrlExpiresSeconds()).thenReturn(600L);
         when(media.findByMissionIdOrderByCapturedAtDesc("mission")).thenReturn(List.of(asset("original", MediaStatus.AVAILABLE)));
         when(missions.findAllById(List.of("mission"))).thenReturn(List.of(mission));
         when(roundEvidence.findCurrentPublishedMediaAssetIdsByOrderIds(List.of("order"))).thenReturn(Set.of("original"));
@@ -192,7 +191,6 @@ class DeliveryWorkflowServiceTest {
         MediaAsset selected = asset("selected", MediaStatus.AVAILABLE);
         MediaAsset excluded = asset("excluded", MediaStatus.AVAILABLE);
         when(media.findByMissionIdOrderByCapturedAtDesc("mission")).thenReturn(List.of(selected, excluded));
-        when(storage.createPresignedGetUrl(anyString(), anyString())).thenReturn("https://signed-preview");
         when(reviewPublisher.publish(any(), any(), anyList(), anySet(), any(), any())).thenAnswer(call -> {
             var round = new ResultReviewRound(); round.setId("round-new"); return round;
         });
@@ -215,7 +213,6 @@ class DeliveryWorkflowServiceTest {
         when(deliveries.findByOrderIdForUpdate("order")).thenReturn(Optional.empty());
         when(users.getCurrentUser()).thenReturn(user("manager", RoleCode.MANAGER));
         when(media.findByMissionIdOrderByCapturedAtDesc("mission")).thenReturn(List.of(asset("selected", MediaStatus.AVAILABLE)));
-        when(storage.createPresignedGetUrl(anyString(), anyString())).thenReturn("https://example.test/preview");
         when(reviewPublisher.publish(any(), any(), anyList(), anySet(), any(), any())).thenAnswer(call -> {
             var round = new ResultReviewRound(); round.setId("round-new"); return round;
         });
@@ -250,11 +247,12 @@ class DeliveryWorkflowServiceTest {
                 .isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.FINAL_PAYMENT_REQUIRED);
         invoice.setStatus(InvoiceStatus.PAID); invoice.setPaidAmount(invoice.getTotalAmount()); invoice.setRemainingAmount(BigDecimal.ZERO);
         delivery.setStatus(DeliveryStatus.READY_FOR_DELIVERY);
+        delivery.setCustomerAcceptedAt(java.time.Instant.now());
+        reviewRounds.findById("round").orElseThrow().setStatus(com.ondemandmonitoring.delivery.enums.ResultReviewRoundStatus.ACCEPTED);
         User manager = user("manager", RoleCode.MANAGER); when(users.getCurrentUser()).thenReturn(manager);
         when(media.findByMissionIdOrderByCapturedAtDesc("mission")).thenReturn(List.of(asset("original", MediaStatus.AVAILABLE)));
         when(missions.findAllById(List.of("mission"))).thenReturn(List.of(mission));
         when(roundEvidence.findCurrentPublishedMediaAssetIdsByOrderIds(List.of("order"))).thenReturn(java.util.Set.of("original"));
-        when(storage.createPresignedGetUrl(anyString(), anyString())).thenReturn("https://signed-original");
         service.releaseOriginals("order");
         assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.DELIVERED);
         assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.COMPLETED);
@@ -281,9 +279,19 @@ class DeliveryWorkflowServiceTest {
 
         assertThat(service.originalAccessibleMissionIds(List.of("mission"))).isEmpty();
 
-        invoice.setStatus(InvoiceStatus.PAID);
+        invoice.setStatus(InvoiceStatus.PAID); invoice.setRemainingAmount(BigDecimal.ZERO);
         delivery.setStatus(DeliveryStatus.DELIVERED);
+        assertThat(service.originalAccessibleMissionIds(List.of("mission"))).isEmpty();
+        delivery.setCustomerAcceptedAt(java.time.Instant.now());
+        var accepted = new ResultReviewRound();
+        accepted.setStatus(com.ondemandmonitoring.delivery.enums.ResultReviewRoundStatus.ACCEPTED);
+        when(reviewRounds.findById(delivery.getCurrentReviewRoundId())).thenReturn(Optional.of(accepted));
         assertThat(service.originalAccessibleMissionIds(List.of("mission"))).containsExactly("mission");
+        service.requireOriginalAccess("order");
+        when(revisionCases.findByOrderIdAndActiveTrue("order")).thenReturn(Optional.of(new com.ondemandmonitoring.delivery.domain.ResultRevisionCase()));
+        assertThat(service.originalAccessibleMissionIds(List.of("mission"))).isEmpty();
+        assertThatThrownBy(() -> service.requireOriginalAccess("order")).isInstanceOf(ApiException.class);
+
     }
 
     @Test void oneApprovedResultCannotMakeMultiMissionDeliveryReady() {

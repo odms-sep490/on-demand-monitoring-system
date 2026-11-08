@@ -52,8 +52,7 @@ public abstract class MissionResultMapper {
                         media,
                         mediaAssetService.createPresignedGetUrl(media),
                         mediaAssetService.presignedUrlExpiresSeconds(), derivatives.thumbnailUrl(media),
-                        "VIDEO".equals(media.getType()) ? mediaAssetService.createPresignedGetUrl(media)
-                                : derivatives.previewUrl(media)))
+                        derivatives.previewUrl(media)))
                 .toList();
     }
 }

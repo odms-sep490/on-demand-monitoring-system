@@ -75,7 +75,7 @@ public class MediaController {
                 image,
                 presignedUrl,
                 mediaAssetService.presignedUrlExpiresSeconds(), derivatives.thumbnailUrl(image),
-                "VIDEO".equals(image.getType()) ? presignedUrl : derivatives.previewUrl(image))));
+                derivatives.previewUrl(image))));
     }
 
     @Operation(summary = "List mission media",
@@ -96,8 +96,7 @@ public class MediaController {
                         asset,
                         mediaAssetService.createPresignedGetUrl(asset),
                         mediaAssetService.presignedUrlExpiresSeconds(), derivatives.thumbnailUrl(asset),
-                        "VIDEO".equals(asset.getType()) ? mediaAssetService.createPresignedGetUrl(asset)
-                                : derivatives.previewUrl(asset)))
+                        derivatives.previewUrl(asset)))
                 .toList();
 
         return ResponseEntity.ok(ApiResponse.ok(media));

@@ -3,6 +3,7 @@ package com.ondemandmonitoring.delivery.dto.response;
 import com.ondemandmonitoring.delivery.enums.DeliveryEvidenceChangeType;
 import com.ondemandmonitoring.delivery.enums.DeliveryStatus;
 import com.ondemandmonitoring.order.enums.RequiredEvidenceType;
+import com.ondemandmonitoring.media.enums.MediaDerivativeStatus;
 import java.time.Instant;
 import java.util.List;
 
@@ -38,5 +39,6 @@ public record ManagerDeliveryChecklistsResponse(
             String previewUrl,
             Instant urlExpiresAt,
             String accessReason,
-            DeliveryEvidenceChangeType changeType) {}
+            DeliveryEvidenceChangeType changeType,
+            MediaDerivativeStatus previewStatus) {}
 }

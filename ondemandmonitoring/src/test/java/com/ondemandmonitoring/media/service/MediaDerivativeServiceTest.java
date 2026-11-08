@@ -35,7 +35,7 @@ class MediaDerivativeServiceTest {
         ReflectionTestUtils.setField(service, "maxAttempts", 5);
         ReflectionTestUtils.setField(service, "retryDelaySeconds", 300);
         when(transactions.getTransaction(any())).thenAnswer(invocation -> new SimpleTransactionStatus());
-        when(media.findDerivativeCandidates(any(), any(), eq(5), any())).thenReturn(List.of("media"));
+        when(media.findDerivativeCandidates(eq("IMAGE"), any(), any(), eq(5), any())).thenReturn(List.of("media"));
         asset = new MediaAsset();
         asset.setId("media");
         asset.setType("IMAGE");
@@ -52,19 +52,19 @@ class MediaDerivativeServiceTest {
         when(storage.open("bucket", "original.jpg")).thenReturn(
                 new IMediaObjectStorage.StoredObjectStream(input, (long) bytes.size(), "image/png"));
         doAnswer(invocation -> {
-            BufferedImage image = ImageIO.read((InputStream) invocation.getArgument(3));
-            int edge = invocation.<String>getArgument(0).endsWith("thumbnail.jpg") ? 480 : 2048;
+            BufferedImage image = ImageIO.read((InputStream) invocation.getArgument(4));
+            int edge = invocation.<String>getArgument(1).endsWith("thumbnail.jpg") ? 480 : 2048;
             assertThat(image.getWidth()).isEqualTo(edge);
             assertThat(image.getHeight()).isEqualTo(edge / 2);
             return null;
-        }).when(storage).put(anyString(), eq("image/jpeg"), anyLong(), any(), anyString());
+        }).when(storage).put(eq("bucket"), anyString(), eq("image/jpeg"), anyLong(), any(), anyString());
 
         assertThat(service.processBatch()).isEqualTo(1);
         assertThat(asset.getDerivativeStatus()).isEqualTo(MediaDerivativeStatus.READY);
         assertThat(asset.getThumbnailKey()).contains("attempt-1/thumbnail.jpg");
         assertThat(asset.getS3Key()).isEqualTo("original.jpg");
         verify(input, atLeastOnce()).close();
-        verify(storage, times(2)).put(anyString(), eq("image/jpeg"), anyLong(), any(), anyString());
+        verify(storage, times(2)).put(eq("bucket"), anyString(), eq("image/jpeg"), anyLong(), any(), anyString());
     }
 
     @Test void unsupportedImageDoesNotUploadDisplayCopies() {
@@ -72,7 +72,7 @@ class MediaDerivativeServiceTest {
                 new ByteArrayInputStream(new byte[]{1, 2, 3}), 3L, "image/jpeg"));
         assertThat(service.processBatch()).isZero();
         assertThat(asset.getDerivativeStatus()).isEqualTo(MediaDerivativeStatus.UNSUPPORTED);
-        verify(storage, never()).put(anyString(), anyString(), anyLong(), any(), anyString());
+        verify(storage, never()).put(eq("bucket"), anyString(), anyString(), anyLong(), any(), anyString());
     }
 
     @Test void activeClaimCannotBeProcessedAgain() {
@@ -80,6 +80,74 @@ class MediaDerivativeServiceTest {
         asset.setDerivativeProcessedAt(Instant.now());
         assertThat(service.processBatch()).isZero();
         verify(storage, never()).open(anyString(), anyString());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = MediaDerivativeStatus.class, names = {"FAILED", "UNSUPPORTED"})
+    void failedDisplayCopiesUseOriginalViewingUrl(MediaDerivativeStatus state) {
+        asset.setStorageProvider("S3");
+        asset.setDerivativeStatus(state);
+        when(storage.createPresignedGetUrl("bucket", "original.jpg")).thenReturn("original-view");
+        assertThat(service.thumbnailUrl(asset)).isEqualTo("original-view");
+        assertThat(service.previewUrl(asset)).isEqualTo("original-view");
+        verify(storage, times(1)).createPresignedGetUrl("bucket", "original.jpg");
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = MediaDerivativeStatus.class, names = {"PENDING", "PROCESSING"})
+    void pendingCopiesDoNotLoadTheOriginal(MediaDerivativeStatus state) {
+        asset.setStorageProvider("S3");
+        asset.setDerivativeStatus(state);
+        assertThat(service.thumbnailUrl(asset)).isNull();
+        assertThat(service.previewUrl(asset)).isNull();
+        verify(storage, never()).createPresignedGetUrl(anyString(), anyString());
+    }
+
+    @Test void availableDerivativesTakePriorityOverOriginal() {
+        asset.setStorageProvider("S3");
+        asset.setDerivativeStatus(MediaDerivativeStatus.READY);
+        asset.setThumbnailKey("thumb"); asset.setPreviewKey("preview");
+        when(storage.createPresignedGetUrl("bucket", "thumb")).thenReturn("thumb-url");
+        when(storage.createPresignedGetUrl("bucket", "preview")).thenReturn("preview-url");
+        assertThat(service.thumbnailUrl(asset)).isEqualTo("thumb-url");
+        assertThat(service.previewUrl(asset)).isEqualTo("preview-url");
+        verify(storage, never()).createPresignedGetUrl("bucket", "original.jpg");
+    }
+
+    @Test void missingReadyThumbnailUsesPreviewAndMissingPreviewUsesOriginal() {
+        asset.setStorageProvider("S3");
+        asset.setDerivativeStatus(MediaDerivativeStatus.READY);
+        asset.setPreviewKey("preview");
+        when(storage.createPresignedGetUrl("bucket", "preview")).thenReturn("preview-url");
+        when(storage.createPresignedGetUrl("bucket", "original.jpg")).thenReturn("original-view");
+        assertThat(service.thumbnailUrl(asset)).isEqualTo("preview-url");
+        asset.setPreviewKey(null);
+        assertThat(service.thumbnailUrl(asset)).isEqualTo("original-view");
+        assertThat(service.previewUrl(asset)).isEqualTo("original-view");
+    }
+
+    @Test void videoOriginalIsPlayableButNeverUsedAsAPoster() {
+        asset.setStorageProvider("S3"); asset.setType("VIDEO");
+        asset.setDerivativeStatus(MediaDerivativeStatus.FAILED);
+        when(storage.createPresignedGetUrl("bucket", "original.jpg")).thenReturn("original-video");
+        assertThat(service.thumbnailUrl(asset)).isNull();
+        assertThat(service.previewUrl(asset)).isEqualTo("original-video");
+    }
+
+    @Test void retryDoesNotHideAnAlreadyAvailableOriginalFallback() {
+        asset.setStorageProvider("S3"); asset.setDerivativeStatus(MediaDerivativeStatus.PROCESSING);
+        asset.setDerivativeAttemptCount(2);
+        when(storage.createPresignedGetUrl("bucket", "original.jpg")).thenReturn("original-view");
+        assertThat(service.previewUrl(asset)).isEqualTo("original-view");
+        assertThat(service.thumbnailUrl(asset)).isEqualTo("original-view");
+    }
+
+    @Test void deletedMediaHasNoOriginalFallback() {
+        asset.setStorageProvider("S3"); asset.setDerivativeStatus(MediaDerivativeStatus.FAILED);
+        asset.setStorageStatus(com.ondemandmonitoring.media.enums.MediaStorageStatus.DELETED);
+        assertThat(service.thumbnailUrl(asset)).isNull();
+        assertThat(service.previewUrl(asset)).isNull();
+        verify(storage, never()).createPresignedGetUrl(anyString(), anyString());
     }
 
     @Test void oldWorkerCannotOverwriteOrDeleteANewerAttemptsFiles() throws Exception {
@@ -92,7 +160,7 @@ class MediaDerivativeServiceTest {
             asset.setDerivativeStatus(MediaDerivativeStatus.READY);
             asset.setThumbnailKey("new-thumbnail");
             return null;
-        }).when(storage).put(anyString(), anyString(), anyLong(), any(), anyString());
+        }).when(storage).put(eq("bucket"), anyString(), anyString(), anyLong(), any(), anyString());
         assertThat(service.processBatch()).isZero();
         assertThat(asset.getThumbnailKey()).isEqualTo("new-thumbnail");
         verify(storage).deleteQuietly("bucket", "media/derived/media/v1/attempt-1/thumbnail.jpg");

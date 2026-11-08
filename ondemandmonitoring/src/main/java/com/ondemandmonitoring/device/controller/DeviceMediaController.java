@@ -64,7 +64,7 @@ public class DeviceMediaController {
                 mediaAsset,
                 presignedUrl,
                 mediaAssetService.presignedUrlExpiresSeconds(), derivatives.thumbnailUrl(mediaAsset),
-                "VIDEO".equals(mediaAsset.getType()) ? presignedUrl : derivatives.previewUrl(mediaAsset))));
+                derivatives.previewUrl(mediaAsset))));
     }
 
     @Operation(summary = "Get Device Media file", description = "Streams the original image/video file from S3 or local storage")

@@ -20,7 +20,7 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, String> 
                 where m.storageProvider = 'S3'
                   and m.storageStatus = com.ondemandmonitoring.media.enums.MediaStorageStatus.AVAILABLE
                   and (m.validatedAt is not null or m.mediaStatus is null)
-                  and m.type = 'IMAGE'
+                  and m.type = :mediaType
                   and (m.derivativeStatus = com.ondemandmonitoring.media.enums.MediaDerivativeStatus.PENDING
                     or (m.derivativeStatus = com.ondemandmonitoring.media.enums.MediaDerivativeStatus.FAILED
                         and m.derivativeAttemptCount < :maxAttempts
@@ -29,7 +29,8 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, String> 
                         and (m.derivativeProcessedAt is null or m.derivativeProcessedAt < :staleBefore)))
                 order by m.createdAt, m.id
                 """)
-        List<String> findDerivativeCandidates(@Param("staleBefore") Instant staleBefore,
+        List<String> findDerivativeCandidates(@Param("mediaType") String mediaType,
+                                              @Param("staleBefore") Instant staleBefore,
                                               @Param("retryBefore") Instant retryBefore,
                                               @Param("maxAttempts") int maxAttempts,
                                               Pageable pageable);

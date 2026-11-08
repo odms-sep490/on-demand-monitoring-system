@@ -656,9 +656,10 @@ ALTER TABLE public.drone_media
     ADD COLUMN IF NOT EXISTS derivative_processed_at timestamptz,
     ADD COLUMN IF NOT EXISTS derivative_error_code varchar(80);
 
-CREATE INDEX IF NOT EXISTS ix_drone_media_derivative_queue
+DROP INDEX IF EXISTS public.ix_drone_media_derivative_queue;
+CREATE INDEX IF NOT EXISTS ix_drone_media_derivative_queue_v2
     ON public.drone_media (created_at, id)
     WHERE storage_provider = 'S3' AND storage_status = 'AVAILABLE'
-      AND media_type = 'IMAGE' AND derivative_status IN ('PENDING', 'FAILED', 'PROCESSING');
+      AND media_type IN ('IMAGE', 'VIDEO') AND derivative_status IN ('PENDING', 'FAILED', 'PROCESSING');
 
 COMMIT;

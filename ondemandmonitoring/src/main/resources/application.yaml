@@ -80,6 +80,12 @@ app:
       stale-minutes: ${APP_MEDIA_DERIVATIVES_STALE_MINUTES:15}
       retry-delay-seconds: ${APP_MEDIA_DERIVATIVES_RETRY_DELAY_SECONDS:300}
       max-attempts: ${APP_MEDIA_DERIVATIVES_MAX_ATTEMPTS:5}
+      video-batch-size: ${APP_MEDIA_DERIVATIVES_VIDEO_BATCH_SIZE:1}
+      ffmpeg-bin: ${APP_MEDIA_FFMPEG_BIN:ffmpeg}
+      ffprobe-bin: ${APP_MEDIA_FFPROBE_BIN:ffprobe}
+      video-timeout-seconds: ${APP_MEDIA_VIDEO_DERIVATIVE_TIMEOUT_SECONDS:900}
+      max-video-input-bytes: ${APP_MEDIA_VIDEO_DERIVATIVE_MAX_INPUT_BYTES:1073741824}
+      max-video-preview-bytes: ${APP_MEDIA_VIDEO_DERIVATIVE_MAX_PREVIEW_BYTES:536870912}
     orphan-cleanup:
       enabled: ${APP_MEDIA_ORPHAN_CLEANUP_ENABLED:true}
       delay-seconds: ${APP_MEDIA_ORPHAN_CLEANUP_DELAY_SECONDS:300}

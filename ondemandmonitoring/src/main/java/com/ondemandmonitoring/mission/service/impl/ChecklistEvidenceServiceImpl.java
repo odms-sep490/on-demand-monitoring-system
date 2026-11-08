@@ -361,7 +361,7 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
         response.setEligibleForFinalApproval(finalFailure == null);
         response.setIneligibilityReason(operationalFailure);
         response.setPreviewUrl(preview(asset));
-        response.setThumbnailUrl("IMAGE".equals(asset.getType()) ? derivatives.thumbnailUrl(asset) : response.getPreviewUrl());
+        response.setThumbnailUrl(derivatives.thumbnailUrl(asset));
         if (response.getPreviewUrl() != null) response.setUrlExpiresAt(Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds()));
         return response;
     }
@@ -369,9 +369,7 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
         // Never sign upload-pending/nonvalidated objects for evidence previews.
         if (asset.getStorageStatus() != com.ondemandmonitoring.media.enums.MediaStorageStatus.AVAILABLE || asset.getValidatedAt() == null || asset.getMediaStatus() == null
                 || !Set.of(MediaStatus.PENDING_MANAGER_APPROVAL, MediaStatus.AVAILABLE, MediaStatus.REJECTED).contains(asset.getMediaStatus())) return null;
-        return "IMAGE".equals(asset.getType())
-                ? derivatives.previewUrl(asset)
-                : storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key());
+        return derivatives.previewUrl(asset);
     }
     private Mission mission(String id, boolean lock) {
         return (lock ? missions.findByIdForUpdate(id) : missions.findById(id)).orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));

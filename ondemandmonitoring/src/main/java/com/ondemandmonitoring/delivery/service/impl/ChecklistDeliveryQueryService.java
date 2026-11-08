@@ -139,7 +139,7 @@ public class ChecklistDeliveryQueryService {
             retentionAccess.requireAccessible(asset);
             url = storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key());
             thumbnailUrl = derivatives.thumbnailUrl(asset);
-            previewUrl = "VIDEO".equals(asset.getType()) ? url : derivatives.previewUrl(asset);
+            previewUrl = derivatives.previewUrl(asset);
         } catch (ApiException ex) {
             if (ex.getErrorCode() == ErrorCode.RESULT_RETENTION_EXPIRED) reason = "RETENTION_EXPIRED";
             else if (ex.getErrorCode() == ErrorCode.MEDIA_NOT_FOUND) reason = "MEDIA_UNAVAILABLE";
@@ -148,6 +148,6 @@ public class ChecklistDeliveryQueryService {
         return new ManagerDeliveryChecklistsResponse.Asset(currentEvidence == null ? null : currentEvidence.getId(),
                 asset.getId(), asset.getType(), asset.getOriginalFileName(), asset.getFileSize(), asset.getCapturedAt(),
                 missionId, missionCode, url, thumbnailUrl, previewUrl, url == null ? null : expiresAt, reason,
-                currentEvidence == null ? null : currentEvidence.getChangeType());
+                currentEvidence == null ? null : currentEvidence.getChangeType(), asset.getDerivativeStatus());
     }
 }

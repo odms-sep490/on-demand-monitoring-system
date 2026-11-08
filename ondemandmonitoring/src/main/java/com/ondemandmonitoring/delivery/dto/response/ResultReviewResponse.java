@@ -2,6 +2,7 @@ package com.ondemandmonitoring.delivery.dto.response;
 
 import java.time.Instant;
 import java.util.List;
+import com.ondemandmonitoring.media.enums.MediaDerivativeStatus;
 
 public record ResultReviewResponse(String reviewRoundId, int roundNumber, Long roundVersion, Instant publishedAt,
         long checklistRevision, boolean canSubmitRevision, boolean canAcceptResult, String blockedReason,
@@ -13,5 +14,5 @@ public record ResultReviewResponse(String reviewRoundId, int roundNumber, Long r
             boolean changedInRound, boolean canRequestRevision) {}
     public record Evidence(String roundEvidenceId, String mediaAssetId, String type, String fileName,
             Long size, Instant capturedAt, String url, Instant urlExpiresAt, boolean downloadable,
-            String accessReason, String thumbnailUrl, String previewUrl) {}
+            String accessReason, String thumbnailUrl, String previewUrl, MediaDerivativeStatus previewStatus) {}
 }

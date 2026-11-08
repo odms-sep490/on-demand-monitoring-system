@@ -72,6 +72,7 @@ public enum ErrorCode {
     MEDIA_EVIDENCE_PROTECTED("Media is retained by checklist evidence history", HttpStatus.CONFLICT),
     MEDIA_UPLOAD_FAILED("File upload failed after 3 attempts", HttpStatus.BAD_GATEWAY),
     MEDIA_NOT_FOUND("Media not found", HttpStatus.NOT_FOUND),
+    MEDIA_DERIVATIVE_PROCESSING("Bản xem trước đang được xử lý. Vui lòng thử lại sau.", HttpStatus.CONFLICT),
     MEDIA_DUPLICATE_CONTENT("File này đã được tải lên cho Mission. Hãy gắn media đã có thay vì tải lại.", HttpStatus.CONFLICT),
     MEDIA_CAPTURE_TOO_OLD("Thời điểm chụp quá cũ so với thời gian thực hiện Mission.", HttpStatus.BAD_REQUEST),
     ORDER_MEDIA_QUANTITY_NOT_MET("Số ảnh/video đã giao ít hơn đơn đặt; cần nhập lý do để duyệt.", HttpStatus.CONFLICT),

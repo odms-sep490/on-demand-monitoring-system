@@ -87,7 +87,7 @@ public class CustomerMediaController {
     }
 
     @PostMapping("/customer/media/{mediaId}/view-url")
-    @Operation(summary = "Refresh an authorized original viewing fallback after a display error")
+    @Operation(summary = "Refresh a customer media viewing URL, using a derivative when available")
     public ResponseEntity<ApiResponse<MediaViewingResponse>> viewingFallback(
             @PathVariable String mediaId) {
         return ResponseEntity.ok().header("Cache-Control", "no-store, private")

@@ -114,6 +114,30 @@ class MediaDerivativeServiceTest {
         verify(storage, never()).createPresignedGetUrl("bucket", "original.jpg");
     }
 
+    @Test void viewingDerivativeKeysPreferPreviewThenThumbnailForImages() {
+        asset.setStorageProvider("S3");
+        asset.setDerivativeStatus(MediaDerivativeStatus.READY);
+        asset.setThumbnailKey("thumb");
+        asset.setPreviewKey("preview");
+
+        assertThat(service.viewingDerivativeKeys(asset)).containsExactly("preview", "thumb");
+
+        asset.setPreviewKey(null);
+        assertThat(service.viewingDerivativeKeys(asset)).containsExactly("thumb");
+    }
+
+    @Test void viewingDerivativeKeysUseVideoPreviewAndNeverPoster() {
+        asset.setStorageProvider("S3");
+        asset.setType("VIDEO");
+        asset.setDerivativeStatus(MediaDerivativeStatus.READY);
+        asset.setThumbnailKey("poster.jpg");
+
+        assertThat(service.viewingDerivativeKeys(asset)).isEmpty();
+
+        asset.setPreviewKey("preview.mp4");
+        assertThat(service.viewingDerivativeKeys(asset)).containsExactly("preview.mp4");
+    }
+
     @Test void missingReadyThumbnailUsesPreviewAndMissingPreviewUsesOriginal() {
         asset.setStorageProvider("S3");
         asset.setDerivativeStatus(MediaDerivativeStatus.READY);
@@ -124,6 +148,16 @@ class MediaDerivativeServiceTest {
         asset.setPreviewKey(null);
         assertThat(service.thumbnailUrl(asset)).isEqualTo("original-view");
         assertThat(service.previewUrl(asset)).isEqualTo("original-view");
+    }
+
+    @Test void imagePreviewFallsBackToAvailableThumbnailBeforeOriginal() {
+        asset.setStorageProvider("S3");
+        asset.setDerivativeStatus(MediaDerivativeStatus.READY);
+        asset.setThumbnailKey("thumb");
+        when(storage.createPresignedGetUrl("bucket", "thumb")).thenReturn("thumb-url");
+
+        assertThat(service.previewUrl(asset)).isEqualTo("thumb-url");
+        verify(storage, never()).createPresignedGetUrl("bucket", "original.jpg");
     }
 
     @Test void videoOriginalIsPlayableButNeverUsedAsAPoster() {

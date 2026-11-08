@@ -122,6 +122,7 @@ class CustomerMediaServiceTest {
 
     @Test void refreshesOriginalViewingUrlWithoutUnlockingOfficialDownload() {
         asset.setStorageProvider("S3");
+        asset.setDerivativeStatus(com.ondemandmonitoring.media.enums.MediaDerivativeStatus.FAILED);
         when(storage.createPresignedGetUrl("bucket", "original")).thenReturn("fresh-view");
         var result = service.createViewingFallback("a");
         assertThat(result.viewUrl()).isEqualTo("fresh-view");
@@ -130,6 +131,103 @@ class CustomerMediaServiceTest {
         ordered.verify(storage).inspect("bucket", "original");
         ordered.verify(storage).createPresignedGetUrl("bucket", "original");
         verify(delivery, never()).requireOriginalAccess(anyString());
+    }
+
+    @Test void viewingRefreshUsesReadyDerivativeInsteadOfExposingOriginal() {
+        asset.setType("IMAGE");
+        asset.setDerivativeStatus(com.ondemandmonitoring.media.enums.MediaDerivativeStatus.READY);
+        asset.setPreviewKey("derived/preview.jpg");
+        asset.setThumbnailKey("derived/thumbnail.jpg");
+        when(derivatives.viewingDerivativeKeys(asset)).thenReturn(List.of("derived/preview.jpg", "derived/thumbnail.jpg"));
+        when(storage.inspect("bucket", "derived/preview.jpg")).thenReturn(
+                new IMediaObjectStorage.StoredObjectInfo(32_000L, "image/jpeg", Map.of()));
+        when(storage.createPresignedGetUrl("bucket", "derived/preview.jpg")).thenReturn("fresh-preview");
+        when(storage.presignedUrlExpiresSeconds()).thenReturn(600L);
+
+        var result = service.createViewingFallback("a");
+
+        assertThat(result.viewUrl()).isEqualTo("fresh-preview");
+        assertThat(result.fileSize()).isEqualTo(32_000L);
+        verify(storage).inspect("bucket", "derived/preview.jpg");
+        verify(storage, never()).inspect("bucket", "original");
+        verify(storage, never()).createPresignedGetUrl("bucket", "original");
+    }
+
+    @Test void viewingRefreshUsesThumbnailWhenReadyPreviewObjectIsMissing() {
+        asset.setType("IMAGE");
+        asset.setDerivativeStatus(com.ondemandmonitoring.media.enums.MediaDerivativeStatus.READY);
+        asset.setPreviewKey("derived/missing-preview.jpg");
+        asset.setThumbnailKey("derived/thumbnail.jpg");
+        when(derivatives.viewingDerivativeKeys(asset)).thenReturn(List.of("derived/missing-preview.jpg", "derived/thumbnail.jpg"));
+        when(storage.inspect("bucket", "derived/missing-preview.jpg")).thenThrow(
+                software.amazon.awssdk.services.s3.model.S3Exception.builder().statusCode(404).build());
+        when(storage.inspect("bucket", "derived/thumbnail.jpg")).thenReturn(
+                new IMediaObjectStorage.StoredObjectInfo(16_000L, "image/jpeg", Map.of()));
+        when(storage.createPresignedGetUrl("bucket", "derived/thumbnail.jpg")).thenReturn("fresh-thumbnail");
+
+        var result = service.createViewingFallback("a");
+
+        assertThat(result.viewUrl()).isEqualTo("fresh-thumbnail");
+        assertThat(result.fileSize()).isEqualTo(16_000L);
+        verify(storage, never()).inspect("bucket", "original");
+        verify(storage, never()).createPresignedGetUrl("bucket", "original");
+    }
+
+    @Test void viewingRefreshUsesOriginalOnlyWhenNoReadyDerivativeObjectCanBeFound() {
+        asset.setType("IMAGE");
+        asset.setDerivativeStatus(com.ondemandmonitoring.media.enums.MediaDerivativeStatus.READY);
+        asset.setPreviewKey("derived/missing-preview.jpg");
+        when(derivatives.viewingDerivativeKeys(asset)).thenReturn(List.of("derived/missing-preview.jpg"));
+        when(storage.inspect("bucket", "derived/missing-preview.jpg")).thenThrow(
+                software.amazon.awssdk.services.s3.model.S3Exception.builder().statusCode(404).build());
+        when(storage.inspect("bucket", "original")).thenReturn(
+                new IMediaObjectStorage.StoredObjectInfo(120_000L, "image/jpeg", Map.of()));
+        when(storage.createPresignedGetUrl("bucket", "original")).thenReturn("original-fallback");
+
+        var result = service.createViewingFallback("a");
+
+        assertThat(result.viewUrl()).isEqualTo("original-fallback");
+        assertThat(result.fileSize()).isEqualTo(120_000L);
+        verify(storage).inspect("bucket", "derived/missing-preview.jpg");
+        verify(storage).inspect("bucket", "original");
+    }
+
+    @Test void viewingRefreshDoesNotExposeOriginalWhileFirstDerivativeAttemptIsPending() {
+        asset.setType("IMAGE");
+        asset.setDerivativeStatus(com.ondemandmonitoring.media.enums.MediaDerivativeStatus.PENDING);
+
+        assertThatThrownBy(() -> service.createViewingFallback("a"))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("Bản xem trước đang được xử lý");
+        verifyNoInteractions(storage);
+    }
+
+    @Test void viewingRefreshDoesNotExposeOriginalDuringFirstDerivativeAttempt() {
+        asset.setType("VIDEO");
+        asset.setDerivativeStatus(com.ondemandmonitoring.media.enums.MediaDerivativeStatus.PROCESSING);
+        asset.setDerivativeAttemptCount(1);
+
+        assertThatThrownBy(() -> service.createViewingFallback("a"))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("Bản xem trước đang được xử lý");
+        verifyNoInteractions(storage);
+    }
+
+    @Test void viewingRefreshUsesVideoPreviewAndNeverItsPoster() {
+        asset.setType("VIDEO");
+        asset.setDerivativeStatus(com.ondemandmonitoring.media.enums.MediaDerivativeStatus.READY);
+        asset.setPreviewKey("derived/preview.mp4");
+        asset.setThumbnailKey("derived/poster.jpg");
+        when(derivatives.viewingDerivativeKeys(asset)).thenReturn(List.of("derived/preview.mp4"));
+        when(storage.inspect("bucket", "derived/preview.mp4")).thenReturn(
+                new IMediaObjectStorage.StoredObjectInfo(88_000L, "video/mp4", Map.of()));
+        when(storage.createPresignedGetUrl("bucket", "derived/preview.mp4")).thenReturn("fresh-video-preview");
+
+        var result = service.createViewingFallback("a");
+
+        assertThat(result.viewUrl()).isEqualTo("fresh-video-preview");
+        verify(storage, never()).inspect("bucket", "derived/poster.jpg");
+        verify(storage, never()).createPresignedGetUrl("bucket", "original");
     }
 
     @Test void missingS3OriginalDoesNotIssueAnotherBrokenUrl() {
@@ -144,10 +242,22 @@ class CustomerMediaServiceTest {
 
     @Test void viewingRefreshHandlesLegacyMissingSize() {
         asset.setStorageProvider("S3"); asset.setFileSize(null);
+        asset.setDerivativeStatus(com.ondemandmonitoring.media.enums.MediaDerivativeStatus.FAILED);
         assertThat(service.createViewingFallback("a").fileSize()).isZero();
         when(storage.inspect("bucket", "original")).thenReturn(
                 new IMediaObjectStorage.StoredObjectInfo(40_000_000L, "image/jpeg", java.util.Map.of()));
         assertThat(service.createViewingFallback("a").fileSize()).isEqualTo(40_000_000L);
+    }
+
+    @Test void transientDerivativeStorageFailureDoesNotExposeOriginal() {
+        asset.setDerivativeStatus(com.ondemandmonitoring.media.enums.MediaDerivativeStatus.READY);
+        when(derivatives.viewingDerivativeKeys(asset)).thenReturn(List.of("derived/preview.jpg"));
+        when(storage.inspect("bucket", "derived/preview.jpg")).thenThrow(
+                software.amazon.awssdk.services.s3.model.S3Exception.builder().statusCode(503).build());
+        assertThatThrownBy(() -> service.createViewingFallback("a"))
+                .isInstanceOf(software.amazon.awssdk.services.s3.model.S3Exception.class);
+        verify(storage, never()).inspect("bucket", "original");
+        verify(storage, never()).createPresignedGetUrl(anyString(), anyString());
     }
 
     @Test void refreshStillRejectsReserveAndOtherCustomers() {

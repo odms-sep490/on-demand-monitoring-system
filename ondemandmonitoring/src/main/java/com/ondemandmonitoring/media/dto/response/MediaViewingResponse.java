@@ -2,5 +2,5 @@ package com.ondemandmonitoring.media.dto.response;
 
 import java.time.Instant;
 
-/** Fresh original viewing fallback, authorized independently of the official download action. */
+/** Fresh customer viewing URL for a derivative, or the original when no derivative is usable. */
 public record MediaViewingResponse(String mediaId, String viewUrl, Instant expiresAt, long fileSize) {}

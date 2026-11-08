@@ -119,8 +119,31 @@ public class MediaDerivativeService {
 
     /** Viewing URLs may reference the original after derivative failure; callers must authorize access. */
     public String previewUrl(MediaAsset asset) {
-        return ready(asset) && hasKey(asset.getPreviewKey())
-                ? signedUrl(asset.getS3Bucket(), asset.getPreviewKey()) : originalViewingFallback(asset);
+        if (ready(asset)) {
+            if (hasKey(asset.getPreviewKey())) return signedUrl(asset.getS3Bucket(), asset.getPreviewKey());
+            // For images, the thumbnail is still a usable preview when the larger copy is missing.
+            if ("IMAGE".equals(asset.getType()) && hasKey(asset.getThumbnailKey()))
+                return signedUrl(asset.getS3Bucket(), asset.getThumbnailKey());
+        }
+        return originalViewingFallback(asset);
+    }
+
+    /** Returns generated derivatives in viewing priority order without selecting the original. */
+    public List<String> viewingDerivativeKeys(MediaAsset asset) {
+        if (!ready(asset)) return List.of();
+        String preview = derivativeKeyOrNull(asset, asset.getPreviewKey());
+        if ("VIDEO".equals(asset.getType())) {
+            return preview == null ? List.of() : List.of(preview);
+        }
+        if (!"IMAGE".equals(asset.getType())) return List.of();
+        String thumbnail = derivativeKeyOrNull(asset, asset.getThumbnailKey());
+        if (preview == null) return thumbnail == null ? List.of() : List.of(thumbnail);
+        if (thumbnail == null || thumbnail.equals(preview)) return List.of(preview);
+        return List.of(preview, thumbnail);
+    }
+
+    private String derivativeKeyOrNull(MediaAsset asset, String key) {
+        return hasKey(key) && !key.equals(asset.getS3Key()) ? key : null;
     }
 
     private String originalViewingFallback(MediaAsset asset) {

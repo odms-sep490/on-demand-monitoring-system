@@ -4,6 +4,7 @@ import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService;
 import com.ondemandmonitoring.media.domain.MediaAsset;
+import com.ondemandmonitoring.media.enums.MediaDerivativeStatus;
 import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.dto.response.CustomerMediaResponse;
 import com.ondemandmonitoring.media.dto.response.OriginalMediaDownloadResponse;
@@ -159,6 +160,24 @@ public class CustomerMediaServiceImpl implements ICustomerMediaService {
                 || !publishedMediaIds(List.of(missionId)).contains(mediaId))
             throw new ApiException(ErrorCode.MEDIA_NOT_FOUND);
         retentionAccess.requireAccessible(asset);
+
+        for (String derivativeKey : derivatives.viewingDerivativeKeys(asset)) {
+            var derivative = inspectDerivative(asset, derivativeKey);
+            if (derivative != null) {
+                long size = derivative.contentLength() == null ? 0L : derivative.contentLength();
+                return new MediaViewingResponse(mediaId,
+                        storage.createPresignedGetUrl(asset.getS3Bucket(), derivativeKey),
+                        Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds()), size);
+            }
+        }
+
+        MediaDerivativeStatus derivativeStatus = asset.getDerivativeStatus();
+        if (derivativeStatus == MediaDerivativeStatus.PENDING
+                || (derivativeStatus == MediaDerivativeStatus.PROCESSING
+                    && asset.getDerivativeAttemptCount() <= 1))
+            throw new ApiException(ErrorCode.MEDIA_DERIVATIVE_PROCESSING);
+
+        // Original viewing remains the recovery path only when no usable derivative exists.
         var stored = requireStoredObject(asset);
         long size = stored != null && stored.contentLength() != null ? stored.contentLength()
                 : asset.getFileSize() == null ? 0L : asset.getFileSize();
@@ -166,6 +185,15 @@ public class CustomerMediaServiceImpl implements ICustomerMediaService {
                 storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key()),
                 Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds()),
                 size);
+    }
+
+    private IMediaObjectStorage.StoredObjectInfo inspectDerivative(MediaAsset asset, String key) {
+        try {
+            return storage.inspect(asset.getS3Bucket(), key);
+        } catch (software.amazon.awssdk.services.s3.model.S3Exception failure) {
+            if (failure.statusCode() == 404) return null;
+            throw failure;
+        }
     }
 
     private IMediaObjectStorage.StoredObjectInfo requireStoredObject(MediaAsset asset) {

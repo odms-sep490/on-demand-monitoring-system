@@ -22,6 +22,8 @@ public class MediaResponse {
     String type;
     MediaStatus status;
     String url;
+    String thumbnailUrl;
+    String previewUrl;
     Long expiresIn;
     String contentType;
     Long fileSize;

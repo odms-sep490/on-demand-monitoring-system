@@ -8,6 +8,7 @@ import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.service.IMediaAssetService;
+import com.ondemandmonitoring.media.service.impl.MediaDerivativeService;
 import com.ondemandmonitoring.media.service.IMediaAssetService.MediaContent;
 import com.ondemandmonitoring.media.mapper.MediaAssetMapper;
 import java.time.Instant;
@@ -40,6 +41,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 public class MediaController {
 
     IMediaAssetService mediaAssetService;
+    MediaDerivativeService derivatives;
     MediaAssetMapper mediaAssetMapper;
     com.ondemandmonitoring.mission.service.IMissionMediaAccessService missionAccess;
 
@@ -72,7 +74,8 @@ public class MediaController {
         return ResponseEntity.ok(ApiResponse.ok(mediaAssetMapper.toMediaResponse(
                 image,
                 presignedUrl,
-                mediaAssetService.presignedUrlExpiresSeconds())));
+                mediaAssetService.presignedUrlExpiresSeconds(), derivatives.thumbnailUrl(image),
+                derivatives.previewUrl(image))));
     }
 
     @Operation(summary = "List mission media",
@@ -92,7 +95,8 @@ public class MediaController {
                 .map(asset -> mediaAssetMapper.toMediaResponse(
                         asset,
                         mediaAssetService.createPresignedGetUrl(asset),
-                        mediaAssetService.presignedUrlExpiresSeconds()))
+                        mediaAssetService.presignedUrlExpiresSeconds(), derivatives.thumbnailUrl(asset),
+                        derivatives.previewUrl(asset)))
                 .toList();
 
         return ResponseEntity.ok(ApiResponse.ok(media));

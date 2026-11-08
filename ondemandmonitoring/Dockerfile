@@ -13,6 +13,10 @@ FROM eclipse-temurin:21-jre
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV SPRING_PROFILES_ACTIVE=default
 
 COPY --from=build /app/target/*.jar app.jar

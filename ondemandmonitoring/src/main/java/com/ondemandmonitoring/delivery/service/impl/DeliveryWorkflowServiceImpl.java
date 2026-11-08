@@ -21,7 +21,7 @@ import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.media.domain.MediaAsset;
 import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
-import com.ondemandmonitoring.media.service.IMediaObjectStorage;
+import com.ondemandmonitoring.media.service.impl.MediaDerivativeService;
 import com.ondemandmonitoring.media.service.IResultRetentionAccessService;
 import com.ondemandmonitoring.mission.domain.MissionChecklistEvidence;
 import com.ondemandmonitoring.mission.repository.MissionChecklistEvidenceRepository;
@@ -67,7 +67,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     private final MissionResultRepository missionResults;
     private final InvoiceRepository invoices;
     private final MediaAssetRepository media;
-    private final IMediaObjectStorage storage;
+    private final MediaDerivativeService derivatives;
     private final IResultRetentionAccessService retentionAccess;
     private final AuthenticatedUserResolver currentUser;
     private final com.ondemandmonitoring.order.service.IOrderExecutionCompletionPolicy completionPolicy;
@@ -574,8 +574,11 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     public DeliveryResponse releaseOriginals(String orderId) {
         List<Mission> effective = completedMissions(orderId);
         Invoice invoice = invoice(orderId);
-        if (invoice.getStatus() != InvoiceStatus.PAID) throw new ApiException(ErrorCode.INVOICE_NOT_PAID);
+        if (!isInvoiceFullyPaid(invoice)) throw new ApiException(ErrorCode.FINAL_PAYMENT_REQUIRED);
         OrderDelivery delivery = locked(orderId);
+        if (!hasCustomerAcceptedCurrentReview(delivery)
+                || revisionCases.findByOrderIdAndActiveTrue(orderId).isPresent())
+            throw new ApiException(ErrorCode.DELIVERABLE_NOT_RELEASED);
         if (delivery.getStatus() == DeliveryStatus.DELIVERED) {
             return response(delivery, effective, releasableAssets(effective), true);
         }
@@ -646,9 +649,11 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         if (isManager()) return;
         assertOwner(orderId);
         Invoice invoice = invoice(orderId);
-        if (invoice.getStatus() != InvoiceStatus.PAID) throw new ApiException(ErrorCode.FINAL_PAYMENT_REQUIRED);
+        if (!isInvoiceFullyPaid(invoice)) throw new ApiException(ErrorCode.FINAL_PAYMENT_REQUIRED);
         OrderDelivery delivery = deliveries.findByOrderId(orderId).orElseThrow(() -> new ApiException(ErrorCode.DELIVERABLE_NOT_RELEASED));
-        if (delivery.getStatus() != DeliveryStatus.DELIVERED) throw new ApiException(ErrorCode.DELIVERABLE_NOT_RELEASED);
+        if (delivery.getStatus() != DeliveryStatus.DELIVERED || !hasCustomerAcceptedCurrentReview(delivery)
+                || revisionCases.findByOrderIdAndActiveTrue(orderId).isPresent())
+            throw new ApiException(ErrorCode.DELIVERABLE_NOT_RELEASED);
     }
 
     @Override
@@ -660,10 +665,20 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                 .map(Mission::getOrder)
                 .filter(order -> order.getCustomer().getId().equals(customerId))
                 .filter(order -> invoices.findByOrderId(order.getId())
-                        .filter(invoice -> invoice.getStatus() == InvoiceStatus.PAID).isPresent())
+                        .filter(DeliveryWorkflowServiceImpl::isInvoiceFullyPaid).isPresent())
                 .filter(order -> deliveries.findByOrderId(order.getId())
-                        .filter(delivery -> delivery.getStatus() == DeliveryStatus.DELIVERED).isPresent())
+                        .filter(delivery -> delivery.getStatus() == DeliveryStatus.DELIVERED
+                                && hasCustomerAcceptedCurrentReview(delivery)).isPresent())
+                .filter(order -> revisionCases.findByOrderIdAndActiveTrue(order.getId()).isEmpty())
                 .isPresent()).toList();
+    }
+
+    private boolean hasCustomerAcceptedCurrentReview(OrderDelivery delivery) {
+        if (delivery.getCustomerAcceptedAt() == null) return false;
+        if (delivery.getCurrentReviewRoundId() == null) return true; // Legacy accepted delivery.
+        return reviewRounds.findById(delivery.getCurrentReviewRoundId())
+                .map(round -> round.getStatus() == com.ondemandmonitoring.delivery.enums.ResultReviewRoundStatus.ACCEPTED)
+                .orElse(false);
     }
 
     @Override
@@ -888,18 +903,24 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     }
     private DeliveryResponse response(OrderDelivery d, List<Mission> effective, List<MediaAsset> assets, boolean downloadable) {
         Invoice invoice = invoice(d.getOrder().getId());
-        Instant expires = Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds());
-        List<DeliveryAssetResponse> mapped = assets.stream().map(a -> new DeliveryAssetResponse(a.getId(), a.getType(),
-                a.getOriginalFileName(), a.getFileSize(), retainedUrl(a),
-                expires, downloadable)).toList();
+        List<DeliveryAssetResponse> mapped = assets.stream().map(a -> {
+            String previewUrl = null;
+            String thumbnailUrl = null;
+            try {
+                retentionAccess.requireAccessible(a);
+                previewUrl = derivatives.previewUrl(a);
+                thumbnailUrl = derivatives.thumbnailUrl(a);
+            } catch (ApiException ex) {
+                if (ex.getErrorCode() != ErrorCode.RESULT_RETENTION_EXPIRED
+                        && ex.getErrorCode() != ErrorCode.MEDIA_NOT_FOUND) throw ex;
+            }
+            return new DeliveryAssetResponse(a.getId(), a.getType(), a.getOriginalFileName(), a.getFileSize(),
+                    null, null, downloadable, thumbnailUrl, previewUrl, a.getDerivativeStatus());
+        }).toList();
         return new DeliveryResponse(d.getOrder().getId(), d.getStatus(), executionStatus(effective), d.getOrder().getOrderStatus(),
                 invoice.getStatus(), invoice.getTotalAmount(), invoice.getPaidAmount(), invoice.getRemainingAmount(),
                 d.getDeliveryNotes(), d.getPreviewReleasedAt(), d.getCustomerAcceptedAt(), d.getRevisionRequestedAt(),
                 d.getRevisionReason(), d.getRevisionCount(), d.getFinalPaymentConfirmedAt(), d.getOriginalsReleasedAt(), mapped);
     }
     private String trim(String value) { return value == null || value.isBlank() ? null : value.trim(); }
-    private String retainedUrl(MediaAsset asset) {
-        retentionAccess.requireAccessible(asset);
-        return storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key());
-    }
 }

@@ -49,7 +49,7 @@ class InspectorPublicationTest {
     final ResultRevisionCaseRepository cases = mock(ResultRevisionCaseRepository.class);
     final ResultRevisionCaseItemRepository caseItems = mock(ResultRevisionCaseItemRepository.class);
     final DeliveryWorkflowServiceImpl service = new DeliveryWorkflowServiceImpl(deliveries, orders, missions,
-            results, invoices, media, mock(IMediaObjectStorage.class), mock(IResultRetentionAccessService.class),
+            results, invoices, media, mock(MediaDerivativeService.class), mock(IResultRetentionAccessService.class),
             mock(AuthenticatedUserResolver.class), completion, publisher, rounds, roundEvidence, roundItems,
             evidence, items, new ChecklistEvidencePolicy(), cases, caseItems);
     final Order order = new Order();

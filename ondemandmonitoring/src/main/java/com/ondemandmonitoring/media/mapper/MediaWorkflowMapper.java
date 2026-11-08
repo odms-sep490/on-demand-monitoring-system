@@ -17,7 +17,7 @@ public interface MediaWorkflowMapper {
     @Mapping(target = "fileName", source = "asset.originalFileName")
     @Mapping(target = "status", source = "asset.mediaStatus")
     OperatorMissionMediaResponse toOperatorResponse(MediaAsset asset, String downloadUrl,
-            java.time.Instant urlExpiresAt);
+            String thumbnailUrl, String previewUrl, java.time.Instant urlExpiresAt);
 
     @Mapping(target = "manualTaskId", source = "id")
     @Mapping(target = "backendMediaId", source = "media.id")
@@ -37,6 +37,8 @@ public interface MediaWorkflowMapper {
     @Mapping(target = "mediaId", source = "asset.id")
     @Mapping(target = "mediaType", source = "asset.type")
     @Mapping(target = "fileName", source = "asset.originalFileName")
+    @Mapping(target = "thumbnailUrl", ignore = true)
+    @Mapping(target = "previewUrl", ignore = true)
     CustomerMediaResponse toCustomerResponse(MediaAsset asset, String downloadUrl);
 
 

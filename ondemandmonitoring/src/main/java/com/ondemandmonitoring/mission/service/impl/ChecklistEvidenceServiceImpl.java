@@ -5,6 +5,7 @@ import com.ondemandmonitoring.media.domain.*;
 import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
 import com.ondemandmonitoring.media.service.IMediaObjectStorage;
+import com.ondemandmonitoring.media.service.impl.MediaDerivativeService;
 import com.ondemandmonitoring.mission.domain.*;
 import com.ondemandmonitoring.mission.dto.request.*;
 import com.ondemandmonitoring.mission.dto.response.*;
@@ -36,6 +37,7 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
     private final ChecklistEvidencePolicy policy;
     private final ChecklistEvidenceMapper mapper;
     private final IMediaObjectStorage storage;
+    private final MediaDerivativeService derivatives;
     private final com.ondemandmonitoring.order.repository.OrderRepository orders;
     private final com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository publishedEvidence;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
@@ -185,6 +187,7 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
                         }, (left, right) -> left));
         return media.findMissionCandidates(missionId, PageRequest.of(page, size)).stream().map(asset -> {
             String url = preview(asset);
+            String thumbnail = derivatives.thumbnailUrl(asset);
             String reason = policy.ineligibilityReason(asset, false);
             var attachedExecutionIds = links.stream().filter(e -> asset.getId().equals(e.getMediaAsset().getId())
                     && e.getDetachedAt() == null).map(e -> e.getMissionChecklistExecution().getId()).distinct().toList();
@@ -195,7 +198,7 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
             return new ChecklistEvidenceCandidate(asset.getId(), asset.getOriginalFileName(), asset.getType(), asset.getContentType(),
                     asset.getMediaStatus(), asset.getSourceType(), asset.getCapturedAt(), asset.getValidatedAt(), policy.attachable(asset),
                     reason == null, reason == null && policy.ineligibilityReason(asset, true) == null,
-                    reason, url, url == null ? null : Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds()), attachedExecutionIds);
+                    reason, url, thumbnail, url == null ? null : Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds()), attachedExecutionIds);
         }).toList();
     }
 
@@ -358,6 +361,7 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
         response.setEligibleForFinalApproval(finalFailure == null);
         response.setIneligibilityReason(operationalFailure);
         response.setPreviewUrl(preview(asset));
+        response.setThumbnailUrl(derivatives.thumbnailUrl(asset));
         if (response.getPreviewUrl() != null) response.setUrlExpiresAt(Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds()));
         return response;
     }
@@ -365,7 +369,7 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
         // Never sign upload-pending/nonvalidated objects for evidence previews.
         if (asset.getStorageStatus() != com.ondemandmonitoring.media.enums.MediaStorageStatus.AVAILABLE || asset.getValidatedAt() == null || asset.getMediaStatus() == null
                 || !Set.of(MediaStatus.PENDING_MANAGER_APPROVAL, MediaStatus.AVAILABLE, MediaStatus.REJECTED).contains(asset.getMediaStatus())) return null;
-        return storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key());
+        return derivatives.previewUrl(asset);
     }
     private Mission mission(String id, boolean lock) {
         return (lock ? missions.findByIdForUpdate(id) : missions.findById(id)).orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));

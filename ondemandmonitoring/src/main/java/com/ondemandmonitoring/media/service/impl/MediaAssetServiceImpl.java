@@ -329,6 +329,10 @@ public class MediaAssetServiceImpl implements IMediaAssetService {
         }
 
         try {
+            if (mediaAsset.getThumbnailKey() != null && !mediaAsset.getThumbnailKey().isBlank())
+                objectStorage.deleteQuietly(mediaAsset.getS3Bucket(), mediaAsset.getThumbnailKey());
+            if (mediaAsset.getPreviewKey() != null && !mediaAsset.getPreviewKey().isBlank())
+                objectStorage.deleteQuietly(mediaAsset.getS3Bucket(), mediaAsset.getPreviewKey());
             objectStorage.delete(mediaAsset.getS3Bucket(), mediaAsset.getS3Key());
         } catch (RuntimeException exception) {
             log.error("Cannot delete media from S3. bucket={}, key={}",

@@ -28,5 +28,6 @@ public class ChecklistEvidenceResponse {
     private boolean eligibleForFinalApproval;
     private String ineligibilityReason;
     private String previewUrl;
+    private String thumbnailUrl;
     private Instant urlExpiresAt;
 }

@@ -30,7 +30,7 @@ class ResultReviewWireContractTest {
 
     @Test void ticketReviewIncludesOnlySelectedEvidenceIdsAndSelectedFeedback() throws Exception {
         var evidence = new ResultReviewResponse.Evidence("e1", "media", "IMAGE", "roof.jpg", 123L,
-                Instant.EPOCH, null, null, false, "RETENTION_EXPIRED");
+                Instant.EPOCH, null, null, false, "RETENTION_EXPIRED", null, null);
         var item = new ResultRevisionTicketReviewResponse.Item("item", "check", "Roof", "Inspect roof", List.of(),
                 List.of(), List.of(), "mission", "M-001", "POOR_QUALITY", "Too blurry", List.of("e1"), List.of(evidence));
         var value = new ResultRevisionTicketReviewResponse("ticket", "TKT-1", "order", "round", 2, 7L,

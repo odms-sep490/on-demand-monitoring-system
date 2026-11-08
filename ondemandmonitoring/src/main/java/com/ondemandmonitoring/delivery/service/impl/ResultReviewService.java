@@ -10,7 +10,7 @@ import com.ondemandmonitoring.delivery.enums.*;
 import com.ondemandmonitoring.delivery.repository.*;
 import com.ondemandmonitoring.delivery.service.IResultReviewService;
 import com.ondemandmonitoring.finance.repository.InvoiceRepository;
-import com.ondemandmonitoring.media.service.IMediaObjectStorage;
+import com.ondemandmonitoring.media.service.impl.MediaDerivativeService;
 import com.ondemandmonitoring.media.service.IResultRetentionAccessService;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.order.domain.Order;
@@ -50,7 +50,7 @@ public class ResultReviewService implements IResultReviewService {
     private final SupportTicketService supportTickets;
     private final ISupportAuthorizationService supportAuthorization;
     private final AuthenticatedUserResolver currentUser;
-    private final IMediaObjectStorage storage;
+    private final MediaDerivativeService derivatives;
     private final IResultRetentionAccessService retentionAccess;
     private final ObjectMapper mapper;
 
@@ -236,7 +236,7 @@ public class ResultReviewService implements IResultReviewService {
         List<ResultRevisionTicketReviewResponse.Item> items = requestRows.stream().map(row -> {
             List<ResultReviewRoundEvidence> selectedEvidence = evidenceByRequestItem.getOrDefault(row.getId(), List.of());
             List<ResultReviewResponse.Evidence> mediaRows = selectedEvidence.stream()
-                    .map(e -> mapEvidence(e, manager)).toList();
+                    .map(this::mapEvidence).toList();
             ResultReviewRoundItem source = row.getRoundItem();
             var guidance = source.getGuidanceSnapshot();
             return new ResultRevisionTicketReviewResponse.Item(source.getId(), source.getOrderChecklistItem().getId(), source.getContentSnapshot(),
@@ -258,14 +258,14 @@ public class ResultReviewService implements IResultReviewService {
 
     private ResultReviewResponse.Item mapItem(ResultReviewRoundItem item, List<ResultReviewRoundEvidence> evidenceRows,
             boolean canRequestRevision) {
-        List<ResultReviewResponse.Evidence> mediaRows = evidenceRows.stream().map(e -> mapEvidence(e, false)).toList();
+        List<ResultReviewResponse.Evidence> mediaRows = evidenceRows.stream().map(this::mapEvidence).toList();
         return new ResultReviewResponse.Item(item.getId(), item.getOrderChecklistItem().getId(), item.getContentSnapshot(),
                 text(item.getGuidanceSnapshot(), "description"), strings(item.getGuidanceSnapshot(), "executionSteps"),
                 strings(item.getGuidanceSnapshot(), "inputRequirements"), strings(item.getGuidanceSnapshot(), "expectedOutputs"),
                 item.getMissionId(), null, mediaRows, item.isChangedInRound(), canRequestRevision);
     }
 
-    private ResultReviewResponse.Evidence mapEvidence(ResultReviewRoundEvidence row, boolean downloadable) {
+    private ResultReviewResponse.Evidence mapEvidence(ResultReviewRoundEvidence row) {
         var asset = row.getMediaAsset();
         try {
             retentionAccess.requireAccessible(asset);
@@ -273,11 +273,12 @@ public class ResultReviewService implements IResultReviewService {
             if (ex.getErrorCode() != ErrorCode.RESULT_RETENTION_EXPIRED && ex.getErrorCode() != ErrorCode.MEDIA_NOT_FOUND) throw ex;
             return new ResultReviewResponse.Evidence(row.getId(), asset.getId(), row.getMediaTypeSnapshot(), row.getFileNameSnapshot(),
                     asset.getFileSize(), row.getCapturedAtSnapshot(), null, null, false,
-                    ex.getErrorCode() == ErrorCode.RESULT_RETENTION_EXPIRED ? "RETENTION_EXPIRED" : "MEDIA_UNAVAILABLE");
+                    ex.getErrorCode() == ErrorCode.RESULT_RETENTION_EXPIRED ? "RETENTION_EXPIRED" : "MEDIA_UNAVAILABLE",
+                    null, null, asset.getDerivativeStatus());
         }
-        Instant expires = Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds());
         return new ResultReviewResponse.Evidence(row.getId(), asset.getId(), row.getMediaTypeSnapshot(), row.getFileNameSnapshot(),
-                asset.getFileSize(), row.getCapturedAtSnapshot(), storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key()), expires, downloadable, null);
+                asset.getFileSize(), row.getCapturedAtSnapshot(), null, null, false, null,
+                derivatives.thumbnailUrl(asset), derivatives.previewUrl(asset), asset.getDerivativeStatus());
     }
 
     private String text(com.fasterxml.jackson.databind.JsonNode node, String field) {

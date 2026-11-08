@@ -11,7 +11,7 @@ import com.ondemandmonitoring.delivery.domain.ResultRevisionRequest;
 import com.ondemandmonitoring.delivery.dto.request.RevisionRequest;
 import com.ondemandmonitoring.delivery.repository.*;
 import com.ondemandmonitoring.delivery.service.impl.ResultReviewService;
-import com.ondemandmonitoring.media.service.IMediaObjectStorage;
+import com.ondemandmonitoring.media.service.impl.MediaDerivativeService;
 import com.ondemandmonitoring.media.service.IResultRetentionAccessService;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.repository.OrderRepository;
@@ -51,7 +51,7 @@ class ResultRevisionIdempotencyTest {
                 mock(OrderDeliveryRepository.class), orders,
                 mock(com.ondemandmonitoring.mission.repository.MissionRepository.class), ticketRepo,
                 mock(SupportTicketService.class), mock(ISupportAuthorizationService.class), users,
-                mock(IMediaObjectStorage.class), mock(IResultRetentionAccessService.class), new ObjectMapper());
+                mock(MediaDerivativeService.class), mock(IResultRetentionAccessService.class), new ObjectMapper());
 
         var command = new RevisionRequest("round-b", 0L, key, null,
                 List.of(new RevisionRequest.Item("item-b", "POOR_QUALITY", "Blurry", List.of())));

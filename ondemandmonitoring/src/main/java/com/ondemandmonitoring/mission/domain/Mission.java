@@ -95,6 +95,12 @@ public class Mission extends BaseEntity {
     @Column(name = "actual_end_at")
     Instant actualEndAt;
 
+    @Column(name = "failure_requested_at")
+    Instant failureRequestedAt;
+
+    @Column(name = "failure_reason", length = 1000)
+    String failureReason;
+
     @Column(name = "completed_at")
     Instant completedAt;
 

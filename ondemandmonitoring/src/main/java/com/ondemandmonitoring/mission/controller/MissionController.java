@@ -492,12 +492,22 @@ public class MissionController {
 
     /** POST /api/missions/{id}/fail – Staff reports mission failure */
     @PostMapping("/{id}/fail")
-    @PreAuthorize("@missionAuthorizationService.canControlFlight(#id)")
+    @PreAuthorize("@missionAuthorizationService.canControlFlight(#id) or @missionAuthorizationService.canMaintainDevice(#id)")
     public ResponseEntity<ApiResponse<MissionResponse>> fail(
             @PathVariable String id,
             @Valid @RequestBody MissionFailRequest request) {
         MissionResponse response = missionService.failMission(id, request.getReason());
         return ResponseEntity.ok(ApiResponse.ok("Mission đã báo lỗi thất bại", response));
+    }
+
+    /** POST /api/missions/{id}/fail-request – request a safe return before final failure */
+    @PostMapping("/{id}/fail-request")
+    @PreAuthorize("@missionAuthorizationService.canControlFlight(#id)")
+    public ResponseEntity<ApiResponse<MissionResponse>> requestFailure(
+            @PathVariable String id,
+            @Valid @RequestBody MissionFailRequest request) {
+        MissionResponse response = missionService.requestMissionFailure(id, request.getReason());
+        return ResponseEntity.ok(ApiResponse.ok("Đã ghi nhận yêu cầu dừng nhiệm vụ", response));
     }
 
     // ------------------------------------------------------------------

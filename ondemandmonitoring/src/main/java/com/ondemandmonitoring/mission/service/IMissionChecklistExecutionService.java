@@ -9,6 +9,7 @@ public interface IMissionChecklistExecutionService {
     void requireMaterialized(Mission mission);
     MissionChecklistResponse getByMissionId(String missionId);
     ChecklistExecutionResponse update(String missionId, String executionId, ChecklistExecutionUpdateRequest request);
+    void markMissionFailed(String missionId, String reason);
     boolean isReadyForSubmission(Mission mission);
     boolean isReadyForFinalApproval(Mission mission);
     boolean isReadyForInspectorApproval(Mission mission);

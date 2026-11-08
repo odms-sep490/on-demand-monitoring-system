@@ -216,6 +216,9 @@ public class MediaDerivativeService {
             markFailure(work, failure);
             log.warn("Media derivative creation failed. mediaId={}, mediaType={}, cause={}",
                     id, mediaType, failure.getClass().getSimpleName());
+            if (failure instanceof ToolExecutionException toolFailure)
+                log.warn("Media tool failure. mediaId={}, code={}, detail={}",
+                        id, toolFailure.code, toolFailure.getMessage());
             return false;
         } finally {
             if (tempDirectory != null) deleteTemporaryFiles(tempDirectory);
@@ -252,9 +255,7 @@ public class MediaDerivativeService {
                         asset.setDerivativeStatus(failure instanceof UnsupportedMediaException
                                 ? MediaDerivativeStatus.UNSUPPORTED : MediaDerivativeStatus.FAILED);
                         asset.setDerivativeProcessedAt(Instant.now());
-                        asset.setDerivativeErrorCode(asset.getDerivativeAttemptCount() >= Math.max(1, maxAttempts)
-                                && !(failure instanceof UnsupportedMediaException)
-                                ? "DERIVATIVE_RETRY_LIMIT_REACHED" : errorCode(failure));
+                        asset.setDerivativeErrorCode(errorCode(failure));
                         media.save(asset);
                     }
                 }));
@@ -320,13 +321,14 @@ public class MediaDerivativeService {
         runTool(List.of(ffmpegBinary, "-y", "-hide_banner", "-loglevel", "error", "-i", input.toString(),
                 "-map", "0:v:0", "-map", "0:a?", "-vf",
                 "scale=w='min(1280,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
-                "-c:v", "libx264", "-preset", "veryfast", "-crf", "29", "-maxrate", "2500k",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "29", "-maxrate", "2500k",
                 "-bufsize", "5000k", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart",
                 "-fs", Long.toString(Math.max(1, maxVideoPreviewBytes)), preview.toString()),
                 tempDirectory.resolve("preview.out"), previewError);
     }
 
     private void runTool(List<String> command, Path stdout, Path stderr) throws IOException, InterruptedException {
+        String tool = command.getFirst().equals(ffprobeBinary) ? "FFPROBE" : "FFMPEG";
         Process process;
         try {
             process = new ProcessBuilder(new ArrayList<>(command))
@@ -334,7 +336,8 @@ public class MediaDerivativeService {
                     .redirectError(stderr.toFile())
                     .start();
         } catch (IOException unavailable) {
-            throw new IOException("Media processing tool is unavailable: " + command.get(0), unavailable);
+            throw new ToolExecutionException(tool + "_UNAVAILABLE",
+                    "Cannot start " + tool + " executable " + command.getFirst() + ": " + unavailable.getMessage(), unavailable);
         }
         boolean completed;
         try {
@@ -347,10 +350,10 @@ public class MediaDerivativeService {
         if (!completed) {
             process.destroyForcibly();
             process.waitFor(10, TimeUnit.SECONDS);
-            throw new IOException("Media processing timed out: " + command.get(0));
+            throw new ToolExecutionException(tool + "_TIMEOUT", tool + " processing timed out", null);
         }
         if (process.exitValue() != 0)
-            throw new IOException("Media processing failed: " + readTail(stderr));
+            throw new ToolExecutionException(tool + "_FAILED", tool + ": " + readTail(stderr), null);
     }
 
     private String readTail(Path path) {
@@ -474,6 +477,7 @@ public class MediaDerivativeService {
     }
 
     private String errorCode(Exception failure) {
+        if (failure instanceof ToolExecutionException toolFailure) return toolFailure.code;
         return failure instanceof UnsupportedMediaException
                 ? "UNSUPPORTED_MEDIA_FORMAT"
                 : "DERIVATIVE_PROCESSING_FAILED";
@@ -486,5 +490,13 @@ public class MediaDerivativeService {
     private static final class UnsupportedMediaException extends IOException {
         private UnsupportedMediaException() { super("Media format cannot be decoded"); }
         private UnsupportedMediaException(String message) { super(message); }
+    }
+
+    private static final class ToolExecutionException extends IOException {
+        private final String code;
+        private ToolExecutionException(String code, String message, Throwable cause) {
+            super(message, cause);
+            this.code = code;
+        }
     }
 }

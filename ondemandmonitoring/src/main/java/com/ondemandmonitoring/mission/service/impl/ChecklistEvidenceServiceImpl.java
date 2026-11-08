@@ -187,7 +187,7 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
                         }, (left, right) -> left));
         return media.findMissionCandidates(missionId, PageRequest.of(page, size)).stream().map(asset -> {
             String url = preview(asset);
-            String thumbnail = "IMAGE".equals(asset.getType()) ? derivatives.thumbnailUrl(asset) : url;
+            String thumbnail = derivatives.thumbnailUrl(asset);
             String reason = policy.ineligibilityReason(asset, false);
             var attachedExecutionIds = links.stream().filter(e -> asset.getId().equals(e.getMediaAsset().getId())
                     && e.getDetachedAt() == null).map(e -> e.getMissionChecklistExecution().getId()).distinct().toList();

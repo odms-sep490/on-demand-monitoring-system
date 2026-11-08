@@ -244,6 +244,7 @@ public interface IMissionService {
      * @return {@link MissionResponse} Mission set to FAILED
      */
     MissionResponse failMission(String missionId, String reason);
+    MissionResponse requestMissionFailure(String missionId, String reason);
 
     /**
      * Updates postflight status and device health notes.

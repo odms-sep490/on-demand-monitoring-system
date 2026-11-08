@@ -43,6 +43,28 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
     public void requireMaterialized(Mission mission) { scope.requireMaterialized(mission); }
 
     @Override
+    @Transactional
+    public void markMissionFailed(String missionId, String reason) {
+        Instant now = Instant.now();
+        String failureReason = trimmed(reason, 1000);
+        if (failureReason == null) failureReason = "Mission failed during flight";
+        List<MissionChecklistExecution> missionExecutions = executions.findOrderedByMissionId(missionId);
+        for (MissionChecklistExecution execution : missionExecutions) {
+            execution.setExecutionStatus(ChecklistExecutionStatus.UNABLE_TO_VERIFY);
+            execution.setUnableToVerifyReason(failureReason);
+            if (execution.getStartedAt() == null) execution.setStartedAt(now);
+            execution.setCompletedAt(now);
+            execution.setAssessmentStatus(ChecklistAssessmentStatus.NOT_ASSESSED);
+            execution.setAssessmentNote(null);
+            execution.setAssessedBy(null);
+            execution.setAssessedAt(null);
+            execution.setLastModifiedBy(currentUser.getCurrentUserId());
+            execution.setUpdatedAt(now);
+        }
+        executions.saveAll(missionExecutions);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public MissionChecklistResponse getByMissionId(String missionId) {
         Mission mission = requireMission(missionId, false);

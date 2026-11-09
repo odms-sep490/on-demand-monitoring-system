@@ -26,6 +26,7 @@ import com.ondemandmonitoring.mission.service.IMissionMediaUploadService;
 import com.ondemandmonitoring.mission.service.IMissionService;
 import com.ondemandmonitoring.flightpermit.service.IFlightPermitService;
 import com.ondemandmonitoring.mission.dto.request.MissionCreateRequest;
+import io.swagger.v3.oas.annotations.Operation;
 import com.ondemandmonitoring.mission.dto.request.RequestDeviceReplacementRequest;
 import jakarta.validation.Valid;
 import lombok.AccessLevel;
@@ -95,8 +96,9 @@ public class MissionController {
     
     @DeleteMapping("/{missionId}")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
-    public ResponseEntity<Void> deleteDraft(@PathVariable String missionId) {
-        missionService.deleteDraftMission(missionId);
+    @Operation(summary = "Cancel a draft mission while keeping the mission and order in history")
+    public ResponseEntity<Void> cancelDraft(@PathVariable String missionId) {
+        missionService.cancelDraftMission(missionId);
         return ResponseEntity.noContent().build();
     }
 
@@ -471,12 +473,12 @@ public class MissionController {
     @PreAuthorize("@missionAuthorizationService.canControlFlight(#id)")
     public ResponseEntity<ApiResponse<MissionResponse>> markReturning(@PathVariable String id) {
         MissionResponse response = missionService.markReturning(id);
-        return ResponseEntity.ok(ApiResponse.ok("device đang quay trở về", response));
+        return ResponseEntity.ok(ApiResponse.ok("Thiết bị đang quay về điểm xuất phát", response));
     }
 
     /** POST /api/missions/{id}/post-device or /postflight – device landed, POSTFLIGHT_CHECKING */
     @PostMapping({"/{id}/post-device", "/{id}/postflight"})
-    @PreAuthorize("@missionAuthorizationService.canControlFlight(#id)")
+    @PreAuthorize("@missionAuthorizationService.canControlFlight(#id) or @missionAuthorizationService.canContinueRequestedFailurePostflight(#id)")
     public ResponseEntity<ApiResponse<MissionResponse>> startPostflight(@PathVariable String id) {
         MissionResponse response = missionService.startPostDeviceChecking(id);
         return ResponseEntity.ok(ApiResponse.ok("Bắt đầu kiểm tra sau bay", response));
@@ -492,7 +494,7 @@ public class MissionController {
 
     /** POST /api/missions/{id}/fail – Staff reports mission failure */
     @PostMapping("/{id}/fail")
-    @PreAuthorize("@missionAuthorizationService.canControlFlight(#id) or @missionAuthorizationService.canMaintainDevice(#id)")
+    @PreAuthorize("@missionAuthorizationService.canFailMission(#id)")
     public ResponseEntity<ApiResponse<MissionResponse>> fail(
             @PathVariable String id,
             @Valid @RequestBody MissionFailRequest request) {

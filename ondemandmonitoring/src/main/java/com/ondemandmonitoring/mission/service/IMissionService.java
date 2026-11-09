@@ -45,7 +45,7 @@ public interface IMissionService {
 
     MissionResponse cancelMission(String missionId, String reason);
 
-    void deleteDraftMission(String missionId);
+    void cancelDraftMission(String missionId);
 
 
     MissionResponse updateMission(String missionId, MissionUpdateRequest request);

@@ -10,6 +10,7 @@ public interface IMissionAuthorizationService {
     boolean canStartMission(String missionId);
     boolean canCancelMission(String missionId);
     boolean canControlFlight(String missionId);
+    boolean canContinueRequestedFailurePostflight(String missionId);
     boolean canOperatePayload(String missionId);
     boolean canExecuteMonitoringChecklist(String missionId);
     boolean canInspectDevice(String missionId);
@@ -20,6 +21,8 @@ public interface IMissionAuthorizationService {
     boolean canUploadMissionMedia(String missionId);
     boolean canReviewMissionMedia(String missionId);
     boolean canCompleteMission(String missionId);
+    boolean canConfirmMissionFailure(String missionId);
+    boolean canFailMission(String missionId);
     boolean canSubmitMissionResult(String missionId);
     boolean canAttachChecklistEvidence(String missionId);
     boolean canDetachChecklistEvidence(String missionId);

@@ -649,34 +649,88 @@ public class MissionService implements IMissionService {
     @Override
     @Transactional
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
-    public void deleteDraftMission(String missionId) {
-        var order = getMissionOrder(missionId);
-        var mission = getMissionForOrder(missionId, order);
+    public void cancelDraftMission(String missionId) {
+        var orderId = missionRepository.findOrderIdByMissionId(missionId)
+                .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
+        var order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        var mission = missionRepository.findByIdForUpdate(missionId).or(() -> missionRepository.findById(missionId))
+                .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
+        if (mission.getStatus() == MissionStatus.CANCELLED) return;
         if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.DRAFT)
             throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_DRAFT);
         if (mission.getStatus() != MissionStatus.PLANNING || mission.getActualStartAt() != null
                 || !missionChecklistExecutionRepository.findOrderedByMissionId(missionId).isEmpty())
-            throw new ApiException(ErrorCode.MISSION_STATUS_INVALID, "Only unconfirmed planning Missions can be deleted");
+            throw new ApiException(ErrorCode.MISSION_STATUS_INVALID, "Only unconfirmed planning Missions can be cancelled");
         requireRevisionAvailable(order);
-        var crew = missionStaffAssignmentRepository.findByMissionId(missionId);
-        var equipment = missionDeviceAssignmentRepository.findByMissionId(missionId);
-        var selection = missionChecklistAssignmentRepository.findByMissionIdAndRemovedAtIsNullOrderByDisplayOrderAscIdAsc(missionId);
+        Instant cancelledAt = Instant.now();
+        String actorId = authenticatedUserResolver.getCurrentUserId();
+        String cancellationReason = "Draft mission cancelled";
+
+        resources.release(missionId, "MISSION_CANCELLED");
+        var deviceAssignments = missionDeviceAssignmentRepository.findByMissionId(missionId).stream()
+                .filter(assignment -> Boolean.TRUE.equals(assignment.getIsCurrent())
+                        && assignment.getReleasedAt() == null)
+                .toList();
+        for (MissionDeviceAssignment assignment : deviceAssignments) {
+            assignment.setIsCurrent(false);
+            assignment.setStatus(MissionDeviceAssignmentStatus.RELEASED);
+            assignment.setReleasedAt(cancelledAt);
+            assignment.setReleaseReason("MISSION_CANCELLED");
+            if (assignment.getDevice().getStatus() == DeviceStatus.RESERVED) {
+                assignment.getDevice().setStatus(DeviceStatus.AVAILABLE);
+                deviceRepository.save(assignment.getDevice());
+            }
+        }
+        missionDeviceAssignmentRepository.saveAll(deviceAssignments);
+
+        var staffAssignments = missionStaffAssignmentRepository.findByMissionId(missionId).stream()
+                .filter(assignment -> Boolean.TRUE.equals(assignment.getIsCurrent())
+                        && assignment.getReleasedAt() == null)
+                .toList();
+        for (MissionStaffAssignment assignment : staffAssignments) {
+            if (assignment.getRespondedAt() == null) assignment.setRespondedAt(cancelledAt);
+            assignment.setIsCurrent(false);
+            assignment.setReleasedAt(cancelledAt);
+            assignment.setReleaseReason("MISSION_CANCELLED");
+        }
+        missionStaffAssignmentRepository.saveAll(staffAssignments);
+
+        var missionSchedules = userScheduleRepository.findByReferenceId(missionId).stream()
+                .filter(schedule -> schedule.getScheduleType() == UserScheduleType.MISSION
+                        && schedule.getStatus() != UserScheduleStatus.COMPLETED)
+                .toList();
+        missionSchedules.forEach(schedule -> schedule.setStatus(UserScheduleStatus.CANCELLED));
+        userScheduleRepository.saveAll(missionSchedules);
+
         var otherOwners = new java.util.HashSet<String>();
         missionChecklistAssignmentRepository.findActiveByOrderId(order.getId()).stream()
                 .filter(a -> !missionId.equals(a.getMissionId()) && ExecutionPlanCoverageService.effective(a.getMission()))
                 .forEach(a -> otherOwners.add(a.getOrderChecklistItemId()));
-        selection.stream().filter(a -> !otherOwners.contains(a.getOrderChecklistItemId()))
-                .forEach(a -> a.getOrderChecklistItem().setAssignmentStatus(com.ondemandmonitoring.order.enums.ChecklistAssignmentStatus.UNASSIGNED));
-        orderChecklistItemRepository.saveAll(selection.stream().map(a -> a.getOrderChecklistItem()).toList());
-        // Delete children before the Mission because the schema deliberately uses restrictive FKs.
-        missionChecklistAssignmentRepository.deleteAll(missionChecklistAssignmentRepository.findByMissionId(missionId)); missionChecklistAssignmentRepository.flush();
-        userScheduleRepository.deleteAll(userScheduleRepository.findByReferenceId(missionId).stream()
-                .filter(s -> s.getScheduleType() == UserScheduleType.MISSION).toList()); userScheduleRepository.flush();
-        resourceTimeLockRepository.deleteAll(resourceTimeLockRepository.findByMissionId(missionId)); resourceTimeLockRepository.flush();
-        missionStaffAssignmentRepository.deleteAll(crew); missionStaffAssignmentRepository.flush();
-        missionDeviceAssignmentRepository.deleteAll(equipment); missionDeviceAssignmentRepository.flush();
-        missionRepository.delete(mission); missionRepository.flush();
+        var checklistAssignments = missionChecklistAssignmentRepository
+                .findByMissionIdAndRemovedAtIsNullOrderByDisplayOrderAscIdAsc(missionId);
+        checklistAssignments.stream()
+                .filter(assignment -> !otherOwners.contains(assignment.getOrderChecklistItemId()))
+                .forEach(assignment -> assignment.getOrderChecklistItem().setAssignmentStatus(
+                        com.ondemandmonitoring.order.enums.ChecklistAssignmentStatus.UNASSIGNED));
+        orderChecklistItemRepository.saveAll(checklistAssignments.stream()
+                .filter(assignment -> !otherOwners.contains(assignment.getOrderChecklistItemId()))
+                .map(MissionChecklistAssignment::getOrderChecklistItem)
+                .toList());
+        checklistAssignments.forEach(assignment -> {
+            assignment.setRemovedAt(cancelledAt);
+            assignment.setRemovedBy(actorId);
+            assignment.setRemovalReason(cancellationReason);
+        });
+        missionChecklistAssignmentRepository.saveAll(checklistAssignments);
+
+        mission.setStatus(MissionStatus.CANCELLED);
+        mission.setCancellationAt(cancelledAt);
+        mission.setCancelledBy(actorId);
+        mission.setCancellationReason(cancellationReason);
+        if (checklistAssignmentStatusSync != null) checklistAssignmentStatusSync.syncForMission(mission);
         order.getExecutionPlan().setRevision(order.getExecutionPlan().getRevision() + 1);
+        missionRepository.saveAndFlush(mission);
         orderRepository.saveAndFlush(order);
     }
 
@@ -1835,7 +1889,7 @@ public class MissionService implements IMissionService {
 
     @Override
     @Transactional
-    @PreAuthorize("@missionAuthorizationService.canControlFlight(#missionId)")
+    @PreAuthorize("@missionAuthorizationService.canControlFlight(#missionId) or @missionAuthorizationService.canContinueRequestedFailurePostflight(#missionId)")
     public MissionResponse startPostDeviceChecking(String missionId) {
         Mission mission = getRuntimeMissionOrThrow(missionId);
         if (Set.of(MissionStatus.IN_PROGRESS, MissionStatus.AWAITING_REVIEW,
@@ -1929,7 +1983,7 @@ public class MissionService implements IMissionService {
 
     @Override
     @Transactional
-    @PreAuthorize("@missionAuthorizationService.canControlFlight(#missionId) or @missionAuthorizationService.canMaintainDevice(#missionId)")
+    @PreAuthorize("@missionAuthorizationService.canFailMission(#missionId)")
     public MissionResponse failMission(String missionId, String reason) {
         Mission mission = getRuntimeMissionOrThrow(missionId);
         boolean requestedFlightFailure = mission.getFailureRequestedAt() != null

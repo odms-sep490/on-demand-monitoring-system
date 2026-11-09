@@ -117,6 +117,7 @@ class MotionOwner(Enum):
     MANUAL = "MANUAL"
     AUTO_PLAN = "AUTO_PLAN"
     EMERGENCY = "EMERGENCY"
+    RETURNING = "RETURNING"
 
 
 @dataclass(frozen=True)
@@ -1213,7 +1214,6 @@ CONTROL_COMMAND_KEYS = {
     "photo": "p",
     "video_toggle": "r",
     "land": "l",
-    "return_to_base": "l",
     "emergency_stop": "l",
 }
 
@@ -1803,6 +1803,10 @@ class FlightControlApi:
                     owner.media_library is None or not owner.media_library.mission_id
                 ):
                     self._write_json(409, {"ok": False, "error": "Bind an assigned mission before capturing media"})
+                    return
+                if command == "return_to_base":
+                    owner.commands.put({"type": "return_to_base"})
+                    self._write_json(202, {"ok": True, "command": command})
                     return
                 if command == "auto_plan_start":
                     waypoints = normalize_auto_plan_waypoints(payload)
@@ -2731,6 +2735,10 @@ async def obstacle_safety_loop(
     last_warning_log_s = 0.0
 
     while True:
+        if get_motion_owner() == MotionOwner.RETURNING:
+            await asyncio.sleep(SAFETY_POLL_INTERVAL_S)
+            continue
+
         if should_ignore_obstacles():
             last_status = "CLEAR"
             set_safety_speed_scale(1.0)
@@ -3515,6 +3523,9 @@ async def main() -> None:
         nonlocal current_armed
         if current_in_air and not in_air:
             current_armed = False
+            if motion_owner == MotionOwner.RETURNING:
+                set_motion_owner(MotionOwner.MANUAL)
+                print("[RTL] Drone landed at launch point", flush=True)
         current_in_air = bool(in_air)
 
     def update_health(health) -> None:
@@ -3598,6 +3609,75 @@ async def main() -> None:
                         print_command_denied("land", retry_exc)
                     except grpc.aio.AioRpcError as retry_exc:
                         print_mavsdk_unavailable("land retry", retry_exc)
+
+    async def return_to_launch_point(reason: str) -> None:
+        nonlocal gps_target_task
+        nonlocal current_forward_m_s, current_right_m_s
+        nonlocal current_north_m_s, current_east_m_s, current_down_m_s
+
+        print(f"[RTL] {reason}: returning to launch point", flush=True)
+        set_motion_owner(MotionOwner.RETURNING)
+        stop_auto_plan(reason)
+
+        if gps_target_task is not None and not gps_target_task.done():
+            gps_target_task.cancel()
+            await asyncio.gather(gps_target_task, return_exceptions=True)
+        gps_target_task = None
+
+        current_forward_m_s = 0.0
+        current_right_m_s = 0.0
+        current_north_m_s = 0.0
+        current_east_m_s = 0.0
+        current_down_m_s = 0.0
+        stop_video_recording(retain=True)
+        await connection_manager.stop_offboard_sender()
+
+        active_drone = await connection_manager.get_drone()
+        if active_drone is None:
+            active_drone = await connection_manager.reconnect()
+        if active_drone is None:
+            print("[ERR] MAVSDK control bridge unavailable for RTL", flush=True)
+            set_motion_owner(MotionOwner.MANUAL)
+            return
+
+        try:
+            await active_drone.offboard.stop()
+        except OffboardError:
+            pass
+        except grpc.aio.AioRpcError as exc:
+            print_mavsdk_unavailable("stop offboard for RTL", exc)
+            if not is_grpc_unavailable(exc):
+                set_motion_owner(MotionOwner.MANUAL)
+                return
+            active_drone = await connection_manager.reconnect()
+            if active_drone is not None and avoidance is not None:
+                avoidance.set_drone(active_drone)
+            if active_drone is None:
+                set_motion_owner(MotionOwner.MANUAL)
+                return
+
+        try:
+            await active_drone.action.return_to_launch()
+            print("[RTL] Return-to-launch command accepted", flush=True)
+        except ActionError as exc:
+            print_command_denied("return to launch", exc)
+            set_motion_owner(MotionOwner.MANUAL)
+        except grpc.aio.AioRpcError as exc:
+            print_mavsdk_unavailable("return to launch", exc)
+            if is_grpc_unavailable(exc):
+                new_drone = await connection_manager.reconnect()
+                if new_drone is not None and avoidance is not None:
+                    avoidance.set_drone(new_drone)
+                if new_drone is not None:
+                    try:
+                        await new_drone.action.return_to_launch()
+                        print("[RTL] Return-to-launch command accepted after reconnect", flush=True)
+                        return
+                    except ActionError as retry_exc:
+                        print_command_denied("return to launch retry", retry_exc)
+                    except grpc.aio.AioRpcError as retry_exc:
+                        print_mavsdk_unavailable("return to launch retry", retry_exc)
+            set_motion_owner(MotionOwner.MANUAL)
 
     def stop_auto_plan(reason: str = "stopped") -> None:
         nonlocal auto_plan_active, auto_plan_points, auto_plan_index, auto_plan_status
@@ -4396,7 +4476,21 @@ async def main() -> None:
                     await update_auto_plan()
                 continue
 
+        if motion_owner == MotionOwner.RETURNING:
+            if isinstance(command_message, dict):
+                message_type = command_message.get("type")
+                queued_key = str(command_message.get("key", ""))
+                if message_type != "key" or queued_key not in {"l", "x"}:
+                    print("[RTL] Ignoring control input while returning to launch", flush=True)
+                    continue
+            elif str(command_message) not in {"l", "x"}:
+                print("[RTL] Ignoring control input while returning to launch", flush=True)
+                continue
+
         if isinstance(command_message, dict):
+            if command_message.get("type") == "return_to_base":
+                await return_to_launch_point("operator request")
+                continue
             if command_message.get("type") == "auto_plan_start":
                 await start_auto_plan_after_takeoff(
                     command_message.get("waypoints", []),
@@ -4420,6 +4514,7 @@ async def main() -> None:
                 motion_owner != MotionOwner.MANUAL
                 and not safety_sensor_enabled
                 and motion_owner != MotionOwner.AUTO_PLAN
+                and motion_owner != MotionOwner.RETURNING
         ):
             force_manual_control()
 
@@ -4767,6 +4862,7 @@ async def main() -> None:
                         flush=True,
                     )
         elif key == "l":
+            set_motion_owner(MotionOwner.MANUAL)
             print("[CMD] land")
             stop_video_recording(retain=True)
             await connection_manager.stop_offboard_sender()

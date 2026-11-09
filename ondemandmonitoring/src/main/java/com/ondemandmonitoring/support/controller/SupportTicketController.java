@@ -2,8 +2,10 @@ package com.ondemandmonitoring.support.controller;
 
 import com.ondemandmonitoring.support.dto.*;
 import com.ondemandmonitoring.support.service.ISupportTicketService;
-import com.ondemandmonitoring.user.repository.UserRepository;
-import com.ondemandmonitoring.role.domain.RoleCode;
+import com.ondemandmonitoring.user.service.IStaffDirectoryService;
+import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
+import com.ondemandmonitoring.role.enumeration.RoleCode;
+import org.springframework.security.access.prepost.PreAuthorize;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -22,7 +24,8 @@ import java.util.Map;
 public class SupportTicketController {
 
     private final ISupportTicketService supportTicketService;
-    private final UserRepository userRepository;
+    private final IStaffDirectoryService staffDirectory;
+    private final AuthenticatedUserResolver currentUser;
 
     /**
      * Creates a new customer support ticket.
@@ -46,6 +49,9 @@ public class SupportTicketController {
     public ResponseEntity<List<SupportTicketDto>> listTickets(
             @RequestParam(required = false) String customerId,
             @RequestParam(required = false) String status) {
+        if (currentUser.getCurrentUser().getRole().getCode() == RoleCode.CUSTOMER) {
+            return ResponseEntity.ok(supportTicketService.getCustomerTickets(currentUser.getCurrentUserId()));
+        }
         if (customerId != null && !customerId.isBlank()) {
             return ResponseEntity.ok(supportTicketService.getCustomerTickets(customerId));
         }
@@ -98,9 +104,9 @@ public class SupportTicketController {
      * @return List of objects containing staff id and fullName.
      */
     @GetMapping("/staff-agents")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<List<Map<String, String>>> getStaffAgents() {
-        List<Map<String, String>> agents = userRepository
-                .findAllByRole_CodeAndIsActiveTrueOrderByFullNameAsc(RoleCode.STAFF)
+        List<Map<String, String>> agents = staffDirectory.listActiveStaff()
                 .stream()
                 .map(u -> Map.of("id", u.getId(), "fullName", u.getFullName()))
                 .toList();
@@ -125,6 +131,7 @@ public class SupportTicketController {
      * @return SupportAnalyticsDto payload.
      */
     @GetMapping("/analytics")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<SupportAnalyticsDto> getSupportAnalytics() {
         return ResponseEntity.ok(supportTicketService.getSupportAnalytics());
     }

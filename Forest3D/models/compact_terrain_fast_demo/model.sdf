@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<sdf version="1.9">
+  <model name="compact_terrain_fast_demo">
+    <static>true</static>
+    <link name="link">
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://compact_terrain/meshes/compact_terrain.glb</uri>
+          </mesh>
+        </geometry>
+      </visual>
+      <collision name="collision">
+        <geometry>
+          <plane>
+            <normal>0 0 1</normal>
+            <size>2000 2000</size>
+          </plane>
+        </geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>

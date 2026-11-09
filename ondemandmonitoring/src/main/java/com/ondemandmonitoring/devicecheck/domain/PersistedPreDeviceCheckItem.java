@@ -3,6 +3,7 @@ package com.ondemandmonitoring.devicecheck.domain;
 import com.ondemandmonitoring.common.entity.BaseEntity;
 import com.ondemandmonitoring.devicecheck.enums.PreDeviceCheckLevel;
 import com.ondemandmonitoring.devicecheck.enums.PreDeviceItemStatus;
+import com.ondemandmonitoring.devicecheck.enums.PreflightCheckSource;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -32,6 +33,19 @@ public class PersistedPreDeviceCheckItem extends BaseEntity {
     @Column(name = "check_name", nullable = false, length = 120)
     String checkName;
 
+    @Column(nullable = false, length = 500)
+    String description;
+
+    @Column(nullable = false, length = 80)
+    String category;
+
+    @Column(nullable = false)
+    Boolean required = true;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    PreflightCheckSource source;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     PreDeviceItemStatus status = PreDeviceItemStatus.PENDING;
@@ -43,6 +57,18 @@ public class PersistedPreDeviceCheckItem extends BaseEntity {
     @Column(length = 1000)
     String message;
 
+    @Column(name = "measured_value", length = 1000)
+    String measuredValue;
+
+    @Column(name = "error_code", length = 80)
+    String errorCode;
+
+    @Column(name = "checked_by", length = 255)
+    String checkedBy;
+
     @Column(name = "checked_at")
     Instant checkedAt;
+
+    @Column(name = "expires_at")
+    Instant expiresAt;
 }

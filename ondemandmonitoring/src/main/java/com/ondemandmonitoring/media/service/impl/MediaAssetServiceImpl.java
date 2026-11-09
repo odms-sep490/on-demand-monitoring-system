@@ -1,4 +1,5 @@
 package com.ondemandmonitoring.media.service.impl;
+import com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard;
 
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
@@ -8,8 +9,9 @@ import com.ondemandmonitoring.media.domain.MediaAsset;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
 import com.ondemandmonitoring.media.service.IMediaAssetService;
 import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
-import com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository;
+import com.ondemandmonitoring.mission.service.IMissionMediaAccessService;
 import com.ondemandmonitoring.media.service.IMediaObjectStorage;
+import com.ondemandmonitoring.media.service.IResultRetentionAccessService;
 import com.ondemandmonitoring.media.service.IMediaObjectStorage.StoredObject;
 import com.ondemandmonitoring.media.service.IMediaObjectStorage.StoredObjectStream;
 import java.io.IOException;
@@ -44,16 +46,12 @@ public class MediaAssetServiceImpl implements IMediaAssetService {
     static Path LOCAL_IMAGE_DIR = Path.of("uploads", "device-images");
 
     IMediaObjectStorage objectStorage;
+    IResultRetentionAccessService retentionAccess;
     Environment environment;
     IDeviceService deviceService;
     MediaAssetRepository mediaAssetRepository;
-    MissionDeviceAssignmentRepository missionDeviceAssignmentRepository;
-
-    @Transactional
-    @Override
-    public MediaAsset upload(String deviceId, MultipartFile file) {
-        return upload("UNASSIGNED", deviceId, Instant.now(), file, MEDIA_TYPE_IMAGE);
-    }
+    IMissionMediaAccessService missionAccess;
+    IMissionMediaEvidenceGuard missionLock;
 
     @Transactional
     @Override
@@ -192,9 +190,19 @@ public class MediaAssetServiceImpl implements IMediaAssetService {
     @Transactional
     @Override
     public void deleteByDeviceAndId(String deviceId, String mediaId) {
+        missionLock.lock(mediaId);
         MediaAsset mediaAsset = getByDeviceAndId(deviceId, mediaId);
-        deleteStoredObject(mediaAsset);
+        missionLock.requireDeletable(mediaId);
         mediaAssetRepository.delete(mediaAsset);
+        mediaAssetRepository.flush();
+        // FK failure or rollback must never remove the stored object.
+        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override public void afterCommit() {
+                        try { deleteStoredObject(mediaAsset); }
+                        catch (RuntimeException exception) { log.error("Storage cleanup needs retry for deleted media {}", mediaId, exception); }
+                    }
+                });
     }
 
     @Override
@@ -233,8 +241,11 @@ public class MediaAssetServiceImpl implements IMediaAssetService {
 
     @Override
     public String createPresignedGetUrl(MediaAsset image) {
+        retentionAccess.requireAccessible(image);
         if (STORAGE_PROVIDER_LOCAL.equalsIgnoreCase(image.getStorageProvider())) {
-            return image.getS3Url();
+            if (!migrateLocalToS3(image)) {
+                return image.getS3Url();
+            }
         }
 
         return objectStorage.createPresignedGetUrl(image.getS3Bucket(), image.getS3Key());
@@ -318,6 +329,10 @@ public class MediaAssetServiceImpl implements IMediaAssetService {
         }
 
         try {
+            if (mediaAsset.getThumbnailKey() != null && !mediaAsset.getThumbnailKey().isBlank())
+                objectStorage.deleteQuietly(mediaAsset.getS3Bucket(), mediaAsset.getThumbnailKey());
+            if (mediaAsset.getPreviewKey() != null && !mediaAsset.getPreviewKey().isBlank())
+                objectStorage.deleteQuietly(mediaAsset.getS3Bucket(), mediaAsset.getPreviewKey());
             objectStorage.delete(mediaAsset.getS3Bucket(), mediaAsset.getS3Key());
         } catch (RuntimeException exception) {
             log.error("Cannot delete media from S3. bucket={}, key={}",
@@ -375,8 +390,48 @@ public class MediaAssetServiceImpl implements IMediaAssetService {
         return mediaAssetRepository.save(image);
     }
 
+    /**
+     * Repairs media that was stored on the backend disk while S3 is now the configured storage:
+     * uploads the local file under a deterministic key and flips the record to S3. Best effort.
+     */
+    private boolean migrateLocalToS3(MediaAsset image) {
+        try {
+            if (!useS3Storage() || objectStorage.bucket() == null || objectStorage.bucket().isBlank()) {
+                return false;
+            }
+            Path localFile = Path.of(image.getS3Key());
+            if (!Files.isRegularFile(localFile)) {
+                return false;
+            }
+            String prefix = objectStorage.prefix();
+            String normalizedPrefix = prefix == null ? "" : prefix.strip().replaceAll("^/+|/+$", "");
+            String key = (normalizedPrefix.isBlank() ? "" : normalizedPrefix + "/")
+                    + "missions/" + safePathSegment(image.getMissionId()) + "/migrated/" + image.getId() + ".jpg";
+            StoredObject stored;
+            try (InputStream in = Files.newInputStream(localFile)) {
+                stored = objectStorage.put(key, image.getContentType(), Files.size(localFile), in, "[S3-MIGRATE]");
+            }
+            image.setStorageProvider(STORAGE_PROVIDER_S3);
+            image.setS3Bucket(stored.bucket());
+            image.setS3Key(stored.key());
+            image.setS3Url(stored.url());
+            mediaAssetRepository.save(image);
+            return true;
+        } catch (IOException | RuntimeException exception) {
+            log.warn("Cannot migrate local media {} to S3: {}", image.getId(), rootMessage(exception));
+            return false;
+        }
+    }
+
     private boolean useS3Storage() {
         String storage = environment.getProperty("device_IMAGE_STORAGE", "local");
+        if (STORAGE_PROVIDER_LOCAL.equalsIgnoreCase(storage)) {
+            // .env uses DRONE_IMAGE_STORAGE; fall back to it when the legacy key is not set.
+            String configured = environment.getProperty("DRONE_IMAGE_STORAGE");
+            if (configured != null && !configured.isBlank()) {
+                storage = configured;
+            }
+        }
         return STORAGE_PROVIDER_S3.equalsIgnoreCase(storage);
     }
 
@@ -399,10 +454,8 @@ public class MediaAssetServiceImpl implements IMediaAssetService {
 
     private MissionDeviceAssignment requireDeviceAssignment(String missionId, String deviceId) {
         Device device = deviceService.getEntityById(deviceId);
-        return missionDeviceAssignmentRepository
-                .findByMissionIdAndDeviceIdAndIsCurrentTrue(missionId, device.getId())
-                .orElseThrow(() -> new ApiException(ErrorCode.INVALID_REQUEST,
-                        "Device is not assigned to this mission"));
+        missionAccess.requireUploadPermission(missionId);
+        return missionAccess.requireDeviceAssignment(missionId, device.getId());
     }
 
     private String normalizeMediaType(String requestedMediaType) {

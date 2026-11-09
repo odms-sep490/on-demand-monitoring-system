@@ -28,13 +28,17 @@ class PersistedPreDeviceCheckServiceTest {
 
     @Mock PersistedPreDeviceCheckRepository runRepository;
     @Mock MissionRepository missionRepository;
+    @Mock com.ondemandmonitoring.mission.repository.DeviceConnectionRepository connectionRepository;
+    @Mock com.ondemandmonitoring.device.repository.DeviceTelemetryRepository telemetryRepository;
+    @Mock com.ondemandmonitoring.user.service.AuthenticatedUserResolver authenticatedUserResolver;
+    @Mock com.ondemandmonitoring.weather.repository.MissionWeatherCheckRepository weatherCheckRepository;
     @InjectMocks PersistedPreDeviceCheckService service;
 
     @Test
     void reusesRecentlyStartedCheckingRun() {
         Mission mission = mission("mission-1");
         PersistedPreDeviceCheck activeRun = checkingRun("run-1", mission, Instant.now());
-        when(missionRepository.findById("mission-1")).thenReturn(Optional.of(mission));
+        when(missionRepository.findByIdForUpdate("mission-1")).thenReturn(Optional.of(mission));
         when(runRepository.findFirstByMissionIdOrderByCreatedAtDesc("mission-1"))
                 .thenReturn(Optional.of(activeRun));
 
@@ -49,7 +53,7 @@ class PersistedPreDeviceCheckServiceTest {
         Mission mission = mission("mission-1");
         PersistedPreDeviceCheck staleRun = checkingRun(
                 "run-old", mission, Instant.now().minusSeconds(31));
-        when(missionRepository.findById("mission-1")).thenReturn(Optional.of(mission));
+        when(missionRepository.findByIdForUpdate("mission-1")).thenReturn(Optional.of(mission));
         when(runRepository.findFirstByMissionIdOrderByCreatedAtDesc("mission-1"))
                 .thenReturn(Optional.of(staleRun));
         when(runRepository.save(any(PersistedPreDeviceCheck.class)))
@@ -57,7 +61,7 @@ class PersistedPreDeviceCheckServiceTest {
 
         var response = service.start("mission-1");
 
-        assertThat(response.getStatus()).isEqualTo(PreDeviceCheckStatus.CHECKING);
+        assertThat(response.getStatus()).isEqualTo(PreDeviceCheckStatus.FAILED);
         assertThat(response.getItems()).hasSize(response.getTotalChecks());
         verify(runRepository).save(any(PersistedPreDeviceCheck.class));
     }
@@ -71,10 +75,14 @@ class PersistedPreDeviceCheckServiceTest {
         media.setCheckType("MEDIA");
         media.setCheckName("Media Upload");
         media.setStatus(PreDeviceItemStatus.PASSED);
+        media.setCheckedAt(Instant.now());
+        media.setExpiresAt(Instant.now().plusSeconds(300));
         run.getItems().add(media);
         run.setPassedChecks(1);
         run.setTotalChecks(1);
         when(runRepository.findByIdForUpdate("run-1")).thenReturn(Optional.of(run));
+        when(runRepository.findById("run-1")).thenReturn(Optional.of(run));
+        when(missionRepository.findByIdForUpdate("mission-1")).thenReturn(Optional.of(mission));
         PreDeviceCheckItemUpdateRequest update = new PreDeviceCheckItemUpdateRequest();
         update.setStatus(PreDeviceItemStatus.CHECKING);
         update.setMessage("stale in-flight response");
@@ -89,6 +97,7 @@ class PersistedPreDeviceCheckServiceTest {
     private static Mission mission(String id) {
         Mission mission = new Mission();
         mission.setId(id);
+        mission.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.CONNECTED);
         return mission;
     }
 

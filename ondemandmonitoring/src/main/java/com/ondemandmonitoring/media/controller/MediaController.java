@@ -6,7 +6,9 @@ import com.ondemandmonitoring.media.dto.response.MediaResponse;
 import com.ondemandmonitoring.media.domain.MediaAsset;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
+import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.service.IMediaAssetService;
+import com.ondemandmonitoring.media.service.impl.MediaDerivativeService;
 import com.ondemandmonitoring.media.service.IMediaAssetService.MediaContent;
 import com.ondemandmonitoring.media.mapper.MediaAssetMapper;
 import java.time.Instant;
@@ -39,7 +41,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 public class MediaController {
 
     IMediaAssetService mediaAssetService;
+    MediaDerivativeService derivatives;
     MediaAssetMapper mediaAssetMapper;
+    com.ondemandmonitoring.mission.service.IMissionMediaAccessService missionAccess;
 
     @Operation(summary = "Upload image for mission",
             description = "Uploads a photo captured during a specific mission to S3 storage")
@@ -63,26 +67,36 @@ public class MediaController {
     @GetMapping("/api/media/{mediaId}")
     public ResponseEntity<ApiResponse<MediaResponse>> getMedia(@PathVariable String mediaId) {
         MediaAsset image = mediaAssetService.getById(mediaId);
+        missionAccess.authorizeOperator(image.getMissionId());
         requireLegacyMedia(image);
         String presignedUrl = mediaAssetService.createPresignedGetUrl(image);
 
         return ResponseEntity.ok(ApiResponse.ok(mediaAssetMapper.toMediaResponse(
                 image,
                 presignedUrl,
-                mediaAssetService.presignedUrlExpiresSeconds())));
+                mediaAssetService.presignedUrlExpiresSeconds(), derivatives.thumbnailUrl(image),
+                derivatives.previewUrl(image))));
     }
 
     @Operation(summary = "List mission media",
             description = "Lists image/video assets captured for a mission")
     @GetMapping("/api/missions/{missionId}/media")
-    public ResponseEntity<ApiResponse<List<MediaAssetResponse>>> listMissionMedia(
+    public ResponseEntity<ApiResponse<List<MediaResponse>>> listMissionMedia(
             @PathVariable String missionId,
             @RequestParam(required = false) String mediaType) {
-        List<MediaAssetResponse> media = mediaAssetService
-                .listByMission(missionId, mediaType)
+        String canonicalId = missionAccess.authorizeOperator(missionId).getId();
+        List<MediaResponse> media = mediaAssetService
+                .listByMission(canonicalId, mediaType)
                 .stream()
-                .filter(asset -> asset.getMediaStatus() == null)
-                .map(mediaAssetMapper::toResponse)
+                .filter(asset -> asset.getMediaStatus() == null || asset.getValidatedAt() != null
+                        && java.util.Set.of(MediaStatus.PENDING_MANAGER_APPROVAL,
+                                MediaStatus.AVAILABLE,
+                                MediaStatus.REJECTED).contains(asset.getMediaStatus()))
+                .map(asset -> mediaAssetMapper.toMediaResponse(
+                        asset,
+                        mediaAssetService.createPresignedGetUrl(asset),
+                        mediaAssetService.presignedUrlExpiresSeconds(), derivatives.thumbnailUrl(asset),
+                        derivatives.previewUrl(asset)))
                 .toList();
 
         return ResponseEntity.ok(ApiResponse.ok(media));
@@ -93,6 +107,7 @@ public class MediaController {
     @GetMapping("/api/media/{mediaId}/file")
     public ResponseEntity<InputStreamResource> getMediaFile(@PathVariable String mediaId) {
         MediaAsset image = mediaAssetService.getById(mediaId);
+        missionAccess.authorizeOperator(image.getMissionId());
         requireLegacyMedia(image);
         MediaContent mediaContent = mediaAssetService.openMedia(image);
         MediaType contentType = MediaType.parseMediaType(mediaContent.contentType());

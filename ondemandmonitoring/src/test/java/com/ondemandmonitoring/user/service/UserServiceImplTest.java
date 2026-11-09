@@ -8,7 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.ondemandmonitoring.role.domain.Role;
-import com.ondemandmonitoring.role.domain.RoleCode;
+import com.ondemandmonitoring.role.enumeration.RoleCode;
 import com.ondemandmonitoring.role.service.RoleService;
 import com.ondemandmonitoring.user.domain.CustomerProfile;
 import com.ondemandmonitoring.user.domain.User;
@@ -86,12 +86,12 @@ class UserServiceImplTest {
 
     @Test
     void createManagedUser_employee_doesNotProvisionCustomerProfile() {
-        Role staffRole = role(RoleCode.STAFF);
-        when(roleService.getActiveRole(RoleCode.STAFF)).thenReturn(staffRole);
+        Role staffRole = role(RoleCode.MANAGER);
+        when(roleService.getActiveRole(RoleCode.MANAGER)).thenReturn(staffRole);
         when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         userService.createManagedUser(
-                "staff@example.com", "Staff Name", RoleCode.STAFF,
+                "staff@example.com", "Staff Name", RoleCode.MANAGER,
                 "staff-user", "staff-sub");
 
         verify(customerProfileRepository, never()).save(any(CustomerProfile.class));

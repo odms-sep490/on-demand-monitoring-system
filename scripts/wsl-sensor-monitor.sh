@@ -10,7 +10,7 @@ ENV_FILE="$PROJECT_PATH/.env"
 if [ -f "$ENV_FILE" ]; then
     set -a
     # Strip Windows BOM/CRLF endings while keeping the source .env unchanged.
-    source <(sed '1s/^\xEF\xBB\xBF//; s/\r$//' "$ENV_FILE")
+    source <(sed '1s/^\xEF\xBB\xBF//; s/\r$//; /^MAPILLARY_ACCESS_TOKEN=/{s/\\|/|/g;s/|/\\|/g}' "$ENV_FILE")
     set +a
 fi
 

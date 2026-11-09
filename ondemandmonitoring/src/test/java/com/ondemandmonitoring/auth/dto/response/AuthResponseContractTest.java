@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.ondemandmonitoring.role.domain.RoleCode;
+import com.ondemandmonitoring.role.enumeration.RoleCode;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 

@@ -6,6 +6,7 @@ import com.ondemandmonitoring.media.domain.MediaAsset;
 import com.ondemandmonitoring.media.service.IMediaAssetService;
 import com.ondemandmonitoring.mission.service.IMissionMediaUploadService;
 import lombok.AccessLevel;
+import org.springframework.security.access.prepost.PreAuthorize;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
@@ -29,11 +30,13 @@ public class MissionMediaUploadService implements IMissionMediaUploadService {
     IMediaAssetService mediaAssetService;
 
     @Override
+    @PreAuthorize("@missionAuthorizationService.canUploadMissionMedia(#missionId)")
     public MediaAsset uploadWithRetry(String missionId, String deviceId, MultipartFile file) {
         return uploadWithRetry(missionId, deviceId, file, null);
     }
 
     @Override
+    @PreAuthorize("@missionAuthorizationService.canUploadMissionMedia(#missionId)")
     public MediaAsset uploadWithRetry(String missionId, String deviceId, MultipartFile file, String mediaType) {
         Exception lastException = null;
 

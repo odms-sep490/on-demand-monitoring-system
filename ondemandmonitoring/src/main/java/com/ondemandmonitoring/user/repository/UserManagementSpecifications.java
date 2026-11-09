@@ -1,13 +1,12 @@
 package com.ondemandmonitoring.user.repository;
 
-import com.ondemandmonitoring.role.domain.RoleCode;
+import com.ondemandmonitoring.role.enumeration.RoleCode;
 import com.ondemandmonitoring.user.domain.User;
 import jakarta.persistence.criteria.Predicate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import org.springframework.data.jpa.domain.Specification;
-import org.springframework.stereotype.Component;
 
 public final class UserManagementSpecifications {
 

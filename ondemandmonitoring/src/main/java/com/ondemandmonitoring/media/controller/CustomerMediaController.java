@@ -5,8 +5,9 @@ import com.ondemandmonitoring.common.api.PageResponse;
 import com.ondemandmonitoring.media.dto.response.CustomerMissionMediaStatusResponse;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Max;
-import com.ondemandmonitoring.media.dto.response.CustomerMediaNotificationResponse;
 import com.ondemandmonitoring.media.dto.response.CustomerMediaResponse;
+import com.ondemandmonitoring.media.dto.response.OriginalMediaDownloadResponse;
+import com.ondemandmonitoring.media.dto.response.MediaViewingResponse;
 import com.ondemandmonitoring.media.service.ICustomerMediaService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -17,6 +18,7 @@ import lombok.experimental.FieldDefaults;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -63,11 +65,6 @@ public class CustomerMediaController {
         return ResponseEntity.ok(ApiResponse.ok(customerMedia.listAllAvailable()));
     }
 
-    @Operation(summary = "List all media notifications for customer", description = "Retrieves media notification outbox items for customer's orders")
-    @GetMapping("/customer/media-notifications")
-    public ResponseEntity<ApiResponse<List<CustomerMediaNotificationResponse>>> allNotifications() {
-        return ResponseEntity.ok(ApiResponse.ok(customerMedia.listAllNotifications()));
-    }
 
     @Operation(summary = "List available media by mission", description = "Retrieves available media assets for a specific mission")
     @GetMapping("/missions/{missionId}/available-media")
@@ -75,16 +72,26 @@ public class CustomerMediaController {
         return ResponseEntity.ok(ApiResponse.ok(customerMedia.listAvailable(missionId)));
     }
 
-    @Operation(summary = "Download media asset", description = "Retrieves presigned download URL for a specific available media asset")
+    @Operation(summary = "Get customer media metadata", description = "Returns preview derivatives and download eligibility; use the explicit download-url endpoint for an authorized original download")
     @GetMapping("/media/{mediaId}/download")
     public ResponseEntity<ApiResponse<CustomerMediaResponse>> download(@PathVariable String mediaId) {
         return ResponseEntity.ok(ApiResponse.ok(customerMedia.getAvailable(mediaId)));
     }
 
-    @Operation(summary = "List media notifications by mission", description = "Retrieves media notifications for a specific mission")
-    @GetMapping("/missions/{missionId}/media-notifications")
-    public ResponseEntity<ApiResponse<List<CustomerMediaNotificationResponse>>> notifications(
-            @PathVariable String missionId) {
-        return ResponseEntity.ok(ApiResponse.ok(customerMedia.listNotifications(missionId)));
+    @Operation(summary = "Create an authorized short-lived original media download URL")
+    @PostMapping("/customer/media/{mediaId}/download-url")
+    public ResponseEntity<ApiResponse<OriginalMediaDownloadResponse>> originalDownload(@PathVariable String mediaId) {
+        return ResponseEntity.ok()
+                .header("Cache-Control", "no-store, private")
+                .body(ApiResponse.ok(customerMedia.createOriginalDownload(mediaId)));
     }
+
+    @PostMapping("/customer/media/{mediaId}/view-url")
+    @Operation(summary = "Refresh a customer media viewing URL, using a derivative when available")
+    public ResponseEntity<ApiResponse<MediaViewingResponse>> viewingFallback(
+            @PathVariable String mediaId) {
+        return ResponseEntity.ok().header("Cache-Control", "no-store, private")
+                .body(ApiResponse.ok(customerMedia.createViewingFallback(mediaId)));
+    }
+
 }

@@ -1,6 +1,5 @@
 package com.ondemandmonitoring.mission.dto.response;
 
-import com.ondemandmonitoring.mission.enums.WaypointReason;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -17,5 +16,4 @@ public class PlanWaypointResponse {
     Double simY;
     Double altitudeM;
     Double plannedSpeedMps;
-    WaypointReason reason;
 }

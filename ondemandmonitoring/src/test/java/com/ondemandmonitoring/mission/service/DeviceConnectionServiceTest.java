@@ -9,6 +9,7 @@ import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import com.ondemandmonitoring.mission.domain.MissionStaffAssignment;
 import com.ondemandmonitoring.mission.dto.response.MissionResponse;
 import com.ondemandmonitoring.mission.enums.MissionStaffRole;
+import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.mapper.MissionMapper;
 import com.ondemandmonitoring.mission.repository.DeviceConnectionRepository;
@@ -58,7 +59,9 @@ class DeviceConnectionServiceTest {
                 missionStaffAssignmentRepository,
                 deviceRepository,
                 missionMapper
-        );
+        , com.ondemandmonitoring.mission.service.ScopeTestFixture.validScope(),
+                mock(com.ondemandmonitoring.mission.service.IResourceReservationService.class));
+        lenient().when(missionRepository.findByIdForUpdate(anyString())).thenAnswer(call -> missionRepository.findById(call.getArgument(0)));
 
         lenient().when(missionMapper.toResponse(any())).thenAnswer(inv -> {
             Mission m = inv.getArgument(0);
@@ -92,6 +95,7 @@ class DeviceConnectionServiceTest {
         msa.setMission(mission);
         msa.setIsCurrent(true);
         msa.setAssignedRole(MissionStaffRole.OPERATOR);
+        msa.setResponseStatus(MissionStaffAssignmentStatus.ACCEPTED);
 
         when(missionRepository.findById(missionId)).thenReturn(Optional.of(mission));
         when(missionDeviceAssignmentRepository.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc(missionId))

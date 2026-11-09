@@ -2,7 +2,7 @@ package com.ondemandmonitoring.user.controller;
 
 import com.ondemandmonitoring.common.api.ApiResponse;
 import com.ondemandmonitoring.common.api.PageResponse;
-import com.ondemandmonitoring.role.domain.RoleCode;
+import com.ondemandmonitoring.role.enumeration.RoleCode;
 import com.ondemandmonitoring.user.dto.request.UserStatusUpdateRequest;
 import com.ondemandmonitoring.user.dto.response.UserManagementDetailResponse;
 import com.ondemandmonitoring.user.dto.response.UserManagementSummaryResponse;
@@ -10,7 +10,6 @@ import com.ondemandmonitoring.user.service.IUserManagementService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;

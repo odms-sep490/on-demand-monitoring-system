@@ -11,8 +11,10 @@ import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import com.ondemandmonitoring.mission.domain.MissionStaffAssignment;
 import com.ondemandmonitoring.mission.enums.DeviceRole;
 import com.ondemandmonitoring.mission.enums.MissionStaffRole;
+import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
 import com.ondemandmonitoring.mission.dto.response.MissionResponse;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
+import com.ondemandmonitoring.mission.enums.MissionDeviceAssignmentStatus;
 import com.ondemandmonitoring.mission.mapper.MissionMapper;
 import com.ondemandmonitoring.mission.repository.DeviceConnectionRepository;
 import com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository;
@@ -26,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Service implementation managing device connection sessions
@@ -35,7 +38,7 @@ import java.util.List;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class DeviceConnectionService implements IDeviceConnectionService {
+public class   DeviceConnectionService implements IDeviceConnectionService {
 
     private final MissionRepository missionRepository;
     private final DeviceConnectionRepository deviceConnectionRepository;
@@ -43,25 +46,34 @@ public class DeviceConnectionService implements IDeviceConnectionService {
     private final MissionStaffAssignmentRepository missionStaffAssignmentRepository;
     private final DeviceRepository deviceRepository;
     private final MissionMapper missionMapper;
+    private final com.ondemandmonitoring.mission.service.IMissionChecklistScopeService checklistScope;
+    private final com.ondemandmonitoring.mission.service.IResourceReservationService resources;
 
     @Override
     @Transactional
     public MissionResponse connectGcs(String missionId) {
-        Mission mission = getMission(missionId);
+        Mission mission = getMissionByIdOrThrow(missionId);
+        MissionRuntimeGate.requireOperationalCommandsAllowed(mission);
         String resolvedMissionId = mission.getId();
 
-        if (mission.getStatus() != MissionStatus.SCHEDULED && mission.getStatus() != MissionStatus.CONNECTED) {
+        if (mission.getStatus() != MissionStatus.PENDING_CONFIRMATION
+                && mission.getStatus() != MissionStatus.READY
+                && mission.getStatus() != MissionStatus.IN_PROGRESS) {
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
-                    "Mission must be in SCHEDULED state to pair with device, current: " + mission.getStatus());
+                    "Mission must be awaiting confirmation, READY, or IN_PROGRESS before pairing with device, current: "
+                            + mission.getStatus());
         }
-
-        mission.setStatus(MissionStatus.CONNECTED);
 
         MissionDeviceAssignment deviceAssignment = getAssignedDeviceAssignment(resolvedMissionId)
                 .orElseThrow(() -> new ApiException(
                         ErrorCode.RESOURCE_NOT_FOUND,
                         "Mission has no current device assignment: " + resolvedMissionId));
         Device device = deviceAssignment.getDevice();
+        if (deviceAssignment.getStatus() == MissionDeviceAssignmentStatus.ASSIGNED
+                || deviceAssignment.getStatus() == MissionDeviceAssignmentStatus.CONNECTION_LOST) {
+            deviceAssignment.setStatus(MissionDeviceAssignmentStatus.CONNECTED);
+        }
+        lockExclusiveSession(device, resolvedMissionId);
         MissionStaffAssignment staffAssignment = getCurrentStaffAssignment(resolvedMissionId);
         if (staffAssignment == null) {
             throw new ApiException(
@@ -69,7 +81,9 @@ public class DeviceConnectionService implements IDeviceConnectionService {
                     "Mission has no current staff assignment: " + resolvedMissionId);
         }
 
-        device.setStatus(DeviceStatus.PREFLIGHT);
+        if (mission.getStatus() == MissionStatus.PENDING_CONFIRMATION || mission.getStatus() == MissionStatus.READY) {
+            device.setStatus(DeviceStatus.PREFLIGHT);
+        }
         deviceRepository.save(device);
 
         DeviceConnection connection = deviceConnectionRepository
@@ -94,7 +108,7 @@ public class DeviceConnectionService implements IDeviceConnectionService {
     @Override
     @Transactional
     public MissionResponse disconnectGcs(String missionId, String disconnectReason) {
-        Mission mission = getMission(missionId);
+        Mission mission = getMissionByIdOrThrow(missionId);
         String resolvedMissionId = mission.getId();
 
         deviceConnectionRepository.findTopByMissionIdAndConnectionStatusOrderByConnectedAtDesc(resolvedMissionId, "CONNECTED")
@@ -105,6 +119,10 @@ public class DeviceConnectionService implements IDeviceConnectionService {
                     session.setDisconnectReason(
                             disconnectReason != null && !disconnectReason.isBlank() ? disconnectReason : "NORMAL");
                     deviceConnectionRepository.save(session);
+                    if (session.getDeviceAssignment() != null
+                            && session.getDeviceAssignment().getStatus() == MissionDeviceAssignmentStatus.CONNECTED) {
+                        session.getDeviceAssignment().setStatus(MissionDeviceAssignmentStatus.CONNECTION_LOST);
+                    }
                     log.info("[DEVICE-DISCONNECT] Mission {} device session disconnected cleanly. Reason: {}",
                             missionId, session.getDisconnectReason());
                 });
@@ -115,7 +133,7 @@ public class DeviceConnectionService implements IDeviceConnectionService {
     @Override
     @Transactional
     public MissionResponse handleGcsSessionLost(String missionId, String reason) {
-        Mission mission = getMission(missionId);
+        Mission mission = getMissionByIdOrThrow(missionId);
         String resolvedMissionId = mission.getId();
 
         deviceConnectionRepository.findTopByMissionIdAndConnectionStatusOrderByConnectedAtDesc(resolvedMissionId, "CONNECTED")
@@ -129,15 +147,18 @@ public class DeviceConnectionService implements IDeviceConnectionService {
                             session.getDisconnectReason());
                 });
 
-        mission.setStatus(MissionStatus.RETURNING);
+        MissionDeviceAssignment assignment = getAssignedDeviceAssignment(resolvedMissionId).orElse(null);
+        boolean flightStarted = mission.getStatus() == MissionStatus.IN_PROGRESS;
+        if (assignment != null) assignment.setStatus(flightStarted
+                ? MissionDeviceAssignmentStatus.RETURNING : MissionDeviceAssignmentStatus.CONNECTION_LOST);
         Device device = getAssignedDevice(resolvedMissionId);
-        if (device != null) {
+        if (device != null && flightStarted) {
             device.setStatus(DeviceStatus.RETURNING);
             deviceRepository.save(device);
         }
         log.warn(
-                "[RTL-TRIGGER] Mission {} status set to RETURNING due to device signal loss. Device status updated to RETURNING.",
-                missionId);
+                "[RTL-TRIGGER] Mission {} device signal lost; mission status remains {} and device status is {}.",
+                missionId, mission.getStatus(), assignment == null ? null : assignment.getStatus());
 
         Mission saved = missionRepository.save(mission);
         return missionMapper.toResponse(saved);
@@ -146,12 +167,8 @@ public class DeviceConnectionService implements IDeviceConnectionService {
     @Override
     @Transactional(readOnly = true)
     public DeviceConnection requireActiveTelemetryConnection(String deviceId) {
-        return deviceConnectionRepository
-                .findActiveTelemetryByDeviceIdentifier(
-                        deviceId,
-                        "CONNECTED")
-                .stream()
-                .findFirst()
+        return uniqueTelemetryConnection(deviceConnectionRepository
+                .findActiveTelemetryByDeviceIdentifier(deviceId, "CONNECTED"))
                 .orElseThrow(() -> new ApiException(
                         ErrorCode.RESOURCE_NOT_FOUND,
                         "No active device connection found for telemetry device: " + deviceId));
@@ -160,21 +177,36 @@ public class DeviceConnectionService implements IDeviceConnectionService {
     @Override
     @Transactional
     public DeviceConnection requireActiveTelemetryConnection(String deviceId, String missionId) {
-        return deviceConnectionRepository
-                .findActiveTelemetryByDeviceIdentifier(deviceId, "CONNECTED")
-                .stream()
-                .findFirst()
+        if (missionId != null && !missionId.isBlank()) getMissionByIdOrThrow(missionId);
+        var connections = deviceConnectionRepository.findActiveTelemetryByDeviceIdentifier(deviceId, "CONNECTED");
+        if (missionId != null && !missionId.isBlank()) {
+            getMissionByIdOrThrow(missionId);
+            connections = connections.stream().filter(connection -> connection.getMission() != null
+                    && missionId.equals(connection.getMission().getId())).toList();
+        }
+        if (connections.size() == 1 && connections.getFirst().getMission() != null)
+            getMissionByIdOrThrow(connections.getFirst().getMission().getId());
+        return uniqueTelemetryConnection(connections)
                 .orElseGet(() -> connectTelemetrySession(deviceId, missionId));
+    }
+
+    private Optional<DeviceConnection> uniqueTelemetryConnection(List<DeviceConnection> connections) {
+        if (connections.size() > 1) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Ambiguous telemetry connection; exact Mission required");
+        }
+        return connections.stream().findFirst().map(connection -> {
+            if (connection.getMission() != null) requireRuntime(connection.getMission());
+            return connection;
+        });
     }
 
     private DeviceConnection connectTelemetrySession(String deviceId, String missionId) {
         MissionDeviceAssignment deviceAssignment = resolveTelemetryDeviceAssignment(deviceId, missionId);
-        Mission mission = deviceAssignment.getMission();
-        if (mission.getStatus() != MissionStatus.SCHEDULED
-                && mission.getStatus() != MissionStatus.CONNECTED
-                && mission.getStatus() != MissionStatus.PREFLIGHT_CHECKING
-                && mission.getStatus() != MissionStatus.READY_TO_FLY
-                && mission.getStatus() != MissionStatus.IN_FLIGHT
+        Mission mission = getMissionByIdOrThrow(deviceAssignment.getMission().getId());
+        MissionRuntimeGate.requireOperationalCommandsAllowed(mission);
+        requireRuntime(mission);
+        if (mission.getStatus() != MissionStatus.PENDING_CONFIRMATION
+                && mission.getStatus() != MissionStatus.READY
                 && mission.getStatus() != MissionStatus.IN_PROGRESS) {
             throw new ApiException(
                     ErrorCode.MISSION_STATUS_INVALID,
@@ -189,13 +221,12 @@ public class DeviceConnectionService implements IDeviceConnectionService {
         }
 
         Device device = deviceAssignment.getDevice();
-        if (mission.getStatus() == MissionStatus.SCHEDULED) {
-            mission.setStatus(MissionStatus.CONNECTED);
-            missionRepository.save(mission);
+        lockExclusiveSession(device, mission.getId());
+        if (deviceAssignment.getStatus() == MissionDeviceAssignmentStatus.ASSIGNED
+                || deviceAssignment.getStatus() == MissionDeviceAssignmentStatus.CONNECTION_LOST) {
+            deviceAssignment.setStatus(MissionDeviceAssignmentStatus.CONNECTED);
         }
-        if (mission.getStatus() == MissionStatus.CONNECTED
-                || mission.getStatus() == MissionStatus.PREFLIGHT_CHECKING
-                || mission.getStatus() == MissionStatus.READY_TO_FLY) {
+        if (mission.getStatus() == MissionStatus.PENDING_CONFIRMATION || mission.getStatus() == MissionStatus.READY) {
             device.setStatus(DeviceStatus.PREFLIGHT);
             deviceRepository.save(device);
         }
@@ -218,7 +249,7 @@ public class DeviceConnectionService implements IDeviceConnectionService {
 
     private MissionDeviceAssignment resolveTelemetryDeviceAssignment(String deviceId, String missionId) {
         if (missionId != null && !missionId.isBlank()) {
-            Mission mission = getMission(missionId);
+            Mission mission = getMissionByIdOrThrow(missionId);
             return getAssignedDeviceAssignment(mission.getId())
                     .filter(assignment -> matchesDevice(assignment.getDevice(), deviceId))
                     .orElseThrow(() -> new ApiException(
@@ -227,11 +258,8 @@ public class DeviceConnectionService implements IDeviceConnectionService {
         }
 
         List<MissionStatus> telemetryStatuses = List.of(
-                MissionStatus.SCHEDULED,
-                MissionStatus.CONNECTED,
-                MissionStatus.PREFLIGHT_CHECKING,
-                MissionStatus.READY_TO_FLY,
-                MissionStatus.IN_FLIGHT,
+                MissionStatus.PENDING_CONFIRMATION,
+                MissionStatus.READY,
                 MissionStatus.IN_PROGRESS);
         List<MissionDeviceAssignment> assignmentsById =
                 missionDeviceAssignmentRepository.findCurrentByDeviceIdAndMissionStatusIn(deviceId, telemetryStatuses);
@@ -240,6 +268,11 @@ public class DeviceConnectionService implements IDeviceConnectionService {
                         deviceId,
                         telemetryStatuses)
                 : assignmentsById;
+
+        // Device-only telemetry compatibility may discover a unique Mission, never pick a sibling.
+        if (assignments.stream().map(assignment -> assignment.getMission().getId()).distinct().count() > 1) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Telemetry device has multiple Missions; exact Mission required");
+        }
 
         return assignments.stream()
                 .filter(assignment -> assignment.getDeviceRole() == DeviceRole.MAIN)
@@ -276,15 +309,29 @@ public class DeviceConnectionService implements IDeviceConnectionService {
         List<MissionStaffAssignment> assignments = missionStaffAssignmentRepository.findAllByMissionIdAndIsCurrentTrue(
                 missionId);
         return assignments.stream()
-                .filter(assignment -> assignment.getAssignedRole() == MissionStaffRole.OPERATOR)
+                .filter(assignment -> assignment.getAssignedRole() == MissionStaffRole.OPERATOR
+                        && assignment.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED
+                        && assignment.getReleasedAt() == null)
                 .findFirst()
-                .or(() -> assignments.stream().findFirst())
                 .orElse(null);
     }
 
-    private Mission getMission(String missionId) {
-        return missionRepository.findById(missionId)
-                .or(() -> missionRepository.findByOrderId(missionId))
+    private void requireRuntime(Mission mission) {
+        MissionRuntimeGate.requireFinalizedStructure(mission);
+        checklistScope.requireMaterialized(mission);
+        MissionRuntimeGate.requireSessionAllowed(mission);
+    }
+
+    private Mission getMissionByIdOrThrow(String missionId) {
+        return missionRepository.findByIdForUpdate(missionId)
+                .map(mission -> { requireRuntime(mission); return mission; })
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Mission not found: " + missionId));
+    }
+
+    private void lockExclusiveSession(Device device, String missionId) {
+        resources.lockResources(List.of(device.getId()));
+        if (deviceConnectionRepository.findActiveTelemetryByDeviceIdentifier(device.getId(), "CONNECTED").stream()
+                .anyMatch(c -> c.getMission() != null && !missionId.equals(c.getMission().getId())))
+            throw new ApiException(ErrorCode.RESOURCE_TIME_CONFLICT, "Device has another active Mission session");
     }
 }

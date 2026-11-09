@@ -10,6 +10,9 @@ import lombok.Setter;
 import lombok.experimental.FieldDefaults;
 
 import java.time.Instant;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import com.ondemandmonitoring.support.enums.SupportTicketKind;
 
 @Getter
 @Setter
@@ -35,6 +38,10 @@ public class SupportCustomerTicket extends BaseEntity {
 
     @Column(name = "category", nullable = false, length = 100)
     String category; // ORDERS, MISSIONS, RESULTS, MEDIA, SCHEDULING, ACCOUNT, TECHNICAL
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "ticket_kind", nullable = false, length = 40)
+    SupportTicketKind ticketKind = SupportTicketKind.GENERAL;
 
     @Column(name = "subject", nullable = false, length = 255)
     String subject;

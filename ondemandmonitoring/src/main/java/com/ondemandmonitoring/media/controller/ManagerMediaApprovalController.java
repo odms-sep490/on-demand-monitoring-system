@@ -20,7 +20,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/manager/missions/{missionId}/media-approvals")
-@PreAuthorize("hasAnyRole('MANAGER', 'ADMIN', 'SYSTEM_OPERATOR')")
 @Validated
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
@@ -29,6 +28,7 @@ public class ManagerMediaApprovalController {
     IManagerMediaApprovalService approvals;
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('MANAGER', 'ADMIN') or @missionAuthorizationService.canReviewMissionMedia(#missionId)")
     public ApiResponse<PageResponse<OperatorMissionMediaResponse>> listPending(
             @PathVariable String missionId,
             @RequestParam(defaultValue = "0") @Min(0) int page,
@@ -37,6 +37,7 @@ public class ManagerMediaApprovalController {
     }
 
     @PostMapping("/{mediaId}/approve")
+    @PreAuthorize("hasAnyRole('MANAGER', 'ADMIN') or @missionAuthorizationService.canReviewMissionMedia(#missionId)")
     public ApiResponse<OperatorMissionMediaResponse> approve(
             @PathVariable String missionId,
             @PathVariable String mediaId) {
@@ -44,6 +45,7 @@ public class ManagerMediaApprovalController {
     }
 
     @PostMapping("/{mediaId}/reject")
+    @PreAuthorize("hasAnyRole('MANAGER', 'ADMIN') or @missionAuthorizationService.canReviewMissionMedia(#missionId)")
     public ApiResponse<OperatorMissionMediaResponse> reject(
             @PathVariable String missionId,
             @PathVariable String mediaId) {

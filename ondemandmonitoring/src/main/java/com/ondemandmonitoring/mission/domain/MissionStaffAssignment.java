@@ -1,9 +1,8 @@
 package com.ondemandmonitoring.mission.domain;
 
 import com.ondemandmonitoring.common.entity.BaseEntity;
-import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.enums.MissionStaffRole;
-import com.ondemandmonitoring.mission.enums.StaffResponseStatus;
+import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
 import com.ondemandmonitoring.user.domain.User;
 import jakarta.persistence.*;
 import lombok.*;
@@ -35,7 +34,7 @@ public class MissionStaffAssignment extends BaseEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "response_status", length = 50)
-    StaffResponseStatus responseStatus;
+    MissionStaffAssignmentStatus responseStatus;
 
     @Column(name = "response_at")
     Instant responseAt;
@@ -58,4 +57,8 @@ public class MissionStaffAssignment extends BaseEntity {
 
     @Column(name = "release_reason", length = 500)
     String releaseReason;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "replaced_by_assignment_id")
+    MissionStaffAssignment replacementAssignment;
 }

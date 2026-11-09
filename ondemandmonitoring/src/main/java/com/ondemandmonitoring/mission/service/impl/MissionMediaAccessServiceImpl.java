@@ -3,15 +3,15 @@ package com.ondemandmonitoring.mission.service.impl;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.mission.domain.Mission;
+import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import com.ondemandmonitoring.mission.dto.response.MissionMediaContext;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository;
-import com.ondemandmonitoring.mission.repository.MissionStaffAssignmentRepository;
 import com.ondemandmonitoring.mission.service.IMissionMediaAccessService;
+import com.ondemandmonitoring.mission.service.IMissionAuthorizationService;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import java.util.List;
-import java.util.Set;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -25,14 +25,17 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class MissionMediaAccessServiceImpl implements IMissionMediaAccessService {
-    static Set<MissionStatus> CAPTURE_STATUSES = Set.of(
-            MissionStatus.IN_FLIGHT, MissionStatus.IN_PROGRESS, MissionStatus.RETURNING,
-            MissionStatus.POSTFLIGHT_CHECKING, MissionStatus.COMPLETED);
-
     MissionRepository missions;
     MissionDeviceAssignmentRepository deviceAssignments;
-    MissionStaffAssignmentRepository staffAssignments;
     AuthenticatedUserResolver currentUser;
+    IMissionAuthorizationService authorization;
+
+    @Override
+    public void requireUploadPermission(String identifier) {
+        if (!authorization.canUploadMissionMedia(identifier)) {
+            throw new ApiException(ErrorCode.ACCESS_DENIED, "An accepted Pilot or Inspector assignment is required to upload media");
+        }
+    }
 
     @Override
     public MissionMediaContext authorizeOperator(String identifier) {
@@ -41,21 +44,12 @@ public class MissionMediaAccessServiceImpl implements IMissionMediaAccessService
         if (auth == null || !auth.isAuthenticated() || auth instanceof AnonymousAuthenticationToken) {
             throw new ApiException(ErrorCode.UNAUTHORIZED);
         }
-        boolean privileged = auth.getAuthorities().stream().anyMatch(authority ->
-                "ROLE_ADMIN".equals(authority.getAuthority())
-                        || "ROLE_SYSTEM_OPERATOR".equals(authority.getAuthority()));
-        String userId = currentUser.getCurrentUserId();
-        boolean assigned = !staffAssignments
-                .findAllByMissionIdAndStaffIdAndIsCurrentTrueOrderByAssignedAtDesc(mission.getId(), userId)
-                .isEmpty();
-        if (!assigned && mission.getStatus() == MissionStatus.COMPLETED) {
-            assigned = staffAssignments.findByMissionId(mission.getId()).stream()
-                    .anyMatch(entry -> userId.equals(entry.getStaff().getId()));
-        }
-        if (!privileged && !assigned) {
+        if (!authorization.canViewMissionMedia(mission.getId())) {
             throw new ApiException(ErrorCode.ACCESS_DENIED, "Operator is not assigned to mission");
         }
-        return new MissionMediaContext(mission.getId(), CAPTURE_STATUSES.contains(mission.getStatus()));
+        return new MissionMediaContext(mission.getId(),
+                authorization.canUploadMissionMedia(mission.getId()), mission.getStatus(),
+                mission.getScheduledStartAt(), mission.getScheduledEndAt());
     }
 
     @Override
@@ -66,7 +60,7 @@ public class MissionMediaAccessServiceImpl implements IMissionMediaAccessService
         boolean assigned = deviceAssignments.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc(mission.getId())
                 .stream()
                 .anyMatch(entry -> entry.getDevice() != null && deviceId.equals(entry.getDevice().getId()));
-        if (!assigned && mission.getStatus() == MissionStatus.COMPLETED) {
+        if (!assigned && (mission.getStatus() == MissionStatus.COMPLETED || mission.getCompletedAt() != null)) {
             assigned = deviceAssignments.findByMissionId(mission.getId()).stream()
                     .anyMatch(entry -> deviceId.equals(entry.getDevice().getId()));
         }
@@ -84,6 +78,20 @@ public class MissionMediaAccessServiceImpl implements IMissionMediaAccessService
             throw new ApiException(ErrorCode.ACCESS_DENIED);
         }
         return mission.getId();
+    }
+
+    @Override
+    public MissionDeviceAssignment requireDeviceAssignment(String missionId, String deviceId) {
+        requireAssignedDevice(missionId, deviceId);
+        return deviceAssignments.findByMissionIdAndDeviceIdAndIsCurrentTrue(missionId, deviceId)
+                .or(() -> missions.findById(missionId).filter(m ->
+                        m.getStatus() == MissionStatus.COMPLETED || m.getCompletedAt() != null)
+                    .flatMap(m -> deviceAssignments.findByMissionId(missionId).stream()
+                        .filter(a -> a.getDevice() != null && deviceId.equals(a.getDevice().getId())
+                                && a.getReleasedAt() != null && "MISSION_COMPLETE".equals(a.getReleaseReason()))
+                        .max(java.util.Comparator.comparing(MissionDeviceAssignment::getReleasedAt))))
+                .orElseThrow(() -> new ApiException(ErrorCode.INVALID_REQUEST,
+                        "Device does not have a current assignment to this mission"));
     }
 
     @Override

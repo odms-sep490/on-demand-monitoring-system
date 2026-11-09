@@ -1,7 +1,8 @@
 package com.ondemandmonitoring.media.service;
 
-import com.ondemandmonitoring.media.dto.response.CustomerMediaNotificationResponse;
 import com.ondemandmonitoring.media.dto.response.CustomerMediaResponse;
+import com.ondemandmonitoring.media.dto.response.OriginalMediaDownloadResponse;
+import com.ondemandmonitoring.media.dto.response.MediaViewingResponse;
 import java.util.List;
 import com.ondemandmonitoring.common.api.PageResponse;
 import com.ondemandmonitoring.media.dto.response.CustomerMissionMediaStatusResponse;
@@ -19,7 +20,9 @@ public interface ICustomerMediaService {
 
     CustomerMediaResponse getAvailable(String mediaId);
 
-    List<CustomerMediaNotificationResponse> listNotifications(String missionId);
+    OriginalMediaDownloadResponse createOriginalDownload(String mediaId);
 
-    List<CustomerMediaNotificationResponse> listAllNotifications();
+    MediaViewingResponse createViewingFallback(String mediaId);
+
+
 }

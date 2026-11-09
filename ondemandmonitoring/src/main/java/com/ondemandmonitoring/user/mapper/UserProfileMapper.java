@@ -17,6 +17,7 @@ public interface UserProfileMapper {
     @Mapping(source = "user.role.code", target = "role")
     @Mapping(source = "customerProfile", target = "customerProfile")
     @Mapping(target = "avatarUrl", ignore = true)
+    @Mapping(target = "linkedProviders", ignore = true)
     UserProfileResponse toResponse(User user, CustomerProfile customerProfile);
 
     CustomerProfileResponse toCustomerResponse(CustomerProfile customerProfile);

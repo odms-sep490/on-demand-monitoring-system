@@ -15,7 +15,7 @@ import com.ondemandmonitoring.media.repository.MediaAssetRepository;
 import com.ondemandmonitoring.media.service.impl.MediaAssetServiceImpl;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
-import com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository;
+import com.ondemandmonitoring.mission.service.IMissionMediaAccessService;
 import java.io.InputStream;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -28,12 +28,13 @@ class MediaAssetServiceTest {
     void upload_rejectsMissingFile() {
         MediaAssetServiceImpl service = new MediaAssetServiceImpl(
                 mock(IMediaObjectStorage.class),
+                mock(IResultRetentionAccessService.class),
                 mock(Environment.class),
                 mock(IDeviceService.class),
                 mock(MediaAssetRepository.class),
-                mock(MissionDeviceAssignmentRepository.class));
+                mock(IMissionMediaAccessService.class), mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class));
 
-        assertThatThrownBy(() -> service.upload("DEVICE-01", null))
+        assertThatThrownBy(() -> service.upload("MISSION_001", "DEVICE-01", null, null))
                 .isInstanceOf(ApiException.class)
                 .hasMessage("Media file is required");
     }
@@ -42,14 +43,15 @@ class MediaAssetServiceTest {
     void upload_rejectsUnsupportedContentType() {
         MediaAssetServiceImpl service = new MediaAssetServiceImpl(
                 mock(IMediaObjectStorage.class),
+                mock(IResultRetentionAccessService.class),
                 mock(Environment.class),
                 mock(IDeviceService.class),
                 mock(MediaAssetRepository.class),
-                mock(MissionDeviceAssignmentRepository.class));
+                mock(IMissionMediaAccessService.class), mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class));
         MultipartFile file = new org.springframework.mock.web.MockMultipartFile(
                 "file", "capture.txt", "text/plain", "not-an-image".getBytes());
 
-        assertThatThrownBy(() -> service.upload("DEVICE-01", file))
+        assertThatThrownBy(() -> service.upload("MISSION_001", "DEVICE-01", null, file))
                 .isInstanceOf(ApiException.class)
                 .hasMessage("Only PNG, JPEG, and MP4 media are allowed");
     }
@@ -58,10 +60,11 @@ class MediaAssetServiceTest {
     void upload_rejectsMismatchedVideoMediaType() {
         MediaAssetServiceImpl service = new MediaAssetServiceImpl(
                 mock(IMediaObjectStorage.class),
+                mock(IResultRetentionAccessService.class),
                 mock(Environment.class),
                 mock(IDeviceService.class),
                 mock(MediaAssetRepository.class),
-                mock(MissionDeviceAssignmentRepository.class));
+                mock(IMissionMediaAccessService.class), mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class));
         MultipartFile file = new org.springframework.mock.web.MockMultipartFile(
                 "file", "clip.mp4", "video/mp4", "fake-mp4".getBytes());
 
@@ -75,23 +78,24 @@ class MediaAssetServiceTest {
         Environment environment = mock(Environment.class);
         IDeviceService deviceService = mock(IDeviceService.class);
         MediaAssetRepository mediaAssetRepository = mock(MediaAssetRepository.class);
-        MissionDeviceAssignmentRepository assignmentRepository = mock(MissionDeviceAssignmentRepository.class);
+        IMissionMediaAccessService assignmentRepository = mock(IMissionMediaAccessService.class);
         Device device = new Device();
         device.setId("DEVICE-01");
         device.setDeviceCode("DEVICE-01");
         MissionDeviceAssignment assignment = assignment("MISSION_001", device);
         when(environment.getProperty("device_IMAGE_STORAGE", "local")).thenReturn("local");
         when(deviceService.getEntityById("DEVICE-01")).thenReturn(device);
-        when(assignmentRepository.findByMissionIdAndDeviceIdAndIsCurrentTrue("MISSION_001", "DEVICE-01"))
-                .thenReturn(Optional.of(assignment));
+        when(assignmentRepository.requireDeviceAssignment("MISSION_001", "DEVICE-01"))
+                .thenReturn(assignment);
         when(mediaAssetRepository.save(any(MediaAsset.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         MediaAssetServiceImpl service = new MediaAssetServiceImpl(
                 mock(IMediaObjectStorage.class),
+                mock(IResultRetentionAccessService.class),
                 environment,
                 deviceService,
                 mediaAssetRepository,
-                assignmentRepository);
+                assignmentRepository, mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class));
         MultipartFile file = new org.springframework.mock.web.MockMultipartFile(
                 "file", "clip.mp4", "video/mp4", "fake-mp4".getBytes());
 
@@ -108,15 +112,15 @@ class MediaAssetServiceTest {
         IDeviceService deviceService = mock(IDeviceService.class);
         MediaAssetRepository mediaAssetRepository = mock(MediaAssetRepository.class);
         IMediaObjectStorage objectStorage = mock(IMediaObjectStorage.class);
-        MissionDeviceAssignmentRepository assignmentRepository = mock(MissionDeviceAssignmentRepository.class);
+        IMissionMediaAccessService assignmentRepository = mock(IMissionMediaAccessService.class);
         Device device = new Device();
         device.setId("DEVICE-01");
         device.setDeviceCode("DEVICE-01");
         MissionDeviceAssignment assignment = assignment("MISSION_001", device);
         when(environment.getProperty("device_IMAGE_STORAGE", "local")).thenReturn("s3");
         when(deviceService.getEntityById("DEVICE-01")).thenReturn(device);
-        when(assignmentRepository.findByMissionIdAndDeviceIdAndIsCurrentTrue("MISSION_001", "DEVICE-01"))
-                .thenReturn(Optional.of(assignment));
+        when(assignmentRepository.requireDeviceAssignment("MISSION_001", "DEVICE-01"))
+                .thenReturn(assignment);
         when(objectStorage.bucket()).thenReturn("bucket");
         when(objectStorage.put(any(), any(), eq(8L), any(InputStream.class), any()))
                 .thenAnswer(invocation -> new IMediaObjectStorage.StoredObject(
@@ -127,10 +131,11 @@ class MediaAssetServiceTest {
                 .thenAnswer(invocation -> invocation.getArgument(0));
         MediaAssetServiceImpl service = new MediaAssetServiceImpl(
                 objectStorage,
+                mock(IResultRetentionAccessService.class),
                 environment,
                 deviceService,
                 mediaAssetRepository,
-                assignmentRepository);
+                assignmentRepository, mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class));
         MultipartFile imageFile = new org.springframework.mock.web.MockMultipartFile(
                 "file", "capture.jpg", "image/jpeg", "fake-jpg".getBytes());
         MultipartFile videoFile = new org.springframework.mock.web.MockMultipartFile(

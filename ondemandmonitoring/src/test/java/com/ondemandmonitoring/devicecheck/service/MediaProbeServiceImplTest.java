@@ -10,7 +10,6 @@ import static org.mockito.Mockito.when;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.devicecheck.domain.PersistedPreDeviceCheck;
 import com.ondemandmonitoring.devicecheck.dto.request.MediaProbeRequest;
-import com.ondemandmonitoring.devicecheck.dto.request.PreDeviceCheckItemUpdateRequest;
 import com.ondemandmonitoring.devicecheck.enums.PreDeviceItemStatus;
 import com.ondemandmonitoring.devicecheck.repository.PersistedPreDeviceCheckRepository;
 import com.ondemandmonitoring.devicecheck.service.impl.MediaProbeServiceImpl;
@@ -25,7 +24,6 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
@@ -64,30 +62,27 @@ class MediaProbeServiceImplTest {
         assertThat(response.getDeviceId()).isEqualTo("device-1");
         assertThat(response.isChecksumVerified()).isTrue();
         assertThat(response.isCleanupVerified()).isTrue();
-        ArgumentCaptor<String> key = ArgumentCaptor.forClass(String.class);
+        var key = org.mockito.ArgumentCaptor.forClass(String.class);
         verify(storage).put(key.capture(), eq("image/jpeg"), eq((long) jpeg.length), any(), eq("[MEDIA-PROBE]"));
         assertThat(key.getValue()).startsWith("drone-media/diagnostics/media-probes/run-1/");
         verify(storage).delete(eq("probe-bucket"), any());
 
-        ArgumentCaptor<PreDeviceCheckItemUpdateRequest> update =
-                ArgumentCaptor.forClass(PreDeviceCheckItemUpdateRequest.class);
-        verify(preDeviceChecks).update(eq("run-1"), eq("MEDIA"), update.capture());
-        assertThat(update.getValue().getStatus()).isEqualTo(PreDeviceItemStatus.PASSED);
+        verify(preDeviceChecks).recordSystemResult(
+                "run-1", "media_storage", PreDeviceItemStatus.PASSED,
+                "JPEG storage round-trip verified; checksum and cleanup passed");
     }
 
     @Test
     void rejectsChecksumMismatchAndPersistsFailedResult() throws Exception {
         byte[] jpeg = jpeg();
-        stubContext();
 
         assertThatThrownBy(() -> service.verify("run-1", request(jpeg, "0".repeat(64))))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("checksum");
 
-        ArgumentCaptor<PreDeviceCheckItemUpdateRequest> update =
-                ArgumentCaptor.forClass(PreDeviceCheckItemUpdateRequest.class);
-        verify(preDeviceChecks).update(eq("run-1"), eq("MEDIA"), update.capture());
-        assertThat(update.getValue().getStatus()).isEqualTo(PreDeviceItemStatus.FAILED);
+        verify(preDeviceChecks).recordSystemResult(
+                eq("run-1"), eq("media_storage"), eq(PreDeviceItemStatus.FAILED),
+                org.mockito.ArgumentMatchers.contains("checksum"));
     }
 
     private void stubContext() {

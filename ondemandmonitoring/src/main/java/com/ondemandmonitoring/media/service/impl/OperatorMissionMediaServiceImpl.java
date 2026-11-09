@@ -4,7 +4,7 @@ import com.ondemandmonitoring.common.api.PageResponse;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.media.domain.MediaAsset;
-import com.ondemandmonitoring.media.domain.MediaStatus;
+import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.dto.response.OperatorMissionMediaResponse;
 import com.ondemandmonitoring.media.mapper.MediaWorkflowMapper;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
@@ -29,6 +29,7 @@ public class OperatorMissionMediaServiceImpl implements IOperatorMissionMediaSer
     IMissionMediaAccessService missionAccess;
     MediaAssetRepository media;
     IMediaObjectStorage storage;
+    MediaDerivativeService derivatives;
     MediaWorkflowMapper mapper;
 
     @Override
@@ -52,6 +53,8 @@ public class OperatorMissionMediaServiceImpl implements IOperatorMissionMediaSer
     private OperatorMissionMediaResponse toResponse(MediaAsset asset) {
         return mapper.toOperatorResponse(asset,
                 storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key()),
+                derivatives.thumbnailUrl(asset),
+                derivatives.previewUrl(asset),
                 Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds()));
     }
 }

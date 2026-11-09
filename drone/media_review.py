@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import RLock
+from threading import Lock, RLock
 from urllib.parse import urlparse
 import hashlib
 import json
@@ -22,10 +22,24 @@ class LocalMediaLibrary:
         self.mission_code = mission_code
         self.device_id = device_id
         self.lock = RLock()
+        self.transfer_locks: dict[str, Lock] = {}
         self.root.mkdir(parents=True, exist_ok=True)
         self.manifest = self.root / "media-index.json"
         self.items = self._load()
+        # No worker survives a controller process restart. Keep the capture for
+        # backend reconciliation instead of displaying a permanently running PUT.
+        for item in self.items.values():
+            if item.get("status") == "UPLOADING":
+                item["status"] = "UPLOAD_FAILED"
         self._prepare_pending_videos()
+
+    def bind(self, mission_id: str | None, device_id: str | None,
+             mission_code: str | None = None) -> None:
+        """Retain the manifest owner and in-flight workers across session refreshes."""
+        with self.lock:
+            self.mission_id = mission_id
+            self.device_id = device_id
+            self.mission_code = mission_code
 
     def _load(self) -> dict[str, dict]:
         if not self.manifest.exists():
@@ -40,14 +54,16 @@ class LocalMediaLibrary:
             json.dump(list(self.items.values()), output, indent=2)
         os.replace(temp, self.manifest)
 
-    def capture_image(self, jpeg: bytes) -> dict:
+    def capture_image(self, jpeg: bytes, source_type: str = "DRONE_CAMERA") -> dict:
         self._require_capture_session()
+        if source_type not in {"DRONE_CAMERA", "SATELLITE_SNAPSHOT", "MANUAL_UPLOAD"}:
+            raise ValueError("Unsupported media source type")
         if not jpeg.startswith(b"\xff\xd8\xff"):
             raise ValueError("Camera did not return a JPEG")
         local_id = str(uuid.uuid4())
         path = self.root / f"{local_id}.jpg"
         path.write_bytes(jpeg)
-        return self._register(local_id, path, "IMAGE", "image/jpeg")
+        return self._register(local_id, path, "IMAGE", "image/jpeg", source_type=source_type)
 
     def register_video(self, path: Path) -> dict:
         self._require_capture_session()
@@ -57,6 +73,7 @@ class LocalMediaLibrary:
         return self._register(
             str(uuid.uuid4()), browser_path, "VIDEO", "video/mp4",
             original_path=path if browser_path != path else None,
+            source_type="DRONE_CAMERA",
         )
 
     def _require_capture_session(self) -> None:
@@ -132,7 +149,7 @@ class LocalMediaLibrary:
         return digest.hexdigest()
 
     def _register(self, local_id: str, path: Path, media_type: str, content_type: str,
-                  original_path: Path | None = None) -> dict:
+                  original_path: Path | None = None, source_type: str | None = None) -> dict:
         item = {
             "localMediaId": local_id, "missionId": self.mission_id,
             "deviceId": self.device_id, "mediaType": media_type,
@@ -141,6 +158,7 @@ class LocalMediaLibrary:
             "checksumSha256": self._sha256(path),
             "capturedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "status": "REVIEW_PENDING",
+            "sourceType": source_type,
         }
         if self.mission_code:
             item["missionCode"] = self.mission_code
@@ -151,9 +169,15 @@ class LocalMediaLibrary:
             self._persist()
         return item.copy()
 
-    def list_items(self) -> list[dict]:
+    def list_items(self, mission_keys: set[str] | None = None) -> list[dict]:
         with self.lock:
-            return [item.copy() for item in self.items.values()]
+            items = [item.copy() for item in self.items.values()]
+        if not mission_keys:
+            return items
+        return [
+            item for item in items
+            if item.get("missionId") in mission_keys or item.get("missionCode") in mission_keys
+        ]
 
     def get(self, local_id: str) -> dict:
         with self.lock:
@@ -162,6 +186,16 @@ class LocalMediaLibrary:
             return self.items[local_id].copy()
 
     def discard(self, local_id: str) -> None:
+        with self.lock:
+            transfer_lock = self.transfer_locks.setdefault(local_id, Lock())
+        if not transfer_lock.acquire(blocking=False):
+            raise ValueError("Media cannot be discarded during upload")
+        try:
+            self._discard(local_id)
+        finally:
+            transfer_lock.release()
+
+    def _discard(self, local_id: str) -> None:
         with self.lock:
             item = self.get(local_id)
             if item["status"] not in {"REVIEW_PENDING", "UPLOAD_FAILED", "VALIDATING"}:
@@ -174,6 +208,18 @@ class LocalMediaLibrary:
 
     def transfer(self, local_id: str, plan: dict) -> dict:
         """Transfer using backend-signed URLs; the caller completes/acknowledges backend state."""
+        with self.lock:
+            transfer_lock = self.transfer_locks.setdefault(local_id, Lock())
+        # Two browser tabs can send the same plan. Only one worker owns a capture.
+        with transfer_lock:
+            item = self.get(local_id)
+            attempt_id = plan.get("attemptId")
+            if (attempt_id and item.get("transferredAttemptId") == attempt_id
+                    and item.get("backendMediaId") == plan.get("mediaId")):
+                return item["transferResult"]
+            return self._transfer(local_id, plan)
+
+    def _transfer(self, local_id: str, plan: dict) -> dict:
         item = self.get(local_id)
         path = Path(item["localPath"])
         if not path.is_file() or path.stat().st_size != item["fileSize"]:
@@ -198,6 +244,8 @@ class LocalMediaLibrary:
             raise
         with self.lock:
             self.items[local_id]["status"] = "VALIDATING"
+            self.items[local_id]["transferredAttemptId"] = plan.get("attemptId")
+            self.items[local_id]["transferResult"] = result
             self._persist()
         return result
 

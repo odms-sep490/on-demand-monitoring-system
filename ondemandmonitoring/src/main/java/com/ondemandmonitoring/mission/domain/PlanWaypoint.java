@@ -1,7 +1,6 @@
 package com.ondemandmonitoring.mission.domain;
 
 import com.ondemandmonitoring.common.entity.BaseEntity;
-import com.ondemandmonitoring.mission.enums.WaypointReason;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -46,6 +45,13 @@ public class PlanWaypoint extends BaseEntity {
     @Column(name = "sim_y", nullable = false)
     Double simY;
 
+    /** Optional authoritative WGS84 coordinates used for real-world airspace validation. */
+    @Column(name = "longitude")
+    Double longitude;
+
+    @Column(name = "latitude")
+    Double latitude;
+
     /*
      * Planned Gazebo World Z in meters for the simulation planner.
      * This is not PX4 relative altitude, terrain-relative altitude, or NED Down.
@@ -56,7 +62,4 @@ public class PlanWaypoint extends BaseEntity {
     @Column(name = "planned_speed_mps")
     Double plannedSpeedMps;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "reason", nullable = false, length = 50)
-    WaypointReason reason;
 }

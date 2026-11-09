@@ -1,22 +1,32 @@
-# OMSS UI Camera Stack
+# OMSS Flight Demo Stack
 
-Run this package when you want the drone camera inside the OMSS web UI, with an extra weather control screen.
+Run this package to open the OMSS operator UI, backend API, PX4, and Gazebo in the fast demo profile.
 
 ## Start
 
 From `on-demand-monitoring-system`:
 
 ```cmd
-scripts\start-ui-camera-stack.cmd
+scripts\RUN_DRONE_STACK.cmd
 ```
 
-The launcher opens:
+`scripts\start-ui-camera-stack.cmd` runs the same full demo directly.
+
+The default launcher opens:
 
 - `BE - OMSS API`
 - `FE - OMSS UI`
-- `SIM - PX4 + Gazebo Headless`
-- `CTRL - Flight Control Stream`
-- a separate `WEATHER - Controls` window
+- the operator UI in your browser
+
+The frontend connects to the local flight-control service at `http://localhost:8090` for telemetry, camera video, and flight commands.
+
+To open only the API and UI without PX4/Gazebo, pass `-SkipDrone`:
+
+```cmd
+scripts\RUN_DRONE_STACK.cmd -SkipDrone
+```
+
+Use `-RealFlight` to run with the complete compact scene and realistic flight speeds.
 
 Open the UI:
 
@@ -26,7 +36,7 @@ http://localhost:5173/#portal/drone-operator
 
 The script normally opens it automatically.
 
-## Weather Controls
+## Weather Controls (simulation mode)
 
 Use these weather keys in the `CTRL - Flight Control Stream` terminal, or in
 the separate `WEATHER - Controls` terminal. Press one key once; no Enter needed:
@@ -49,7 +59,8 @@ This changes Gazebo runtime lighting and wind without restarting the drone stack
 
 ## Correct Packaged Map
 
-The package is forced to the compact full map:
+The default demo uses the compact fast-demo scene. Its Gazebo world keeps the
+same compact world name and coordinates as the full scene:
 
 ```text
 SIM_WORLD=compact
@@ -58,14 +69,18 @@ world=forest_monitoring_compact
 camera=downward compact camera topic
 ```
 
+The default fast-demo world replaces only the heavy terrain collision with a
+flat surface and reuses the tracked compact terrain mesh for visuals. `-RealFlight`
+uses the full compact terrain collision.
+
 Do not use `-SimWorld legacy` for this demo.
 
 ## Faster Restart
 
-After dependencies are installed once:
+After dependencies are installed once, the full demo can skip its bootstrap:
 
 ```cmd
-scripts\start-ui-camera-stack.cmd -SkipBootstrap
+scripts\RUN_DRONE_STACK.cmd -SkipBootstrap
 ```
 
 If Backend or Frontend is already running:

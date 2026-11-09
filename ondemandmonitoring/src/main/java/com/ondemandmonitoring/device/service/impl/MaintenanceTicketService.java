@@ -10,8 +10,10 @@ import com.ondemandmonitoring.device.dto.request.ResolveMaintenanceTicketRequest
 import com.ondemandmonitoring.device.dto.response.MaintenanceTicketResponse;
 import com.ondemandmonitoring.device.repository.MaintenanceTicketRepository;
 import com.ondemandmonitoring.device.service.IMaintenanceTicketService;
+import com.ondemandmonitoring.device.service.IMaintenanceAuthorizationService;
+import com.ondemandmonitoring.user.service.IStaffDirectoryService;
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.ondemandmonitoring.user.domain.User;
-import com.ondemandmonitoring.user.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -29,13 +31,16 @@ public class MaintenanceTicketService implements IMaintenanceTicketService {
 
     MaintenanceTicketRepository maintenanceTicketRepository;
     DeviceRepository deviceRepository;
-    UserRepository userRepository;
+    IStaffDirectoryService staffDirectory;
+    IMaintenanceAuthorizationService authorization;
 
     @Override
     @Transactional(readOnly = true)
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','STAFF')")
     public List<MaintenanceTicketResponse> getAllTickets(String status, String deviceId, String staffId) {
         List<MaintenanceTicket> tickets = maintenanceTicketRepository.findAll();
         return tickets.stream()
+                .filter(t -> authorization.canViewTicket(t.getId()))
                 .filter(t -> status == null || status.isBlank() || t.getStatus().equalsIgnoreCase(status))
                 .filter(t -> deviceId == null || deviceId.isBlank()
                         || (t.getDevice() != null && t.getDevice().getId().equals(deviceId)))
@@ -48,6 +53,7 @@ public class MaintenanceTicketService implements IMaintenanceTicketService {
 
     @Override
     @Transactional(readOnly = true)
+    @PreAuthorize("@maintenanceAuthorizationService.canViewTicket(#id)")
     public MaintenanceTicketResponse getTicketById(String id) {
         MaintenanceTicket ticket = maintenanceTicketRepository.findById(id)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Maintenance ticket not found: " + id));
@@ -56,13 +62,12 @@ public class MaintenanceTicketService implements IMaintenanceTicketService {
 
     @Override
     @Transactional
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public MaintenanceTicketResponse assignStaff(String id, AssignMaintenanceStaffRequest request) {
         MaintenanceTicket ticket = maintenanceTicketRepository.findById(id)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Maintenance ticket not found: " + id));
 
-        User staff = userRepository.findById(request.getStaffId())
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND,
-                        "Staff user not found: " + request.getStaffId()));
+        User staff = staffDirectory.requireActiveStaff(request.getStaffId());
 
         ticket.setAssignedStaff(staff);
         ticket.setStatus("IN_PROGRESS");
@@ -72,6 +77,7 @@ public class MaintenanceTicketService implements IMaintenanceTicketService {
 
     @Override
     @Transactional
+    @PreAuthorize("@maintenanceAuthorizationService.canResolveTicket(#id)")
     public MaintenanceTicketResponse resolveTicket(String id, ResolveMaintenanceTicketRequest request) {
         MaintenanceTicket ticket = maintenanceTicketRepository.findById(id)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Maintenance ticket not found: " + id));

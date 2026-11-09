@@ -31,4 +31,10 @@ public class UserProfileUpdateRequest {
 
     @Size(max = 200, message = "Company name must not exceed 200 characters")
     String companyName;
+
+    @Pattern(regexp = "^$|^[0-9]{12}$", message = "Citizen identification number must contain exactly 12 digits")
+    String citizenIdentificationNumber;
+
+    @Pattern(regexp = "^$|^[0-9]{10}(-[0-9]{3})?$", message = "Company tax code format is invalid")
+    String companyTaxCode;
 }

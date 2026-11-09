@@ -2,6 +2,7 @@ package com.ondemandmonitoring.devicecheck.dto.response;
 
 import com.ondemandmonitoring.device.domain.Device;
 import com.ondemandmonitoring.devicecheck.domain.PersistedPostDeviceCheck;
+import com.ondemandmonitoring.devicecheck.domain.PersistedPostDeviceCheckItem;
 import com.ondemandmonitoring.devicecheck.enums.DeviceCheckItemStatus;
 import com.ondemandmonitoring.devicecheck.enums.DeviceCheckLevel;
 import com.ondemandmonitoring.devicecheck.enums.DeviceCheckStatus;
@@ -28,6 +29,10 @@ public class PersistedPostDeviceCheckResponse {
     Integer failedChecks;
     Instant startedAt;
     Instant completedAt;
+    Boolean overallOk;
+    Double landingBatteryPercent;
+    String landingBatteryState;
+    Instant checkedAt;
     Integer progressPercent;
     List<Item> items;
 
@@ -47,6 +52,13 @@ public class PersistedPostDeviceCheckResponse {
         DeviceConnection connection = run.getDeviceConnection();
         Device device = connection == null ? null : connection.getDevice();
         int total = run.getTotalChecks() == null ? 0 : run.getTotalChecks();
+        Double landingBatteryPercent = run.getItems().stream()
+                .filter(i -> "e1".equalsIgnoreCase(i.getCheckType())
+                        || "BATTERY".equalsIgnoreCase(i.getCheckType()))
+                .map(PersistedPostDeviceCheckResponse::parseLeadingDouble)
+                .filter(value -> value != null)
+                .findFirst()
+                .orElse(null);
         int done = run.getItems().stream()
                 .filter(i -> i.getStatus() == DeviceCheckItemStatus.PASSED
                         || i.getStatus() == DeviceCheckItemStatus.FAILED)
@@ -67,6 +79,10 @@ public class PersistedPostDeviceCheckResponse {
                 .failedChecks(run.getFailedChecks())
                 .startedAt(run.getStartedAt())
                 .completedAt(run.getCompletedAt())
+                .overallOk(run.getStatus() == DeviceCheckStatus.PASSED)
+                .landingBatteryPercent(landingBatteryPercent)
+                .landingBatteryState(batteryState(landingBatteryPercent))
+                .checkedAt(run.getCompletedAt() == null ? run.getStartedAt() : run.getCompletedAt())
                 .progressPercent(total == 0 ? 0 : done * 100 / total)
                 .items(run.getItems().stream()
                         .map(i -> Item.builder()
@@ -79,6 +95,32 @@ public class PersistedPostDeviceCheckResponse {
                                 .build())
                         .toList())
                 .build();
+    }
+
+    private static Double parseLeadingDouble(PersistedPostDeviceCheckItem item) {
+        if (item.getMessage() == null) {
+            return null;
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("(-?\\d+(?:\\.\\d+)?)")
+                .matcher(item.getMessage());
+        if (!matcher.find()) {
+            return null;
+        }
+        return Double.parseDouble(matcher.group(1));
+    }
+
+    private static String batteryState(Double percent) {
+        if (percent == null) {
+            return null;
+        }
+        if (percent <= 15) {
+            return "CRITICAL";
+        }
+        if (percent <= 30) {
+            return "LOW";
+        }
+        return "NORMAL";
     }
 }
 

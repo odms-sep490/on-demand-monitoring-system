@@ -2,6 +2,7 @@ package com.ondemandmonitoring.media.service;
 
 import com.ondemandmonitoring.media.domain.*;
 import com.ondemandmonitoring.media.enums.ManualUploadTaskStatus;
+import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.mapper.MediaWorkflowMapper;
 import com.ondemandmonitoring.media.policy.MediaUploadPolicy;
 import org.junit.jupiter.api.Test;
@@ -15,9 +16,16 @@ class MediaWorkflowConventionTest {
 
     @Test
     void retryBoundaryAndManualFailureUseOnePolicy() {
+        // Escalation requires STRICTLY MORE THAN three failed automatic attempts.
+        assertThat(policy.failureStatus(false, 1)).isEqualTo(MediaStatus.RETRY_REQUIRED);
         assertThat(policy.failureStatus(false, 2)).isEqualTo(MediaStatus.RETRY_REQUIRED);
-        assertThat(policy.failureStatus(false, 3)).isEqualTo(MediaStatus.MANUAL_UPLOAD_REQUIRED);
+        assertThat(policy.failureStatus(false, 3)).isEqualTo(MediaStatus.RETRY_REQUIRED);
+        assertThat(policy.failureStatus(false, 4)).isEqualTo(MediaStatus.MANUAL_UPLOAD_REQUIRED);
+        // A manual attempt escalates immediately regardless of the automatic tally.
         assertThat(policy.failureStatus(true, 1)).isEqualTo(MediaStatus.MANUAL_UPLOAD_REQUIRED);
+        assertThat(policy.failureStatus(true, 0)).isEqualTo(MediaStatus.MANUAL_UPLOAD_REQUIRED);
+        assertThat(policy.failedAutomaticAttemptsExhausted(3)).isFalse();
+        assertThat(policy.failedAutomaticAttemptsExhausted(4)).isTrue();
     }
 
     @Test
@@ -28,9 +36,9 @@ class MediaWorkflowConventionTest {
     }
 
     @Test
-    void buildersPreserveTaskAndOutboxDefaults() {
+    void buildersPreserveManualTaskDefaults() {
         assertThat(ManualUploadTask.builder().build().getStatus()).isEqualTo(ManualUploadTaskStatus.OPEN);
-        assertThat(MediaNotificationOutbox.builder().build().getStatus()).isEqualTo("PENDING");
+
     }
 
     @Test

@@ -36,12 +36,16 @@ class CustomerProfileTest {
                 .phoneNumber("+84901234567")
                 .address("Ho Chi Minh City")
                 .companyName("Monitoring Co.")
+                .citizenIdentificationNumber("079203001234")
+                .companyTaxCode("0317654321")
                 .build();
 
         assertSame(user, profile.getUser());
         assertEquals("+84901234567", profile.getPhoneNumber());
         assertEquals("Ho Chi Minh City", profile.getAddress());
         assertEquals("Monitoring Co.", profile.getCompanyName());
+        assertEquals("079203001234", profile.getCitizenIdentificationNumber());
+        assertEquals("0317654321", profile.getCompanyTaxCode());
         assertFalse(hasField(CustomerProfile.class, "email"));
         assertFalse(hasField(CustomerProfile.class, "fullName"));
         assertFalse(hasField(CustomerProfile.class, "role"));
@@ -75,6 +79,10 @@ class CustomerProfileTest {
         assertColumn(CustomerProfile.class.getDeclaredField("phoneNumber"), "phone_number", 20, true, true);
         assertColumn(CustomerProfile.class.getDeclaredField("address"), "address", 500, true, true);
         assertColumn(CustomerProfile.class.getDeclaredField("companyName"), "company_name", 200, true, true);
+        assertColumn(CustomerProfile.class.getDeclaredField("citizenIdentificationNumber"),
+                "citizen_identification_number", 12, true, true);
+        assertColumn(CustomerProfile.class.getDeclaredField("companyTaxCode"),
+                "company_tax_code", 14, true, true);
         assertNotNull(BaseEntity.class.getDeclaredField("version").getAnnotation(Version.class));
     }
 

@@ -47,4 +47,13 @@ public class PrepareMediaUploadRequest {
     @NotNull
     @PastOrPresent
     Instant capturedAt;
+
+    /** Optional for legacy captures whose provenance is unknown. */
+    @Pattern(regexp = "DRONE_CAMERA|SATELLITE_SNAPSHOT|MANUAL_UPLOAD")
+    String sourceType;
+
+    public PrepareMediaUploadRequest(String deviceId, String localMediaId, String mediaType,
+            String fileName, String contentType, Long fileSize, String checksumSha256, Instant capturedAt) {
+        this(deviceId, localMediaId, mediaType, fileName, contentType, fileSize, checksumSha256, capturedAt, null);
+    }
 }

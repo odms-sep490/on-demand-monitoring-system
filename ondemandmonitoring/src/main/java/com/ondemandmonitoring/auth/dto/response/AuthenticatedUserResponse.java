@@ -1,6 +1,6 @@
 package com.ondemandmonitoring.auth.dto.response;
 
-import com.ondemandmonitoring.role.domain.RoleCode;
+import com.ondemandmonitoring.role.enumeration.RoleCode;
 import java.util.UUID;
 import lombok.Builder;
 import lombok.Getter;

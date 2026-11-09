@@ -6,7 +6,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.ondemandmonitoring.role.domain.RoleCode;
+import com.ondemandmonitoring.role.enumeration.RoleCode;
 import com.ondemandmonitoring.role.domain.Role;
 import com.ondemandmonitoring.user.domain.User;
 import jakarta.persistence.criteria.CriteriaBuilder;

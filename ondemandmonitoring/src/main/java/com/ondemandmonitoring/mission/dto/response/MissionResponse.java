@@ -2,6 +2,8 @@ package com.ondemandmonitoring.mission.dto.response;
 
 import com.ondemandmonitoring.mission.enums.MediaType;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
+import com.ondemandmonitoring.mission.enums.FlightPermitStatus;
+import com.ondemandmonitoring.order.enums.OrderStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -23,13 +25,35 @@ public class MissionResponse {
     @Schema(description = "Unique code of the mission", example = "MS-2026-0001")
     String missionCode;
 
-    @Schema(description = "Current status of the mission", example = "PENDING")
+    @Schema(description = "Mission lifecycle status", example = "PLANNING")
     MissionStatus status;
+
+    com.ondemandmonitoring.mission.enums.MissionPurpose purpose;
+
+    String resultRevisionCaseId;
+
+    FlightPermitStatus flightPermitStatus;
+    Instant flightPermitUpdatedAt;
+    String flightPermitNote;
+    String flightPermitFileName;
+    String flightPermitContentType;
+    String flightPermitDataUrl;
+    Instant flightPermitResourceHoldUntil;
+    Instant flightPermitResourcesReleasedAt;
+    com.ondemandmonitoring.mission.enums.MissionRescheduleReason lastRescheduleReason;
+    String lastRescheduleNote;
+    Instant lastRescheduledAt;
+    Long scheduleRevision;
 
     @Schema(description = "ID of the associated order", example = "123e4567-e89b-12d3-a456-426614174000")
     String orderId;
 
     String orderCode;
+
+    OrderStatus orderStatus;
+
+    // Persisted relation only; no sibling detail lookup or inherited runtime history.
+    String replacesMissionId;
 
     String orderTitle;
 
@@ -38,10 +62,21 @@ public class MissionResponse {
     LocalDate orderPreferredDateTo;
 
     String orderPreferredTimeName;
+    String orderPreferredTimeId;
+    java.time.LocalTime orderPreferredTimeStart;
+    java.time.LocalTime orderPreferredTimeEnd;
 
     String serviceName;
 
     String customerName;
+
+    String managerName;
+
+    String managerEmail;
+
+    String managerPhone;
+
+    String description;
 
     String address;
 
@@ -51,14 +86,33 @@ public class MissionResponse {
 
     Double radiusM;
 
+    Double altitudeM;
+
     String deviceId;
 
+    String deviceCode;
+
+    String deviceName;
+
+    String deviceSerialNumber;
+
+    String deviceStatus;
+
+    String deviceModelCode;
+
+    String deviceModelName;
+
+    String deviceManufacturer;
+
+    String devicePayload;
 
     String staffId;
 
     String operatorId;
 
     List<MissionStaffAssignmentResponse> staffAssignments;
+
+    List<MissionDeviceAssignmentResponse> deviceAssignments;
 
     MissionPlanResponse plan;
 
@@ -76,6 +130,15 @@ public class MissionResponse {
 
     @Schema(description = "Reason for mission failure, if any")
     String failureReason;
+
+    @Schema(description = "Timestamp when the operator requested mission failure during flight")
+    Instant failureRequestedAt;
+
+    String rejectionReason;
+
+    MediaType mediaType;
+
+    String mediaSummary;
 
     @Schema(description = "Creation timestamp")
     Instant createdAt;

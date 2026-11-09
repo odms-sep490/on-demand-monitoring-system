@@ -17,4 +17,6 @@ public class CustomerProfileResponse {
     String phoneNumber;
     String address;
     String companyName;
+    String citizenIdentificationNumber;
+    String companyTaxCode;
 }

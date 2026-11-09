@@ -13,5 +13,7 @@ public class PreDeviceCheckItemUpdateRequest {
     PreDeviceItemStatus status;
 
     String message;
+
+    String measuredValue;
 }
 

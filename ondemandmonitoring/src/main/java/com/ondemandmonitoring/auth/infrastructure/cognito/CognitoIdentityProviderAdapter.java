@@ -11,6 +11,7 @@ import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityPr
 import software.amazon.awssdk.services.cognitoidentityprovider.model.*;
 
 import java.util.Map;
+import com.ondemandmonitoring.role.enumeration.RoleCode;
 
 /** Cognito adapter. The auth module depends on the port, never on this adapter. */
 @Component
@@ -154,6 +155,7 @@ public class CognitoIdentityProviderAdapter implements IdentityProviderPort {
 
     @Override
     public void addUserToGroup(String username, String role) {
+        RoleCode.valueOf(role);
         client.adminAddUserToGroup(AdminAddUserToGroupRequest.builder()
                 .userPoolId(properties.userPoolId())
                 .username(username)

@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<sdf version="1.9">
+  <world name="forest_monitoring_compact">
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics" />
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands" />
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster" />
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu" />
+    <plugin filename="gz-sim-air-pressure-system" name="gz::sim::systems::AirPressure" />
+    <plugin filename="gz-sim-magnetometer-system" name="gz::sim::systems::Magnetometer" />
+    <plugin filename="gz-sim-navsat-system" name="gz::sim::systems::NavSat" />
+    <physics name="fast_demo_physics" type="ode">
+      <max_step_size>0.008</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>125</real_time_update_rate>
+    </physics>
+    <gravity>0 0 -9.8</gravity>
+    <magnetic_field>6e-06 2.3e-05 -4.2e-05</magnetic_field>
+    <atmosphere type="adiabatic" />
+    <scene>
+      <grid>false</grid>
+      <ambient>0.6 0.6 0.6 1</ambient>
+      <background>0.7 0.8 0.95 1</background>
+      <shadows>false</shadows>
+      <sky>
+        <clouds />
+        <time>11.0</time>
+      </sky>
+    </scene>
+    <light name="sunUTC" type="directional">
+      <pose>0 0 500 0 -0.5 -0.5</pose>
+      <cast_shadows>false</cast_shadows>
+      <intensity>1.2</intensity>
+      <direction>-0.5 0.5 -0.8</direction>
+      <diffuse>0.95 0.93 0.88 1</diffuse>
+      <specular>0.3 0.3 0.25 1</specular>
+    </light>
+    <include>
+      <name>compact_terrain</name>
+      <uri>model://compact_terrain_fast_demo</uri>
+    </include>
+    <include>
+      <name>compact_roads</name>
+      <uri>model://compact_roads</uri>
+    </include>
+    <include>
+      <name>compact_water</name>
+      <uri>model://compact_water</uri>
+    </include>
+    <include>
+      <name>compact_bridges</name>
+      <uri>model://compact_bridges</uri>
+    </include>
+    <include>
+      <name>compact_home</name>
+      <uri>model://compact_home</uri>
+    </include>
+    <include>
+      <name>compact_highrise</name>
+      <uri>model://compact_highrise</uri>
+    </include>
+    <include>
+      <name>compact_zones</name>
+      <uri>model://compact_zones</uri>
+    </include>
+    <include>
+      <name>compact_forest</name>
+      <uri>model://compact_forest</uri>
+    </include>
+    <include>
+      <name>compact_thermal_sources</name>
+      <uri>model://compact_thermal_sources</uri>
+    </include>
+    <include>
+      <name>compact_environment_props</name>
+      <uri>model://compact_environment_props</uri>
+    </include>
+    <include>
+      <name>compact_mountains</name>
+      <uri>model://compact_mountains</uri>
+    </include>
+    <include>
+      <name>compact_airport</name>
+      <uri>model://compact_airport</uri>
+    </include>
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model>
+      <world_frame_orientation>ENU</world_frame_orientation>
+      <latitude_deg>47.397971057728974</latitude_deg>
+      <longitude_deg>8.546163739800146</longitude_deg>
+      <elevation>0</elevation>
+    </spherical_coordinates>
+  </world>
+</sdf>

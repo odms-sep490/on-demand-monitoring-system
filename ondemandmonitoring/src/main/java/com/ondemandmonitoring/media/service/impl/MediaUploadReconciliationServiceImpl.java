@@ -1,6 +1,6 @@
 package com.ondemandmonitoring.media.service.impl;
 
-import com.ondemandmonitoring.media.domain.UploadAttemptStatus;
+import com.ondemandmonitoring.media.enums.UploadAttemptStatus;
 import com.ondemandmonitoring.media.repository.MediaUploadAttemptRepository;
 import com.ondemandmonitoring.media.service.IMediaUploadReconciliationService;
 import com.ondemandmonitoring.media.service.IMediaValidationService;

@@ -13,7 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.ondemandmonitoring.common.api.PageResponse;
-import com.ondemandmonitoring.role.domain.RoleCode;
+import com.ondemandmonitoring.role.enumeration.RoleCode;
 import com.ondemandmonitoring.user.dto.response.UserManagementSummaryResponse;
 import com.ondemandmonitoring.user.dto.response.UserManagementDetailResponse;
 import com.ondemandmonitoring.user.dto.response.CustomerProfileResponse;

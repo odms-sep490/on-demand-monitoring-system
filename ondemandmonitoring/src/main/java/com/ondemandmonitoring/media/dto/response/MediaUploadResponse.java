@@ -1,6 +1,6 @@
 package com.ondemandmonitoring.media.dto.response;
 
-import com.ondemandmonitoring.media.domain.MediaStatus;
+import com.ondemandmonitoring.media.enums.MediaStatus;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;

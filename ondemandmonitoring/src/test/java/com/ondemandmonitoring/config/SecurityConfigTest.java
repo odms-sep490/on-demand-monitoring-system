@@ -3,7 +3,7 @@ package com.ondemandmonitoring.config;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import com.ondemandmonitoring.role.domain.RoleCode;
+import com.ondemandmonitoring.role.enumeration.RoleCode;
 import org.springframework.security.oauth2.jwt.Jwt;
 
 import java.time.Instant;

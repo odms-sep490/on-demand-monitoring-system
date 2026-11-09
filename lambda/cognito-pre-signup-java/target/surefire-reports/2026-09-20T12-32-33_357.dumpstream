@@ -1,5 +1,0 @@
-# Created at 2026-09-20T12:32:33.581
-Boot Manifest-JAR contains absolute paths in classpath 'D:\FPT\Ki9\SEP490\on-demand-monitoring-system\lambda\cognito-pre-signup-java\target\test-classes'
-Hint: <argLine>-Djdk.net.URLClassPath.disableClassPathURLCheck=true</argLine>
-'other' has different root
-

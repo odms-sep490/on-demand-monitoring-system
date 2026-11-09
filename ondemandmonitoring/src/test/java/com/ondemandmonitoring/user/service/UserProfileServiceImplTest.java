@@ -9,7 +9,7 @@ import static org.mockito.Mockito.when;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.role.domain.Role;
-import com.ondemandmonitoring.role.domain.RoleCode;
+import com.ondemandmonitoring.role.enumeration.RoleCode;
 import com.ondemandmonitoring.user.domain.CustomerProfile;
 import com.ondemandmonitoring.user.domain.User;
 import com.ondemandmonitoring.user.dto.request.UserProfileUpdateRequest;
@@ -17,6 +17,10 @@ import com.ondemandmonitoring.user.dto.response.UserProfileResponse;
 import com.ondemandmonitoring.user.mapper.UserProfileMapper;
 import com.ondemandmonitoring.user.repository.CustomerProfileRepository;
 import com.ondemandmonitoring.user.repository.UserRepository;
+import com.ondemandmonitoring.user.repository.UserIdentityRepository;
+import com.ondemandmonitoring.user.domain.UserIdentity;
+import com.ondemandmonitoring.user.enumeration.IdentityProvider;
+import java.util.List;
 import com.ondemandmonitoring.user.service.impl.UserProfileServiceImpl;
 import java.util.Optional;
 import java.util.UUID;
@@ -39,6 +43,9 @@ class UserProfileServiceImplTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private UserIdentityRepository userIdentityRepository;
+
     private UserProfileServiceImpl userProfileService;
 
     @BeforeEach
@@ -47,7 +54,23 @@ class UserProfileServiceImplTest {
                 authenticatedUserResolver,
                 customerProfileRepository,
                 userRepository,
-                Mappers.getMapper(UserProfileMapper.class));
+                Mappers.getMapper(UserProfileMapper.class),
+                userIdentityRepository);
+    }
+
+    @Test
+    void profileReturnsActualLinkedProvidersFromDatabase() {
+        User user = user(RoleCode.STAFF);
+        when(authenticatedUserResolver.getCurrentUser()).thenReturn(user);
+        when(userIdentityRepository.findAllByUserId(user.getId())).thenReturn(List.of(
+                UserIdentity.builder().provider(IdentityProvider.GOOGLE).build()));
+        assertThat(userProfileService.getCurrentProfile().getLinkedProviders())
+                .containsExactly(IdentityProvider.GOOGLE);
+        when(userIdentityRepository.findAllByUserId(user.getId())).thenReturn(List.of(
+                UserIdentity.builder().provider(IdentityProvider.GOOGLE).build(),
+                UserIdentity.builder().provider(IdentityProvider.LOCAL).build()));
+        assertThat(userProfileService.getCurrentProfile().getLinkedProviders())
+                .containsExactlyInAnyOrder(IdentityProvider.GOOGLE, IdentityProvider.LOCAL);
     }
 
     @Test
@@ -76,12 +99,12 @@ class UserProfileServiceImplTest {
 
     @Test
     void getCurrentProfile_employee_returnsOnlyCommonFields() {
-        User user = user(RoleCode.STAFF);
+        User user = user(RoleCode.MANAGER);
         when(authenticatedUserResolver.getCurrentUser()).thenReturn(user);
 
         UserProfileResponse response = userProfileService.getCurrentProfile();
 
-        assertThat(response.getRole()).isEqualTo(RoleCode.STAFF);
+        assertThat(response.getRole()).isEqualTo(RoleCode.MANAGER);
         assertThat(response.getCustomerProfile()).isNull();
         verify(customerProfileRepository, never()).findById(user.getId());
     }
@@ -154,7 +177,7 @@ class UserProfileServiceImplTest {
 
     @Test
     void updateCurrentProfile_employee_canUpdateCommonFields() {
-        User user = user(RoleCode.STAFF);
+        User user = user(RoleCode.MANAGER);
         when(authenticatedUserResolver.getCurrentUser()).thenReturn(user);
 
         UserProfileResponse response = userProfileService.updateCurrentProfile(
@@ -168,7 +191,7 @@ class UserProfileServiceImplTest {
 
     @Test
     void updateCurrentProfile_employeeCannotUpdateCustomerFields() {
-        User user = user(RoleCode.STAFF);
+        User user = user(RoleCode.MANAGER);
         when(authenticatedUserResolver.getCurrentUser()).thenReturn(user);
 
         assertThatThrownBy(() -> userProfileService.updateCurrentProfile(

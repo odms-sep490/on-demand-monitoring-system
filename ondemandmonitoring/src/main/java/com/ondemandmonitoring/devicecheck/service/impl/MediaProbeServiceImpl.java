@@ -48,17 +48,6 @@ public class MediaProbeServiceImpl implements IMediaProbeService {
 
     @Override
     public MediaProbeResponse verify(String runId, MediaProbeRequest request) {
-        PersistedPreDeviceCheck run = runRepository.findById(runId)
-                .orElseThrow(() -> new ApiException(
-                        ErrorCode.RESOURCE_NOT_FOUND,
-                        "Pre-device check not found: " + runId));
-        String missionId = run.getMission().getId();
-        MissionResponse mission = missions.getByIdResponse(missionId);
-        String deviceId = mission.getDeviceId();
-        if (deviceId == null || deviceId.isBlank()) {
-            return fail(runId, "Mission has no assigned device");
-        }
-
         byte[] uploaded;
         try {
             uploaded = readAndValidate(request.getFile());
@@ -69,6 +58,28 @@ public class MediaProbeServiceImpl implements IMediaProbeService {
         String uploadedChecksum = sha256(uploaded);
         if (!uploadedChecksum.equalsIgnoreCase(request.getChecksumSha256())) {
             return fail(runId, "Probe checksum does not match uploaded bytes");
+        }
+        return verifyBytes(runId, uploaded, uploadedChecksum);
+    }
+
+    @Override
+    public MediaProbeResponse verifyAutomatic(String runId) {
+        // Minimal JPEG marker payload: the purpose is an actual S3 write/read/delete round-trip,
+        // not image processing. No success is assumed unless every storage operation completes.
+        byte[] probe = new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff, (byte) 0xd9};
+        return verifyBytes(runId, probe, sha256(probe));
+    }
+
+    private MediaProbeResponse verifyBytes(String runId, byte[] uploaded, String uploadedChecksum) {
+        PersistedPreDeviceCheck run = runRepository.findById(runId)
+                .orElseThrow(() -> new ApiException(
+                        ErrorCode.RESOURCE_NOT_FOUND,
+                        "Pre-device check not found: " + runId));
+        String missionId = run.getMission().getId();
+        MissionResponse mission = missions.getByIdResponse(missionId);
+        String deviceId = mission.getDeviceId();
+        if (deviceId == null || deviceId.isBlank()) {
+            return fail(runId, "Mission has no assigned device");
         }
 
         String bucket = storage.bucket();
@@ -168,10 +179,8 @@ public class MediaProbeServiceImpl implements IMediaProbeService {
     }
 
     private void recordOutcome(String runId, PreDeviceItemStatus status, String message) {
-        PreDeviceCheckItemUpdateRequest update = new PreDeviceCheckItemUpdateRequest();
-        update.setStatus(status);
-        update.setMessage(message);
-        preDeviceChecks.update(runId, PreDeviceCheckType.MEDIA.code(), update);
+        preDeviceChecks.recordSystemResult(
+                runId, PreDeviceCheckType.MEDIA_STORAGE.code(), status, message);
     }
 
     private String probeObjectPrefix() {

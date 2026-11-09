@@ -3,6 +3,7 @@ ondemandmonitoring/.env
 *.env.*
 ondemandmonitoring/.env
 ondemandmonitoring/uploads/
+.codegraph/
 __pycache__/
 *.pyc
 drone-controller/.env
@@ -48,4 +49,6 @@ bin/
 ### Mac OS ###
 .DS_Store
 *.example
+!.env.example
 evd/
+ondemandmonitoring/src/main/resources/application-local.yaml

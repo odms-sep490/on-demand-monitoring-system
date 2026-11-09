@@ -9,9 +9,19 @@ public interface IMediaObjectStorage {
     StoredObject put(String key, String contentType, long contentLength,
                      InputStream inputStream, String diagnosticPrefix);
 
+    default StoredObject put(String bucket, String key, String contentType, long contentLength,
+                             InputStream inputStream, String diagnosticPrefix) {
+        if (!bucket().equals(bucket)) throw new IllegalArgumentException("Storage provider does not support this bucket");
+        return put(key, contentType, contentLength, inputStream, diagnosticPrefix);
+    }
+
     StoredObjectStream open(String bucket, String key);
 
     String createPresignedGetUrl(String bucket, String key);
+
+    default String createPresignedDownloadUrl(String bucket, String key, String fileName) {
+        return createPresignedGetUrl(bucket, key);
+    }
 
     PresignedUpload createPresignedPutUrl(String key, String contentType,
                                           long contentLength, Map<String, String> metadata);

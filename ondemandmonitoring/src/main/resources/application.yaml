@@ -1,4 +1,6 @@
 spring:
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:default}
   application:
     name: ${SPRING_APPLICATION_NAME:ondemandmonitoring}
   config:
@@ -30,25 +32,6 @@ spring:
       resourceserver:
         jwt:
           issuer-uri: ${COGNITO_ISSUER_URI:}
-  ai:
-    openai:
-      api-key: ${AI_OPENROUTER_API_KEY}
-      base-url: https://openrouter.ai/api/v1
-
-      chat:
-        model: ${AI_OPENROUTER_CHAT_MODEL}
-
-      embedding:
-        model: ${AI_OPENROUTER_EMBEDDING_MODEL}
-
-    vectorstore:
-      pgvector:
-        initialize-schema: true
-        schema-name: public
-        table-name: vector_store
-        dimensions: 4096
-        index-type: NONE
-
 mybatis:
   mapper-locations: ${MYBATIS_MAPPER_LOCATIONS}
   type-aliases-package: ${MYBATIS_TYPE_ALIASES_PACKAGE}
@@ -87,20 +70,32 @@ auth:
 app:
   seed:
     demo-drones: ${APP_SEED_DEMO_DRONES:false}
+    staff-licenses: ${APP_SEED_STAFF_LICENSES:true}
   media:
+    derivatives:
+      enabled: ${APP_MEDIA_DERIVATIVES_ENABLED:true}
+      interval-ms: ${APP_MEDIA_DERIVATIVES_INTERVAL_MS:15000}
+      initial-delay-ms: ${APP_MEDIA_DERIVATIVES_INITIAL_DELAY_MS:10000}
+      batch-size: ${APP_MEDIA_DERIVATIVES_BATCH_SIZE:8}
+      stale-minutes: ${APP_MEDIA_DERIVATIVES_STALE_MINUTES:15}
+      retry-delay-seconds: ${APP_MEDIA_DERIVATIVES_RETRY_DELAY_SECONDS:300}
+      max-attempts: ${APP_MEDIA_DERIVATIVES_MAX_ATTEMPTS:5}
+      video-batch-size: ${APP_MEDIA_DERIVATIVES_VIDEO_BATCH_SIZE:1}
+      ffmpeg-bin: ${APP_MEDIA_FFMPEG_BIN:ffmpeg}
+      ffprobe-bin: ${APP_MEDIA_FFPROBE_BIN:ffprobe}
+      video-timeout-seconds: ${APP_MEDIA_VIDEO_DERIVATIVE_TIMEOUT_SECONDS:900}
+      max-video-input-bytes: ${APP_MEDIA_VIDEO_DERIVATIVE_MAX_INPUT_BYTES:1073741824}
+      max-video-preview-bytes: ${APP_MEDIA_VIDEO_DERIVATIVE_MAX_PREVIEW_BYTES:536870912}
+    orphan-cleanup:
+      enabled: ${APP_MEDIA_ORPHAN_CLEANUP_ENABLED:true}
+      delay-seconds: ${APP_MEDIA_ORPHAN_CLEANUP_DELAY_SECONDS:300}
+      upload-grace-seconds: ${APP_MEDIA_ORPHAN_CLEANUP_UPLOAD_GRACE_SECONDS:900}
+      fixed-delay-ms: ${APP_MEDIA_ORPHAN_CLEANUP_FIXED_DELAY_MS:60000}
     max-image-bytes: ${MEDIA_MAX_IMAGE_BYTES:26214400}
     max-video-bytes: ${MEDIA_MAX_VIDEO_BYTES:1073741824}
     sqs:
       enabled: ${MEDIA_SQS_ENABLED:false}
       queue-url: ${MEDIA_SQS_QUEUE_URL:}
-
-mission:
-  replanning:
-    enabled: ${MISSION_REPLANNING_ENABLED:true}
-    cooldown-seconds: ${MISSION_REPLANNING_COOLDOWN_SECONDS:10}
-    route-deviation-threshold-meters: ${MISSION_REPLANNING_ROUTE_DEVIATION_THRESHOLD_METERS:20.0}
-    minimum-battery-reserve-percent: ${MISSION_REPLANNING_MINIMUM_BATTERY_RESERVE_PERCENT:20.0}
-    max-replans-per-mission: ${MISSION_REPLANNING_MAX_REPLANS_PER_MISSION:5}
 
 springdoc:
   api-docs:
@@ -109,3 +104,74 @@ springdoc:
     path: /swagger-ui.html
     operationsSorter: method
     tagsSorter: alpha
+
+
+simulation:
+  telemetry:
+    max-age-seconds: ${SIMULATION_TELEMETRY_MAX_AGE_SECONDS:5}
+
+omss:
+  payment:
+    deposit-rate: ${OMSS_PAYMENT_DEPOSIT_RATE:0.30}
+    pending-payment-grace: ${OMSS_PENDING_PAYMENT_GRACE:30m}
+    expiration-batch-size: ${OMSS_EXPIRATION_BATCH_SIZE:100}
+    expiration-job-delay-ms: ${OMSS_EXPIRATION_JOB_DELAY_MS:60000}
+
+odms:
+  result-retention:
+    cleanup:
+      enabled: ${ODMS_RESULT_RETENTION_CLEANUP_ENABLED:true}
+      cron: "${ODMS_RESULT_RETENTION_CLEANUP_CRON:0 15 * * * *}"
+      batch-size: ${ODMS_RESULT_RETENTION_CLEANUP_BATCH_SIZE:100}
+
+vnpay:
+  tmn-code: ${VNPAY_TMN_CODE:}
+  hash-secret: ${VNPAY_HASH_SECRET:}
+  payment-url: ${VNPAY_PAYMENT_URL:https://sandbox.vnpayment.vn/paymentv2/vpcpay.html}
+  query-url: ${VNPAY_QUERY_URL:https://sandbox.vnpayment.vn/merchant_webapi/api/transaction}
+  return-url: ${VNPAY_RETURN_URL:http://localhost:8080/api/payments/vnpay/return}
+  ipn-url: ${VNPAY_IPN_URL:http://localhost:8080/api/payments/vnpay/ipn}
+  frontend-result-url: ${PAYMENT_FRONTEND_RESULT_URL:http://localhost:5173/#payment/result}
+  version: ${VNPAY_VERSION:2.1.0}
+  command: ${VNPAY_COMMAND:pay}
+  order-type: ${VNPAY_ORDER_TYPE:other}
+  locale: ${VNPAY_LOCALE:vn}
+  expire-minutes: ${VNPAY_EXPIRE_MINUTES:15}
+  query-connect-timeout-ms: ${VNPAY_QUERY_CONNECT_TIMEOUT_MS:3000}
+  query-read-timeout-ms: ${VNPAY_QUERY_READ_TIMEOUT_MS:5000}
+
+# Customer weather preview (Open-Meteo, no API key). Thresholds are customer guidance only,
+# NOT aviation safety limits. All values have code defaults in WeatherProperties.
+weather:
+  open-meteo:
+    base-url: ${WEATHER_OPEN_METEO_BASE_URL:https://api.open-meteo.com}
+    connect-timeout-ms: 2000
+    read-timeout-ms: 4000
+    max-forecast-days: 16
+  cache:
+    enabled: true
+    ttl-minutes: 30
+    max-entries: 500
+  customer:
+    caution:
+      rain-probability-percent: 40
+      wind-speed-kmh: 20
+      wind-gust-kmh: 30
+      visibility-meters: 3000
+    poor:
+      rain-probability-percent: 70
+      wind-speed-kmh: 35
+      wind-gust-kmh: 50
+      visibility-meters: 1000
+
+# Preliminary flight-area assessment (advisory only, rule-based; NOT legal or aviation limits).
+# External providers are configuration only; every value has a code default in FlightAreaProperties.
+flight-area-assessment:
+  max-radius-m: ${FLIGHT_AREA_MAX_RADIUS_M:5000}
+  ministry-flight-ban:
+    base-url: ${MINISTRY_FLIGHT_BAN_BASE_URL:https://cambay.mod.gov.vn}
+    path: ${MINISTRY_FLIGHT_BAN_PATH:/api/calculate-area}
+    connect-timeout-ms: 3000
+    read-timeout-ms: 8000
+    polygon-points: 64
+

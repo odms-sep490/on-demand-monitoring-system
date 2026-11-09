@@ -2,7 +2,6 @@ package com.ondemandmonitoring.order.controller;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -10,7 +9,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.ondemandmonitoring.common.api.ApiResponse;
-import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.mission.dto.response.MissionResponse;
 import com.ondemandmonitoring.order.dto.request.OrderCreateRequest;
 import com.ondemandmonitoring.order.dto.request.OrderDeliverableRequest;
@@ -134,10 +132,13 @@ class OrderControllerTest {
     }
 
     @Test
-    @DisplayName("unsupported need-info decision must not report success")
-    void submitApproval_NeedInfo_Throws() {
-        assertThrows(ApiException.class, () -> orderController.submitApproval(
-                "ord-123", Map.of("decision", "NEED_INFO", "reason", "More details")));
+    @DisplayName("submitApproval delegates to requestMoreInformation for NEED_INFO")
+    void submitApproval_NeedInfo_Delegates() {
+        ResponseEntity<ApiResponse<Void>> responseEntity = orderController.submitApproval(
+                "ord-123", Map.of("decision", "NEED_INFO", "reason", "More details"));
+
+        assertEquals(HttpStatus.OK, responseEntity.getStatusCode());
+        verify(orderService).requestMoreInformation("ord-123", "More details", null);
     }
 
     @Test

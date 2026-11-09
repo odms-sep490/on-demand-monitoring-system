@@ -15,6 +15,7 @@ import lombok.experimental.FieldDefaults;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -32,12 +33,14 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/device-types")
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
+@PreAuthorize("hasAnyRole('MANAGER','ADMIN','STAFF')")
 public class DeviceTypeController {
 
     IDeviceTypeService deviceTypeService;
 
     @Operation(summary = "Create device type", description = "Creates a new device type specification")
     @PostMapping
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<DeviceTypeResponse>> create(@Valid @RequestBody DeviceTypeCreateRequest request) {
         DeviceTypeResponse response = deviceTypeService.create(request);
         return ResponseEntity
@@ -62,6 +65,7 @@ public class DeviceTypeController {
 
     @Operation(summary = "Update device type", description = "Updates an existing device type by its ID")
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<DeviceTypeResponse>> update(
             @PathVariable String id,
             @Valid @RequestBody DeviceTypeUpdateRequest request) {
@@ -71,6 +75,7 @@ public class DeviceTypeController {
 
     @Operation(summary = "Delete device type", description = "Deletes a device type by its ID")
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable String id) {
         deviceTypeService.delete(id);
         return ResponseEntity.ok(ApiResponse.ok("Device type deleted successfully", null));

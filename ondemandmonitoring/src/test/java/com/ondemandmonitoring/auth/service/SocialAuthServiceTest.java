@@ -12,13 +12,15 @@ import com.ondemandmonitoring.auth.port.out.SocialIdentityProviderPort;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.role.domain.Role;
-import com.ondemandmonitoring.role.domain.RoleCode;
+import com.ondemandmonitoring.role.enumeration.RoleCode;
 import com.ondemandmonitoring.user.domain.User;
 import com.ondemandmonitoring.user.enumeration.IdentityProvider;
 import com.ondemandmonitoring.user.service.IUserService;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mapstruct.factory.Mappers;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.InvalidPasswordException;
 
@@ -46,12 +48,15 @@ class SocialAuthServiceTest {
         cookies = mock(RefreshTokenCookieService.class);
         service = new SocialAuthService(
                 socialProvider, cognito, compensationPort, users, cookies,
-                Mappers.getMapper(AuthenticatedUserMapper.class));
+                Mappers.getMapper(AuthenticatedUserMapper.class),
+                mock(com.ondemandmonitoring.user.service.IdentityLinkLock.class));
     }
 
-    @Test
-    void socialLoginCreatesCustomerAssignsGroupAndReturnsRefreshedToken() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void socialLoginCreatesCustomerAssignsGroupAndReturnsRefreshedToken(boolean rememberMe) {
         SocialSyncRequest request = request(SocialAuthIntent.LOGIN_OR_REGISTER);
+        request.setRememberMe(rememberMe);
         SocialAuthenticationResult identity = identity(true);
         User user = customer();
         when(socialProvider.exchangeSocialCode(request)).thenReturn(identity);
@@ -67,14 +72,14 @@ class SocialAuthServiceTest {
         assertEquals("access-with-group", result.getAccessToken());
         assertEquals(RoleCode.CUSTOMER, result.getUser().getRole());
         verify(cognito).addUserToGroup("google_123", "CUSTOMER");
-        verify(cookies).write(response, "social-refresh", "google_123");
+        verify(cookies).write(response, "social-refresh", "google_123", rememberMe);
     }
 
     @Test
     void socialLoginLinksGoogleToExistingLocalUserWithoutChangingRole() {
         SocialSyncRequest request = request(SocialAuthIntent.LOGIN_OR_REGISTER);
         User staff = customer();
-        staff.setRole(Role.builder().code(RoleCode.STAFF).build());
+        staff.setRole(Role.builder().code(RoleCode.MANAGER).build());
         when(socialProvider.exchangeSocialCode(request)).thenReturn(identity(true));
         when(users.findOptionalByEmail("user@example.com")).thenReturn(Optional.of(staff));
         when(users.hasIdentity(staff.getId(), IdentityProvider.LOCAL)).thenReturn(true);
@@ -85,8 +90,8 @@ class SocialAuthServiceTest {
 
         var result = service.sync(request, mock(HttpServletResponse.class));
 
-        assertEquals(RoleCode.STAFF, result.getUser().getRole());
-        verify(cognito).addUserToGroup("local-uuid", "STAFF");
+        assertEquals(RoleCode.MANAGER, result.getUser().getRole());
+        verify(cognito).addUserToGroup("local-uuid", "MANAGER");
         verify(users, never()).createSocialUser(anyString(), anyString(), any(), anyString(), anyString());
     }
 
@@ -160,7 +165,7 @@ class SocialAuthServiceTest {
     }
 
     @Test
-    void linkLocalIdentityCompensatesDatabaseWhenCognitoRejectsPassword() {
+    void linkLocalIdentityPropagatesPasswordFailureForTransactionRollback() {
         User user = customer();
         when(users.findByCognitoSub("sub")).thenReturn(user);
         when(users.hasIdentity(user.getId(), IdentityProvider.LOCAL)).thenReturn(false);
@@ -171,7 +176,7 @@ class SocialAuthServiceTest {
                 () -> service.linkLocalIdentity("sub", "google_123", "weak-pass"));
 
         assertEquals(ErrorCode.PASSWORD_POLICY_VIOLATED, exception.getErrorCode());
-        verify(users).unlinkIdentity(user, IdentityProvider.LOCAL);
+        verify(users, never()).unlinkIdentity(any(), any());
     }
 
     private SocialSyncRequest request(SocialAuthIntent intent) {

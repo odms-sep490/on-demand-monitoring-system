@@ -1,4 +1,7 @@
 package com.ondemandmonitoring.media.service.impl;
+import com.ondemandmonitoring.media.enums.MediaStatus;
+import com.ondemandmonitoring.media.enums.UploadAttemptStatus;
+import com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard;
 
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
@@ -11,11 +14,11 @@ import com.ondemandmonitoring.media.dto.request.ReportUploadFailureRequest;
 import com.ondemandmonitoring.media.dto.request.ManualMediaFileRequest;
 import com.ondemandmonitoring.media.dto.response.ManualMediaUploadResponse;
 import com.ondemandmonitoring.media.dto.response.MediaUploadResponse;
+import com.ondemandmonitoring.media.policy.MediaUploadPolicy;
 import com.ondemandmonitoring.media.repository.*;
 import com.ondemandmonitoring.media.service.IMediaUploadService;
 import com.ondemandmonitoring.mission.dto.response.MissionMediaContext;
 import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
-import com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository;
 import com.ondemandmonitoring.mission.service.IMissionMediaAccessService;
 import com.ondemandmonitoring.media.service.IMediaObjectStorage;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
@@ -32,16 +35,17 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
 
     private static final long PART_SIZE = 8L * 1024 * 1024;
     private static final long MULTIPART_THRESHOLD = 16L * 1024 * 1024;
-    private static final int MAX_AUTOMATIC_ATTEMPTS = 3;
     private final IMissionMediaAccessService missionAccess;
     private final IDeviceService devices;
-    private final MissionDeviceAssignmentRepository deviceAssignments;
     private final MediaAssetRepository media;
     private final MediaUploadAttemptRepository attempts;
     private final ManualUploadTaskRepository manualTasks;
+    private final ManualUploadTaskServiceImpl manualTaskService;
     private final MediaAuditLogRepository auditLogs;
     private final IMediaObjectStorage storage;
     private final AuthenticatedUserResolver currentUser;
+    private final IMissionMediaEvidenceGuard missionLock;
+    private final MediaUploadPolicy policy;
 
     @Value("${app.media.max-image-bytes:26214400}")
     private long maxImageBytes;
@@ -60,9 +64,10 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
     @Override
     @Transactional
     public MediaUploadResponse prepareManualFile(String mediaId, ManualMediaFileRequest request) {
+        missionLock.lock(mediaId);
         MediaAsset asset = media.findByIdForUpdate(mediaId)
                 .orElseThrow(() -> new ApiException(ErrorCode.MEDIA_NOT_FOUND));
-        missionAccess.authorizeOperator(asset.getMissionId());
+        missionAccess.requireUploadPermission(asset.getMissionId());
         if (!asset.getFileSize().equals(request.getFileSize())
                 || !asset.getContentType().equalsIgnoreCase(request.getContentType())
                 || !asset.getChecksumSha256().equalsIgnoreCase(request.getChecksumSha256())) {
@@ -81,33 +86,46 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
     @Transactional
     public MediaUploadResponse prepare(String missionId, PrepareMediaUploadRequest request) {
         MissionMediaContext mission = missionAccess.authorizeOperator(missionId);
+        missionLock.lockMission(mission.getId());
         if (!mission.isCaptureAllowed()) {
             throw new ApiException(ErrorCode.MEDIA_UPLOAD_NOT_ALLOWED,
-                    "Mission is not in a capture state");
+                    "Mission is not in a capture state (status=" + mission.getStatus()
+                            + "); upload needs an accepted Pilot or Inspector in an eligible mission phase");
         }
         MissionDeviceAssignment deviceAssignment = requireAssignedDeviceAssignment(mission, request.getDeviceId());
         Device device = deviceAssignment.getDevice();
-        validateMetadata(request);
+        validateMetadata(request, mission);
         Optional<MediaAsset> existing = media.findByMissionIdAndDeviceIdAndLocalMediaId(
                 mission.getId(), device.getId(), request.getLocalMediaId());
         if (existing.isPresent()) {
             MediaAsset captured = existing.get();
-            if (!captured.getType().equals(request.getMediaType())
+            if (!java.util.Objects.equals(captured.getSourceType(), request.getSourceType())
+                    || !captured.getType().equals(request.getMediaType())
                     || !captured.getContentType().equals(request.getContentType())
                     || !captured.getFileSize().equals(request.getFileSize())
                     || !captured.getChecksumSha256().equalsIgnoreCase(request.getChecksumSha256())) {
                 throw new ApiException(ErrorCode.MEDIA_IDEMPOTENCY_CONFLICT);
             }
+            if (captured.getStorageStatus() == com.ondemandmonitoring.media.enums.MediaStorageStatus.DELETED)
+                return newAttempt(captured, false);
+            requireStorageMutable(captured);
+            captured.setOrphanCleanupRequestedAt(null);
             return existingResponse(captured);
         }
+        requireRecentCapture(request, mission);
         if (storage.bucket() == null || storage.bucket().isBlank()) {
             throw new ApiException(ErrorCode.INTERNAL_SERVER_ERROR, "S3 bucket is required");
+        }
+        // The same file cannot count twice: attach the media that is already stored instead of uploading it again.
+        if (media.existsActiveDuplicate(mission.getId(), request.getChecksumSha256())) {
+            throw new ApiException(ErrorCode.MEDIA_DUPLICATE_CONTENT);
         }
         MediaAsset captured = new MediaAsset();
         captured.setDeviceAssignment(deviceAssignment);
         captured.setMission(deviceAssignment.getMission());
         captured.setLocalMediaId(request.getLocalMediaId());
         captured.setOperatorId(actor());
+        captured.setSourceType(request.getSourceType());
         captured.setType(request.getMediaType());
         captured.setStorageProvider("S3");
         captured.setOriginalFileName(request.getFileName().replaceAll("[^A-Za-z0-9._-]", "_"));
@@ -128,8 +146,9 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
     @Override
     @Transactional
     public MediaUploadResponse retry(String mediaId, boolean manual) {
+        missionLock.lock(mediaId);
         MediaAsset captured = requireMedia(mediaId);
-        missionAccess.authorizeOperator(captured.getMissionId());
+        missionAccess.requireUploadPermission(captured.getMissionId());
 
         if (captured.getMediaStatus() == MediaStatus.AVAILABLE) {
             return status(mediaId);
@@ -145,7 +164,8 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
                     "Media is not ready for retry");
         }
 
-        if (!manual && attempts.countByMediaIdAndManualAttemptFalse(mediaId) >= MAX_AUTOMATIC_ATTEMPTS) {
+        // Only genuine failures escalate; a retry that is merely prepared must never consume budget.
+        if (!manual && policy.failedAutomaticAttemptsExhausted(failedAutomaticAttempts(mediaId))) {
             return requireManualUpload(captured,
                     "Automatic attempts exhausted");
         }
@@ -158,9 +178,10 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
     public MediaUploadResponse reportFailure(String mediaId,
             String attemptId,
             ReportUploadFailureRequest request) {
+        missionLock.lock(mediaId);
 
         MediaAsset captured = requireMedia(mediaId);
-        missionAccess.authorizeOperator(captured.getMissionId());
+        missionAccess.requireUploadPermission(captured.getMissionId());
         MediaUploadAttempt attempt = requireAttempt(mediaId, attemptId);
 
         if (attempt.getStatus() == UploadAttemptStatus.FAILED) {
@@ -188,7 +209,8 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
 
         captured.setValidationError(request.getMessage());
         audit(captured, attempt, "UPLOAD_FAILED", request.getCode());
-        if (attempts.countByMediaIdAndManualAttemptFalse(mediaId) >= MAX_AUTOMATIC_ATTEMPTS) {
+        // The attempt was just persisted as FAILED, so it is already part of the tally.
+        if (policy.failedAutomaticAttemptsExhausted(failedAutomaticAttempts(mediaId))) {
             return requireManualUpload(captured, request.getMessage());
         }
 
@@ -217,7 +239,7 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
     @Transactional(readOnly = true)
     public MediaUploadResponse presignPart(String mediaId, String attemptId, int partNumber) {
         MediaAsset captured = requireMedia(mediaId);
-        missionAccess.authorizeOperator(captured.getMissionId());
+        missionAccess.requireUploadPermission(captured.getMissionId());
         MediaUploadAttempt attempt = requireAttempt(mediaId, attemptId);
         int count = partCount(captured.getFileSize());
 
@@ -244,9 +266,10 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
     @Transactional
     public void completeMultipart(String mediaId, String attemptId,
             CompleteMultipartRequest request) {
+        missionLock.lock(mediaId);
 
         MediaAsset captured = requireMedia(mediaId);
-        missionAccess.authorizeOperator(captured.getMissionId());
+        missionAccess.requireUploadPermission(captured.getMissionId());
         MediaUploadAttempt attempt = requireAttempt(mediaId, attemptId);
 
         if (attempt.getStatus() == UploadAttemptStatus.UPLOADED
@@ -293,8 +316,9 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
     @Override
     @Transactional
     public void markUploaded(String mediaId, String attemptId) {
+        missionLock.lock(mediaId);
         MediaAsset captured = requireMedia(mediaId);
-        missionAccess.authorizeOperator(captured.getMissionId());
+        missionAccess.requireUploadPermission(captured.getMissionId());
         MediaUploadAttempt attempt = requireAttempt(mediaId, attemptId);
         if (attempt.getStatus() == UploadAttemptStatus.SUCCEEDED
                 || attempt.getStatus() == UploadAttemptStatus.UPLOADED
@@ -312,6 +336,17 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
     }
 
     private MediaUploadResponse newAttempt(MediaAsset captured, boolean manual) {
+        requireStorageMutable(captured);
+        var order = captured.getMission() == null ? null : captured.getMission().getOrder();
+        if (order != null && order.getResultExpiresAt() != null && !order.getResultExpiresAt().isAfter(Instant.now()))
+            throw new ApiException(ErrorCode.MEDIA_UPLOAD_NOT_ALLOWED, "Result retention has expired");
+        captured.setStorageStatus(com.ondemandmonitoring.media.enums.MediaStorageStatus.AVAILABLE);
+        captured.setOrphanCleanupRequestedAt(null);
+        captured.setOrphanCleanupClaimedAt(null);
+        captured.setDeletedFromStorageAt(null);
+        captured.setStorageDeletionError(null);
+        captured.setValidatedAt(null);
+        captured.setValidationError(null);
 
         int number = attempts.findFirstByMediaIdOrderByAttemptNumberDesc(captured.getId())
                 .map(previous -> previous.getAttemptNumber() + 1).orElse(1);
@@ -435,25 +470,38 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
                 null);
     }
 
+    private long failedAutomaticAttempts(String mediaId) {
+        return attempts.countByMediaIdAndManualAttemptFalseAndStatus(
+                mediaId, UploadAttemptStatus.FAILED);
+    }
+
     private MediaUploadResponse requireManualUpload(MediaAsset captured, String reason) {
 
         captured.setMediaStatus(MediaStatus.MANUAL_UPLOAD_REQUIRED);
         captured.setValidationError(reason);
         media.save(captured);
-        ManualUploadTask task = manualTasks.findByMediaId(captured.getId()).orElseGet(() -> {
-            ManualUploadTask created = new ManualUploadTask();
-            created.setMedia(captured);
-            created.setAssignedOperatorId(captured.getOperatorId());
-            return created;
-        });
-        task.setReason(reason);
-        manualTasks.save(task);
+        manualTaskService.requireOpen(captured, reason);
         audit(captured, null, "MANUAL_UPLOAD_REQUIRED", reason);
 
         return status(captured.getId());
     }
 
-    private void validateMetadata(PrepareMediaUploadRequest request) {
+    /** Photos older than the mission's own planned duration (counted back from now) cannot belong to this mission. */
+    private void requireRecentCapture(PrepareMediaUploadRequest request, MissionMediaContext mission) {
+        if (mission.getScheduledStartAt() == null || mission.getScheduledEndAt() == null
+                || !mission.getScheduledEndAt().isAfter(mission.getScheduledStartAt())) return;
+        java.time.Duration planned = java.time.Duration.between(mission.getScheduledStartAt(), mission.getScheduledEndAt());
+        if (request.getCapturedAt().isBefore(Instant.now().minus(planned))) {
+            throw new ApiException(ErrorCode.MEDIA_CAPTURE_TOO_OLD,
+                    "Ảnh/video được chụp cách đây hơn " + planned.toMinutes() + " phút (thời lượng dự kiến của Mission).");
+        }
+    }
+
+    private void validateMetadata(PrepareMediaUploadRequest request, MissionMediaContext mission) {
+        if (request.getSourceType() != null && !java.util.Set.of(
+                "DRONE_CAMERA", "SATELLITE_SNAPSHOT", "MANUAL_UPLOAD").contains(request.getSourceType())) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Unsupported media source type");
+        }
         if ((request.getMediaType().equals("IMAGE") && request.getContentType().equals("video/mp4"))
                 || (request.getMediaType().equals("VIDEO")
                         && !request.getContentType().equals("video/mp4"))) {
@@ -469,11 +517,7 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
 
     private MissionDeviceAssignment requireAssignedDeviceAssignment(MissionMediaContext mission, String deviceId) {
         Device device = devices.getEntityById(deviceId);
-        missionAccess.requireAssignedDevice(mission.getId(), device.getId());
-        return deviceAssignments
-                .findByMissionIdAndDeviceIdAndIsCurrentTrue(mission.getId(), device.getId())
-                .orElseThrow(() -> new ApiException(ErrorCode.INVALID_REQUEST,
-                        "Device is not assigned to this mission"));
+        return missionAccess.requireDeviceAssignment(mission.getId(), device.getId());
     }
 
     private MediaAsset requireMedia(String mediaId) {
@@ -493,6 +537,12 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
         return captured.getMediaStatus() == null
                 ? MediaStatus.AVAILABLE
                 : captured.getMediaStatus();
+    }
+
+    private void requireStorageMutable(MediaAsset asset) {
+        if (asset.getStorageStatus() == com.ondemandmonitoring.media.enums.MediaStorageStatus.DELETE_PENDING
+                || asset.getStorageStatus() == com.ondemandmonitoring.media.enums.MediaStorageStatus.DELETE_FAILED)
+            throw new ApiException(ErrorCode.MEDIA_EVIDENCE_PROTECTED, "Storage cleanup is in progress");
     }
 
     private String actor() {

@@ -1,16 +1,14 @@
 package com.ondemandmonitoring.media.service;
 
 import com.ondemandmonitoring.media.domain.MediaUploadAttempt;
-import com.ondemandmonitoring.media.domain.UploadAttemptStatus;
+import com.ondemandmonitoring.media.enums.UploadAttemptStatus;
 import com.ondemandmonitoring.media.repository.MediaUploadAttemptRepository;
 import com.ondemandmonitoring.media.service.impl.MediaUploadReconciliationServiceImpl;
-import com.ondemandmonitoring.media.service.IMediaObjectStorage;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.Pageable;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import java.util.List;
 import static org.mockito.Mockito.*;
-import static org.mockito.ArgumentMatchers.*;
 
 class MediaUploadReconciliationServiceTest {
     @Test

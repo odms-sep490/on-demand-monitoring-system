@@ -1,7 +1,7 @@
 package com.ondemandmonitoring.role.infrastructure;
 
 import com.ondemandmonitoring.role.domain.Role;
-import com.ondemandmonitoring.role.domain.RoleCode;
+import com.ondemandmonitoring.role.enumeration.RoleCode;
 import com.ondemandmonitoring.role.repository.RoleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.ApplicationArguments;
@@ -19,9 +19,8 @@ public class RoleDataInitializer implements ApplicationRunner {
 
     private static final Map<RoleCode, RoleDefinition> SYSTEM_ROLES = Map.of(
             RoleCode.CUSTOMER, new RoleDefinition("CUSTOMER", "CUSTOMER ACCOUNT"),
-            RoleCode.STAFF, new RoleDefinition("STAFF", "STAFF ACCOUNT"),
-            RoleCode.DRONE_OPERATOR, new RoleDefinition("DRONE_OPERATOR", "DRONE OPERATION ACCOUNT"),
-            RoleCode.SYSTEM_OPERATOR, new RoleDefinition("SYSTEM_OPERATOR", "SYSTEM OPERATION ACCOUNT"),
+            RoleCode.MANAGER, new RoleDefinition("MANAGER", "MISSION COORDINATION ACCOUNT"),
+            RoleCode.STAFF, new RoleDefinition("STAFF", "ASSIGNED OPERATIONS ACCOUNT"),
             RoleCode.ADMIN, new RoleDefinition("ADMIN", "SYSTEM ADMINISTRATOR ACCOUNT"));
 
     private final RoleRepository roleRepository;

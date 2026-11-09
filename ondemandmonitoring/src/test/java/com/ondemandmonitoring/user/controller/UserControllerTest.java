@@ -6,7 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.mockito.Mockito.when;
 
-import com.ondemandmonitoring.role.domain.RoleCode;
+import com.ondemandmonitoring.role.enumeration.RoleCode;
 import com.ondemandmonitoring.user.dto.response.CustomerProfileResponse;
 import com.ondemandmonitoring.user.dto.response.UserProfileResponse;
 import com.ondemandmonitoring.user.service.IUserProfileService;

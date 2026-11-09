@@ -4,7 +4,7 @@ import com.ondemandmonitoring.common.api.PageResponse;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.auth.service.IAuthAccountSynchronizationService;
-import com.ondemandmonitoring.role.domain.RoleCode;
+import com.ondemandmonitoring.role.enumeration.RoleCode;
 import com.ondemandmonitoring.user.domain.User;
 import com.ondemandmonitoring.user.domain.CustomerProfile;
 import com.ondemandmonitoring.user.domain.UserIdentity;
@@ -19,7 +19,6 @@ import com.ondemandmonitoring.user.service.IUserManagementService;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import java.util.List;
 import java.util.Set;
-import java.util.UUID;
 
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;

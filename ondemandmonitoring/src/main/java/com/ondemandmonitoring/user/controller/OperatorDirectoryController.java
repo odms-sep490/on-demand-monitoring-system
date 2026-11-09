@@ -26,7 +26,7 @@ public class OperatorDirectoryController {
     IOperatorDirectoryService operatorDirectoryService;
 
     @Operation(summary = "Get available device operators", description = "Returns active device operator accounts")
-    @PreAuthorize("hasAnyRole('STAFF', 'DRONE_OPERATOR', 'SYSTEM_OPERATOR', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('MANAGER', 'STAFF', 'ADMIN')")
     @GetMapping("/available")
     public ResponseEntity<ApiResponse<List<AvailableOperatorResponse>>> getAvailableOperators(
             @RequestParam(required = false) String missionId) {

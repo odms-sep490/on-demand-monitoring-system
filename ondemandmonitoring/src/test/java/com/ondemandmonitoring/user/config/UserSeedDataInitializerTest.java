@@ -39,8 +39,7 @@ class UserSeedDataInitializerTest {
     private CustomerProfileRepository customerProfileRepository;
 
     @Test
-    void run_provisionsOnlyMissingCustomerProfile() throws Exception {
-        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class))).thenReturn(0);
+    void run_provisionsCompleteCustomerProfiles() throws Exception {
         when(roleRepository.findByCode(any())).thenAnswer(invocation -> Optional.of(
                 Role.builder()
                         .id(UUID.randomUUID())
@@ -57,8 +56,6 @@ class UserSeedDataInitializerTest {
             customer.setId(email);
             return Optional.of(customer);
         });
-        when(customerProfileRepository.existsById(anyString())).thenReturn(false);
-
         new UserSeedDataInitializer(
                 roleRepository, jdbcTemplate, userRepository, customerProfileRepository).run(null);
 
@@ -73,5 +70,35 @@ class UserSeedDataInitializerTest {
                         "seed.customer.3@odms.local",
                         "seed.customer.4@odms.local"
                 );
+        assertThat(profileCaptor.getAllValues())
+                .allSatisfy(profile -> {
+                    assertThat(profile.getPhoneNumber()).isNotBlank();
+                    assertThat(profile.getAddress()).isNotBlank();
+                    assertThat(profile.getCompanyName()).isNotBlank();
+                    assertThat(profile.getCitizenIdentificationNumber()).hasSize(12);
+                    assertThat(profile.getCompanyTaxCode()).isNotBlank();
+                });
+
+        verify(jdbcTemplate).update(org.mockito.ArgumentMatchers.argThat(sql ->
+                        sql.contains("ON CONFLICT DO NOTHING") && !sql.contains("UPDATE")),
+                eq("00000000-0000-0000-0000-000000000009"), eq("Seed Manager 2"),
+                any(UUID.class), eq("seed.manager.2@odms.local"));
+        verify(jdbcTemplate).update(org.mockito.ArgumentMatchers.argThat(sql ->
+                        sql.contains("ON CONFLICT DO NOTHING") && !sql.contains("UPDATE")),
+                eq("00000000-0000-0000-0000-000000000010"), eq("Seed Manager 3"),
+                any(UUID.class), eq("seed.manager.3@odms.local"));
+        verify(jdbcTemplate).update(org.mockito.ArgumentMatchers.argThat(sql ->
+                        sql.contains("ON CONFLICT DO NOTHING") && !sql.contains("UPDATE")),
+                eq("00000000-0000-0000-0000-000000000011"), eq("Seed Manager 4"),
+                any(UUID.class), eq("seed.manager.4@odms.local"));
+        verify(jdbcTemplate).update(org.mockito.ArgumentMatchers.argThat(sql ->
+                        sql.contains("ON CONFLICT DO NOTHING") && !sql.contains("UPDATE")),
+                eq("00000000-0000-0000-0000-000000000002"), eq("Seed Manager 1"),
+                any(UUID.class), eq("seed.manager@odms.local"));
+        verify(jdbcTemplate).update(org.mockito.ArgumentMatchers.argThat(sql ->
+                        sql.contains("ON CONFLICT DO NOTHING") && !sql.contains("UPDATE")),
+                eq("20000000-0000-0000-0000-000000000002"), eq("seed.manager@odms.local"),
+                eq("LOCAL"), eq("e9eab58c-00a1-705d-69b7-c74a17074053"),
+                eq("e9eab58c-00a1-705d-69b7-c74a17074053"));
     }
 }

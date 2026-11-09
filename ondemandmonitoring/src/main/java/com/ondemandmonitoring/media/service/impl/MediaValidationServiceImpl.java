@@ -1,4 +1,5 @@
 package com.ondemandmonitoring.media.service.impl;
+import com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard;
 
 import com.ondemandmonitoring.media.domain.*;
 import com.ondemandmonitoring.media.repository.*;
@@ -28,18 +29,16 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class MediaValidationServiceImpl implements IMediaValidationService {
 
-    static String AVAILABLE_EVENT = "CUSTOMER_MEDIA_AVAILABLE";
-    static String MANAGER_APPROVAL_EVENT = "MANAGER_MEDIA_PENDING_APPROVAL";
-
     MediaUploadAttemptRepository attempts;
     MediaAssetRepository media;
     StorageEventInboxRepository inbox;
     ManualUploadTaskRepository manualTasks;
+    ManualUploadTaskServiceImpl manualTaskService;
     IMediaAuditService auditService;
     MediaUploadPolicy policy;
-    MediaNotificationOutboxRepository outbox;
     IMediaObjectStorage storage;
     IMediaObjectVerificationService verification;
+    IMissionMediaEvidenceGuard missionLock;
 
     @Override
     @Transactional
@@ -59,6 +58,7 @@ public class MediaValidationServiceImpl implements IMediaValidationService {
             return;
         }
         // Lock aggregate first, then attempt; upload callbacks use the same order.
+        missionLock.lock(mediaId.get());
         MediaAsset captured = media.findByIdForUpdate(mediaId.get()).orElseThrow();
         Optional<MediaUploadAttempt> found = attempts.findByStorageKeyForUpdate(key);
 
@@ -68,6 +68,14 @@ public class MediaValidationServiceImpl implements IMediaValidationService {
         }
 
         MediaUploadAttempt attempt = found.get();
+        if (captured.getStorageStatus() == MediaStorageStatus.DELETED
+                || captured.getStorageStatus() == MediaStorageStatus.DELETE_PENDING
+                || "ORPHAN_CLEANUP".equals(attempt.getFailureCode())) {
+            // A PUT started before expiry can arrive late. Never resurrect a removed object.
+            storage.delete(bucket, key);
+            recordEvent(eventKey, bucket, key);
+            return;
+        }
         // SQS and reconciliation can wait on the same row concurrently.
         if (inbox.existsByEventKey(eventKey)) {
             return;
@@ -94,8 +102,10 @@ public class MediaValidationServiceImpl implements IMediaValidationService {
             attempt.setCompletedAt(Instant.now());
             attempts.save(attempt);
             captured.setValidationError(failure);
-            if (policy.failureStatus(attempt.isManualAttempt(),
-                    attempts.countByMediaIdAndManualAttemptFalse(captured.getId()))
+            // A manual attempt always escalates. An automatic attempt escalates only once the
+            // explicit tally of FAILED non-manual attempts is exhausted; prepares and abandoned
+            // retries stay PENDING and can never contribute.
+            if (policy.failureStatus(attempt.isManualAttempt(), failedAutomaticAttempts(captured.getId()))
                     == MediaStatus.MANUAL_UPLOAD_REQUIRED) {
                 requireManualUpload(captured, failure);
             } else {
@@ -117,10 +127,12 @@ public class MediaValidationServiceImpl implements IMediaValidationService {
         Instant now = Instant.now();
         captured.setS3Key(finalKey);
         captured.setS3Url("s3://" + bucket + "/" + finalKey);
-        captured.setMediaStatus(MediaStatus.PENDING_MANAGER_APPROVAL);
+        // Technical validation makes the media available to the inspector immediately.
+        // Manager approval happens once for the complete mission result, not per file.
+        captured.setMediaStatus(MediaStatus.AVAILABLE);
         captured.setValidationError(null);
         captured.setValidatedAt(now);
-        captured.setAvailableAt(null);
+        captured.setAvailableAt(now);
         attempt.setStatus(UploadAttemptStatus.SUCCEEDED);
         attempt.setCompletedAt(now);
         attempts.save(attempt);
@@ -130,14 +142,6 @@ public class MediaValidationServiceImpl implements IMediaValidationService {
             task.setResolvedAt(now);
             manualTasks.save(task);
         });
-
-        if (!outbox.existsByMediaIdAndEventType(captured.getId(), MANAGER_APPROVAL_EVENT)) {
-            MediaNotificationOutbox notification = new MediaNotificationOutbox();
-            notification.setMedia(captured);
-            notification.setMissionId(captured.getMissionId());
-            notification.setEventType(MANAGER_APPROVAL_EVENT);
-            outbox.save(notification);
-        }
 
         audit(captured, attempt, MediaAuditAction.AVAILABLE, null);
         recordEvent(eventKey, bucket, key);
@@ -152,16 +156,15 @@ public class MediaValidationServiceImpl implements IMediaValidationService {
         }
     }
 
+    private long failedAutomaticAttempts(String mediaId) {
+        return attempts.countByMediaIdAndManualAttemptFalseAndStatus(
+                mediaId, UploadAttemptStatus.FAILED);
+    }
+
     private void requireManualUpload(MediaAsset captured, String reason) {
         captured.setMediaStatus(MediaStatus.MANUAL_UPLOAD_REQUIRED);
-        ManualUploadTask task = manualTasks.findByMediaId(captured.getId()).orElseGet(() -> {
-            ManualUploadTask created = new ManualUploadTask();
-            created.setMedia(captured);
-            created.setAssignedOperatorId(captured.getOperatorId());
-            return created;
-        });
-        task.setReason(reason);
-        manualTasks.save(task);
+        // Shared with the transfer-failure path so both always produce a visible OPEN task.
+        manualTaskService.requireOpen(captured, reason);
     }
 
     private void audit(MediaAsset captured, MediaUploadAttempt attempt,

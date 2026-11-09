@@ -1,0 +1,769 @@
+package com.ondemandmonitoring.finance.service.impl;
+
+import com.ondemandmonitoring.common.exception.ApiException;
+import com.ondemandmonitoring.common.exception.ErrorCode;
+import com.ondemandmonitoring.finance.config.PaymentProperties;
+import com.ondemandmonitoring.finance.domain.*;
+import com.ondemandmonitoring.finance.dto.*;
+import com.ondemandmonitoring.finance.enums.*;
+import com.ondemandmonitoring.finance.repository.InvoiceRepository;
+import com.ondemandmonitoring.finance.repository.QuoteRepository;
+import com.ondemandmonitoring.finance.mapper.FinanceMapper;
+import com.ondemandmonitoring.finance.service.IQuoteService;
+import com.ondemandmonitoring.finance.event.QuoteApprovedEvent;
+import com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService;
+import com.ondemandmonitoring.mission.domain.Mission;
+import com.ondemandmonitoring.mission.enums.MissionStatus;
+import com.ondemandmonitoring.mission.repository.MissionRepository;
+import com.ondemandmonitoring.mission.service.IMissionChecklistExecutionService;
+import com.ondemandmonitoring.order.domain.Order;
+import com.ondemandmonitoring.order.domain.ChecklistGuidanceContent;
+import com.ondemandmonitoring.order.domain.OrderChecklistItem;
+import com.ondemandmonitoring.order.dto.response.OrderChecklistItemResponse;
+import com.ondemandmonitoring.order.enums.ChecklistReviewStatus;
+import com.ondemandmonitoring.order.enums.ChecklistPricingStatus;
+import com.ondemandmonitoring.order.enums.OrderStatus;
+import com.ondemandmonitoring.order.enums.LegalReviewStatus;
+import com.ondemandmonitoring.order.enums.OrderChecklistSourceType;
+import com.ondemandmonitoring.order.mapper.OrderChecklistItemMapper;
+import com.ondemandmonitoring.order.repository.OrderChecklistItemRepository;
+import com.ondemandmonitoring.order.repository.OrderRepository;
+import com.ondemandmonitoring.review.service.IOrderReadinessService;
+import com.ondemandmonitoring.user.domain.User;
+import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
+import com.ondemandmonitoring.pricing.domain.PricingPolicy;
+import com.ondemandmonitoring.pricing.domain.ChecklistPricingAudit;
+import com.ondemandmonitoring.pricing.dto.*;
+import com.ondemandmonitoring.pricing.enums.*;
+import com.ondemandmonitoring.pricing.repository.PricingPolicyRepository;
+import com.ondemandmonitoring.pricing.repository.ChecklistPricingAuditRepository;
+import com.ondemandmonitoring.pricing.service.PricingEngine;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.*;
+import java.util.*;
+import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+@RequiredArgsConstructor
+public class QuoteService implements IQuoteService {
+    private static final BigDecimal ZERO = BigDecimal.ZERO.setScale(0);
+    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
+    private final OrderRepository orders;
+    private final OrderChecklistItemRepository checklistItems;
+    private final OrderChecklistItemMapper checklistMapper;
+    private final QuoteRepository quotes;
+    private final InvoiceRepository invoices;
+    private final MissionRepository missions;
+    private final IMissionChecklistExecutionService checklistExecutionService;
+    private final AuthenticatedUserResolver currentUser;
+    private final PaymentProperties paymentProperties;
+    private final CommercialExpirationSettingsService expirationSettings;
+    private final FinalPaymentDeadlineService finalPaymentDeadlines;
+    private final IMissionPaymentEligibilityService paymentEligibility;
+    private final IOrderReadinessService readiness;
+    private final PricingEngine pricingEngine;
+    private final PricingPolicyRepository pricingPolicies;
+    private final ChecklistPricingAuditRepository pricingAudits;
+    private final ApplicationEventPublisher eventPublisher;
+    private final Clock clock;
+
+    @Transactional(readOnly = true)
+    public PricingReviewResponse getPricingReview(String orderId) {
+        Order order = orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        String blockedReason = guidanceOrderBlockedReason(order);
+        boolean manager = isManager(currentUser.getCurrentUser());
+        List<OrderChecklistItemResponse> items = checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId)
+                .stream().map(item -> guidanceResponse(order, item, manager, blockedReason)).toList();
+        List<QuoteResponse> history = quotes.findHistory(orderId).stream().map(FinanceMapper::quote).toList();
+        long effectiveOrderRev = order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision();
+        QuoteResponse current = history.stream().filter(q -> (q.status() == QuoteStatus.DRAFT
+                || q.status() == QuoteStatus.APPROVED || q.status() == QuoteStatus.PENDING_REVIEW) && q.checklistRevision() == effectiveOrderRev).findFirst().orElse(null);
+        PricingBreakdown calculation = pricingEngine.calculate(order,
+                checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId));
+        Optional<PricingPolicy> policy = pricingPolicies.findById(calculation.policyId());
+        // New orders have no package line: the checklists are the whole price.
+        BigDecimal basePackagePrice = calculation.items().stream().filter(i -> i.category() == PricingCategory.PACKAGE)
+                .map(PricingBreakdownItem::amount).findFirst().orElse(ZERO);
+        return new PricingReviewResponse(orderId, order.getOrderCode(), order.getCustomer().getFullName(),
+                order.getService().getName(), basePackagePrice, items, current, history, calculation,
+                currentUser.getCurrentUserId(),
+                policy.map(PricingPolicy::getManagerMaxDiscountPercent).orElse(null),
+                policy.map(PricingPolicy::getManagerMaxMarkupPercent).orElse(null),
+                effectiveOrderRev);
+    }
+
+    @Transactional
+    public OrderChecklistItemResponse saveChecklistGuidance(String orderId, String itemId,
+            ChecklistGuidanceRequest request) {
+        User actor = currentUser.getCurrentUser();
+        if (!isManager(actor)) throw new ApiException(ErrorCode.ACCESS_DENIED);
+        Order order = orders.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        String blockedReason = guidanceOrderBlockedReason(order);
+        if (blockedReason != null) throw new ApiException(ErrorCode.CHECKLIST_GUIDANCE_EDIT_BLOCKED, blockedReason);
+        if (request.expectedChecklistRevision() == null
+                || request.expectedChecklistRevision() != effectiveRevision(order))
+            throw new ApiException(ErrorCode.STALE_PRICING_REVISION);
+        // Acquire quote locks before reading/changing the item, always after the order lock.
+        List<Quote> active = lockActiveQuotes(orderId);
+        OrderChecklistItem item = checklistItems.findByIdAndOrderId(itemId, orderId)
+                .orElseThrow(() -> new ApiException(ErrorCode.CHECKLIST_NOT_FOUND));
+        if (item.getChecklistRevision() != effectiveRevision(order))
+            throw new ApiException(ErrorCode.STALE_PRICING_REVISION);
+        if (item.getSourceType() != OrderChecklistSourceType.CUSTOMER_CUSTOM)
+            throw new ApiException(ErrorCode.CHECKLIST_GUIDANCE_INVALID, "Only customer custom checklist guidance can be edited");
+        if (request.expectedGuidanceVersion() == null || request.expectedGuidanceVersion() != item.getGuidanceVersion())
+            throw new ApiException(ErrorCode.STALE_GUIDANCE_VERSION);
+        ChecklistGuidanceContent content = ChecklistGuidanceContent.normalize(request.description(),
+                request.executionSteps(), request.inputRequirements(), request.expectedOutputs());
+        if (request.confirm() && !ChecklistGuidanceContent.isComplete(content))
+            throw new ApiException(ErrorCode.CHECKLIST_GUIDANCE_INCOMPLETE,
+                    "itemId=" + itemId + "; missingSections=" + ChecklistGuidanceContent.missingSections(content));
+        boolean changed = !content.equals(ChecklistGuidanceContent.normalize(item.getCustomGuidance()));
+        boolean confirmed = request.confirm() && !Objects.equals(item.getGuidanceConfirmedVersion(), item.getGuidanceVersion());
+        if (changed) {
+            item.setCustomGuidance(content);
+            item.setGuidanceVersion(Math.incrementExact(item.getGuidanceVersion()));
+            item.setGuidanceConfirmedVersion(null);
+            supersedeQuotes(active);
+        }
+        if (request.confirm()) item.setGuidanceConfirmedVersion(item.getGuidanceVersion());
+        if (changed || confirmed) {
+            item.setGuidanceUpdatedBy(actor);
+            item.setGuidanceUpdatedAt(Instant.now());
+        }
+        return guidanceResponse(order, item, true, null);
+    }
+
+    private List<Quote> lockActiveQuotes(String orderId) {
+        return quotes.findHistory(orderId).stream()
+                .filter(q -> isActiveUnaccepted(q.getStatus()))
+                .sorted(Comparator.comparing(Quote::getId))
+                .map(q -> quotes.findByIdForUpdate(q.getId()).orElseThrow(() -> new ApiException(ErrorCode.QUOTE_NOT_FOUND)))
+                .toList();
+    }
+
+    private void supersedeQuotes(List<Quote> active) {
+        for (Quote quote : active) {
+            quote.setStatus(QuoteStatus.SUPERSEDED);
+            quote.setApprovedBy(null); quote.setApprovedAt(null);
+            quote.setPricingApprovedBy(null); quote.setPricingApprovedAt(null);
+            quote.setPricingApprovalNote(null); quote.setPricingApprovalStatus(PricingApprovalStatus.NOT_REQUIRED);
+        }
+    }
+
+    private boolean isActiveUnaccepted(QuoteStatus status) {
+        return status == QuoteStatus.DRAFT || status == QuoteStatus.PENDING_REVIEW || status == QuoteStatus.APPROVED;
+    }
+
+    private boolean isManager(User user) {
+        return user != null && user.getRole() != null && user.getRole().getCode() != null
+                && (user.getRole().getCode().name().equals("MANAGER") || user.getRole().getCode().name().equals("ADMIN"));
+    }
+
+    private long effectiveRevision(Order order) {
+        return order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision();
+    }
+
+    private String guidanceOrderBlockedReason(Order order) {
+        if (order.getOrderStatus() == OrderStatus.REJECTED || order.getOrderStatus() == OrderStatus.CANCELLED
+                || order.getOrderStatus() == OrderStatus.COMPLETED || order.getOrderStatus() == OrderStatus.IN_PROGRESS)
+            return "ORDER_TERMINAL_OR_EXECUTING";
+        if (invoices.findByOrderId(order.getId()).isPresent()) return "ORDER_INVOICED";
+        if (quotes.findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc(order.getId(),
+                List.of(QuoteStatus.ACCEPTED_BY_CUSTOMER)).isPresent()) return "QUOTE_ACCEPTED";
+        if (missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc(order.getId()).stream()
+                .anyMatch(mission -> mission.getStatus() != MissionStatus.PLANNING && mission.getStatus() != MissionStatus.CANCELLED))
+            return "MISSION_EXECUTING";
+        return null;
+    }
+
+    private OrderChecklistItemResponse guidanceResponse(Order order, OrderChecklistItem item,
+            boolean manager, String orderBlockedReason) {
+        OrderChecklistItemResponse response = checklistMapper.toResponse(item);
+        if (response == null) return null;
+        String reason = !manager ? "ACCESS_DENIED" : orderBlockedReason;
+        if (reason == null && item.getChecklistRevision() != effectiveRevision(order)) reason = "STALE_CHECKLIST_REVISION";
+        if (reason == null && item.getSourceType() != OrderChecklistSourceType.CUSTOMER_CUSTOM) reason = "CATALOG_GUIDANCE";
+        response.setCanEditGuidance(reason == null);
+        response.setGuidanceBlockedReason(reason);
+        return response;
+    }
+
+    private List<OrderChecklistItem> effectiveCustomItems(Order order, List<OrderChecklistItem> items) {
+        return items.stream().filter(item -> item.getChecklistRevision() == effectiveRevision(order))
+                .filter(item -> item.getSourceType() == OrderChecklistSourceType.CUSTOMER_CUSTOM)
+                .filter(item -> item.getReviewStatus() != ChecklistReviewStatus.REJECTED
+                        && item.getReviewStatus() != ChecklistReviewStatus.DUPLICATE)
+                .sorted(Comparator.comparing(OrderChecklistItem::getId)).toList();
+    }
+
+    private ChecklistGuidanceSnapshot guidanceSnapshot(Order order, List<OrderChecklistItem> items) {
+        return new ChecklistGuidanceSnapshot(1, effectiveCustomItems(order, items).stream().map(item -> {
+            ChecklistGuidanceContent content = ChecklistGuidanceContent.normalize(item.getCustomGuidance());
+            return new ChecklistGuidanceSnapshot.Item(item.getId(), item.getChecklistRevision(), item.getGuidanceVersion(),
+                    content.description(), content.executionSteps(), content.inputRequirements(), content.expectedOutputs());
+        }).toList());
+    }
+
+    private void requireGuidanceSnapshot(Order order, Quote quote, List<OrderChecklistItem> items) {
+        List<OrderChecklistItem> custom = effectiveCustomItems(order, items);
+        // Catalog-only legacy quotes have no custom guidance scope to rebuild.
+        if (custom.isEmpty() && quote.getChecklistGuidanceSnapshot() == null) return;
+        if (quote.getChecklistGuidanceSnapshot() == null)
+            throw new ApiException(ErrorCode.QUOTE_GUIDANCE_SNAPSHOT_STALE, "Rebuild this quote to include custom guidance");
+        List<String> missing = custom.stream().filter(item -> !item.isGuidanceReady())
+                .map(item -> "itemId=" + item.getId() + "; missingSections="
+                        + ChecklistGuidanceContent.missingSections(item.getCustomGuidance())
+                        + (Objects.equals(item.getGuidanceConfirmedVersion(), item.getGuidanceVersion()) ? "" : "; confirmationRequired=true"))
+                .toList();
+        if (!missing.isEmpty()) throw new ApiException(ErrorCode.CHECKLIST_GUIDANCE_INCOMPLETE, String.join(" | ", missing));
+        if (!guidanceSnapshot(order, items).equals(quote.getChecklistGuidanceSnapshot()))
+            throw new ApiException(ErrorCode.QUOTE_GUIDANCE_SNAPSHOT_STALE);
+    }
+
+    @Transactional
+    public OrderChecklistItemResponse reviewChecklist(String orderId, String itemId, ChecklistReviewRequest request) {
+        Order order = orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        // Review status changes the quoted scope, so it shares guidance's edit restrictions and invalidation.
+        String blockedReason = guidanceOrderBlockedReason(order);
+        if (blockedReason != null) throw new ApiException(ErrorCode.CHECKLIST_GUIDANCE_EDIT_BLOCKED, blockedReason);
+        List<Quote> active = lockActiveQuotes(orderId);
+        long effectiveOrderRev = order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision();
+        if (request.expectedChecklistRevision() != null && request.expectedChecklistRevision() != effectiveOrderRev && request.expectedChecklistRevision() != order.getChecklistRevision()) {
+            throw new ApiException(ErrorCode.STALE_PRICING_REVISION);
+        }
+        OrderChecklistItem item = checklistItems.findByIdAndOrderId(itemId, orderId)
+                .orElseThrow(() -> new ApiException(ErrorCode.CHECKLIST_NOT_FOUND));
+        if (item.getChecklistRevision() != effectiveOrderRev) {
+            throw new ApiException(ErrorCode.STALE_PRICING_REVISION);
+        }
+        if (item.getSourceType() == OrderChecklistSourceType.SERVICE_TEMPLATE) {
+            throw new ApiException(ErrorCode.ORDER_CHECKLIST_REVIEW_INVALID,
+                    "A service-package checklist is included and priced automatically");
+        }
+        if (request.status() == ChecklistReviewStatus.PENDING) {
+            throw new ApiException(ErrorCode.ORDER_CHECKLIST_REVIEW_INVALID, "Manager must choose a final review status");
+        }
+        if (request.status() == ChecklistReviewStatus.INCLUDED) {
+            throw new ApiException(ErrorCode.ORDER_CHECKLIST_REVIEW_INVALID,
+                    "Customer-added work cannot be included without a pricing override approval");
+        }
+        if (request.status() == ChecklistReviewStatus.REJECTED && trimToNull(request.managerNote()) == null) {
+            throw new ApiException(ErrorCode.ORDER_CHECKLIST_REVIEW_INVALID,
+                    "A rejection reason is required");
+        }
+        String note = trimToNull(request.managerNote());
+        if (item.getReviewStatus() == request.status() && Objects.equals(item.getManagerNote(), note))
+            return guidanceResponse(order, item, isManager(currentUser.getCurrentUser()), null);
+        supersedeQuotes(active);
+        item.setReviewStatus(request.status());
+        item.setManagerNote(note);
+        if (request.status() == ChecklistReviewStatus.DUPLICATE) {
+            item.setPricingStatus(ChecklistPricingStatus.DUPLICATE);
+            item.setManagerApprovedAmount(ZERO);
+            item.setFinalAmount(ZERO);
+        } else if (request.status() == ChecklistReviewStatus.REJECTED) {
+            item.setPricingStatus(ChecklistPricingStatus.REJECTED);
+            item.setManagerApprovedAmount(ZERO);
+            item.setFinalAmount(ZERO);
+        } else {
+            item.setPricingStatus(ChecklistPricingStatus.NEEDS_MANAGER_REVIEW);
+        }
+        return guidanceResponse(order, item, isManager(currentUser.getCurrentUser()), null);
+    }
+
+    @Transactional
+    public QuoteResponse saveDraft(String orderId, QuoteDraftRequest request) {
+        Order order = orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        if (guidanceOrderBlockedReason(order) != null) {
+            throw new ApiException(ErrorCode.QUOTE_PRICING_INVALID, "Order can no longer be priced");
+        }
+        List<OrderChecklistItem> reviewed = checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId);
+        normalizeServiceTemplateReviews(reviewed);
+        List<String> pendingReviews = reviewed.stream()
+                .filter(item -> item.getSourceType() != OrderChecklistSourceType.SERVICE_TEMPLATE)
+                .filter(item -> item.getReviewStatus() == null || item.getReviewStatus() == ChecklistReviewStatus.PENDING)
+                .map(OrderChecklistItem::getContent).toList();
+        if (!pendingReviews.isEmpty()) {
+            throw new ApiException(ErrorCode.ORDER_CHECKLIST_REVIEW_INVALID,
+                    "Review every customer-added checklist before saving the quote: " + String.join("; ", pendingReviews));
+        }
+        validateMoney(request.adjustmentAmount(), "adjustmentAmount", true);
+        PricingBreakdown calculation = pricingEngine.calculate(order, reviewed);
+        if (!calculation.pendingQuoteItems().isEmpty())
+            throw new ApiException(ErrorCode.CUSTOM_WORK_PRICING_INCOMPLETE,
+                    "Complete the structured assessment before pricing these custom checklist items: "
+                            + String.join("; ", calculation.pendingQuoteItems()));
+        // The Manager priced against the policy on screen; if an Admin published a newer one meanwhile, nothing is saved.
+        if (request.expectedPolicyVersion() != null && request.expectedPolicyVersion() != calculation.policyVersion())
+            throw new ApiException(ErrorCode.STALE_PRICING_POLICY);
+        long effectiveOrderRev = order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision();
+        if (request.expectedChecklistRevision() != null && request.expectedChecklistRevision() != effectiveOrderRev && request.expectedChecklistRevision() != order.getChecklistRevision())
+            throw new ApiException(ErrorCode.STALE_PRICING_REVISION);
+        Map<String, BigDecimal> systemChecklistPrices = checklistSystemPrices(calculation);
+        PricingPolicy policy = pricingPolicies.findById(calculation.policyId())
+                .orElseThrow(() -> new ApiException(ErrorCode.PRICING_POLICY_NOT_FOUND));
+        applyManagerQuotes(reviewed, request.additionalUnitPrices(), systemChecklistPrices,
+                trimToNull(request.adjustmentReason()), policy);
+
+        Optional<Quote> active = quotes.findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc(orderId,
+                List.of(QuoteStatus.DRAFT, QuoteStatus.PENDING_REVIEW, QuoteStatus.APPROVED));
+        if (active.isPresent() && request.expectedPricingRevision() != null
+                && request.expectedPricingRevision() != active.get().getPricingRevision())
+            throw new ApiException(ErrorCode.STALE_PRICING_REVISION);
+        long nextPricingRevision = active.map(Quote::getPricingRevision).orElse(0L) + 1;
+        Quote quote;
+        if (active.isPresent() && active.get().getStatus() == QuoteStatus.DRAFT && active.get().getChecklistRevision() == effectiveOrderRev) {
+            quote = quotes.findByIdForUpdate(active.get().getId()).orElseThrow();
+        } else {
+            active.ifPresent(previous -> {
+                previous.setStatus(QuoteStatus.SUPERSEDED);
+                quotes.saveAndFlush(previous);
+            });
+            quote = new Quote();
+            quote.setOrder(order);
+            quote.setQuoteVersion(quotes.countByOrderId(orderId) + 1);
+            quote.setStatus(QuoteStatus.DRAFT);
+        }
+
+        BigDecimal checklistAdjustment = reviewed.stream()
+                .filter(item -> item.getReviewStatus() == ChecklistReviewStatus.ADDITIONAL)
+                .filter(item -> item.getSourceType() != OrderChecklistSourceType.SERVICE_TEMPLATE)
+                .map(item -> item.getManagerQuotedPrice().subtract(systemChecklistPrices.getOrDefault(item.getId(), ZERO)))
+                .reduce(ZERO, BigDecimal::add);
+        BigDecimal adjustment = vnd(request.adjustmentAmount()).add(checklistAdjustment);
+        String reason = trimToNull(request.adjustmentReason());
+        if (adjustment.signum() != 0 && (reason == null || reason.length() < 10))
+            throw new ApiException(ErrorCode.PRICING_ADJUSTMENT_REASON_REQUIRED);
+        List<PricingRiskFlag> risks = evaluateGuardrails(policy, calculation.systemCalculatedAmount(), adjustment,
+                calculation.customWork(), orderId);
+        List<QuoteItem> lines = buildLines(calculation, vnd(request.adjustmentAmount()), reviewed,
+                systemChecklistPrices);
+        BigDecimal packagePrice = lines.stream().filter(l -> l.getType() == QuoteItemType.PACKAGE)
+                .map(QuoteItem::getAmount).findFirst().orElse(ZERO);
+        BigDecimal discount = lines.stream().filter(l -> l.getType() == QuoteItemType.DISCOUNT)
+                .map(QuoteItem::getAmount).reduce(ZERO, BigDecimal::add).abs();
+        BigDecimal additional = calculation.systemCalculatedAmount().subtract(packagePrice).add(discount);
+        BigDecimal total = calculation.systemCalculatedAmount().add(adjustment);
+
+        quote.setPackagePrice(packagePrice);
+        quote.setAdditionalAmount(additional);
+        quote.setDiscountAmount(discount);
+        quote.setAdjustmentAmount(adjustment);
+        quote.setManagerAdjustmentAmount(adjustment);
+        quote.setSystemCalculatedAmount(calculation.systemCalculatedAmount());
+        quote.setPricingPolicyId(calculation.policyId());
+        quote.setPricingPolicyVersion(calculation.policyVersion());
+        quote.setTotalAmount(total);
+        quote.setManagerNote(trimToNull(request.managerNote()));
+        quote.setAdjustmentReason(reason);
+        quote.setAdjustmentType(adjustment.signum() == 0 ? null
+                : Optional.ofNullable(request.adjustmentType()).orElse(PricingAdjustmentType.CORRECTION));
+        quote.setPricingRiskFlags(risks);
+        quote.setPricingRevision(nextPricingRevision);
+        quote.setChecklistRevision(effectiveOrderRev);
+        quote.setChecklistGuidanceSnapshot(guidanceSnapshot(order, reviewed));
+        quote.setPricingApprovedBy(null); quote.setPricingApprovedAt(null); quote.setPricingApprovalNote(null);
+        if (adjustment.signum() == 0) {
+            quote.setPricingApprovalStatus(PricingApprovalStatus.NOT_REQUIRED);
+            quote.setAdjustmentRequestedBy(null); quote.setAdjustmentRequestedAt(null);
+            quote.setStatus(QuoteStatus.DRAFT);
+        } else {
+            // A single Manager owns this review. Guardrails above are authoritative; there is no second-manager hop.
+            quote.setPricingApprovalStatus(PricingApprovalStatus.APPROVED);
+            quote.setAdjustmentRequestedBy(currentUser.getCurrentUser()); quote.setAdjustmentRequestedAt(Instant.now());
+            quote.setPricingApprovedBy(currentUser.getCurrentUser()); quote.setPricingApprovedAt(Instant.now());
+            quote.setStatus(QuoteStatus.DRAFT);
+        }
+        quote.replaceItems(lines);
+        return FinanceMapper.quote(quotes.saveAndFlush(quote));
+    }
+
+    @Transactional
+    public QuoteResponse approve(String orderId, String quoteId) {
+        Order order = orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        Quote quote = quotes.findByIdForUpdate(quoteId).orElseThrow(() -> new ApiException(ErrorCode.QUOTE_NOT_FOUND));
+        if (!quote.getOrder().getId().equals(orderId) || quote.getStatus() != QuoteStatus.DRAFT
+                || quote.getChecklistRevision() != (order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision())) {
+            throw new ApiException(ErrorCode.QUOTE_NOT_CURRENT);
+        }
+        if (quote.getPricingApprovalStatus() != PricingApprovalStatus.NOT_REQUIRED
+                && quote.getPricingApprovalStatus() != PricingApprovalStatus.APPROVED)
+            throw new ApiException(ErrorCode.QUOTE_HAS_UNAPPROVED_PRICING);
+        List<OrderChecklistItem> reviewed = checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId);
+        normalizeServiceTemplateReviews(reviewed);
+        if (reviewed.stream()
+                .anyMatch(item -> item.getReviewStatus() == null || item.getReviewStatus() == ChecklistReviewStatus.PENDING)) {
+            throw new ApiException(ErrorCode.ORDER_CHECKLIST_REVIEW_INVALID);
+        }
+        requireGuidanceSnapshot(order, quote, reviewed);
+        // Approval criteria: automatic checks + the manager's own answers.
+        readiness.requireApprovable(orderId);
+        Instant issuedAt = Instant.now(clock);
+        User approver = currentUser.getCurrentUser();
+        quote.setStatus(QuoteStatus.APPROVED);
+        quote.setApprovedBy(approver);
+        quote.setApprovedAt(issuedAt);
+        quote.setExpiresAt(issuedAt.plus(expirationSettings.current().quotationAcceptanceTimeout()));
+        writeChecklistPricingAudits(quote, reviewed);
+        reviewed.stream().filter(this::requiresManagerPrice).forEach(item -> {
+            BigDecimal system = Optional.ofNullable(item.getSystemCalculatedPrice()).orElse(ZERO);
+            BigDecimal approved = Optional.ofNullable(item.getManagerQuotedPrice()).orElse(system);
+            item.setPricingStatus(approved.compareTo(system) == 0
+                    ? ChecklistPricingStatus.APPROVED : ChecklistPricingStatus.ADJUSTED_AND_APPROVED);
+        });
+        markOrderApprovedAfterQuote(order, approver, issuedAt);
+        eventPublisher.publishEvent(new QuoteApprovedEvent(
+                order.getCustomer().getId(), orderId, quoteId, issuedAt));
+        return FinanceMapper.quote(quote);
+    }
+
+    @Transactional
+    public QuoteResponse decidePricingAdjustment(String orderId, String quoteId, PricingApprovalRequest request) {
+        Order order = orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        Quote quote = quotes.findByIdForUpdate(quoteId).orElseThrow(() -> new ApiException(ErrorCode.QUOTE_NOT_FOUND));
+        if (!quote.getOrder().getId().equals(orderId) || quote.getStatus() != QuoteStatus.PENDING_REVIEW
+                || quote.getPricingApprovalStatus() != PricingApprovalStatus.PENDING_SECOND_MANAGER
+                || quote.getChecklistRevision() != (order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision()))
+            throw new ApiException(ErrorCode.QUOTE_NOT_CURRENT);
+        if (request.pricingRevision() != quote.getPricingRevision())
+            throw new ApiException(ErrorCode.STALE_PRICING_REVISION);
+        User approver = currentUser.getCurrentUser();
+        if (quote.getAdjustmentRequestedBy() != null
+                && Objects.equals(quote.getAdjustmentRequestedBy().getId(), approver.getId()))
+            throw new ApiException(ErrorCode.PRICING_SELF_APPROVAL_NOT_ALLOWED);
+        Instant reviewedAt = Instant.now(clock);
+        quote.setPricingApprovedBy(approver); quote.setPricingApprovedAt(reviewedAt);
+        quote.setPricingApprovalNote(trimToNull(request.note()));
+        if (!request.approved()) {
+            quote.setPricingApprovalStatus(PricingApprovalStatus.REJECTED);
+            quote.setStatus(QuoteStatus.REJECTED);
+            return FinanceMapper.quote(quote);
+        }
+        requireGuidanceSnapshot(order, quote, checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId));
+        readiness.requireApprovable(orderId);
+        quote.setPricingApprovalStatus(PricingApprovalStatus.APPROVED);
+        Instant issuedAt = reviewedAt;
+        quote.setStatus(QuoteStatus.APPROVED); quote.setApprovedBy(approver); quote.setApprovedAt(issuedAt);
+        quote.setExpiresAt(issuedAt.plus(expirationSettings.current().quotationAcceptanceTimeout()));
+        markOrderApprovedAfterQuote(order, approver, issuedAt);
+        eventPublisher.publishEvent(new QuoteApprovedEvent(
+                order.getCustomer().getId(), orderId, quoteId, issuedAt));
+        return FinanceMapper.quote(quote);
+    }
+
+    private void markOrderApprovedAfterQuote(Order order, User approver, Instant approvedAt) {
+        OrderStatus status = order.getOrderStatus();
+        if (status != OrderStatus.PENDING && status != OrderStatus.UNDER_REVIEW) return;
+
+        order.setOrderStatus(OrderStatus.APPROVED);
+        order.setReviewBy(approver);
+        order.setReviewAt(approvedAt);
+    }
+
+    @Transactional(readOnly = true)
+    public CustomerQuoteResponse getCurrentForCustomer(String orderId) {
+        assertOwner(orderId);
+        return quotes.findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc(orderId,
+                        List.of(QuoteStatus.APPROVED, QuoteStatus.ACCEPTED_BY_CUSTOMER))
+                .or(() -> quotes.findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc(orderId, List.of(QuoteStatus.EXPIRED)))
+                .filter(q -> q.getStatus() == QuoteStatus.ACCEPTED_BY_CUSTOMER || q.getStatus() == QuoteStatus.EXPIRED
+                        || (orderForCustomerQuote(orderId).getOrderStatus() == OrderStatus.APPROVED
+                            && q.getChecklistRevision() == effectiveRevForOrder(orderId)))
+                .map(quote -> {
+                    if (quote.getStatus() != QuoteStatus.ACCEPTED_BY_CUSTOMER)
+                        requireGuidanceSnapshot(orderForCustomerQuote(orderId), quote,
+                                checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId));
+                    return FinanceMapper.customerQuote(quote);
+                }).orElseThrow(() -> new ApiException(ErrorCode.QUOTE_NOT_FOUND));
+    }
+
+    @Transactional
+    public InvoiceResponse accept(String orderId, String quoteId) {
+        Order order = orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        assertOwner(order);
+        requireLegalReady(order);
+        Quote quote = quotes.findByIdForUpdate(quoteId).orElseThrow(() -> new ApiException(ErrorCode.QUOTE_NOT_FOUND));
+        if (!quote.getOrder().getId().equals(orderId)) throw new ApiException(ErrorCode.QUOTE_NOT_CURRENT);
+        if (quote.getStatus() == QuoteStatus.ACCEPTED_BY_CUSTOMER) {
+            return invoices.findByQuoteId(quoteId).map(this::invoiceResponse)
+                    .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
+        }
+        Quote current = quotes.findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc(orderId, List.of(QuoteStatus.APPROVED))
+                .orElseThrow(() -> new ApiException(ErrorCode.QUOTE_NOT_APPROVED));
+        if (!current.getId().equals(quoteId)
+                || current.getChecklistRevision() != (order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision()))
+            throw new ApiException(ErrorCode.QUOTE_NOT_CURRENT);
+
+        Instant now = Instant.now(clock);
+        if (quote.getExpiresAt() != null && !now.isBefore(quote.getExpiresAt()))
+            throw new ApiException(ErrorCode.QUOTE_NOT_APPROVED, "Quotation has expired");
+
+        if (quote.getStatus() != QuoteStatus.APPROVED || order.getOrderStatus() != OrderStatus.APPROVED)
+            throw new ApiException(ErrorCode.QUOTE_NOT_APPROVED);
+        requireGuidanceSnapshot(order, quote, checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId));
+        quote.setStatus(QuoteStatus.ACCEPTED_BY_CUSTOMER);
+        quote.setAcceptedAt(now);
+        // Deposit progress belongs to the invoice. Accepting a quote leaves the order approved;
+        // mission creation is gated by the invoice's deposit status.
+        Invoice invoice = new Invoice();
+        invoice.setInvoiceNumber("INV-" + LocalDate.now(BUSINESS_ZONE).getYear() + "-"
+                + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
+        invoice.setOrder(order);
+        invoice.setQuote(quote);
+        invoice.setTotalAmount(quote.getTotalAmount());
+        invoice.setDepositAmount(quote.getTotalAmount().multiply(paymentProperties.depositRate()).setScale(0, RoundingMode.HALF_UP));
+        invoice.setPaidAmount(ZERO);
+        invoice.setRemainingAmount(quote.getTotalAmount());
+        invoice.setStatus(InvoiceStatus.ISSUED);
+        invoice.setDepositStatus(DepositStatus.WAITING_DEPOSIT);
+        invoice.setIssuedAt(now);
+        invoice.setDepositExpiresAt(now.plus(expirationSettings.current().depositPaymentTimeout()));
+        Invoice saved = invoices.save(invoice);
+        return invoiceResponse(saved);
+    }
+
+    private static void requireLegalReady(Order order) {
+        // PENDING_PERMIT: the manager may proceed on experience while the permit is verified outside the system.
+        if (order.getFlightAreaReview().getLegalReviewStatus() != LegalReviewStatus.NOT_REQUIRED
+                && order.getFlightAreaReview().getLegalReviewStatus() != LegalReviewStatus.APPROVED
+                && order.getFlightAreaReview().getLegalReviewStatus() != LegalReviewStatus.PENDING_PERMIT) {
+            throw new ApiException(ErrorCode.ORDER_LEGAL_REVIEW_NOT_READY);
+        }
+    }
+
+    @Transactional
+    public InvoiceResponse getInvoiceByOrder(String orderId) {
+        assertOwnerOrManager(orderId);
+        return invoices.findByOrderId(orderId).map(this::invoiceResponse)
+                .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
+    }
+
+    private InvoiceResponse invoiceResponse(Invoice invoice) {
+        var finalPaymentExpiresAt = finalPaymentDeadlines.assignIfEligible(invoice);
+        boolean deadlineOpen = finalPaymentExpiresAt != null && Instant.now(clock).isBefore(finalPaymentExpiresAt);
+        return FinanceMapper.invoice(invoice, deadlineOpen && paymentEligibility.isFinalPaymentEligible(invoice));
+    }
+
+    /**
+     * The Manager's price for checklists the pricing policy cannot price (custom checklists with no CUSTOM profile rule).
+     * Keys are order checklist item ids; entries for items that are priced by the policy are ignored, so a client can never
+     * overwrite a policy price.
+     */
+    private void applyManagerQuotes(List<OrderChecklistItem> items, Map<String, BigDecimal> quotes,
+            Map<String, BigDecimal> systemPrices, String adjustmentReason, PricingPolicy policy) {
+        Map<String, BigDecimal> submitted = quotes == null ? Map.of() : quotes;
+        List<String> missing = new ArrayList<>();
+        for (OrderChecklistItem item : items) {
+            if (!requiresManagerPrice(item)) continue;
+            BigDecimal system = systemPrices.getOrDefault(item.getId(), ZERO);
+            // Keep the stored system price on the policy in force: it is what the audit compares the Manager's price with.
+            item.setSystemCalculatedPrice(system);
+            BigDecimal quoted = submitted.get(item.getId());
+            if (quoted == null) quoted = item.getManagerQuotedPrice();
+            if (quoted == null) {
+                missing.add(item.getContent());
+                continue;
+            }
+            validateMoney(quoted, "additionalUnitPrices", false);
+            BigDecimal approved = quoted.setScale(0, RoundingMode.HALF_UP);
+            if (approved.compareTo(system) != 0 && (adjustmentReason == null || adjustmentReason.length() < 10))
+                throw new ApiException(ErrorCode.PRICING_ADJUSTMENT_REASON_REQUIRED);
+            requireWithinItemLimits(item, system, approved, policy);
+            item.setManagerQuotedPrice(approved);
+            item.setManagerApprovedAmount(approved);
+            item.setFinalAmount(approved);
+            BigDecimal difference = approved.subtract(system);
+            item.setPriceDifferenceAmount(difference);
+            item.setPriceDifferencePercent(differencePercent(difference, system));
+            item.setManagerPriceAdjustmentReason(approved.compareTo(system) == 0 ? null : adjustmentReason);
+        }
+        if (!missing.isEmpty()) throw new ApiException(ErrorCode.CUSTOM_WORK_PRICING_INCOMPLETE,
+                "Enter an approved price for: " + String.join("; ", missing));
+    }
+
+    /**
+     * The Manager's room to move is per checklist, not only across the whole order: one item cannot be marked down (or up)
+     * past the policy limit just because the other items in the order are large.
+     */
+    private void requireWithinItemLimits(OrderChecklistItem item, BigDecimal system, BigDecimal approved, PricingPolicy policy) {
+        if (system.signum() <= 0 || approved.compareTo(system) == 0) return;
+        BigDecimal lowest = system.multiply(BigDecimal.valueOf(100).subtract(policy.getManagerMaxDiscountPercent()))
+                .divide(BigDecimal.valueOf(100), 0, RoundingMode.CEILING);
+        BigDecimal highest = system.multiply(BigDecimal.valueOf(100).add(policy.getManagerMaxMarkupPercent()))
+                .divide(BigDecimal.valueOf(100), 0, RoundingMode.FLOOR);
+        if (approved.compareTo(lowest) < 0 || approved.compareTo(highest) > 0)
+            throw new ApiException(ErrorCode.PRICING_OVERRIDE_EXCEEDS_LIMIT,
+                    "Giá duyệt của \"" + shortenDescription(item.getContent()) + "\" phải từ " + lowest.toPlainString()
+                            + " đến " + highest.toPlainString() + " VND (giá hệ thống " + system.toPlainString()
+                            + " VND, giảm tối đa " + policy.getManagerMaxDiscountPercent().stripTrailingZeros().toPlainString()
+                            + "%, tăng tối đa " + policy.getManagerMaxMarkupPercent().stripTrailingZeros().toPlainString() + "%).");
+    }
+
+    private Map<String, BigDecimal> checklistSystemPrices(PricingBreakdown calculation) {
+        Map<String, BigDecimal> totals = new HashMap<>();
+        for (PricingBreakdownItem line : calculation.items()) {
+            if (line.orderChecklistItemId() != null)
+                totals.merge(line.orderChecklistItemId(), line.amount(), BigDecimal::add);
+        }
+        return totals;
+    }
+
+    private void writeChecklistPricingAudits(Quote quote, List<OrderChecklistItem> items) {
+        User reviewer = currentUser.getCurrentUser();
+        Instant reviewedAt = Instant.now();
+        List<ChecklistPricingAudit> audits = items.stream()
+                .filter(this::requiresManagerPrice)
+                .map(item -> {
+                    ChecklistPricingAudit audit = new ChecklistPricingAudit();
+                    BigDecimal system = Optional.ofNullable(item.getSystemCalculatedPrice()).orElse(ZERO);
+                    BigDecimal approved = Optional.ofNullable(item.getManagerQuotedPrice()).orElse(system);
+                    audit.setQuote(quote);
+                    audit.setOrderId(quote.getOrder().getId());
+                    audit.setOrderChecklistItem(item);
+                    audit.setSystemAmount(system);
+                    audit.setApprovedAmount(approved);
+                    audit.setFinalAmount(approved);
+                    audit.setDifferenceAmount(approved.subtract(system));
+                    audit.setDifferencePercent(differencePercent(approved.subtract(system), system));
+                    audit.setAdjustmentReason(item.getManagerPriceAdjustmentReason());
+                    audit.setPricingPolicyId(quote.getPricingPolicyId());
+                    audit.setPricingPolicyVersion(quote.getPricingPolicyVersion());
+                    audit.setReviewedBy(reviewer);
+                    audit.setReviewedAt(reviewedAt);
+                    audit.setAction(approved.compareTo(system) == 0
+                            ? ChecklistPricingAuditAction.SYSTEM_PRICE_APPROVED
+                            : ChecklistPricingAuditAction.PRICE_ADJUSTED_AND_APPROVED);
+                    return audit;
+                }).toList();
+        pricingAudits.saveAll(audits);
+    }
+
+    private boolean requiresManagerPrice(OrderChecklistItem item) {
+        return item.getSourceType() != OrderChecklistSourceType.SERVICE_TEMPLATE
+                && item.getReviewStatus() != ChecklistReviewStatus.REJECTED
+                && item.getReviewStatus() != ChecklistReviewStatus.DUPLICATE
+                && (item.isManagerQuoteRequired()
+                    || item.getReviewStatus() == ChecklistReviewStatus.ADDITIONAL);
+    }
+
+    private BigDecimal differencePercent(BigDecimal difference, BigDecimal system) {
+        if (system == null || system.signum() == 0) return null;
+        return difference.multiply(new BigDecimal("100")).divide(system, 6, RoundingMode.HALF_UP);
+    }
+
+    /** Backward-compatible repair for snapshots created before package checklists became auto-included. */
+    private void normalizeServiceTemplateReviews(List<OrderChecklistItem> items) {
+        items.stream()
+                .filter(item -> item.getSourceType() == OrderChecklistSourceType.SERVICE_TEMPLATE)
+                .filter(item -> item.getReviewStatus() == null || item.getReviewStatus() == ChecklistReviewStatus.PENDING)
+                .forEach(item -> item.setReviewStatus(ChecklistReviewStatus.INCLUDED));
+    }
+
+    private List<QuoteItem> buildLines(PricingBreakdown calculation, BigDecimal orderAdjustment,
+            List<OrderChecklistItem> checklistRows, Map<String, BigDecimal> systemChecklistPrices) {
+        List<QuoteItem> lines = new ArrayList<>();
+        Map<String, OrderChecklistItem> itemsById = checklistRows.stream()
+                .collect(java.util.stream.Collectors.toMap(OrderChecklistItem::getId, item -> item));
+        for (PricingBreakdownItem item : calculation.items()) {
+            QuoteItem line = line(QuoteItemType.valueOf(item.category().name()), item.description(), item.unitPrice(),
+                    itemsById.get(item.orderChecklistItemId()), lines.size());
+            line.setQuantity(item.quantity()); line.setAmount(item.amount()); lines.add(line);
+        }
+        checklistRows.stream()
+                .filter(item -> item.getSourceType() != OrderChecklistSourceType.SERVICE_TEMPLATE)
+                .filter(item -> item.getReviewStatus() == ChecklistReviewStatus.ADDITIONAL)
+                .filter(item -> item.getManagerQuotedPrice() != null)
+                .forEach(item -> {
+                    BigDecimal difference = item.getManagerQuotedPrice()
+                            .subtract(systemChecklistPrices.getOrDefault(item.getId(), ZERO));
+                    if (difference.signum() != 0) lines.add(line(QuoteItemType.MANAGER_ADJUSTMENT,
+                            "Manager price adjustment · " + shortenDescription(item.getContent()), difference,
+                            item, lines.size()));
+                });
+        if (orderAdjustment.signum() != 0)
+            lines.add(line(QuoteItemType.MANAGER_ADJUSTMENT, "Approved order adjustment", orderAdjustment, null,
+                    lines.size()));
+        return lines;
+    }
+
+    private String shortenDescription(String value) {
+        if (value == null) return "";
+        return value.length() <= 440 ? value : value.substring(0, 437) + "...";
+    }
+
+    private List<PricingRiskFlag> evaluateGuardrails(PricingPolicy policy, BigDecimal system, BigDecimal adjustment,
+                                                      boolean customWork, String orderId) {
+        List<PricingRiskFlag> flags = new ArrayList<>();
+        BigDecimal finalAmount = system.add(adjustment);
+        if (adjustment.signum() == 0) return flags;
+        if (finalAmount.signum() == 0) {
+            flags.add(PricingRiskFlag.ZERO_PRICE);
+            throw new ApiException(ErrorCode.ZERO_PRICE_NOT_ALLOWED);
+        }
+        BigDecimal percent = adjustment.abs().multiply(new BigDecimal("100"))
+                .divide(system.max(BigDecimal.ONE), 4, RoundingMode.HALF_UP);
+        if (adjustment.signum() < 0) {
+            if (percent.compareTo(policy.getHighRiskDiscountPercent()) >= 0) flags.add(PricingRiskFlag.HIGH_DISCOUNT);
+            if (percent.compareTo(policy.getManagerMaxDiscountPercent()) > 0)
+                throw new ApiException(ErrorCode.PRICING_OVERRIDE_EXCEEDS_LIMIT);
+        } else if (percent.compareTo(policy.getManagerMaxMarkupPercent()) > 0) {
+            flags.add(PricingRiskFlag.LARGE_MARKUP);
+            throw new ApiException(ErrorCode.PRICING_OVERRIDE_EXCEEDS_LIMIT);
+        }
+        BigDecimal floor = system.multiply(policy.getMinimumPriceRatio()).setScale(0, RoundingMode.CEILING)
+                .max(policy.getMinimumPrice());
+        if (finalAmount.compareTo(floor) < 0) { flags.add(PricingRiskFlag.BELOW_MINIMUM_PRICE); throw new ApiException(ErrorCode.PRICE_BELOW_ALLOWED_MINIMUM); }
+        if (customWork) flags.add(PricingRiskFlag.CUSTOM_WORK_OVERRIDE);
+        if (quotes.countByOrderId(orderId) > 1) flags.add(PricingRiskFlag.REPEATED_OVERRIDE);
+        return flags;
+    }
+
+    private QuoteItem line(QuoteItemType type, String description, BigDecimal unitPrice,
+                           OrderChecklistItem checklistItem, int displayOrder) {
+        QuoteItem line = new QuoteItem();
+        line.setType(type); line.setDescription(description); line.setQuantity(BigDecimal.ONE);
+        line.setUnitPrice(vnd(unitPrice)); line.setAmount(vnd(unitPrice));
+        line.setOrderChecklistItem(checklistItem); line.setDisplayOrder(displayOrder);
+        return line;
+    }
+
+    private Order orderForCustomerQuote(String orderId) {
+        return orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+    }
+
+    private long effectiveRevForOrder(String orderId) {
+        Order order = orderForCustomerQuote(orderId);
+        return order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision();
+    }
+
+    private void assertOwner(String orderId) {
+        assertOwner(orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND)));
+    }
+
+    private void assertOwner(Order order) {
+        User user = currentUser.getCurrentUser();
+        if (order.getCustomer() == null || !order.getCustomer().getId().equals(user.getId())) throw new ApiException(ErrorCode.ACCESS_DENIED);
+    }
+
+    private void assertOwnerOrManager(String orderId) {
+        Order order = orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        User user = currentUser.getCurrentUser();
+        boolean manager = user.getRole() != null && (user.getRole().getCode().name().equals("MANAGER") || user.getRole().getCode().name().equals("ADMIN"));
+        if (!manager) assertOwner(order);
+    }
+
+    private void validateMoney(BigDecimal value, String field, boolean signed) {
+        if (value == null || (!signed && value.signum() < 0) || value.stripTrailingZeros().scale() > 0) {
+            throw new ApiException(ErrorCode.QUOTE_PRICING_INVALID, field + " must be an integer VND amount" );
+        }
+    }
+
+    private BigDecimal vnd(BigDecimal value) { return value.setScale(0, RoundingMode.UNNECESSARY); }
+    private String trimToNull(String value) { return value == null || value.isBlank() ? null : value.trim(); }
+}

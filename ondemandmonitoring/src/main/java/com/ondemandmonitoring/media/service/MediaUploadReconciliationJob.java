@@ -17,6 +17,9 @@ public class MediaUploadReconciliationJob {
     @Scheduled(fixedDelayString = "${app.media.reconciliation.interval-ms:60000}",
             initialDelayString = "${app.media.reconciliation.interval-ms:60000}")
     public void recover() {
+        // Routine object reconciliation only. Durably accepted upload-failure events are
+        // recovered by MediaUploadFailureRecoveryJob, which has its own switch so disabling
+        // this operational job can never strand failure history.
         reconciliation.reconcileUploadedObjects();
     }
 }

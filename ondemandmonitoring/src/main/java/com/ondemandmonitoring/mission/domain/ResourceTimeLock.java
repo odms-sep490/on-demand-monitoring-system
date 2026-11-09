@@ -1,7 +1,6 @@
 package com.ondemandmonitoring.mission.domain;
 
 import com.ondemandmonitoring.common.entity.BaseEntity;
-import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.enums.LockStatus;
 import jakarta.persistence.*;
 import lombok.*;
@@ -15,10 +14,7 @@ import java.time.Instant;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Table(name = "resource_time_locks", uniqueConstraints = {
-        @UniqueConstraint(name = "uk_resource_time_locks_resource_mission", columnNames = { "resource_id",
-                "mission_id" })
-})
+@Table(name = "resource_time_locks")
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class ResourceTimeLock extends BaseEntity {
 
@@ -41,4 +37,18 @@ public class ResourceTimeLock extends BaseEntity {
 
     @Column(name = "expires_at")
     Instant expiresAt;
+
+    @Column(name = "resource_type", length = 20)
+    String resourceType;
+
+    @Column(name = "released_at")
+    Instant releasedAt;
+
+    @Column(name = "release_reason", length = 500)
+    String releaseReason;
+
+    @Column(name = "reserved_by", length = 255)
+    String reservedBy;
+    @Column(name = "released_by", length = 255)
+    String releasedBy;
 }

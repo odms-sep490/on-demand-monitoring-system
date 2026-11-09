@@ -25,8 +25,9 @@ public class RefreshTokenCookieService {
     @Value("${auth.refresh-token-cookie.same-site:Lax}")
     private String sameSite;
 
-    public void write(HttpServletResponse response, String refreshToken, String username) {
-        response.addHeader(HttpHeaders.SET_COOKIE, cookie(refreshToken + "::" + username, maxAgeSeconds));
+    public void write(HttpServletResponse response, String refreshToken, String username, boolean rememberMe) {
+        response.addHeader(HttpHeaders.SET_COOKIE,
+                cookie(refreshToken + "::" + username, rememberMe ? maxAgeSeconds : -1));
     }
 
     public Optional<RefreshToken> read(HttpServletRequest request) {

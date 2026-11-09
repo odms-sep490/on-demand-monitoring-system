@@ -28,7 +28,7 @@ class RefreshTokenCookieServiceTest {
         HttpServletResponse response = mock(HttpServletResponse.class);
         ArgumentCaptor<String> header = ArgumentCaptor.forClass(String.class);
 
-        service.write(response, "refresh-token", "cognito-user");
+        service.write(response, "refresh-token", "cognito-user", true);
 
         verify(response).addHeader(eq(HttpHeaders.SET_COOKIE), header.capture());
         assertTrue(header.getValue().contains("OMSS_REFRESH_TOKEN="));
@@ -36,6 +36,30 @@ class RefreshTokenCookieServiceTest {
         assertTrue(header.getValue().contains("Secure"));
         assertTrue(header.getValue().contains("SameSite=Lax"));
         assertTrue(header.getValue().contains("Max-Age=3600"));
+    }
+
+    @Test
+    void uncheckedRememberMeUsesSessionCookie() {
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        ArgumentCaptor<String> header = ArgumentCaptor.forClass(String.class);
+
+        service.write(response, "refresh-token", "cognito-user", false);
+
+        verify(response).addHeader(eq(HttpHeaders.SET_COOKIE), header.capture());
+        assertTrue(header.getValue().contains("HttpOnly"));
+        assertTrue(header.getValue().contains("Secure"));
+        assertTrue(header.getValue().contains("SameSite=Lax"));
+        assertFalse(header.getValue().contains("Max-Age"));
+        assertFalse(header.getValue().contains("Expires"));
+    }
+
+    @Test
+    void clearExpiresTheCookie() {
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        ArgumentCaptor<String> header = ArgumentCaptor.forClass(String.class);
+        service.clear(response);
+        verify(response).addHeader(eq(HttpHeaders.SET_COOKIE), header.capture());
+        assertTrue(header.getValue().contains("Max-Age=0"));
     }
 
     @Test

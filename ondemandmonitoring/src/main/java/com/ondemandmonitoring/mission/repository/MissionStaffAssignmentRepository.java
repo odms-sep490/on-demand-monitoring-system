@@ -11,12 +11,11 @@ import java.util.Optional;
 @Repository
 public interface MissionStaffAssignmentRepository extends JpaRepository<MissionStaffAssignment, String> {
 
-    Optional<MissionStaffAssignment> findByMissionIdAndStaffId(String missionId, String staffId);
-
     boolean existsByMissionIdAndStaffId(String missionId, String staffId);
 
     Optional<MissionStaffAssignment> findByMissionIdAndIsCurrentTrue(String missionId);
 
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "staff")
     List<MissionStaffAssignment> findAllByMissionIdAndIsCurrentTrue(String missionId);
 
     Optional<MissionStaffAssignment> findByMissionIdAndStaffIdAndIsCurrentTrue(String missionId, String staffId);
@@ -25,17 +24,8 @@ public interface MissionStaffAssignmentRepository extends JpaRepository<MissionS
             String missionId,
             String staffId);
 
-    Optional<MissionStaffAssignment> findByMissionIdAndAssignedRoleAndIsCurrentTrue(
-            String missionId,
-            MissionStaffRole assignedRole);
-
     List<MissionStaffAssignment> findAllByMissionIdAndAssignedRoleAndIsCurrentTrue(
             String missionId,
-            MissionStaffRole assignedRole);
-
-    Optional<MissionStaffAssignment> findByMissionIdAndStaffIdAndAssignedRoleAndIsCurrentTrue(
-            String missionId,
-            String staffId,
             MissionStaffRole assignedRole);
 
     List<MissionStaffAssignment> findAllByMissionIdAndStaffIdAndAssignedRoleAndIsCurrentTrueOrderByAssignedAtDesc(
@@ -47,5 +37,7 @@ public interface MissionStaffAssignmentRepository extends JpaRepository<MissionS
 
     List<MissionStaffAssignment> findByMissionId(String missionId);
 
-    List<MissionStaffAssignment> findByStaffId(String staffId);
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "staff")
+    List<MissionStaffAssignment> findAllByMissionIdInAndIsCurrentTrue(List<String> missionIds);
+
 }

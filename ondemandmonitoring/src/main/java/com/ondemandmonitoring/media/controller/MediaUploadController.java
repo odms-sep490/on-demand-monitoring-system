@@ -29,11 +29,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('STAFF', 'DRONE_OPERATOR', 'SYSTEM_OPERATOR', 'ADMIN')")
+@PreAuthorize("hasAnyRole('MANAGER', 'STAFF', 'ADMIN')")
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class MediaUploadController {
 
     IMediaUploadService uploads;
+    com.ondemandmonitoring.media.service.IUploadFailureEventService failureEvents;
 
     @Operation(summary = "List unresolved manual media uploads for an authorized mission")
     @GetMapping("/missions/{missionId}/manual-media-uploads")
@@ -104,9 +105,15 @@ public class MediaUploadController {
 
     @Operation(summary = "Report upload failure", description = "Reports an upload failure code and message for an attempt")
     @PostMapping("/media/{mediaId}/upload-attempts/{attemptId}/failures")
-    public ResponseEntity<ApiResponse<MediaUploadResponse>> failure(@PathVariable String mediaId,
-                                                                    @PathVariable String attemptId,
-                                                                    @Valid @RequestBody ReportUploadFailureRequest request) {
+    public ResponseEntity<ApiResponse<Object>> failure(@PathVariable String mediaId,
+                                                       @PathVariable String attemptId,
+                                                       @Valid @RequestBody ReportUploadFailureRequest request) {
+        request.setMediaId(mediaId);
+        request.setAttemptId(attemptId);
+        if (request.getEventId() != null && !request.getEventId().isBlank()) {
+            // Ledger mode: durably records before applying, returning an acknowledgment.
+            return ResponseEntity.ok(ApiResponse.ok(failureEvents.ingest(request)));
+        }
         return ResponseEntity.ok(ApiResponse.ok(uploads.reportFailure(mediaId, attemptId, request)));
     }
 }

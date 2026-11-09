@@ -31,7 +31,13 @@ resolve_forest3d_path() {
     return 1
 }
 
-FOREST3D_PATH="$(resolve_forest3d_path)"
+SIM_WORLD="${1:-${SIM_WORLD:-compact}}"
+requested_home_lat="${PX4_HOME_LAT:-}"
+requested_home_lon="${PX4_HOME_LON:-}"
+requested_home_alt="${PX4_HOME_ALT:-}"
+if [ "$SIM_WORLD" != "light" ]; then
+    FOREST3D_PATH="$(resolve_forest3d_path)"
+fi
 FOREST3D_MODELS_PATH="${FOREST3D_MODELS_PATH:-$FOREST3D_PATH/models}"
 FOREST3D_DRONE_MODEL_PATH="${FOREST3D_DRONE_MODEL_PATH:-$FOREST3D_PATH/models/x500_mono_cam_down}"
 ENV_FILE="$PROJECT_PATH/.env"
@@ -39,14 +45,20 @@ PX4_ROOT="$HOME/PX4-Autopilot"
 PX4_BUILD="$PX4_ROOT/build/px4_sitl_default"
 PX4_GZ_PLUGIN_PATH="$PX4_BUILD/src/modules/simulation/gz_plugins"
 FOREST3D_GZ_GUI_CONFIG="$FOREST3D_PATH/gui/forest_monitoring_gui.config"
-SIM_WORLD="${1:-${SIM_WORLD:-legacy}}"
 PX4_MAVLINK_RC="$PX4_ROOT/ROMFS/px4fmu_common/init.d-posix/px4-rc.mavlink"
 
 if [ -f "$ENV_FILE" ]; then
     set -a
     # Strip Windows BOM/CRLF endings while keeping the source .env unchanged.
-    source <(sed '1s/^\xEF\xBB\xBF//; s/\r$//' "$ENV_FILE")
+    source <(sed '1s/^\xEF\xBB\xBF//; s/\r$//; /^MAPILLARY_ACCESS_TOKEN=/{s/\\|/|/g;s/|/\\|/g}' "$ENV_FILE")
     set +a
+fi
+
+SIM_WORLD="${1:-${SIM_WORLD:-compact}}"
+if [ -n "$requested_home_lat" ] && [ -n "$requested_home_lon" ]; then
+    export PX4_HOME_LAT="$requested_home_lat"
+    export PX4_HOME_LON="$requested_home_lon"
+    export PX4_HOME_ALT="${requested_home_alt:-0}"
 fi
 
 FOREST3D_DRONE_MODEL_PATH="${FOREST3D_DRONE_MODEL_PATH:-$FOREST3D_PATH/models/x500_mono_cam_down}"
@@ -62,23 +74,39 @@ PX4_ONBOARD_MAVLINK_RATE_B_S="${PX4_ONBOARD_MAVLINK_RATE_B_S:-100000}"
 FOREST3D_WEB_ONLY="${FOREST3D_WEB_ONLY:-1}"
 
 case "$SIM_WORLD" in
+    light)
+        WORLD_NAME="default"
+        DRONE_MODEL_TARGET="gz_x500"
+        PX4_SPAWN_POSE="0,0,0.3,0,0,0"
+        ;;
     compact)
         WORLD_NAME="forest_monitoring_compact"
+        DRONE_MODEL_TARGET="gz_x500_mono_cam_down"
         FOREST3D_WORLD_FILE="$FOREST3D_PATH/worlds/forest_monitoring_compact.sdf"
         PX4_GZ_WORLD_PATH="$PX4_ROOT/Tools/simulation/gz/worlds/forest_monitoring_compact.sdf"
         PX4_SPAWN_POSE="0,-280,9.8,0,0,0"
         ;;
     legacy)
         WORLD_NAME="forest_monitoring"
+        DRONE_MODEL_TARGET="gz_x500_mono_cam_down"
         FOREST3D_WORLD_FILE="$FOREST3D_PATH/worlds/forest_monitoring.sdf"
         PX4_GZ_WORLD_PATH="$PX4_ROOT/Tools/simulation/gz/worlds/forest_monitoring.sdf"
         PX4_SPAWN_POSE="0,0,0.3,0,0,0"
         ;;
     *)
-        echo "Usage: $0 [legacy|compact]"
+        echo "Usage: $0 [legacy|compact|light]"
         exit 2
         ;;
 esac
+
+# The checklist demo uses a lightweight scene with the same world name and
+# site coordinates. Keep the complete Forest3D scene for realistic simulation.
+if [ "$SIM_WORLD" = "compact" ] && [ "${FAST_DEMO_MODE:-0}" = "1" ]; then
+    fast_demo_world="$FOREST3D_PATH/worlds/forest_monitoring_compact_fast_demo.sdf"
+    if [ -f "$fast_demo_world" ]; then
+        FOREST3D_WORLD_FILE="$fast_demo_world"
+    fi
+fi
 
 source "$PX4_BUILD/rootfs/gz_env.sh"
 export PATH="$PROJECT_PATH/scripts/wsl-bin:$PATH"
@@ -109,20 +137,23 @@ if [ "$SIM_WORLD" = "compact" ]; then
 fi
 
 # Sync selected Forest3D world to PX4.
-cp "$FOREST3D_WORLD_FILE" "$PX4_GZ_WORLD_PATH"
-mkdir -p "$PX4_ROOT/Tools/simulation/gz/models/x500_mono_cam_down"
-if [ ! -f "$FOREST3D_DRONE_MODEL_PATH/model.sdf" ]; then
-    echo "[SIM] ERROR: drone model missing: $FOREST3D_DRONE_MODEL_PATH/model.sdf" >&2
-    exit 1
+if [ "$SIM_WORLD" != "light" ]; then
+    cp "$FOREST3D_WORLD_FILE" "$PX4_GZ_WORLD_PATH"
+    mkdir -p "$PX4_ROOT/Tools/simulation/gz/models/x500_mono_cam_down"
+    if [ ! -f "$FOREST3D_DRONE_MODEL_PATH/model.sdf" ]; then
+        echo "[SIM] ERROR: drone model missing: $FOREST3D_DRONE_MODEL_PATH/model.sdf" >&2
+        exit 1
+    fi
+    cp "$FOREST3D_DRONE_MODEL_PATH/model.sdf" \
+        "$PX4_ROOT/Tools/simulation/gz/models/x500_mono_cam_down/model.sdf"
+    cp "$FOREST3D_DRONE_MODEL_PATH/model.config" \
+        "$PX4_ROOT/Tools/simulation/gz/models/x500_mono_cam_down/model.config"
 fi
-cp "$FOREST3D_DRONE_MODEL_PATH/model.sdf" \
-    "$PX4_ROOT/Tools/simulation/gz/models/x500_mono_cam_down/model.sdf"
-cp "$FOREST3D_DRONE_MODEL_PATH/model.config" \
-    "$PX4_ROOT/Tools/simulation/gz/models/x500_mono_cam_down/model.config"
 
 if [ "$SIM_WORLD" = "compact" ]; then
     required_models=(
         compact_terrain
+        compact_terrain_fast_demo
         compact_water
         compact_roads
         compact_bridges
@@ -197,7 +228,7 @@ fi
 echo '========================================'
 echo ' Starting PX4 + Gazebo + Drone'
 echo " World : $WORLD_NAME"
-echo ' Drone : x500_mono_cam_down'
+echo " Drone : $DRONE_MODEL_TARGET"
 echo " Pose  : $PX4_SPAWN_POSE"
 if [ "$FOREST3D_WEB_ONLY" = "1" ]; then
     export HEADLESS=1
@@ -208,6 +239,7 @@ else
 fi
 echo '========================================'
 
+if [ "$FOREST3D_WEB_ONLY" != "1" ]; then
 (
     sleep 8
     drone_model=""
@@ -263,7 +295,8 @@ echo '========================================'
         echo "[SIM] Camera follow skipped: /gui/follow service not ready"
     fi
 ) &
+fi
 cd "$PX4_ROOT"
 PX4_GZ_WORLD="$WORLD_NAME" \
 PX4_GZ_MODEL_POSE="$PX4_SPAWN_POSE" \
-make px4_sitl gz_x500_mono_cam_down
+make px4_sitl "$DRONE_MODEL_TARGET"

@@ -28,4 +28,7 @@ public class MediaAssetResponse {
     String s3Url;
     Instant capturedAt;
     Instant createdAt;
+    String sourceType;
+    String sourceReferenceId;
+    Double sourceDistanceMeters;
 }

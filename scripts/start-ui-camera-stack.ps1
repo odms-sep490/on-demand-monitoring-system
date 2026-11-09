@@ -5,10 +5,16 @@ param(
     [switch]$SkipBackend,
     [switch]$SkipFrontend,
     [switch]$SkipDrone,
+    [switch]$WithSimulation,
+    [switch]$RealFlight,
     [switch]$NoBrowser
 )
 
 $ErrorActionPreference = "Stop"
+
+# The full simulator is the default again. Keep -WithSimulation accepted for
+# compatibility with existing shortcuts; use -SkipDrone for an intentional
+# UI-only launch.
 
 function Write-Step([string]$Message) {
     Write-Host ""
@@ -54,16 +60,30 @@ function Set-EnvValue([string]$Path, [string]$Name, [string]$Value) {
     Write-Utf8NoBomLines $Path $nextLines
 }
 
+function Get-EnvValue([string]$Path, [string]$Name, [string]$Fallback) {
+    if (-not (Test-Path $Path)) { return $Fallback }
+    foreach ($line in Get-Content -Path $Path -ErrorAction SilentlyContinue) {
+        if ($line -match "^\s*$([regex]::Escape($Name))\s*=\s*(?<value>.*)\s*$") {
+            $value = $Matches["value"].Trim().Trim('"').Trim("'")
+            if (-not [string]::IsNullOrWhiteSpace($value)) {
+                return $value
+            }
+        }
+    }
+    return $Fallback
+}
+
 function Start-TerminalTab([string]$Title, [string]$Command, [string]$WorkingDirectory) {
     $escapedCommand = $Command.Replace('"', '\"')
     $escapedDirectory = $WorkingDirectory.Replace('"', '\"')
 
     if (Get-Command wt.exe -ErrorAction SilentlyContinue) {
-        Start-Process wt.exe -ArgumentList @(
+        $terminalArguments = @(
             "new-tab", "--title", $Title, "--startingDirectory", $WorkingDirectory,
             "powershell.exe", "-NoExit", "-ExecutionPolicy", "Bypass",
             "-Command", "Set-Location `"$escapedDirectory`"; $escapedCommand"
         )
+        & wt.exe @terminalArguments | Out-Null
         return
     }
 
@@ -75,10 +95,11 @@ function Start-TerminalTab([string]$Title, [string]$Command, [string]$WorkingDir
 
 function Start-WslTab([string]$Title, [string]$Command) {
     if (Get-Command wt.exe -ErrorAction SilentlyContinue) {
-        Start-Process wt.exe -ArgumentList @(
+        $terminalArguments = @(
             "new-tab", "--title", $Title,
             "wsl.exe", "-d", $UbuntuDistro, "--", "bash", "-lc", $Command
         )
+        & wt.exe @terminalArguments | Out-Null
         return
     }
 
@@ -108,6 +129,53 @@ function Wait-HttpOk([string]$Url, [int]$TimeoutSeconds = 90) {
 
 function Test-CommandExists([string]$Name) {
     return $null -ne (Get-Command $Name -ErrorAction SilentlyContinue)
+}
+
+function Test-TcpPort([string]$HostName, [int]$Port) {
+    $client = New-Object System.Net.Sockets.TcpClient
+    try {
+        $pending = $client.BeginConnect($HostName, $Port, $null, $null)
+        if (-not $pending.AsyncWaitHandle.WaitOne(1000)) { return $false }
+        $client.EndConnect($pending)
+        return $true
+    } catch {
+        return $false
+    } finally {
+        $client.Close()
+    }
+}
+
+function Ensure-Postgres([string]$BackendRoot, [string]$EnvFile) {
+    $url = Get-EnvValue $EnvFile "SPRING_DATASOURCE_URL" ""
+    $match = [regex]::Match($url, '^jdbc:postgresql://(?<host>[^/:?]+)(:(?<port>\d+))?/')
+    if (-not $match.Success) {
+        throw "SPRING_DATASOURCE_URL in .env must point to a PostgreSQL server."
+    }
+
+    $hostName = $match.Groups["host"].Value
+    $port = if ($match.Groups["port"].Success) { [int]$match.Groups["port"].Value } else { 5432 }
+    if (Test-TcpPort $hostName $port) { return }
+
+    if ($hostName -notin @("localhost", "127.0.0.1", "::1") -or $port -ne 5433) {
+        throw "PostgreSQL is not reachable at ${hostName}:$port. Start the database configured in .env, or use the local Compose defaults on port 5433."
+    }
+    if (-not (Test-CommandExists "docker.exe")) {
+        throw "PostgreSQL is not running at localhost:5433 and Docker Desktop is unavailable. Install/start Docker Desktop, or point SPRING_DATASOURCE_URL at an existing PostgreSQL server."
+    }
+
+    Write-Step "Starting the local PostgreSQL database"
+    Push-Location $BackendRoot
+    try {
+        & docker.exe compose --env-file $EnvFile up --detach --wait --wait-timeout 120 postgres
+        if ($LASTEXITCODE -ne 0) {
+            throw "Docker Compose could not start PostgreSQL. Make sure Docker Desktop is running."
+        }
+    } finally {
+        Pop-Location
+    }
+    if (-not (Test-TcpPort $hostName $port)) {
+        throw "PostgreSQL did not become reachable at ${hostName}:$port after Docker Compose started it."
+    }
 }
 
 function Get-JavaMajorVersion {
@@ -225,11 +293,13 @@ function Resolve-Forest3DPath([string]$Root) {
 
 function Assert-CompactMapAssets([string]$Root, [string]$Forest3DPath) {
     $worldFile = Join-Path $Forest3DPath "worlds\forest_monitoring_compact.sdf"
+    $fastDemoWorldFile = Join-Path $Forest3DPath "worlds\forest_monitoring_compact_fast_demo.sdf"
     $mapImage = Join-Path $Root "ondemandmonitoring\src\main\resources\static\simulation-viewer\simulation_map_top.png"
     $mapMeta = Join-Path $Root "ondemandmonitoring\src\main\resources\static\simulation-viewer\simulation-map.json"
     $modelRoot = Join-Path $Forest3DPath "models"
     $requiredModels = @(
         "compact_terrain",
+        "compact_terrain_fast_demo",
         "compact_water",
         "compact_roads",
         "compact_bridges",
@@ -245,6 +315,7 @@ function Assert-CompactMapAssets([string]$Root, [string]$Forest3DPath) {
     )
 
     if (-not (Test-Path $worldFile)) { throw "Full compact world is missing: $worldFile" }
+    if (-not (Test-Path $fastDemoWorldFile)) { throw "Compact fast demo world is missing: $fastDemoWorldFile" }
     if (-not (Test-Path $mapImage)) { throw "Full simulation map image is missing: $mapImage" }
     if (-not (Test-Path $mapMeta)) { throw "Simulation map metadata is missing: $mapMeta" }
     foreach ($model in $requiredModels) {
@@ -261,11 +332,34 @@ function Assert-CompactMapAssets([string]$Root, [string]$Forest3DPath) {
 }
 
 $systemRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+. (Join-Path $PSScriptRoot "initialize-local-demo-config.ps1")
+Initialize-LocalDemoConfig -ProjectRoot $systemRoot
 $workspaceRoot = (Resolve-Path (Join-Path $systemRoot "..")).Path
 $backendRoot = Join-Path $systemRoot "ondemandmonitoring"
 $webRoot = Join-Path $workspaceRoot "ondemand-monitoring-web"
 $packagedWorld = "compact"
-$packagedWorldName = "forest_monitoring_compact"
+$packagedWorldName = "Forest3D compact world"
+$fastDemoMode = if ($RealFlight) { "0" } else { "1" }
+$realisticFlight = if ($RealFlight) { "1" } else { "0" }
+$controlMoveSpeed = if ($RealFlight) { "12" } else { "20" }
+$controlVerticalSpeed = if ($RealFlight) { "2" } else { "10" }
+$px4SpeedLimit = if ($RealFlight) { "18" } else { "20" }
+$gpsRouteExpectedSpeed = if ($RealFlight) { "10" } else { "220" }
+$autoPlanReachedRadius = if ($RealFlight) { "5" } else { "12" }
+$autoPlanMaxSpeed = if ($RealFlight) { "8" } else { "20" }
+$autoPlanMinSpeed = if ($RealFlight) { "1.2" } else { "10" }
+$autoPlanSlowdownRadius = if ($RealFlight) { "35" } else { "80" }
+$autoPlanAltitudeTolerance = if ($RealFlight) { "4" } else { "2" }
+$autoPlanVerticalMaxSpeed = if ($RealFlight) { "0.5" } else { "10" }
+$autoPlanVerticalGain = if ($RealFlight) { "0.08" } else { "2" }
+$autoPlanSmoothing = if ($RealFlight) { "0.35" } else { "1" }
+$autoPlanAltitudeRamp = if ($RealFlight) { "1" } else { "80" }
+$autoPlanHorizontalAccel = if ($RealFlight) { "2.5" } else { "12" }
+$autoPlanVerticalAccel = if ($RealFlight) { "2" } else { "6" }
+$demoLandSpeed = if ($RealFlight) { "0.7" } else { "3" }
+$autoPlanMediaSettle = if ($RealFlight) { "1.4" } else { "0.6" }
+# Run the Gazebo demo faster than wall-clock time; real-flight profiles stay at realtime.
+$px4SimSpeedFactor = if ($RealFlight) { "1" } else { "10" }
 $downTopic = "/world/forest_monitoring_compact/model/x500_mono_cam_down_0/link/camera_link/sensor/camera_down/image"
 $frontTopic = "/world/forest_monitoring_compact/model/x500_mono_cam_down_0/link/camera_link/sensor/camera_front/image"
 
@@ -277,29 +371,67 @@ if (-not (Test-Path $webRoot)) {
     Write-Host "Frontend folder not found, skipping frontend startup: $webRoot" -ForegroundColor Yellow
     $SkipFrontend = $true
 }
-$forest3DPath = Resolve-Forest3DPath $systemRoot
-Assert-CompactMapAssets $systemRoot $forest3DPath
+$forest3DPath = $null
+if (-not $SkipDrone) {
+    $forest3DPath = Resolve-Forest3DPath $systemRoot
+    Assert-CompactMapAssets $systemRoot $forest3DPath
+}
 
 $backendEnvFile = Join-Path $systemRoot ".env"
+$rootEnvFile = $backendEnvFile
 if (-not (Test-Path -LiteralPath $backendEnvFile -PathType Leaf)) {
     throw "Missing shared backend and drone configuration: $backendEnvFile"
 }
-Set-EnvValue $backendEnvFile "SIM_WORLD" $packagedWorld
-Set-EnvValue $backendEnvFile "FOREST3D_WEB_ONLY" "1"
-Set-EnvValue $backendEnvFile "GAZEBO_CAMERA_TOPIC" $downTopic
-Set-EnvValue $backendEnvFile "GAZEBO_CAMERA_DOWN_TOPIC" $downTopic
-Set-EnvValue $backendEnvFile "GAZEBO_CAMERA_FRONT_TOPIC" $frontTopic
-Set-EnvValue $backendEnvFile "CAMERA_DEFAULT_VIEW" "FRONT"
+if (-not $SkipBackend) {
+    $missingCognito = @("AWS_REGION", "AWS_COGNITO_REGION", "AWS_COGNITO_USER_POOL_ID", "AWS_COGNITO_CLIENT_ID", "COGNITO_ISSUER_URI") |
+        Where-Object { [string]::IsNullOrWhiteSpace((Get-EnvValue $backendEnvFile $_ "")) }
+    if ($missingCognito.Count -gt 0) {
+        throw "The authenticated web stack needs AWS/Cognito settings in .env: $($missingCognito -join ', '). Set them from your development Cognito pool, or use scripts\RUN_DRONE_SIM_ONLY.cmd for simulator-only mode."
+    }
+    Ensure-Postgres $backendRoot $backendEnvFile
+}
+if (-not $SkipDrone) {
+    Set-EnvValue $backendEnvFile "SIM_WORLD" $packagedWorld
+    Set-EnvValue $backendEnvFile "FOREST3D_WEB_ONLY" "1"
+    Set-EnvValue $backendEnvFile "FAST_DEMO_MODE" $fastDemoMode
+    Set-EnvValue $backendEnvFile "REALISTIC_FLIGHT" $realisticFlight
+    Set-EnvValue $backendEnvFile "FAST_DEMO_LIDAR_ENABLED" "1"
+    Set-EnvValue $backendEnvFile "CONTROL_MOVE_SPEED_M_S" $controlMoveSpeed
+    Set-EnvValue $backendEnvFile "CONTROL_VERTICAL_SPEED_M_S" $controlVerticalSpeed
+    Set-EnvValue $backendEnvFile "PX4_SPEED_LIMIT_M_S" $px4SpeedLimit
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_REACHED_RADIUS_M" $autoPlanReachedRadius
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_MAX_SPEED_M_S" $autoPlanMaxSpeed
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_MIN_SPEED_M_S" $autoPlanMinSpeed
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_SLOWDOWN_RADIUS_M" $autoPlanSlowdownRadius
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_ALTITUDE_TOLERANCE_M" $autoPlanAltitudeTolerance
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_VERTICAL_MAX_SPEED_M_S" $autoPlanVerticalMaxSpeed
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_VERTICAL_GAIN" $autoPlanVerticalGain
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_SETPOINT_SMOOTHING" $autoPlanSmoothing
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_ALTITUDE_RAMP_M" $autoPlanAltitudeRamp
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_HORIZONTAL_ACCEL_M_S2" $autoPlanHorizontalAccel
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_VERTICAL_ACCEL_M_S2" $autoPlanVerticalAccel
+    Set-EnvValue $backendEnvFile "DEMO_LAND_SPEED_M_S" $demoLandSpeed
+    Set-EnvValue $backendEnvFile "AUTO_PLAN_MEDIA_SETTLE_S" $autoPlanMediaSettle
+    Set-EnvValue $backendEnvFile "PX4_SIM_SPEED_FACTOR" $px4SimSpeedFactor
+    Set-EnvValue $backendEnvFile "GPS_ROUTE_EXPECTED_SPEED_M_S" $gpsRouteExpectedSpeed
+    Set-EnvValue $backendEnvFile "GAZEBO_CAMERA_TOPIC" $downTopic
+    Set-EnvValue $backendEnvFile "GAZEBO_CAMERA_DOWN_TOPIC" $downTopic
+    Set-EnvValue $backendEnvFile "GAZEBO_CAMERA_FRONT_TOPIC" $frontTopic
+    Set-EnvValue $backendEnvFile "CAMERA_DEFAULT_VIEW" "FRONT"
+}
 
 Write-Host "========================================" -ForegroundColor Green
 Write-Host " OMSS UI Camera Stack" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "Backend : http://localhost:8080"
 Write-Host "Frontend: http://localhost:5173/#portal/drone-operator"
-Write-Host "Control : http://localhost:8090/stream.mjpg"
-Write-Host "World   : $packagedWorldName"
-Write-Host "Weather : separate WEATHER - Controls window"
-Write-Host "Mode    : Web UI camera only, no separate Gazebo camera window"
+if (-not $SkipDrone) {
+    Write-Host "Control : http://localhost:8090/stream.mjpg"
+    Write-Host "World   : $packagedWorldName"
+    Write-Host "Mode    : $(if ($RealFlight) { 'Real PX4 takeoff + mapping flight' } else { 'Fast demo in the Forest3D world' })"
+} else {
+    Write-Host "Mode    : UI only; PX4/Gazebo is not started"
+}
 
 Ensure-WindowsBuildTools
 
@@ -308,7 +440,7 @@ if (-not $SkipBuild) {
         Invoke-Checked `
             -Label "Building Backend API" `
             -FilePath (Join-Path $backendRoot "mvnw.cmd") `
-            -Arguments @("-DskipTests", "package") `
+            -Arguments @("-Dmaven.test.skip=true", "package") `
             -WorkingDirectory $backendRoot
     }
 
@@ -337,40 +469,56 @@ if (-not $SkipFrontend) {
     $envFile = Join-Path $webRoot ".env.local"
     Write-Utf8NoBomLines $envFile @(
         "VITE_API_BASE_URL=$(Get-EnvValue $rootEnvFile 'VITE_API_BASE_URL' 'http://localhost:8080')",
-        "VITE_FLIGHT_CONTROL_API_URL=$(Get-EnvValue $rootEnvFile 'VITE_FLIGHT_CONTROL_API_URL' 'http://localhost:8090')"
+        "VITE_FLIGHT_CONTROL_API_URL=$(Get-EnvValue $rootEnvFile 'VITE_FLIGHT_CONTROL_API_URL' 'http://localhost:8090')",
+        "VITE_AWS_COGNITO_DOMAIN=$(Get-EnvValue $rootEnvFile 'AWS_COGNITO_DOMAIN' '')",
+        "VITE_AWS_COGNITO_CLIENT_ID=$(Get-EnvValue $rootEnvFile 'AWS_COGNITO_CLIENT_ID' '')",
+        "VITE_COGNITO_REDIRECT_SIGN_IN=$(Get-EnvValue $rootEnvFile 'VITE_COGNITO_REDIRECT_SIGN_IN' 'http://localhost:5173/social/callback')",
+        "VITE_USE_MOCK_API=false",
+        "VITE_FLIGHT_MAP_ONLY=false"
     )
     Start-TerminalTab -Title "FE - OMSS UI" -WorkingDirectory $webRoot -Command "if (-not (Test-Path node_modules)) { npm install }; npm run dev -- --host 0.0.0.0 --port 5173"
 }
 
-if (-not $SkipBootstrap) {
+if ((-not $SkipDrone) -and (-not $SkipBootstrap)) {
     Write-Step "Checking WSL/PX4/Gazebo dependencies"
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "bootstrap-drone-stack.ps1") -UbuntuDistro $UbuntuDistro
     if ($LASTEXITCODE -ne 0) { throw "Drone dependency bootstrap failed." }
 }
 
 $systemRootWsl = ConvertTo-WslPath $systemRoot
-$forest3DPathWsl = ConvertTo-WslPath $forest3DPath
+$forest3DPathWsl = if ($forest3DPath) { ConvertTo-WslPath $forest3DPath } else { "" }
 $scriptRootWsl = "$systemRootWsl/scripts"
 
 if ($SkipDrone) {
-    Write-Step "Build/setup finished; drone startup was skipped"
+    if ((-not $NoBrowser) -and (-not $SkipFrontend)) {
+        Write-Step "Waiting for UI, then opening Mission Control"
+        if (Wait-HttpOk "http://localhost:5173" 90) {
+            Start-Process "http://localhost:5173/#portal/drone-operator"
+        } else {
+            Write-Host "Frontend did not answer yet. Open manually: http://localhost:5173/#portal/drone-operator" -ForegroundColor Yellow
+        }
+    }
+
+    Write-Step "UI started; PX4/Gazebo simulation was not started"
+    Write-Host "Connect a live flight-control service at http://localhost:8090 to enable live telemetry and commands." -ForegroundColor Yellow
     exit 0
 }
 
 Write-Step "Cleaning old PX4/Gazebo/MAVSDK processes"
-& wsl.exe -d $UbuntuDistro -- bash -lc "PROJECT_PATH='$systemRootWsl' FOREST3D_PATH='$forest3DPathWsl' exec '$scriptRootWsl/wsl-clean-drone-stack.sh'" | Out-Null
+& wsl.exe -d $UbuntuDistro -- bash -lc "PROJECT_PATH='$systemRootWsl' FAST_DEMO_MODE=$fastDemoMode exec '$scriptRootWsl/wsl-clean-drone-stack.sh'" | Out-Null
 
-Write-Step "Starting PX4/Gazebo, Flight Control, and Weather Controls"
-$baseWslEnv = "PROJECT_PATH='$systemRootWsl' FOREST3D_PATH='$forest3DPathWsl'"
+Write-Step "Starting PX4/Gazebo Forest3D world and Flight Control"
+$baseWslEnv = "PROJECT_PATH='$systemRootWsl' FAST_DEMO_MODE=$fastDemoMode REALISTIC_FLIGHT=$realisticFlight FAST_DEMO_LIDAR_ENABLED=1 CONTROL_MOVE_SPEED_M_S=$controlMoveSpeed CONTROL_VERTICAL_SPEED_M_S=$controlVerticalSpeed PX4_SPEED_LIMIT_M_S=$px4SpeedLimit GPS_ROUTE_EXPECTED_SPEED_M_S=$gpsRouteExpectedSpeed"
+if ($forest3DPathWsl) { $baseWslEnv += " FOREST3D_PATH='$forest3DPathWsl'" }
 $simCommand = "$baseWslEnv FOREST3D_WEB_ONLY=1 SIM_WORLD=$packagedWorld exec '$scriptRootWsl/wsl-sim-pane.sh' '$packagedWorld'"
 $controlCommand = "$baseWslEnv FOREST3D_WEB_ONLY=1 SIM_WORLD=$packagedWorld exec '$scriptRootWsl/wsl-control.sh'"
-$weatherCommand = "$baseWslEnv SIM_WORLD=$packagedWorld exec '$scriptRootWsl/wsl-weather-control.sh'"
+$telemetryCommand = "$baseWslEnv exec '$scriptRootWsl/wsl-telemetry.sh'"
 
-Start-WslTab -Title "SIM - PX4 + Gazebo Headless" -Command $simCommand
+Start-WslTab -Title "SIM - PX4 + Gazebo Server" -Command $simCommand
 Start-Sleep -Seconds 3
-Start-WslTab -Title "CTRL - Flight Control Stream" -Command $controlCommand
-Start-Sleep -Seconds 1
-Start-WslWindow -Title "WEATHER - Controls" -Command $weatherCommand
+Start-WslTab -Title "$(if ($RealFlight) { 'CTRL - Real Flight Control' } else { 'CTRL - Fast Flight Control' })" -Command $controlCommand
+Start-Sleep -Seconds 2
+Start-WslTab -Title "TEL - Backend Telemetry" -Command $telemetryCommand
 
 if ((-not $NoBrowser) -and (-not $SkipFrontend)) {
     Write-Step "Waiting for UI, then opening Mission Control"
@@ -382,5 +530,8 @@ if ((-not $NoBrowser) -and (-not $SkipFrontend)) {
 }
 
 Write-Step "Started"
-Write-Host "Weather works in Flight Control with one key: u clear, y sunset, i night, g cloudy, j foggy, m windy, b light, z heavy." -ForegroundColor Yellow
-Write-Host "The separate WEATHER - Controls window supports the same one-key controls." -ForegroundColor Yellow
+if ($RealFlight) {
+    Write-Host "Real flight mode is active: use the UI GPS target/mapping action to arm, take off, and fly the PX4 drone." -ForegroundColor Yellow
+} else {
+    Write-Host "Fast demo mode is active in the Forest3D compact world. Use the web UI to view and control the drone." -ForegroundColor Yellow
+}

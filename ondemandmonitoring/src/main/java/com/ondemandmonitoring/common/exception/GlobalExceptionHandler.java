@@ -1,18 +1,21 @@
 package com.ondemandmonitoring.common.exception;
 
 import com.ondemandmonitoring.common.api.ApiResponse;
-import com.openai.errors.NotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.InterruptedIOException;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpStatus;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -20,10 +23,63 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 @RestControllerAdvice
 @Slf4j
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(org.springframework.web.servlet.NoHandlerFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoEndpointFound(
+            org.springframework.web.servlet.NoHandlerFoundException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error(
+                ErrorCode.RESOURCE_NOT_FOUND.name(), ErrorCode.RESOURCE_NOT_FOUND.getMessage()));
+    }
+
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUnreadableRequest(
+            org.springframework.http.converter.HttpMessageNotReadableException exception) {
+        return ResponseEntity.badRequest().body(ApiResponse.error(ErrorCode.INVALID_REQUEST.name(),
+                "Request body is missing or contains invalid JSON values"));
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUploadSize(MaxUploadSizeExceededException exception) {
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(ApiResponse.error(ErrorCode.INVALID_REQUEST.name(), "Upload exceeds the configured size limit"));
+    }
+
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingPart(MissingServletRequestPartException exception) {
+        return ResponseEntity.badRequest().body(ApiResponse.error(ErrorCode.VALIDATION_ERROR.name(),
+                "Required multipart part is missing: " + exception.getRequestPartName()));
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAccessDeniedException(
+            AccessDeniedException exception,
+            HttpServletRequest request
+    ) {
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        String principal = authentication == null ? "anonymous" : authentication.getName();
+        var authorities = authentication == null ? List.<String>of()
+                : authentication.getAuthorities().stream()
+                        .map(GrantedAuthority::getAuthority)
+                        .sorted()
+                        .toList();
+        // Do not log credentials, tokens, cookies, or request bodies.
+        log.warn("Access denied. status=403, method={}, path={}, principal={}, authorities={}, reason={}",
+                request.getMethod(), request.getRequestURI(), principal, authorities,
+                exception.getClass().getSimpleName());
+
+        return ResponseEntity
+                .status(ErrorCode.ACCESS_DENIED.getStatus())
+                .body(ApiResponse.error(
+                        ErrorCode.ACCESS_DENIED.name(),
+                        ErrorCode.ACCESS_DENIED.getMessage()
+                ));
+    }
 
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiResponse<Void>> handleApiException(
@@ -85,6 +141,15 @@ public class GlobalExceptionHandler {
                         ErrorCode.VALIDATION_ERROR.getMessage(),
                         errors
                 ));
+    }
+
+    @ExceptionHandler(jakarta.validation.ConstraintViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleParameterValidation(jakarta.validation.ConstraintViolationException exception) {
+        Map<String, String> errors = new LinkedHashMap<>();
+        exception.getConstraintViolations().forEach(violation ->
+                errors.put(violation.getPropertyPath().toString(), violation.getMessage()));
+        return ResponseEntity.badRequest().body(ApiResponse.error(
+                ErrorCode.VALIDATION_ERROR.name(), "Invalid request parameters", errors));
     }
 
     @ExceptionHandler(NoResourceFoundException.class)
@@ -154,22 +219,6 @@ public class GlobalExceptionHandler {
                 .body(response);
     }
 
-    @ExceptionHandler(NotFoundException.class)
-    public ResponseEntity<ApiResponse<Void>> handleAiNotFoundException(
-            com.openai.errors.NotFoundException exception
-    ) {
-        log.warn(
-                "AI provider returned 404 Not Found: {}",
-                exception.getMessage()
-        );
-
-        return ResponseEntity
-                .status(HttpStatus.NOT_FOUND)
-                .body(ApiResponse.error(
-                        "AI_RESOURCE_NOT_FOUND",
-                        "AI provider resource or endpoint was not found"
-                ));
-    }
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnexpectedException(
             Exception exception,

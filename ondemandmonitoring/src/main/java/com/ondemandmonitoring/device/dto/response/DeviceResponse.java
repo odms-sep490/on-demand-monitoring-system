@@ -20,6 +20,7 @@ public class DeviceResponse {
     private String name;
     private DeviceModelResponse deviceModel;
     private DeviceStatus status;
+    private String imageUrl;
     private Instant createdAt;
     private Instant updatedAt;
     private Long version;

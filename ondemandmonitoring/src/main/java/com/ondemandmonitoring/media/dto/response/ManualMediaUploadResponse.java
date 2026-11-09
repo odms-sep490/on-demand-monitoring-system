@@ -21,6 +21,7 @@ public class ManualMediaUploadResponse {
     String missionId;
     String deviceId;
     String mediaType;
+    String sourceType;
     String fileName;
     String contentType;
     Long fileSize;

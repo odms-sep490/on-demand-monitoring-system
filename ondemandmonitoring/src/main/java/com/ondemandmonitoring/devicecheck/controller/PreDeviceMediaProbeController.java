@@ -21,10 +21,16 @@ public class PreDeviceMediaProbeController {
 
     @PostMapping(path = "/api/internal/v1/pre-device-checks/{runId}/media-probe",
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasRole('DRONE_OPERATOR') and @missionAuthorizationService.isAssignedStaffForPreDeviceCheck(#runId)")
+    @PreAuthorize("@deviceCheckAuthorizationService.canInspectPreCheck(#runId)")
     public ApiResponse<MediaProbeResponse> verify(
             @PathVariable String runId,
             @Valid @ModelAttribute MediaProbeRequest request) {
         return ApiResponse.ok(mediaProbeService.verify(runId, request));
+    }
+
+    @PostMapping("/api/pre-device-checks/{runId}/media-probe/automatic")
+    @PreAuthorize("@deviceCheckAuthorizationService.canInspectPreCheck(#runId)")
+    public ApiResponse<MediaProbeResponse> verifyAutomatic(@PathVariable String runId) {
+        return ApiResponse.ok(mediaProbeService.verifyAutomatic(runId));
     }
 }

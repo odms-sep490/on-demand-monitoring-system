@@ -15,6 +15,7 @@ import lombok.experimental.FieldDefaults;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -32,12 +33,14 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/device-models")
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
+@PreAuthorize("hasAnyRole('MANAGER','ADMIN','STAFF')")
 public class DeviceModelController {
 
     IDeviceModelService deviceModelService;
 
     @Operation(summary = "Create device model", description = "Creates a new device model specification with device types and JSON specs metadata")
     @PostMapping
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<DeviceModelResponse>> create(@Valid @RequestBody DeviceModelCreateRequest request) {
         DeviceModelResponse response = deviceModelService.create(request);
         return ResponseEntity
@@ -62,6 +65,7 @@ public class DeviceModelController {
 
     @Operation(summary = "Update device model", description = "Updates an existing device model by its ID")
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<DeviceModelResponse>> update(
             @PathVariable String id,
             @Valid @RequestBody DeviceModelUpdateRequest request) {
@@ -71,6 +75,7 @@ public class DeviceModelController {
 
     @Operation(summary = "Delete device model", description = "Deletes a device model by its ID")
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable String id) {
         deviceModelService.delete(id);
         return ResponseEntity.ok(ApiResponse.ok("Device model deleted successfully", null));

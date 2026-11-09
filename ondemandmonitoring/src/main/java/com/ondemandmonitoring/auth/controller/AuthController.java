@@ -94,7 +94,7 @@ public class AuthController {
     public ResponseEntity<ApiResponse<Void>> linkLocalIdentity(
             @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody LinkLocalIdentityRequest request) {
-        String cognitoUsername = jwt.getClaimAsString("cognito:username");
+        String cognitoUsername = jwt.getClaimAsString("username");
         if (cognitoUsername == null || cognitoUsername.isBlank()) {
             cognitoUsername = jwt.getSubject();
         }

@@ -8,7 +8,7 @@ class PreDeviceCheckTypeTest {
 
     @Test
     void mediaStorageProbeIsFlightCritical() {
-        assertThat(PreDeviceCheckType.MEDIA.displayName()).isEqualTo("Media Storage Probe");
-        assertThat(PreDeviceCheckType.MEDIA.level()).isEqualTo(PreDeviceCheckLevel.CRITICAL);
+        assertThat(PreDeviceCheckType.MEDIA_STORAGE.displayName()).isEqualTo("Lưu trữ hình ảnh và video");
+        assertThat(PreDeviceCheckType.MEDIA_STORAGE.level()).isEqualTo(PreDeviceCheckLevel.CRITICAL);
     }
 }

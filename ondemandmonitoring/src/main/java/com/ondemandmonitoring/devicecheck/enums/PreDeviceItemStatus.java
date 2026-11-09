@@ -4,6 +4,10 @@ public enum PreDeviceItemStatus {
     PENDING,
     CHECKING,
     PASSED,
-    FAILED
+    WARNING,
+    FAILED,
+    UNKNOWN,
+    STALE,
+    NOT_APPLICABLE
 }
 

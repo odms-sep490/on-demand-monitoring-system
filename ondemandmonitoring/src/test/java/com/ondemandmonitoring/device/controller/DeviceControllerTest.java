@@ -30,14 +30,27 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 class DeviceControllerTest {
 
     private IDeviceService deviceService;
+    private com.ondemandmonitoring.device.service.IDeviceAvailabilityService availabilityService;
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         deviceService = mock(IDeviceService.class);
-        mockMvc = MockMvcBuilders.standaloneSetup(new DeviceController(deviceService))
+        availabilityService = mock(com.ondemandmonitoring.device.service.IDeviceAvailabilityService.class);
+        mockMvc = MockMvcBuilders.standaloneSetup(new DeviceController(deviceService, availabilityService))
                 .setCustomArgumentResolvers(new PageableHandlerMethodArgumentResolver())
                 .build();
+    }
+
+    @Test
+    void availabilityUsesExactMissionAndBothDeviceAliases() throws Exception {
+        when(availabilityService.getAvailableForMission("mission-1"))
+                .thenReturn(List.of(DeviceResponse.builder().id("device-1").build()));
+        for (String path : List.of("/api/drones/available", "/api/devices/available")) {
+            mockMvc.perform(get(path).param("missionId", "mission-1"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].id").value("device-1"));
+        }
+        mockMvc.perform(get("/api/drones/available")).andExpect(status().isBadRequest());
     }
 
     @Test

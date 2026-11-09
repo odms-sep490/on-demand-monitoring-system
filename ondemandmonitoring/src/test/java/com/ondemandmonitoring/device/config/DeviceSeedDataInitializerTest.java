@@ -3,7 +3,6 @@ package com.ondemandmonitoring.device.config;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -51,41 +50,54 @@ class DeviceSeedDataInitializerTest {
 
         initializer.run(null);
 
-        verify(deviceTypeRepository, times(2)).save(any(DeviceType.class));
+        verify(deviceTypeRepository, times(1)).save(any(DeviceType.class));
         verify(deviceModelRepository, times(1)).save(any(DeviceModel.class));
 
         ArgumentCaptor<Device> deviceCaptor = ArgumentCaptor.forClass(Device.class);
         verify(deviceRepository, times(3)).save(deviceCaptor.capture());
 
+        Device device = deviceCaptor.getAllValues().getFirst();
+        assertThat(device.getSerialNumber()).isEqualTo("M3E-DEMO-001");
+        assertThat(device.getDeviceCode()).isEqualTo("DRN-001");
+        assertThat(device.getName()).isEqualTo("DJI Mavic 3 Enterprise");
+        assertThat(device.getStatus()).isEqualTo(DeviceStatus.AVAILABLE);
+        assertThat(device.getLastSeenAt()).isNull();
+        assertThat(device.getDeviceModel()).isNotNull();
+        assertThat(deviceCaptor.getAllValues())
+                .extracting(Device::getDeviceCode)
+                .containsExactly("DRN-001", "DRN-002", "DRN-003");
         assertThat(deviceCaptor.getAllValues())
                 .extracting(Device::getSerialNumber)
-                .containsExactly("ODM-DRN-0052", "ODM-DRN-0053", "ODM-DRN-0054");
-
-        assertThat(deviceCaptor.getAllValues())
-                .allSatisfy(device -> {
-                    assertThat(device.getStatus()).isEqualTo(DeviceStatus.AVAILABLE);
-                    assertThat(device.getDeviceModel()).isNotNull();
-                });
+                .containsExactly("M3E-DEMO-001", "M3E-DEMO-002", "M3E-DEMO-003");
     }
 
     @Test
-    void leavesExistingDevicesUntouched() {
-        DeviceType mockType = new DeviceType();
-        when(deviceTypeRepository.findByCode(anyString())).thenReturn(Optional.of(mockType));
+    void updatesExistingRecordsButKeepsDeviceStatus() {
+        DeviceType existingType = new DeviceType();
+        when(deviceTypeRepository.findByCode(anyString())).thenReturn(Optional.of(existingType));
+        when(deviceTypeRepository.save(any(DeviceType.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        DeviceModel mockModel = new DeviceModel();
-        when(deviceModelRepository.findByCode(anyString())).thenReturn(Optional.of(mockModel));
+        DeviceModel existingModel = new DeviceModel();
+        existingModel.setModelName("A* Monitoring Drone X1");
+        when(deviceModelRepository.findByCode(anyString())).thenReturn(Optional.of(existingModel));
+        when(deviceModelRepository.save(any(DeviceModel.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         Device existingDevice = new Device();
-        existingDevice.setSerialNumber("ODM-DRN-0052");
+        existingDevice.setSerialNumber("M3E-DEMO-001");
+        existingDevice.setName("Drone test 0052");
         existingDevice.setStatus(DeviceStatus.RESERVED);
 
-        when(deviceRepository.findBySerialNumber(anyString())).thenReturn(Optional.of(existingDevice));
+        when(deviceRepository.findBySerialNumber(anyString())).thenAnswer(invocation ->
+                "M3E-DEMO-001".equals(invocation.getArgument(0))
+                        ? Optional.of(existingDevice)
+                        : Optional.empty());
+        when(deviceRepository.save(any(Device.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         initializer.run(null);
 
-        verify(deviceRepository, never()).save(any(Device.class));
-        verify(deviceTypeRepository, never()).save(any(DeviceType.class));
-        verify(deviceModelRepository, never()).save(any(DeviceModel.class));
+        assertThat(existingModel.getModelName()).isEqualTo("Mavic 3 Enterprise");
+        assertThat(existingModel.getManufacturer()).isEqualTo("DJI");
+        assertThat(existingDevice.getName()).isEqualTo("DJI Mavic 3 Enterprise");
+        assertThat(existingDevice.getStatus()).isEqualTo(DeviceStatus.RESERVED);
     }
 }

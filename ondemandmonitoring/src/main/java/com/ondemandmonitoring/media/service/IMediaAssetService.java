@@ -8,8 +8,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 public interface IMediaAssetService {
 
-    MediaAsset upload(String deviceId, MultipartFile file);
-
     MediaAsset upload(String missionId, String deviceId, Instant capturedAt, MultipartFile file);
 
     MediaAsset upload(String missionId, String deviceId, Instant capturedAt, MultipartFile file, String requestedMediaType);

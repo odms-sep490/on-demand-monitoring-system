@@ -1,6 +1,7 @@
 package com.ondemandmonitoring.media.domain;
 
 import com.ondemandmonitoring.common.entity.BaseEntity;
+import com.ondemandmonitoring.media.enums.UploadAttemptStatus;
 import jakarta.persistence.*;
 import java.time.Instant;
 import lombok.AccessLevel;

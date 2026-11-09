@@ -8,6 +8,13 @@ import static org.mockito.Mockito.when;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
+import com.ondemandmonitoring.user.domain.User;
+import com.ondemandmonitoring.role.domain.Role;
+import com.ondemandmonitoring.role.enumeration.RoleCode;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import static org.assertj.core.api.Assertions.assertThat;
 import jakarta.servlet.FilterChain;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,6 +36,8 @@ class ActiveAccountFilterTest {
         authenticatedUserResolver = mock(AuthenticatedUserResolver.class);
         exceptionResolver = mock(HandlerExceptionResolver.class);
         filter = new ActiveAccountFilter(authenticatedUserResolver, exceptionResolver);
+        when(authenticatedUserResolver.getCurrentUser()).thenReturn(User.builder()
+                .role(Role.builder().code(RoleCode.CUSTOMER).active(true).build()).isActive(true).build());
         SecurityContextHolder.getContext().setAuthentication(
                 UsernamePasswordAuthenticationToken.authenticated(
                         "user@example.com", null, java.util.List.of()));
@@ -63,6 +72,20 @@ class ActiveAccountFilterTest {
 
         verify(exceptionResolver).resolveException(request, response, null, failure);
         verify(chain, never()).doFilter(request, response);
+    }
+
+    @Test
+    void accountLookupPreservesAuthoritiesFromJwtEvenWhenDatabaseRoleDiffers() throws Exception {
+        when(authenticatedUserResolver.getCurrentUser()).thenReturn(User.builder()
+                .role(Role.builder().code(RoleCode.MANAGER).active(true).build()).isActive(true).build());
+        Jwt token = Jwt.withTokenValue("old-token").header("alg", "RS256").subject("user")
+                .claim("cognito:groups", java.util.List.of("STAFF")).build();
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(token,
+                java.util.List.of(new SimpleGrantedAuthority("ROLE_STAFF"))));
+        filter.doFilter(new MockHttpServletRequest("GET", "/api/missions"), new MockHttpServletResponse(),
+                mock(FilterChain.class));
+        assertThat(SecurityContextHolder.getContext().getAuthentication().getAuthorities())
+                .extracting("authority").containsExactly("ROLE_STAFF");
     }
 
     @Test

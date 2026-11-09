@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/operator/missions/{missionId}/media")
-@PreAuthorize("hasAnyRole('DRONE_OPERATOR', 'ADMIN', 'SYSTEM_OPERATOR')")
+@PreAuthorize("hasAnyRole('STAFF', 'MANAGER', 'ADMIN')")
 @Validated
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)

@@ -1,6 +1,6 @@
 package com.ondemandmonitoring.user.dto.response;
 
-import com.ondemandmonitoring.role.domain.RoleCode;
+import com.ondemandmonitoring.role.enumeration.RoleCode;
 import java.time.OffsetDateTime;
 
 import lombok.AccessLevel;

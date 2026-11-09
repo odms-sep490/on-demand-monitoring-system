@@ -11,18 +11,15 @@ import com.ondemandmonitoring.device.dto.request.TelemetryRequest;
 import com.ondemandmonitoring.device.repository.DeviceRepository;
 import com.ondemandmonitoring.device.repository.DeviceTelemetryRepository;
 import com.ondemandmonitoring.device.service.impl.DeviceTelemetryServiceImpl;
-import com.ondemandmonitoring.environment.service.EnvironmentalMeasurementService;
 import com.ondemandmonitoring.mission.domain.DeviceConnection;
 import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import com.ondemandmonitoring.mission.service.IDeviceConnectionService;
-import com.ondemandmonitoring.replanning.event.DeviceTelemetrySavedEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.context.ApplicationEventPublisher;
 
 @ExtendWith(MockitoExtension.class)
 class DeviceTelemetryServiceImplTest {
@@ -30,8 +27,6 @@ class DeviceTelemetryServiceImplTest {
     @Mock IDeviceConnectionService connections;
     @Mock DeviceTelemetryRepository telemetryRepository;
     @Mock DeviceRepository deviceRepository;
-    @Mock EnvironmentalMeasurementService environmentalMeasurements;
-    @Mock ApplicationEventPublisher events;
 
     DeviceTelemetryServiceImpl service;
 
@@ -40,9 +35,7 @@ class DeviceTelemetryServiceImplTest {
         service = new DeviceTelemetryServiceImpl(
                 connections,
                 telemetryRepository,
-                deviceRepository,
-                environmentalMeasurements,
-                events);
+                deviceRepository);
     }
 
     @Test
@@ -79,7 +72,5 @@ class DeviceTelemetryServiceImplTest {
         assertThat(telemetry.getValue().getBatteryPercent()).isEqualTo(94.5);
         assertThat(telemetry.getValue().getConnected()).isTrue();
         verify(deviceRepository).save(device);
-        verify(environmentalMeasurements).recordAirPressure(device, "DRN-0050", request);
-        verify(events).publishEvent(new DeviceTelemetrySavedEvent("telemetry-1", "device-1"));
     }
 }

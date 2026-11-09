@@ -28,6 +28,9 @@ public class User extends BaseEntity {
     @ColumnTransformer(write = "lower(trim(?))")
     private String email;
 
+    @Column(name = "phone_number", length = 20)
+    private String phoneNumber;
+
     @Column(name = "email_verified", nullable = false)
     @Builder.Default
     private Boolean emailVerified = false;

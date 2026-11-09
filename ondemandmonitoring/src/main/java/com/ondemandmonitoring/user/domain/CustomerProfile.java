@@ -38,4 +38,10 @@ public class CustomerProfile extends BaseEntity {
 
     @Column(name = "company_name", length = 200)
     private String companyName;
+
+    @Column(name = "citizen_identification_number", length = 12, unique = true)
+    private String citizenIdentificationNumber;
+
+    @Column(name = "company_tax_code", length = 14, unique = true)
+    private String companyTaxCode;
 }

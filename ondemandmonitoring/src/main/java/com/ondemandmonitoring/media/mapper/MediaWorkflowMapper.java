@@ -4,6 +4,8 @@ import com.ondemandmonitoring.media.domain.*;
 import com.ondemandmonitoring.media.dto.response.*;
 import java.util.List;
 import java.util.Map;
+
+import com.ondemandmonitoring.media.enums.MediaStatus;
 import org.mapstruct.Builder;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
@@ -15,7 +17,7 @@ public interface MediaWorkflowMapper {
     @Mapping(target = "fileName", source = "asset.originalFileName")
     @Mapping(target = "status", source = "asset.mediaStatus")
     OperatorMissionMediaResponse toOperatorResponse(MediaAsset asset, String downloadUrl,
-            java.time.Instant urlExpiresAt);
+            String thumbnailUrl, String previewUrl, java.time.Instant urlExpiresAt);
 
     @Mapping(target = "manualTaskId", source = "id")
     @Mapping(target = "backendMediaId", source = "media.id")
@@ -23,6 +25,7 @@ public interface MediaWorkflowMapper {
     @Mapping(target = "missionId", expression = "java(task.getMedia().getMissionId())")
     @Mapping(target = "deviceId", expression = "java(task.getMedia().getDeviceId())")
     @Mapping(target = "mediaType", source = "media.type")
+    @Mapping(target = "sourceType", source = "media.sourceType")
     @Mapping(target = "fileName", source = "media.originalFileName")
     @Mapping(target = "contentType", source = "media.contentType")
     @Mapping(target = "fileSize", source = "media.fileSize")
@@ -34,12 +37,10 @@ public interface MediaWorkflowMapper {
     @Mapping(target = "mediaId", source = "asset.id")
     @Mapping(target = "mediaType", source = "asset.type")
     @Mapping(target = "fileName", source = "asset.originalFileName")
+    @Mapping(target = "thumbnailUrl", ignore = true)
+    @Mapping(target = "previewUrl", ignore = true)
     CustomerMediaResponse toCustomerResponse(MediaAsset asset, String downloadUrl);
 
-    @Mapping(target = "notificationId", source = "id")
-    @Mapping(target = "mediaId", source = "media.id")
-    @Mapping(target = "missionId", expression = "java(event.getMedia().getMissionId())")
-    CustomerMediaNotificationResponse toNotificationResponse(MediaNotificationOutbox event);
 
     @Mapping(target = "mediaId", source = "asset.id")
     @Mapping(target = "attemptId", source = "attempt.id")

@@ -15,6 +15,9 @@ public class TelemetryRequest {
 
     Double simX;
     Double simY;
+    Double latitude;
+    Double longitude;
+    Double absoluteAltitude;
     Double altitude;
     Double relativeAltitude;
 

@@ -58,5 +58,3 @@ public class PersistedPostDeviceCheck extends BaseEntity {
     @OrderBy("id asc")
     List<PersistedPostDeviceCheckItem> items = new ArrayList<>();
 }
-
-

@@ -31,6 +31,8 @@ import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignReques
 import software.amazon.awssdk.services.s3.presigner.model.UploadPartPresignRequest;
 import java.util.List;
 import java.util.Map;
+import java.nio.charset.StandardCharsets;
+import org.springframework.http.ContentDisposition;
 
 @Service
 @Slf4j
@@ -65,6 +67,19 @@ public class S3ObjectStorageService implements IMediaObjectStorage {
     }
 
     @Override
+    public StoredObject put(String bucket, String key, String contentType, long contentLength,
+            InputStream inputStream, String diagnosticPrefix) {
+        PutObjectRequest request = PutObjectRequest.builder()
+                .bucket(bucket)
+                .key(key)
+                .contentType(contentType)
+                .contentLength(contentLength)
+                .build();
+        s3Client.putObject(request, RequestBody.fromInputStream(inputStream, contentLength));
+        return new StoredObject(bucket, key, "s3://" + bucket + "/" + key);
+    }
+
+    @Override
     public StoredObjectStream open(String bucket, String key) {
         ResponseInputStream<GetObjectResponse> inputStream = s3Client.getObject(GetObjectRequest.builder()
                 .bucket(bucket)
@@ -85,6 +100,24 @@ public class S3ObjectStorageService implements IMediaObjectStorage {
                 .getObjectRequest(getObjectRequest)
                 .build();
 
+        return s3Presigner.presignGetObject(presignRequest).url().toString();
+    }
+
+    @Override
+    public String createPresignedDownloadUrl(String bucket, String key, String fileName) {
+        String disposition = ContentDisposition.attachment()
+                .filename(fileName, StandardCharsets.UTF_8)
+                .build()
+                .toString();
+        GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                .bucket(bucket)
+                .key(key)
+                .responseContentDisposition(disposition)
+                .build();
+        GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
+                .signatureDuration(Duration.ofSeconds(PRESIGNED_URL_EXPIRES_SECONDS))
+                .getObjectRequest(getObjectRequest)
+                .build();
         return s3Presigner.presignGetObject(presignRequest).url().toString();
     }
 
@@ -128,8 +161,12 @@ public class S3ObjectStorageService implements IMediaObjectStorage {
 
     @Override
     public void abortMultipartUpload(String key, String uploadId) {
-        s3Client.abortMultipartUpload(AbortMultipartUploadRequest.builder()
-                .bucket(bucket()).key(key).uploadId(uploadId).build());
+        try {
+            s3Client.abortMultipartUpload(AbortMultipartUploadRequest.builder()
+                    .bucket(bucket()).key(key).uploadId(uploadId).build());
+        } catch (software.amazon.awssdk.services.s3.model.S3Exception failure) {
+            if (failure.statusCode() != 404) throw failure;
+        }
     }
 
     @Override

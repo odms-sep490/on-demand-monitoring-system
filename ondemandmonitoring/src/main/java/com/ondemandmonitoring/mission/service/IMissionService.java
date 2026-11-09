@@ -3,10 +3,14 @@ package com.ondemandmonitoring.mission.service;
 import com.ondemandmonitoring.devicecheck.dto.response.PreDeviceCheckResponse;
 import com.ondemandmonitoring.mission.dto.request.AssignDeviceRequest;
 import com.ondemandmonitoring.mission.dto.request.AssignStaffRequest;
+import com.ondemandmonitoring.mission.dto.request.ReplaceDeviceRequest;
+import com.ondemandmonitoring.mission.dto.request.RequestDeviceReplacementRequest;
+import com.ondemandmonitoring.mission.dto.request.ReplaceStaffRequest;
 import com.ondemandmonitoring.mission.dto.request.MissionUpdateRequest;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.dto.response.MissionPlanResponse;
 import com.ondemandmonitoring.mission.dto.response.MissionResponse;
+import com.ondemandmonitoring.mission.dto.response.MissionResourceReplacementResponse;
 import com.ondemandmonitoring.mission.dto.response.MissionTelemetryReadinessResponse;
 import com.ondemandmonitoring.common.api.PageResponse;
 import com.ondemandmonitoring.device.enums.DeviceStatus;
@@ -24,14 +28,46 @@ import java.util.List;
  * presentation/controller layers.
  */
 public interface IMissionService {
+    MissionResponse createMission(String orderId, MissionCreateRequest request);
 
-    MissionResponse createMission(MissionCreateRequest request);
+    MissionResponse createAdditionalMission(String orderId, MissionCreateRequest request);
+
+    MissionResponse createResultRevisionReworkMission(String caseId,
+            com.ondemandmonitoring.mission.dto.request.CreateResultRevisionReworkMissionRequest request);
+
+    void finalizeReworkPlan(String caseId,
+            com.ondemandmonitoring.mission.dto.request.ExecutionPlanFinalizeRequest request);
+
+    MissionResponse confirmMissionPlanning(String missionId);
+
+    /** Opens resource confirmation for every Mission of an Order after final payment. */
+    List<MissionResponse> transitionToPendingConfirmation(String orderId);
+
+    MissionResponse cancelMission(String missionId, String reason);
+
+    void cancelDraftMission(String missionId);
+
 
     MissionResponse updateMission(String missionId, MissionUpdateRequest request);
 
+    MissionResponse rescheduleMission(String missionId,
+            com.ondemandmonitoring.mission.dto.request.MissionScheduleUpdateRequest request);
+
     MissionResponse assignDevice(String missionId, AssignDeviceRequest request);
 
+    MissionResponse removeDevice(String missionId, String assignmentId);
+
+    MissionResponse replaceDevice(String missionId, String assignmentId, ReplaceDeviceRequest request);
+
+    MissionResponse requestDeviceReplacement(String missionId, RequestDeviceReplacementRequest request);
+
     MissionResponse assignStaff(String missionId, AssignStaffRequest request);
+
+    MissionResponse removeStaff(String missionId, String assignmentId);
+
+    MissionResponse replaceStaff(String missionId, String staffId, ReplaceStaffRequest request);
+
+    List<MissionResourceReplacementResponse> getResourceReplacementHistory(String missionId);
 
     List<MissionResponse> getAllMissions();
     /**
@@ -95,18 +131,17 @@ public interface IMissionService {
     Mission findById(String missionId);
 
     /**
-     * Accepts a mission assignment by the Staff (transitions status to SCHEDULED
-     * if flight plan is feasible).
+     * Accepts a mission assignment by the Staff.
      *
-     * @param missionId  Mission ID
+     * @param missionId Mission ID
      * @param staffId Staff ID
-     * @return {@link MissionResponse} Updated mission DTO
+     * @return updated mission DTO
      */
     MissionResponse acceptMission(String missionId, String staffId);
 
     /**
      * Rejects a mission assignment by the Staff (resets mission to
-     * RESOURCE_ASSIGNING for re-assignment).
+     * PLANNING for re-assignment).
      *
      * @param missionId  Mission ID
      * @param staffId Staff ID
@@ -147,27 +182,18 @@ public interface IMissionService {
 
     /**
      * Executes digital pre-device safety check before takeoff.
-     * Passed -> Issues 60-minute FlightToken and sets status to READY_TO_FLY.
+     * Passed -> Sets status to READY_TO_FLY.
      * Failed -> Logs battery/hardware diagnostics, creates maintenance ticket, and
      * auto-swaps device if available.
      *
      * @param missionId Mission ID
      * @param deviceId Device ID/code
-     * @return {@link PreDeviceCheckResponse} Preflight diagnostics and issued
-     *         flight token (if passed)
+     * @return {@link PreDeviceCheckResponse} Preflight diagnostics
      */
     PreDeviceCheckResponse runPreDeviceCheck(String missionId, String deviceId);
 
     MissionTelemetryReadinessResponse getTelemetryReadiness(String missionId);
 
-//    /**
-//     * Replaces faulty device with a new device for the mission.
-//     *
-//     * @param missionId    Mission ID
-//     * @param newDeviceCode Replacement device code
-//     * @return {@link MissionResponse} Updated mission DTO
-//     */
-//    MissionResponse replacedevice(String missionId, String newDeviceCode);
 
     /**
      * Hands over mission control to a new Staff (Control Handover).
@@ -179,19 +205,10 @@ public interface IMissionService {
     MissionResponse handoverControl(String missionId, String staffId);
 
     /**
-     * Initiates mission flight (Takeoff) with token validation.
-     *
-     * @param missionId  Mission ID
-     * @param tokenValue Flight token string
-     * @return {@link MissionResponse} Mission set to IN_FLIGHT
-     */
-    MissionResponse startMission(String missionId, String tokenValue);
-
-    /**
      * Initiates mission flight (Takeoff).
      *
      * @param missionId Mission ID
-     * @return {@link MissionResponse} Mission set to IN_FLIGHT
+     * @return {@link MissionResponse} Mission set to IN_PROGRESS
      */
     MissionResponse startMission(String missionId);
 
@@ -227,6 +244,7 @@ public interface IMissionService {
      * @return {@link MissionResponse} Mission set to FAILED
      */
     MissionResponse failMission(String missionId, String reason);
+    MissionResponse requestMissionFailure(String missionId, String reason);
 
     /**
      * Updates postflight status and device health notes.

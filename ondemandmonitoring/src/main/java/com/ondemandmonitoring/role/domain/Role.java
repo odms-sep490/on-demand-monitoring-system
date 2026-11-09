@@ -1,5 +1,6 @@
 package com.ondemandmonitoring.role.domain;
 
+import com.ondemandmonitoring.role.enumeration.RoleCode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

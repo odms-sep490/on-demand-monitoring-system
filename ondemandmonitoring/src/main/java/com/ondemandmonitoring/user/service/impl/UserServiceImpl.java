@@ -3,7 +3,7 @@ package com.ondemandmonitoring.user.service.impl;
 import com.ondemandmonitoring.user.domain.CustomerProfile;
 import com.ondemandmonitoring.user.domain.User;
 import com.ondemandmonitoring.user.enumeration.IdentityProvider;
-import com.ondemandmonitoring.role.domain.RoleCode;
+import com.ondemandmonitoring.role.enumeration.RoleCode;
 import com.ondemandmonitoring.role.domain.Role;
 import com.ondemandmonitoring.role.service.RoleService;
 import com.ondemandmonitoring.user.repository.CustomerProfileRepository;
@@ -23,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.OffsetDateTime;
 import java.util.Locale;
 import java.util.Optional;
-import java.util.UUID;
 
 @Slf4j
 @Service

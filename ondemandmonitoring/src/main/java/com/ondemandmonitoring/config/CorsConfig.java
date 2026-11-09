@@ -15,17 +15,26 @@ public class CorsConfig {
 
     @Bean
     public WebMvcConfigurer corsConfigurer() {
-        return new WebMvcConfigurer() {
-            @Override
-            public void addCorsMappings(CorsRegistry registry) {
-                registry.addMapping("/api/**")
-                        .allowedOriginPatterns(corsAddress)
-                        .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
-                        .allowedHeaders("*")
-                        .exposedHeaders("Authorization", "X-Operator-Id", "Content-Disposition")
-                        .allowCredentials(true)
-                        .maxAge(3600);
-            }
-        };
+        return new ApiCorsConfigurer(corsAddress);
+    }
+}
+
+final class ApiCorsConfigurer implements WebMvcConfigurer {
+
+    private final String corsAddress;
+
+    ApiCorsConfigurer(String corsAddress) {
+        this.corsAddress = corsAddress;
+    }
+
+    @Override
+    public void addCorsMappings(CorsRegistry registry) {
+        registry.addMapping("/api/**")
+                .allowedOriginPatterns(corsAddress)
+                .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+                .allowedHeaders("*")
+                .exposedHeaders("Authorization", "X-Operator-Id", "Content-Disposition")
+                .allowCredentials(true)
+                .maxAge(3600);
     }
 }

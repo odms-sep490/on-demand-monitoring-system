@@ -10,19 +10,24 @@ import com.ondemandmonitoring.media.dto.response.MediaAssetResponse;
 import com.ondemandmonitoring.media.mapper.MediaAssetMapper;
 import com.ondemandmonitoring.mission.dto.request.AssignDeviceRequest;
 import com.ondemandmonitoring.mission.dto.request.AssignStaffRequest;
-import com.ondemandmonitoring.mission.dto.request.DeviceReplacementRequest;
+import com.ondemandmonitoring.mission.dto.request.ReplaceDeviceRequest;
+import com.ondemandmonitoring.mission.dto.request.ReplaceStaffRequest;
 import com.ondemandmonitoring.mission.dto.request.MissionFailRequest;
 import com.ondemandmonitoring.mission.dto.request.MissionRejectRequest;
-import com.ondemandmonitoring.mission.dto.request.MissionResourceAssignmentRequest;
 import com.ondemandmonitoring.mission.dto.request.MissionUpdateRequest;
 import com.ondemandmonitoring.mission.dto.request.PostFlightStatusRequest;
+import com.ondemandmonitoring.mission.dto.request.FlightPermitUpdateRequest;
 import com.ondemandmonitoring.mission.dto.response.MissionPlanResponse;
 import com.ondemandmonitoring.mission.dto.response.MissionResponse;
+import com.ondemandmonitoring.mission.dto.response.MissionResourceReplacementResponse;
 import com.ondemandmonitoring.mission.dto.response.MissionTelemetryReadinessResponse;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.service.IMissionMediaUploadService;
 import com.ondemandmonitoring.mission.service.IMissionService;
+import com.ondemandmonitoring.flightpermit.service.IFlightPermitService;
 import com.ondemandmonitoring.mission.dto.request.MissionCreateRequest;
+import io.swagger.v3.oas.annotations.Operation;
+import com.ondemandmonitoring.mission.dto.request.RequestDeviceReplacementRequest;
 import jakarta.validation.Valid;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -54,40 +59,64 @@ import java.time.ZoneId;
 @RequestMapping("/api/missions")
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
-@PreAuthorize("hasAnyRole('STAFF', 'DRONE_OPERATOR', 'SYSTEM_OPERATOR', 'ADMIN')")
+@PreAuthorize("hasAnyRole('MANAGER','STAFF','ADMIN')")
 public class MissionController {
 
     IMissionService missionService;
+    IFlightPermitService flightPermitService;
     IMissionMediaUploadService missionMediaUploadService;
     MediaAssetMapper mediaAssetMapper;
-
-    // ------------------------------------------------------------------
-    // Query
-    // ------------------------------------------------------------------
-
-    @PostMapping
-    @PreAuthorize("hasAnyRole('STAFF', 'DRONE_OPERATOR', 'SYSTEM_OPERATOR', 'ADMIN')")
+    
+    // CRUD – Create, Read, Update, Delete - before mission is confirmed (draft)
+    @PostMapping("/{orderId}")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<MissionResponse>> createMission(
+            @PathVariable String orderId,
             @Valid @RequestBody MissionCreateRequest request) {
-        MissionResponse response = missionService.createMission(request);
+        var result = missionService.createMission(orderId, request);
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.ok("Mission created successfully", response));
+                .body(ApiResponse.ok("Mission created", result));
     }
 
-    @GetMapping("/all")
-    @PreAuthorize("hasAnyRole('STAFF', 'DRONE_OPERATOR', 'SYSTEM_OPERATOR', 'ADMIN')")
-    public ResponseEntity<ApiResponse<List<MissionResponse>>> listAll() {
-        return ResponseEntity.ok(ApiResponse.ok(missionService.getAllMissions()));
+    @PostMapping("/{orderId}/additional")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<MissionResponse>> createAdditional(@PathVariable String orderId,
+            @Valid @RequestBody MissionCreateRequest request) {
+        return ResponseEntity.status(201).body(ApiResponse.ok(missionService.createAdditionalMission(orderId, request)));
     }
 
-    @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('STAFF', 'DRONE_OPERATOR', 'SYSTEM_OPERATOR', 'ADMIN')")
+        @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<MissionResponse>> updateMission(
             @PathVariable String id,
             @Valid @RequestBody MissionUpdateRequest request) {
         MissionResponse response = missionService.updateMission(id, request);
         return ResponseEntity.ok(ApiResponse.ok("Cập nhật mission thành công", response));
     }
+    
+    @DeleteMapping("/{missionId}")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    @Operation(summary = "Cancel a draft mission while keeping the mission and order in history")
+    public ResponseEntity<Void> cancelDraft(@PathVariable String missionId) {
+        missionService.cancelDraftMission(missionId);
+        return ResponseEntity.noContent().build();
+    }
+
+    // Confirm mission planning - use for when order planning is  ready for execution
+    @PostMapping("/{missionId}/confirm-planning")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ApiResponse<MissionResponse> confirm(@PathVariable String missionId) {
+        return ApiResponse.ok(missionService.confirmMissionPlanning(missionId));
+    }
+
+
+
+    @GetMapping("/all")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<List<MissionResponse>>> listAll() {
+        return ResponseEntity.ok(ApiResponse.ok(missionService.getAllMissions()));
+    }
+
 
     /**
      * GET /api/missions?staffId={id}
@@ -95,7 +124,7 @@ public class MissionController {
      * desc.
      */
     @GetMapping
-    @PreAuthorize("hasAnyRole('STAFF', 'DRONE_OPERATOR', 'SYSTEM_OPERATOR', 'ADMIN')")
+    @PreAuthorize("@missionAuthorizationService.canViewStaffMissions(#staffId)")
     public ResponseEntity<ApiResponse<List<MissionResponse>>> listByStaff(
             @RequestParam String staffId) {
         List<MissionResponse> missions = missionService.getByStaffId(staffId);
@@ -107,7 +136,7 @@ public class MissionController {
      * unchanged.
      */
     @GetMapping("/staff")
-    @PreAuthorize("hasAnyRole('STAFF', 'DRONE_OPERATOR', 'SYSTEM_OPERATOR', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<PageResponse<MissionResponse>>> searchStaffMissions(
             @RequestParam(required = false) MissionStatus status,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
@@ -125,7 +154,7 @@ public class MissionController {
                 PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "id")))));
     }
 
-    @PreAuthorize("hasAnyRole('STAFF', 'DRONE_OPERATOR', 'SYSTEM_OPERATOR', 'ADMIN')")
+    @PreAuthorize("hasRole('STAFF')")
     @GetMapping("/mine")
     public ResponseEntity<ApiResponse<List<MissionResponse>>> listCurrentStaffMissions() {
         return ResponseEntity.ok(ApiResponse.ok(missionService.getCurrentStaffMissions()));
@@ -133,7 +162,7 @@ public class MissionController {
 
     /** GET /api/missions/code/{missionCode} – retrieve mission details by code */
     @GetMapping("/code/{missionCode}")
-    @PreAuthorize("hasAnyRole('STAFF', 'DRONE_OPERATOR', 'SYSTEM_OPERATOR', 'ADMIN')")
+    @PreAuthorize("@missionAuthorizationService.canViewMissionByCode(#missionCode)")
     public ResponseEntity<ApiResponse<MissionResponse>> getByCode(@PathVariable String missionCode) {
         MissionResponse response = missionService.getByCodeResponse(missionCode);
         return ResponseEntity.ok(ApiResponse.ok(response));
@@ -141,7 +170,7 @@ public class MissionController {
 
     /** GET /api/missions/{id} – retrieve mission details */
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('STAFF', 'DRONE_OPERATOR', 'SYSTEM_OPERATOR', 'ADMIN') or @missionAuthorizationService.isAssignedStaff(#id)")
+    @PreAuthorize("@missionAuthorizationService.canViewMission(#id)")
     public ResponseEntity<ApiResponse<MissionResponse>> getById(@PathVariable String id) {
         MissionResponse response = missionService.getByIdResponse(id);
         return ResponseEntity.ok(ApiResponse.ok(response));
@@ -149,7 +178,7 @@ public class MissionController {
 
     /** GET /api/missions/{id}/plan – retrieve generated operational MissionPlan */
     @GetMapping("/{id}/plan")
-    @PreAuthorize("hasAnyRole('STAFF', 'DRONE_OPERATOR', 'SYSTEM_OPERATOR', 'ADMIN') or @missionAuthorizationService.isAssignedStaff(#id)")
+    @PreAuthorize("@missionAuthorizationService.canViewMission(#id)")
     public ResponseEntity<ApiResponse<MissionPlanResponse>> getPlan(@PathVariable String id) {
         MissionPlanResponse response = missionService.getMissionPlan(id);
         return ResponseEntity.ok(ApiResponse.ok(response));
@@ -157,7 +186,7 @@ public class MissionController {
 
     // ------------------------------------------------------------------
     @GetMapping("/pending-assignment")
-    @PreAuthorize("hasAnyRole('STAFF', 'DRONE_OPERATOR', 'SYSTEM_OPERATOR', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<List<MissionResponse>>> getPendingAssignment() {
         return ResponseEntity.ok(ApiResponse.ok(missionService.getPendingAssignmentMissions()));
     }
@@ -165,8 +194,8 @@ public class MissionController {
     // F2 – Manager Assignment (Flow 2)
     // ------------------------------------------------------------------
 
-    @PostMapping("/{id}/assign-device")
-    @PreAuthorize("hasAnyRole('STAFF', 'DRONE_OPERATOR', 'SYSTEM_OPERATOR', 'ADMIN')")
+    @PostMapping("/{id}/device-assignments")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<MissionResponse>> assignDevice(
             @PathVariable String id,
             @Valid @RequestBody AssignDeviceRequest request) {
@@ -174,13 +203,87 @@ public class MissionController {
         return ResponseEntity.ok(ApiResponse.ok("Gán thiết bị cho mission thành công", response));
     }
 
-    @PostMapping("/{id}/assign-staff")
-    @PreAuthorize("hasAnyRole('STAFF', 'DRONE_OPERATOR', 'SYSTEM_OPERATOR', 'ADMIN')")
+    @DeleteMapping("/{id}/device-assignments/{assignmentId}")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<MissionResponse>> removeDevice(
+            @PathVariable String id,
+            @PathVariable String assignmentId) {
+        MissionResponse response = missionService.removeDevice(id, assignmentId);
+        return ResponseEntity.ok(ApiResponse.ok("Gỡ thiết bị khỏi mission thành công", response));
+    }
+
+    @PutMapping("/{id}/device-assignments/{assignmentId}/resource")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<MissionResponse>> replaceDevice(
+            @PathVariable String id,
+            @PathVariable String assignmentId,
+            @Valid @RequestBody ReplaceDeviceRequest request) {
+        MissionResponse response = missionService.replaceDevice(id, assignmentId, request);
+        return ResponseEntity.ok(ApiResponse.ok("Thay thiết bị cho mission thành công", response));
+    }
+
+    @PostMapping("/{id}/device-replacement-requests")
+    @PreAuthorize("@missionAuthorizationService.canControlFlight(#id) or @missionAuthorizationService.canOperatePayload(#id)")
+    public ResponseEntity<ApiResponse<MissionResponse>> requestDeviceReplacement(
+            @PathVariable String id,
+            @Valid @RequestBody RequestDeviceReplacementRequest request) {
+        MissionResponse response = missionService.requestDeviceReplacement(id, request);
+        return ResponseEntity.ok(ApiResponse.ok("Đã gửi yêu cầu đổi thiết bị", response));
+    }
+
+    @PostMapping("/{id}/staff-assignments")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<MissionResponse>> assignStaff(
             @PathVariable String id,
             @Valid @RequestBody AssignStaffRequest request) {
         MissionResponse response = missionService.assignStaff(id, request);
         return ResponseEntity.ok(ApiResponse.ok("Gán staff cho mission thành công", response));
+    }
+
+    @DeleteMapping("/{id}/staff-assignments/{assignmentId}")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<MissionResponse>> removeStaff(
+            @PathVariable String id,
+            @PathVariable String assignmentId) {
+        MissionResponse response = missionService.removeStaff(id, assignmentId);
+        return ResponseEntity.ok(ApiResponse.ok("Gỡ staff khỏi mission thành công", response));
+    }
+
+    @PutMapping("/{id}/staff-assignments/{staffId}/resource")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<MissionResponse>> replaceStaff(
+            @PathVariable String id,
+            @PathVariable String staffId,
+            @Valid @RequestBody ReplaceStaffRequest request) {
+        MissionResponse response = missionService.replaceStaff(id, staffId, request);
+        return ResponseEntity.ok(ApiResponse.ok("Thay staff cho mission thành công", response));
+    }
+
+    @GetMapping("/{id}/resource-replacements")
+    @PreAuthorize("@missionAuthorizationService.canViewMission(#id)")
+    public ResponseEntity<ApiResponse<List<MissionResourceReplacementResponse>>> getResourceReplacementHistory(
+            @PathVariable String id) {
+        return ResponseEntity.ok(ApiResponse.ok(missionService.getResourceReplacementHistory(id)));
+    }
+
+    @PatchMapping("/{id}/flight-permit")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<MissionResponse>> updateFlightPermit(
+            @PathVariable String id,
+            @Valid @RequestBody FlightPermitUpdateRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Cập nhật giấy phép bay thành công",
+                flightPermitService.updateFlightPermit(id, request)));
+    }
+
+    @PatchMapping("/{id}/schedule")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<MissionResponse>> rescheduleMission(
+            @PathVariable String id,
+            @Valid @RequestBody com.ondemandmonitoring.mission.dto.request.MissionScheduleUpdateRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Cập nhật lịch mission thành công",
+                missionService.rescheduleMission(id, request)));
     }
 
 
@@ -192,11 +295,10 @@ public class MissionController {
     /**
      * PATCH /api/missions/{id}/accept
      * Staff confirms they accept the mission.
-     * Transitions: WAITING_OPERATOR_ACCEPTANCE → ASTAR_ENERGY_AWARE planning →
-     * SCHEDULED
+     * Staff accepts the assigned mission after final payment, while it is PENDING_CONFIRMATION.
      */
     @PatchMapping("/{id}/accept")
-    @PreAuthorize("hasRole('DRONE_OPERATOR') and @missionAuthorizationService.isAssignedStaff(#id)")
+    @PreAuthorize("@missionAuthorizationService.canRespondToMission(#id)")
     public ResponseEntity<ApiResponse<MissionResponse>> accept(
             @PathVariable String id,
             @RequestHeader(value = "X-Staff-Id", required = false) String ignoredstaffId) {
@@ -204,7 +306,7 @@ public class MissionController {
         return ResponseEntity.ok(ApiResponse.ok("Mission đã được chấp nhận", response));
     }
 
-    @PreAuthorize("hasRole('DRONE_OPERATOR')")
+    @PreAuthorize("@missionAuthorizationService.canRespondToMission(#id)")
     @PatchMapping("/{id}/accept-current")
     public ResponseEntity<ApiResponse<MissionResponse>> acceptCurrentStaff(@PathVariable String id) {
         return ResponseEntity.ok(ApiResponse.ok(
@@ -213,7 +315,7 @@ public class MissionController {
     }
 
     @PatchMapping("/{id}/accept-staff")
-    @PreAuthorize("hasAnyRole('STAFF', 'DRONE_OPERATOR', 'SYSTEM_OPERATOR', 'ADMIN')")
+    @PreAuthorize("@missionAuthorizationService.canRespondToMission(#id,#staffId)")
     public ResponseEntity<ApiResponse<MissionResponse>> acceptByStaffId(
             @PathVariable String id,
             @RequestParam String staffId) {
@@ -221,7 +323,7 @@ public class MissionController {
         return ResponseEntity.ok(ApiResponse.ok("Mission đã được staff chấp nhận", response));
     }
 
-    @PreAuthorize("hasRole('DRONE_OPERATOR')")
+    @PreAuthorize("@missionAuthorizationService.canRespondToMission(#id)")
     @PatchMapping("/{id}/reject-current")
     public ResponseEntity<ApiResponse<MissionResponse>> rejectCurrentStaff(
             @PathVariable String id,
@@ -232,7 +334,7 @@ public class MissionController {
     }
 
     @PatchMapping("/{id}/reject-staff")
-    @PreAuthorize("hasAnyRole('STAFF', 'DRONE_OPERATOR', 'SYSTEM_OPERATOR', 'ADMIN')")
+    @PreAuthorize("@missionAuthorizationService.canRespondToMission(#id,#staffId)")
     public ResponseEntity<ApiResponse<MissionResponse>> rejectByStaffId(
             @PathVariable String id,
             @RequestParam String staffId,
@@ -244,10 +346,10 @@ public class MissionController {
     /**
      * PATCH /api/missions/{id}/reject
      * Staff rejects the mission with a mandatory reason.
-     * Transitions: WAITING_OPERATOR_ACCEPTANCE → RESOURCE_ASSIGNING
+     * The assignment is released for reassignment while the mission remains READY.
      */
     @PatchMapping("/{id}/reject")
-    @PreAuthorize("hasRole('DRONE_OPERATOR') and @missionAuthorizationService.isAssignedStaff(#id)")
+    @PreAuthorize("@missionAuthorizationService.canRespondToMission(#id)")
     public ResponseEntity<ApiResponse<MissionResponse>> reject(
             @PathVariable String id,
             @RequestHeader(value = "X-Staff-Id", required = false) String ignoredstaffId,
@@ -259,17 +361,16 @@ public class MissionController {
     /**
      * POST /api/missions/{id}/connect
      * Confirm telemetry link with GCS app (powerOnAndPairWithGCSApp).
-     * Transitions: SCHEDULED -> CONNECTED
      */
     @PostMapping("/{id}/connect")
-    @PreAuthorize("hasRole('DRONE_OPERATOR') and @missionAuthorizationService.isAssignedStaff(#id)")
+    @PreAuthorize("@missionAuthorizationService.canOperatePayload(#id)")
     public ResponseEntity<ApiResponse<MissionResponse>> connectGcs(@PathVariable String id) {
         MissionResponse response = missionService.connectGcs(id);
         return ResponseEntity.ok(ApiResponse.ok("Telemetry link with GCS confirmed (CONNECTED)", response));
     }
 
     @GetMapping("/{id}/telemetry-readiness")
-    @PreAuthorize("hasRole('DRONE_OPERATOR') and @missionAuthorizationService.isAssignedStaff(#id)")
+    @PreAuthorize("@missionAuthorizationService.canViewMission(#id)")
     public ResponseEntity<ApiResponse<MissionTelemetryReadinessResponse>> getTelemetryReadiness(
             @PathVariable String id) {
         return ResponseEntity.ok(ApiResponse.ok(missionService.getTelemetryReadiness(id)));
@@ -280,7 +381,7 @@ public class MissionController {
      * Normal or explicit disconnection from GCS app.
      */
     @PostMapping("/{id}/disconnect")
-    @PreAuthorize("hasRole('DRONE_OPERATOR') and @missionAuthorizationService.isAssignedStaff(#id)")
+    @PreAuthorize("@missionAuthorizationService.canOperatePayload(#id)")
     public ResponseEntity<ApiResponse<MissionResponse>> disconnectGcs(
             @PathVariable String id,
             @RequestParam(required = false, defaultValue = "NORMAL") String reason) {
@@ -294,7 +395,7 @@ public class MissionController {
      * Return-To-Launch (RTL).
      */
     @PostMapping("/{id}/gcs-lost")
-    @PreAuthorize("hasRole('DRONE_OPERATOR') and @missionAuthorizationService.isAssignedStaff(#id)")
+    @PreAuthorize("@missionAuthorizationService.canOperatePayload(#id)")
     public ResponseEntity<ApiResponse<MissionResponse>> reportGcsLost(
             @PathVariable String id,
             @RequestParam(required = false, defaultValue = "SIGNAL_LOSS") String reason) {
@@ -303,7 +404,7 @@ public class MissionController {
     }
 
     @PostMapping("/{id}/pre-device-check")
-    @PreAuthorize("hasRole('DRONE_OPERATOR') and @missionAuthorizationService.isAssignedStaff(#id)")
+    @PreAuthorize("@missionAuthorizationService.canOperatePayload(#id)")
     public ResponseEntity<ApiResponse<PreDeviceCheckResponse>> runPreDeviceCheck(
             @PathVariable String id,
             @RequestParam String deviceId) {
@@ -317,18 +418,6 @@ public class MissionController {
                         response));
     }
 
-    /**
-     * PATCH /api/missions/{id}/replace-device
-     * Staff selects a replacement device when pre-flight fails.
-     */
-//    @PatchMapping("/{id}/replace-device")
-//    @PreAuthorize("hasRole('DRONE_OPERATOR') and @missionAuthorizationService.isAssignedStaff(#id)")
-//    public ResponseEntity<ApiResponse<MissionResponse>> replacedevice(
-//            @PathVariable String id,
-//            @Valid @RequestBody DeviceReplacementRequest request) {
-//        MissionResponse response = missionService.replacedevice(id, request.getnewDeviceCode());
-//        return ResponseEntity.ok(ApiResponse.ok("device successfully replaced", response));
-//    }
 
     // ------------------------------------------------------------------
     // F3.2b – Bàn giao quyền điều khiển (Handover of control)
@@ -339,7 +428,7 @@ public class MissionController {
      * Staff formally accepts control of the device console.
      */
     @PostMapping("/{id}/handover")
-    @PreAuthorize("hasRole('DRONE_OPERATOR') and @missionAuthorizationService.isAssignedStaff(#id)")
+    @PreAuthorize("@missionAuthorizationService.canOperatePayload(#id)")
     public ResponseEntity<ApiResponse<MissionResponse>> handover(
             @PathVariable String id,
             @RequestHeader(value = "X-Staff-Id", required = false) String ignoredstaffId) {
@@ -347,7 +436,7 @@ public class MissionController {
         return ResponseEntity.ok(ApiResponse.ok("Control handed over", response));
     }
 
-    @PreAuthorize("hasRole('DRONE_OPERATOR')")
+    @PreAuthorize("@missionAuthorizationService.canOperatePayload(#id)")
     @PostMapping("/{id}/handover-current")
     public ResponseEntity<ApiResponse<MissionResponse>> handoverCurrentStaff(@PathVariable String id) {
         return ResponseEntity.ok(ApiResponse.ok(
@@ -356,7 +445,7 @@ public class MissionController {
     }
 
     @PostMapping("/{id}/handover-staff")
-    @PreAuthorize("hasAnyRole('STAFF', 'DRONE_OPERATOR', 'SYSTEM_OPERATOR', 'ADMIN')")
+    @PreAuthorize("@missionAuthorizationService.canControlFlight(#id) and @missionAuthorizationService.canViewStaffMissions(#staffId)")
     public ResponseEntity<ApiResponse<MissionResponse>> handoverByStaffId(
             @PathVariable String id,
             @RequestParam String staffId) {
@@ -369,29 +458,27 @@ public class MissionController {
     // ------------------------------------------------------------------
 
     /**
-     * POST /api/missions/{id}/start
-     * Staff clicks "Press Takeoff". Validates Flight Access Token.
+     * POST /api/missions/{id}/start-operation
+     * Staff starts the mission after preflight and control handover.
      */
-    @PostMapping("/{id}/start")
-    @PreAuthorize("hasRole('DRONE_OPERATOR') and @missionAuthorizationService.isAssignedStaff(#id)")
-    public ResponseEntity<ApiResponse<MissionResponse>> start(
-            @PathVariable String id,
-            @RequestParam(required = false) String tokenValue) {
-        MissionResponse response = missionService.startMission(id, tokenValue);
-        return ResponseEntity.ok(ApiResponse.ok("Takeoff confirmed – mission IN_FLIGHT", response));
+    @PostMapping("/{id}/start-operation")
+    @PreAuthorize("@missionAuthorizationService.canStartMission(#id)")
+    public ResponseEntity<ApiResponse<MissionResponse>> start(@PathVariable String id) {
+        MissionResponse response = missionService.startMission(id);
+        return ResponseEntity.ok(ApiResponse.ok("Mission started – status is IN_PROGRESS", response));
     }
 
     /** POST /api/missions/{id}/return – device heads back, RETURNING */
     @PostMapping("/{id}/return")
-    @PreAuthorize("hasRole('DRONE_OPERATOR') and @missionAuthorizationService.isAssignedStaff(#id)")
+    @PreAuthorize("@missionAuthorizationService.canControlFlight(#id)")
     public ResponseEntity<ApiResponse<MissionResponse>> markReturning(@PathVariable String id) {
         MissionResponse response = missionService.markReturning(id);
-        return ResponseEntity.ok(ApiResponse.ok("device đang quay trở về", response));
+        return ResponseEntity.ok(ApiResponse.ok("Thiết bị đang quay về điểm xuất phát", response));
     }
 
     /** POST /api/missions/{id}/post-device or /postflight – device landed, POSTFLIGHT_CHECKING */
     @PostMapping({"/{id}/post-device", "/{id}/postflight"})
-    @PreAuthorize("hasRole('DRONE_OPERATOR') and @missionAuthorizationService.isAssignedStaff(#id)")
+    @PreAuthorize("@missionAuthorizationService.canControlFlight(#id) or @missionAuthorizationService.canContinueRequestedFailurePostflight(#id)")
     public ResponseEntity<ApiResponse<MissionResponse>> startPostflight(@PathVariable String id) {
         MissionResponse response = missionService.startPostDeviceChecking(id);
         return ResponseEntity.ok(ApiResponse.ok("Bắt đầu kiểm tra sau bay", response));
@@ -399,7 +486,7 @@ public class MissionController {
 
     /** POST /api/missions/{id}/complete – Staff confirms complete */
     @PostMapping("/{id}/complete")
-    @PreAuthorize("hasRole('DRONE_OPERATOR') and @missionAuthorizationService.isAssignedStaff(#id)")
+    @PreAuthorize("@missionAuthorizationService.canCompleteMission(#id)")
     public ResponseEntity<ApiResponse<MissionResponse>> complete(@PathVariable String id) {
         MissionResponse response = missionService.completeMission(id);
         return ResponseEntity.ok(ApiResponse.ok("Mission đã hoàn thành", response));
@@ -407,12 +494,22 @@ public class MissionController {
 
     /** POST /api/missions/{id}/fail – Staff reports mission failure */
     @PostMapping("/{id}/fail")
-    @PreAuthorize("hasRole('DRONE_OPERATOR') and @missionAuthorizationService.isAssignedStaff(#id)")
+    @PreAuthorize("@missionAuthorizationService.canFailMission(#id)")
     public ResponseEntity<ApiResponse<MissionResponse>> fail(
             @PathVariable String id,
             @Valid @RequestBody MissionFailRequest request) {
         MissionResponse response = missionService.failMission(id, request.getReason());
         return ResponseEntity.ok(ApiResponse.ok("Mission đã báo lỗi thất bại", response));
+    }
+
+    /** POST /api/missions/{id}/fail-request – request a safe return before final failure */
+    @PostMapping("/{id}/fail-request")
+    @PreAuthorize("@missionAuthorizationService.canControlFlight(#id)")
+    public ResponseEntity<ApiResponse<MissionResponse>> requestFailure(
+            @PathVariable String id,
+            @Valid @RequestBody MissionFailRequest request) {
+        MissionResponse response = missionService.requestMissionFailure(id, request.getReason());
+        return ResponseEntity.ok(ApiResponse.ok("Đã ghi nhận yêu cầu dừng nhiệm vụ", response));
     }
 
     // ------------------------------------------------------------------
@@ -423,7 +520,7 @@ public class MissionController {
      * POST /api/missions/{id}/media (Multipart)
      */
     @PostMapping(value = "/{id}/media", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasRole('DRONE_OPERATOR') and @missionAuthorizationService.isAssignedStaff(#id)")
+    @PreAuthorize("@missionAuthorizationService.canUploadMissionMedia(#id)")
     public ResponseEntity<ApiResponse<MediaAssetResponse>> uploadMedia(
             @PathVariable String id,
             @RequestParam(required = false) String deviceId,
@@ -443,7 +540,7 @@ public class MissionController {
      * PATCH /api/missions/{id}/postflight-status
      */
     @PatchMapping("/{id}/postflight-status")
-    @PreAuthorize("hasRole('DRONE_OPERATOR') and @missionAuthorizationService.isAssignedStaff(#id)")
+    @PreAuthorize("@missionAuthorizationService.canMaintainDevice(#id)")
     public ResponseEntity<ApiResponse<MissionResponse>> updatePostFlightStatus(
             @PathVariable String id,
             @RequestParam String deviceId,
@@ -458,7 +555,7 @@ public class MissionController {
     }
 
     @PatchMapping("/{id}/postflight-device-status")
-    @PreAuthorize("hasRole('DRONE_OPERATOR') and @missionAuthorizationService.isAssignedStaff(#id)")
+    @PreAuthorize("@missionAuthorizationService.canMaintainDevice(#id)")
     public ResponseEntity<ApiResponse<MissionResponse>> updatePostflightDeviceStatus(
             @PathVariable String id,
             @RequestParam com.ondemandmonitoring.device.enums.DeviceStatus status,

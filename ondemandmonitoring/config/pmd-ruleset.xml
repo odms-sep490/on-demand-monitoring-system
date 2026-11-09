@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ruleset name="ODMS focused Java checks"
+         xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
+    <description>
+        A focused Java 21 ruleset for likely defects and unused code. Keep this
+        deliberately small to avoid turning repository-wide style preferences
+        into noisy findings.
+    </description>
+
+    <rule ref="category/java/bestpractices.xml/UnusedLocalVariable" />
+    <rule ref="category/java/errorprone.xml/BrokenNullCheck" />
+    <rule ref="category/java/errorprone.xml/CompareObjectsWithEquals" />
+    <rule ref="category/java/bestpractices.xml/PreserveStackTrace" />
+    <rule ref="category/java/errorprone.xml/ReturnFromFinallyBlock" />
+</ruleset>

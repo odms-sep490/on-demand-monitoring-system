@@ -34,6 +34,18 @@ public class DeviceTelemetry extends BaseEntity {
     @Column(name = "sim_y")
     Double simY;
 
+    @Column(name = "latitude")
+    Double latitude;
+
+    @Column(name = "longitude")
+    Double longitude;
+
+    @Column(name = "absolute_altitude_m")
+    Double absoluteAltitudeM;
+
+    @Column(name = "relative_altitude_m")
+    Double relativeAltitudeM;
+
     @Column(name = "connected")
     Boolean connected;
 

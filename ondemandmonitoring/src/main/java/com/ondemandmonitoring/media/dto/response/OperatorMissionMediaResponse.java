@@ -1,7 +1,7 @@
 package com.ondemandmonitoring.media.dto.response;
 
 import java.time.Instant;
-import com.ondemandmonitoring.media.domain.MediaStatus;
+import com.ondemandmonitoring.media.enums.MediaStatus;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -20,6 +20,7 @@ public class OperatorMissionMediaResponse {
     String missionId;
     String deviceId;
     String mediaType;
+    String sourceType;
     String fileName;
     String contentType;
     long fileSize;
@@ -27,5 +28,7 @@ public class OperatorMissionMediaResponse {
     Instant availableAt;
     MediaStatus status;
     String downloadUrl;
+    String thumbnailUrl;
+    String previewUrl;
     Instant urlExpiresAt;
 }

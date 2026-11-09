@@ -1,3 +1,2 @@
--- Enable PostGIS and pgvector extensions automatically on DB init
+-- Enable the spatial extension required by the monitoring domain.
 CREATE EXTENSION IF NOT EXISTS postgis;
-CREATE EXTENSION IF NOT EXISTS vector;

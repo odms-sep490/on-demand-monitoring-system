@@ -2,6 +2,9 @@ package com.ondemandmonitoring.media.domain;
 
 import com.ondemandmonitoring.common.entity.BaseEntity;
 import com.ondemandmonitoring.device.domain.Device;
+import com.ondemandmonitoring.media.enums.MediaStatus;
+import com.ondemandmonitoring.media.enums.MediaStorageStatus;
+import com.ondemandmonitoring.media.enums.MediaDerivativeStatus;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import jakarta.persistence.*;
@@ -80,6 +83,79 @@ public class MediaAsset extends BaseEntity {
 
     @Column(name = "available_at")
     Instant availableAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "storage_status", nullable = false, length = 30)
+    MediaStorageStatus storageStatus = MediaStorageStatus.AVAILABLE;
+
+    @Column(name = "deleted_from_storage_at")
+    Instant deletedFromStorageAt;
+
+    @Column(name = "storage_deletion_error", length = 500)
+    String storageDeletionError;
+
+    @Column(name = "orphan_cleanup_requested_at")
+    Instant orphanCleanupRequestedAt;
+
+    @Column(name = "orphan_cleanup_claimed_at")
+    Instant orphanCleanupClaimedAt;
+
+    /** DRONE_CAMERA / SATELLITE_SNAPSHOT / MANUAL_UPLOAD. Null means unknown legacy provenance. */
+    @Column(name = "source_type", length = 40)
+    String sourceType;
+
+    @Column(name = "source_reference_id", length = 100)
+    String sourceReferenceId;
+
+    @Column(name = "source_captured_at")
+    Instant sourceCapturedAt;
+
+    @Column(name = "source_latitude")
+    Double sourceLatitude;
+
+    @Column(name = "source_longitude")
+    Double sourceLongitude;
+
+    @Column(name = "capture_latitude")
+    Double captureLatitude;
+
+    @Column(name = "capture_longitude")
+    Double captureLongitude;
+
+    @Column(name = "capture_altitude_m")
+    Double captureAltitudeM;
+
+    @Column(name = "source_distance_meters")
+    Double sourceDistanceMeters;
+
+    /** Manager-controlled exposure in the pre-payment customer preview. */
+    @Column(name = "preview_selected", nullable = false)
+    boolean previewSelected;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "derivative_status", nullable = false, length = 24)
+    MediaDerivativeStatus derivativeStatus = MediaDerivativeStatus.PENDING;
+
+    @Column(name = "thumbnail_key", length = 1000)
+    String thumbnailKey;
+
+    @Column(name = "preview_key", length = 1000)
+    String previewKey;
+
+    @Column(name = "thumbnail_size_bytes")
+    Long thumbnailSizeBytes;
+
+    @Column(name = "preview_size_bytes")
+    Long previewSizeBytes;
+
+    @Column(name = "derivative_attempt_count", nullable = false)
+    int derivativeAttemptCount;
+
+    @Column(name = "derivative_processed_at")
+    Instant derivativeProcessedAt;
+
+    @Column(name = "derivative_error_code", length = 80)
+    String derivativeErrorCode;
 
     public String getMissionId() {
         if (mission != null) {

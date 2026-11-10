@@ -2,7 +2,7 @@ package com.ondemandmonitoring.devicecheck.enums;
 
 /** Business-facing pre-flight catalogue. Internal protocol names must not leak to clients. */
 public enum PreDeviceCheckType {
-    BATTERY_HEALTH("battery_health", "Pin máy bay", "Dung lượng và tình trạng pin theo dữ liệu thiết bị", "THIẾT BỊ BAY", true, PreflightCheckSource.TELEMETRY),
+    BATTERY_HEALTH("battery_health", "Pin máy bay", "Dung lượng pin do người vận hành đo và nhập thủ công", "THIẾT BỊ BAY", true, PreflightCheckSource.MANUAL),
     PROPELLER_INSPECTION("propeller_inspection", "Cánh quạt", "Nứt, cong, lỏng hoặc hư hỏng", "THIẾT BỊ BAY", true, PreflightCheckSource.MANUAL),
     AIRFRAME_INSPECTION("airframe_inspection", "Thân máy bay", "Khung, càng đáp và các bộ phận lắp ghép", "THIẾT BỊ BAY", true, PreflightCheckSource.MANUAL),
     CAMERA_HEALTH("camera_health", "Hệ thống camera", "Kết nối, hoạt động và khả năng ghi hình", "THIẾT BỊ BAY", false, PreflightCheckSource.MANUAL),
@@ -13,11 +13,11 @@ public enum PreDeviceCheckType {
     IMU_HEALTH("imu_health", "Cảm biến chuyển động", "Tình trạng IMU và dữ liệu chuyển động", "ĐỊNH VỊ VÀ DẪN ĐƯỜNG", true, PreflightCheckSource.TELEMETRY),
     HOME_POSITION("home_position", "Điểm quay về", "Vị trí quay về hợp lệ cho phương án an toàn", "ĐỊNH VỊ VÀ DẪN ĐƯỜNG", true, PreflightCheckSource.TELEMETRY),
     ALTITUDE_SENSOR("altitude_sensor", "Cảm biến độ cao", "Nguồn đo độ cao phục vụ chuyến bay", "ĐỊNH VỊ VÀ DẪN ĐƯỜNG", true, PreflightCheckSource.TELEMETRY),
-    AIRCRAFT_CONNECTION("aircraft_connection", "Kết nối máy bay", "Kết nối đang hoạt động và telemetry còn mới", "KẾT NỐI VÀ ĐIỀU KHIỂN", true, PreflightCheckSource.BACKEND),
-    COMMAND_LINK("command_link", "Tín hiệu điều khiển", "Chất lượng đường truyền lệnh điều khiển", "KẾT NỐI VÀ ĐIỀU KHIỂN", true, PreflightCheckSource.TELEMETRY),
-    FLIGHT_CONTROLLER("flight_controller", "Bộ điều khiển máy bay", "Tình trạng bộ điều khiển bay", "KẾT NỐI VÀ ĐIỀU KHIỂN", true, PreflightCheckSource.TELEMETRY),
-    AIRCRAFT_READINESS("aircraft_readiness", "Trạng thái sẵn sàng bay", "Khả năng sẵn sàng bay do thiết bị xác nhận", "KẾT NỐI VÀ ĐIỀU KHIỂN", true, PreflightCheckSource.TELEMETRY),
-    MONITORING_CONNECTION("monitoring_connection", "Kết nối giám sát", "Dữ liệu giám sát được cập nhật liên tục", "KẾT NỐI VÀ ĐIỀU KHIỂN", true, PreflightCheckSource.BACKEND),
+    AIRCRAFT_CONNECTION("aircraft_connection", "Kết nối máy bay", "Người vận hành xác nhận thiết bị đã bật và sẵn sàng kết nối", "KẾT NỐI VÀ ĐIỀU KHIỂN", true, PreflightCheckSource.MANUAL),
+    COMMAND_LINK("command_link", "Tín hiệu điều khiển", "Người vận hành xác nhận đường truyền điều khiển", "KẾT NỐI VÀ ĐIỀU KHIỂN", true, PreflightCheckSource.MANUAL),
+    FLIGHT_CONTROLLER("flight_controller", "Bộ điều khiển máy bay", "Người vận hành xác nhận bộ điều khiển bay sẵn sàng", "KẾT NỐI VÀ ĐIỀU KHIỂN", true, PreflightCheckSource.MANUAL),
+    AIRCRAFT_READINESS("aircraft_readiness", "Trạng thái sẵn sàng bay", "Người vận hành xác nhận thiết bị sẵn sàng bay", "KẾT NỐI VÀ ĐIỀU KHIỂN", true, PreflightCheckSource.MANUAL),
+    MONITORING_CONNECTION("monitoring_connection", "Kết nối giám sát", "Người vận hành xác nhận hệ thống giám sát sẵn sàng", "KẾT NỐI VÀ ĐIỀU KHIỂN", true, PreflightCheckSource.MANUAL),
     MANUAL_OVERRIDE("manual_override", "Điều khiển dự phòng", "Phương án điều khiển dự phòng đã sẵn sàng", "KẾT NỐI VÀ ĐIỀU KHIỂN", true, PreflightCheckSource.MANUAL),
     SYSTEM_SELF_CHECK("system_self_check", "Tự kiểm tra hệ thống", "Kết quả tự kiểm tra an toàn của thiết bị", "AN TOÀN BAY", true, PreflightCheckSource.TELEMETRY),
     CONNECTION_FAILSAFE("connection_failsafe", "Bảo vệ khi mất tín hiệu", "Cấu hình xử lý khi mất kết nối", "AN TOÀN BAY", true, PreflightCheckSource.TELEMETRY),

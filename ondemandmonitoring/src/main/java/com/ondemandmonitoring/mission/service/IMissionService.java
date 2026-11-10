@@ -61,6 +61,8 @@ public interface IMissionService {
 
     MissionResponse requestDeviceReplacement(String missionId, RequestDeviceReplacementRequest request);
 
+    MissionResponse cancelDeviceReplacementRequest(String missionId, String assignmentId);
+
     MissionResponse assignStaff(String missionId, AssignStaffRequest request);
 
     MissionResponse removeStaff(String missionId, String assignmentId);

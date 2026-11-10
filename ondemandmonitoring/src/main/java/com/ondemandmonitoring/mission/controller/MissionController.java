@@ -231,6 +231,15 @@ public class MissionController {
         return ResponseEntity.ok(ApiResponse.ok("Đã gửi yêu cầu đổi thiết bị", response));
     }
 
+    @DeleteMapping("/{id}/device-replacement-requests/{assignmentId}")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<MissionResponse>> cancelDeviceReplacementRequest(
+            @PathVariable String id,
+            @PathVariable String assignmentId) {
+        MissionResponse response = missionService.cancelDeviceReplacementRequest(id, assignmentId);
+        return ResponseEntity.ok(ApiResponse.ok("Đã hủy yêu cầu đổi thiết bị", response));
+    }
+
     @PostMapping("/{id}/staff-assignments")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<MissionResponse>> assignStaff(

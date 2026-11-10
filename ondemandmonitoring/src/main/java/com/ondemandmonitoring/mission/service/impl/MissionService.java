@@ -1163,10 +1163,13 @@ public class MissionService implements IMissionService {
                         "Current main device assignment not found"));
         boolean hasFailedCheckForAssignedDrone = assignment.getDevice() != null
                 && preDeviceCheckRepository.findFirstByMissionIdOrderByCreatedAtDesc(missionId)
-                        .filter(run -> run.getDeviceConnection() != null
-                                && run.getDeviceConnection().getDevice() != null
-                                && java.util.Objects.equals(run.getDeviceConnection().getDevice().getId(),
-                                        assignment.getDevice().getId()))
+                        .filter(run -> run.getMissionDeviceAssignment() != null
+                                ? java.util.Objects.equals(run.getMissionDeviceAssignment().getId(), assignment.getId())
+                                : run.getDeviceConnection() != null
+                                        && run.getDeviceConnection().getDevice() != null
+                                        && java.util.Objects.equals(
+                                                run.getDeviceConnection().getDevice().getId(),
+                                                assignment.getDevice().getId()))
                         .map(run -> run.getFailedChecks() != null && run.getFailedChecks() > 0)
                         .orElse(false);
         if (!hasFailedCheckForAssignedDrone) {
@@ -1185,6 +1188,40 @@ public class MissionService implements IMissionService {
             assignment.setReplacementRequestedBy(authenticatedUserResolver.getCurrentUserId());
             missionDeviceAssignmentRepository.save(assignment);
         }
+        return missionMapper.toResponse(mission);
+    }
+
+    @Override
+    @Transactional
+    @PreAuthorize("@missionAuthorizationService.canManageMissions()")
+    public MissionResponse cancelDeviceReplacementRequest(String missionId, String assignmentId) {
+        Mission mission = missionRepository.findByIdForUpdate(missionId)
+                .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
+        if (!Set.of(MissionStatus.PENDING_CONFIRMATION, MissionStatus.READY).contains(mission.getStatus())) {
+            throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
+                    "A device replacement request can only be cancelled during preflight");
+        }
+
+        MissionDeviceAssignment assignment = missionDeviceAssignmentRepository.findByMissionId(missionId)
+                .stream()
+                .filter(candidate -> assignmentId.equals(candidate.getId())
+                        && candidate.getDeviceRole() == DeviceRole.MAIN
+                        && Boolean.TRUE.equals(candidate.getIsCurrent())
+                        && candidate.getReleasedAt() == null)
+                .findFirst()
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND,
+                        "Current main device assignment not found"));
+        if (assignment.getReplacementRequestedAt() == null) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "No pending device replacement request exists for this assignment");
+        }
+
+        assignment.setReplacementRequestedAt(null);
+        assignment.setReplacementRequestReason(null);
+        assignment.setReplacementRequestedBy(null);
+        // Keep the failed preflight state intact; cancelling the request must not
+        // mark an unsafe or unverified device as ready to fly.
+        missionDeviceAssignmentRepository.save(assignment);
         return missionMapper.toResponse(mission);
     }
 
@@ -1749,16 +1786,21 @@ public class MissionService implements IMissionService {
         }
         requireFreshPreflightAuthorization(resolvedMissionId);
 
-        // Record ControlHandover audit log linked to current DeviceConnection
+        // A preflight handover can be acknowledged before a live controller session is opened.
+        // Keep the audit link only when it belongs to the currently assigned main device.
+        MissionDeviceAssignment currentMainAssignment = getCurrentMainDeviceAssignment(resolvedMissionId);
         DeviceConnection activeConnection = deviceConnectionRepository
                 .findTopByMissionIdAndConnectionStatusOrderByConnectedAtDesc(resolvedMissionId, "CONNECTED")
+                .filter(connection -> connection.getDeviceAssignment() != null
+                        && currentMainAssignment.getId().equals(connection.getDeviceAssignment().getId()))
                 .orElse(null);
 
         ControlHandover handover = new ControlHandover();
         handover.setDeviceConnection(activeConnection);
         handover.setStaffAssignment(requireCurrentStaffAssignment(resolvedMissionId, staffId));
         handover.setStatus("CONFIRMED");
-        handover.setAcknowledgementText("Staff confirmed control handover and pre-device checks before launch");
+        handover.setAcknowledgementText(
+                "Staff confirmed preflight and control handover; live device control is opened separately");
         handover.setConfirmedAt(Instant.now());
         controlHandoverRepository.save(handover);
 

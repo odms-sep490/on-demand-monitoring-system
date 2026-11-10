@@ -8,6 +8,7 @@ import com.ondemandmonitoring.devicecheck.enums.PreDeviceCheckStatus;
 import com.ondemandmonitoring.devicecheck.enums.PreDeviceItemStatus;
 import com.ondemandmonitoring.devicecheck.enums.PreflightCheckSource;
 import com.ondemandmonitoring.mission.domain.DeviceConnection;
+import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -27,6 +28,7 @@ public class PersistedPreDeviceCheckResponse {
     String id;
     String missionId;
     String deviceConnectionId;
+    String deviceAssignmentId;
     String deviceId;
     String deviceCode;
     String deviceName;
@@ -63,7 +65,13 @@ public class PersistedPreDeviceCheckResponse {
     public static PersistedPreDeviceCheckResponse from(PersistedPreDeviceCheck run) {
         Instant now = Instant.now();
         DeviceConnection connection = run.getDeviceConnection();
-        Device device = connection == null ? null : connection.getDevice();
+        MissionDeviceAssignment assignment = run.getMissionDeviceAssignment();
+        if (assignment == null && connection != null) {
+            assignment = connection.getDeviceAssignment();
+        }
+        Device device = assignment != null
+                ? assignment.getDevice()
+                : connection == null ? null : connection.getDevice();
         List<PersistedPreDeviceCheckItem> visibleItems = run.getItems().stream()
                 .filter(i -> !IGNORED_CHECK_TYPES.contains(i.getCheckType()))
                 .toList();
@@ -83,6 +91,7 @@ public class PersistedPreDeviceCheckResponse {
                 .id(run.getId())
                 .missionId(run.getMission().getId())
                 .deviceConnectionId(connection == null ? null : connection.getId())
+                .deviceAssignmentId(assignment == null ? null : assignment.getId())
                 .deviceId(device == null ? null : device.getId())
                 .deviceCode(device == null ? null : device.getDeviceCode())
                 .deviceName(device == null ? null : device.getName())

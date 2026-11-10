@@ -122,16 +122,24 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                     "Preflight inspection requires staff-confirmation stage after payment.");
         }
 
+        MissionDeviceAssignment assignment = missionDeviceAssignmentRepository
+                .findAllByMissionIdAndDeviceRoleAndIsCurrentTrueOrderByCreatedAtDesc(
+                        missionId, DeviceRole.MAIN)
+                .stream()
+                .filter(candidate -> candidate.getReleasedAt() == null
+                        && candidate.getDevice() != null
+                        && Boolean.TRUE.equals(candidate.getIsCurrent()))
+                .findFirst()
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND,
+                        "Mission has no current main device assignment."));
         DeviceConnection connection = connectionRepository
                 .findTopByMissionIdAndConnectionStatusOrderByConnectedAtDesc(missionId, "CONNECTED")
-                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND,
-                        "No active device connection found for mission: " + missionId));
-        MissionDeviceAssignment assignment = missionDeviceAssignmentRepository
-                .findByMissionIdAndDeviceIdAndIsCurrentTrue(missionId, connection.getDevice().getId())
-                .filter(candidate -> candidate.getDeviceRole() == DeviceRole.MAIN)
-                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND,
-                        "The connected device is not the current main device assigned to this mission."));
+                .filter(candidate -> candidate.getDeviceAssignment() != null
+                        && assignment.getId().equals(candidate.getDeviceAssignment().getId()))
+                .orElse(null);
         if (assignment.getStatus() != MissionDeviceAssignmentStatus.CONNECTED
+                && assignment.getStatus() != MissionDeviceAssignmentStatus.ASSIGNED
+                && assignment.getStatus() != MissionDeviceAssignmentStatus.CONNECTION_LOST
                 && assignment.getStatus() != MissionDeviceAssignmentStatus.PREFLIGHT_CHECKING
                 && assignment.getStatus() != MissionDeviceAssignmentStatus.READY_TO_FLY
                 && assignment.getStatus() != MissionDeviceAssignmentStatus.FAILED) {
@@ -147,10 +155,12 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                         && run.getStartedAt() != null
                         && run.getStartedAt().isAfter(
                                 Instant.now().minusSeconds(START_IDEMPOTENCY_WINDOW_SECONDS))
-                        && run.getDeviceConnection() != null
-                        && run.getDeviceConnection().getDevice() != null
-                        && connection.getDevice().getId().equals(
-                                run.getDeviceConnection().getDevice().getId()))
+                        && (run.getMissionDeviceAssignment() != null
+                                ? assignment.getId().equals(run.getMissionDeviceAssignment().getId())
+                                : run.getDeviceConnection() != null
+                                        && run.getDeviceConnection().getDeviceAssignment() != null
+                                        && assignment.getId().equals(
+                                                run.getDeviceConnection().getDeviceAssignment().getId())))
                 .orElse(null);
         if (activeRun != null) {
             return PersistedPreDeviceCheckResponse.from(activeRun);
@@ -165,6 +175,7 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
         run.setStartedAt(Instant.now());
 
         run.setDeviceConnection(connection);
+        run.setMissionDeviceAssignment(assignment);
 
         for (PreDeviceCheckType definition : CHECKS) {
             PersistedPreDeviceCheckItem item = new PersistedPreDeviceCheckItem();
@@ -272,10 +283,7 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                 && (item.getStatus() == PreDeviceItemStatus.FAILED
                 || item.getStatus() == PreDeviceItemStatus.UNKNOWN
                 );
-        boolean batteryFallback = PreDeviceCheckType.BATTERY_HEALTH.code().equals(item.getCheckType())
-                && (item.getStatus() == PreDeviceItemStatus.FAILED
-                || item.getStatus() == PreDeviceItemStatus.UNKNOWN
-                );
+        boolean batteryFallback = PreDeviceCheckType.BATTERY_HEALTH.code().equals(item.getCheckType());
         boolean connectionFallback = CONNECTION_MANUAL_FALLBACK_TYPES.contains(item.getCheckType());
         if (item.getSource() != PreflightCheckSource.MANUAL
                 && !mediaFallback && !batteryFallback && !connectionFallback) {
@@ -283,28 +291,21 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                     "Only manual inspection items can be confirmed by the operator");
         }
         if (batteryFallback) {
-            double percent = parseBatteryPercent(request.getMeasuredValue());
-            boolean operatorConfirmed = request.getMessage() != null
-                    && request.getMessage().startsWith("Người vận hành xác nhận")
-                    && (request.getStatus() == PreDeviceItemStatus.PASSED
-                    || request.getStatus() == PreDeviceItemStatus.FAILED);
-            if (operatorConfirmed) {
-                item.setStatus(request.getStatus());
-                item.setMeasuredValue(percent + "%");
-                item.setMessage(request.getMessage() + " với mức pin " + percent + "%");
-                item.setErrorCode(request.getStatus() == PreDeviceItemStatus.FAILED
-                        ? "OPERATOR_REJECTED_BATTERY" : null);
-            } else {
-                evaluateManualBattery(item, run.getDeviceConnection() == null ? null : run.getDeviceConnection().getDevice(), percent);
-                boolean automaticGazeboReading = request.getMessage() != null
-                        && request.getMessage().startsWith("Hệ thống tự động");
-                item.setMessage((automaticGazeboReading
-                        ? "Pin Gazebo tự động: "
-                        : "Người vận hành nhập mức pin thủ công: ") + percent + "%");
+            if (request.getStatus() != PreDeviceItemStatus.PASSED) {
+                throw new ApiException(ErrorCode.INVALID_REQUEST,
+                        "Submit the measured battery level for automatic threshold evaluation");
             }
+            double percent = parseBatteryPercent(request.getMeasuredValue());
+            Device batteryDevice = run.getMissionDeviceAssignment() != null
+                    ? run.getMissionDeviceAssignment().getDevice()
+                    : run.getDeviceConnection() == null ? null : run.getDeviceConnection().getDevice();
+            evaluateManualBattery(item, batteryDevice, percent);
             item.setCheckedAt(Instant.now());
             item.setCheckedBy(authenticatedUserResolver.getCurrentUserId());
             refreshRunStatus(run);
+            if (run.getStatus() != PreDeviceCheckStatus.CHECKING) {
+                run.setCompletedAt(Instant.now());
+            }
             return PersistedPreDeviceCheckResponse.from(run);
         }
         if (request.getStatus() != PreDeviceItemStatus.PASSED
@@ -370,6 +371,10 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
         if (!PreDeviceCheckType.BATTERY_HEALTH.code().equals(type)) {
             throw new ApiException(ErrorCode.INVALID_REQUEST, "This check does not support an individual retry");
         }
+        if (item.getSource() == PreflightCheckSource.MANUAL) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "Battery level must be entered manually for this preflight check");
+        }
         DeviceConnection connection = run.getDeviceConnection();
         if (connection == null) {
             connection = connectionRepository.findTopByMissionIdAndConnectionStatusOrderByConnectedAtDesc(
@@ -414,26 +419,24 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
         run.setStatus(hasFailedCheck ? PreDeviceCheckStatus.FAILED : allResolved ? PreDeviceCheckStatus.PASSED : PreDeviceCheckStatus.CHECKING);
         if (run.getStatus() != PreDeviceCheckStatus.CHECKING) run.setCompletedAt(Instant.now());
 
-        DeviceConnection connection = run.getDeviceConnection();
-        if (connection != null && connection.getDevice() != null) {
-            missionDeviceAssignmentRepository
-                    .findByMissionIdAndDeviceIdAndIsCurrentTrue(run.getMission().getId(), connection.getDevice().getId())
-                    .filter(assignment -> assignment.getDeviceRole() == DeviceRole.MAIN)
-                    .ifPresent(assignment -> {
-                        if (run.getStatus() == PreDeviceCheckStatus.CHECKING) {
-                            assignment.setStatus(MissionDeviceAssignmentStatus.PREFLIGHT_CHECKING);
-                            assignment.setCheckupStatus(MissionDeviceCheckStatus.CHECKING);
-                        } else if (run.getStatus() == PreDeviceCheckStatus.PASSED) {
-                            assignment.setStatus(MissionDeviceAssignmentStatus.READY_TO_FLY);
-                            assignment.setCheckupStatus(MissionDeviceCheckStatus.PASSED);
-                            assignment.setReplacementRequestedAt(null);
-                            assignment.setReplacementRequestReason(null);
-                            assignment.setReplacementRequestedBy(null);
-                        } else {
-                            assignment.setStatus(MissionDeviceAssignmentStatus.FAILED);
-                            assignment.setCheckupStatus(MissionDeviceCheckStatus.FAILED);
-                        }
-                    });
+        MissionDeviceAssignment assignment = run.getMissionDeviceAssignment();
+        if (assignment == null && run.getDeviceConnection() != null) {
+            assignment = run.getDeviceConnection().getDeviceAssignment();
+        }
+        if (assignment != null && assignment.getDeviceRole() == DeviceRole.MAIN) {
+            if (run.getStatus() == PreDeviceCheckStatus.CHECKING) {
+                assignment.setStatus(MissionDeviceAssignmentStatus.PREFLIGHT_CHECKING);
+                assignment.setCheckupStatus(MissionDeviceCheckStatus.CHECKING);
+            } else if (run.getStatus() == PreDeviceCheckStatus.PASSED) {
+                assignment.setStatus(MissionDeviceAssignmentStatus.READY_TO_FLY);
+                assignment.setCheckupStatus(MissionDeviceCheckStatus.PASSED);
+                assignment.setReplacementRequestedAt(null);
+                assignment.setReplacementRequestReason(null);
+                assignment.setReplacementRequestedBy(null);
+            } else {
+                assignment.setStatus(MissionDeviceAssignmentStatus.FAILED);
+                assignment.setCheckupStatus(MissionDeviceCheckStatus.FAILED);
+            }
         }
     }
 

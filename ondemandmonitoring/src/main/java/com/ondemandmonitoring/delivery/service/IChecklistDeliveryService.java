@@ -6,5 +6,7 @@ import com.ondemandmonitoring.delivery.dto.response.ManagerDeliveryChecklistsRes
 
 public interface IChecklistDeliveryService {
     ManagerDeliveryChecklistsResponse get(String orderId);
+    ManagerDeliveryChecklistsResponse get(String orderId, String missionId);
+    DeliveryResponse publish(String orderId, ChecklistDeliveryPublishRequest request, String missionId);
     DeliveryResponse publish(String orderId, ChecklistDeliveryPublishRequest request);
 }

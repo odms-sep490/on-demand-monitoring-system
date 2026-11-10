@@ -322,9 +322,9 @@ public class MissionService implements IMissionService {
 
         if (!order.getId().equals(revisionCase.getOrder().getId()))
             throw new ApiException(ErrorCode.RESOURCE_NOT_FOUND);
-        if (order.getOrderStatus() != OrderStatus.COMPLETED
+        if (!isReworkOrderState(order)
                 || order.getExecutionPlan().getStatus() != ExecutionPlanStatus.FINALIZED)
-            throw new ApiException(ErrorCode.INVALID_REQUEST, "Rework is only available for a completed Order");
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Rework requires an in-progress or completed Order with a finalized execution plan");
         var invoice = invoiceRepository.findByOrderId(order.getId())
                 .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
         if (!missionPaymentEligibilityService.isOriginalFinalPaymentConfirmed(invoice))
@@ -475,7 +475,7 @@ public class MissionService implements IMissionService {
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
         if (!revisionCase.isActive()
                 || revisionCase.getStatus() != com.ondemandmonitoring.delivery.enums.ResultRevisionCaseStatus.OPEN
-                || order.getOrderStatus() != OrderStatus.COMPLETED
+                || !isReworkOrderState(order)
                 || order.getExecutionPlan().getStatus() != ExecutionPlanStatus.FINALIZED)
             throw new ApiException(ErrorCode.INVALID_DELIVERY_STATE);
         if (order.getExecutionPlan().getRevision() != request.expectedPlanRevision())
@@ -497,8 +497,12 @@ public class MissionService implements IMissionService {
         for (var mission : drafts) finalizeReworkMission(order, mission);
     }
 
+    private boolean isReworkOrderState(Order order) {
+        return order.getOrderStatus() == OrderStatus.IN_PROGRESS || order.getOrderStatus() == OrderStatus.COMPLETED;
+    }
+
     private MissionResponse finalizeReworkMission(Order order, Mission mission) {
-        if (order.getOrderStatus() != OrderStatus.COMPLETED || mission.getResultRevisionCaseId() == null)
+        if (!isReworkOrderState(order) || mission.getResultRevisionCaseId() == null)
             throw new ApiException(ErrorCode.INVALID_DELIVERY_STATE);
         if (mission.getStatus() == MissionStatus.PENDING_CONFIRMATION
                 || mission.getStatus() == MissionStatus.READY) return missionMapper.toResponse(mission);
@@ -1496,7 +1500,7 @@ public class MissionService implements IMissionService {
             var revisionCase = resultRevisionCases.findById(mission.getResultRevisionCaseId())
                     .filter(value -> value.isActive() && orderId.equals(value.getOrder().getId()))
                     .orElseThrow(() -> new ApiException(ErrorCode.INVALID_DELIVERY_STATE));
-            if (order.getOrderStatus() != OrderStatus.COMPLETED
+            if (!isReworkOrderState(order)
                     || revisionCase.getStatus() != com.ondemandmonitoring.delivery.enums.ResultRevisionCaseStatus.OPEN
                     || mission.getCancellationAt() != null
                     || !missionChecklistExecutionRepository.findOrderedByMissionId(missionId).isEmpty())

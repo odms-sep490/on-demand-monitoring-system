@@ -61,11 +61,15 @@ public class ChecklistDeliveryQueryService {
     private final IResultRetentionAccessService retentionAccess;
     private final IMediaObjectStorage storage;
     private final MediaDerivativeService derivatives;
+    @org.springframework.beans.factory.annotation.Autowired private DeliveryMissionScope missionScope;
 
-    public ManagerDeliveryChecklistsResponse get(String orderId) {
+    public ManagerDeliveryChecklistsResponse get(String orderId) { return get(orderId, null); }
+    public ManagerDeliveryChecklistsResponse get(String orderId, String missionId) {
         Order order = orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-        OrderDelivery delivery = deliveries.findByOrderId(orderId).orElse(null);
-        List<OrderChecklistItem> items = checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId);
+        OrderDelivery delivery = (missionId == null ? deliveries.findByOrderId(orderId) : missionScope.find(orderId, missionId, false)).orElse(null);
+        var scopedIds = missionId == null ? null : missionScope.checklistIds(orderId, missionId);
+        List<OrderChecklistItem> items = checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId).stream()
+                .filter(item -> scopedIds == null || scopedIds.contains(item.getId())).toList();
         List<Mission> effectiveMissions = missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc(orderId).stream()
                 .filter(ExecutionPlanCoverageService::effective).toList();
         List<String> effectiveMissionIds = effectiveMissions.stream().map(Mission::getId).toList();

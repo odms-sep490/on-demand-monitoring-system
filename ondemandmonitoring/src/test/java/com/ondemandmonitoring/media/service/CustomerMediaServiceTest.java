@@ -52,12 +52,12 @@ class CustomerMediaServiceTest {
         var result = service.createOriginalDownload("a");
         assertThat(result.downloadUrl()).isEqualTo("signed");
         var ordered = inOrder(delivery, retention, storage);
-        ordered.verify(delivery).requireOriginalAccess("order");
+        ordered.verify(delivery).requireOriginalAccessForMedia("order", "a");
         ordered.verify(retention).requireAccessible(asset);
         ordered.verify(storage).createPresignedDownloadUrl("bucket", "original", "image.jpg");
     }
     @Test void unpaidOrUnacceptedDeliveryCannotIssueOriginal() {
-        doThrow(new ApiException(ErrorCode.FINAL_PAYMENT_REQUIRED)).when(delivery).requireOriginalAccess("order");
+        doThrow(new ApiException(ErrorCode.FINAL_PAYMENT_REQUIRED)).when(delivery).requireOriginalAccessForMedia("order", "a");
         assertThatThrownBy(() -> service.createOriginalDownload("a")).isInstanceOf(ApiException.class);
         verifyNoInteractions(storage);
     }
@@ -69,7 +69,7 @@ class CustomerMediaServiceTest {
     @Test void reserveMediaCannotIssueOriginal() {
         when(delivery.publishedMediaAssetIds(List.of("m"))).thenReturn(Set.of());
         assertThatThrownBy(() -> service.createOriginalDownload("a")).isInstanceOf(ApiException.class);
-        verify(delivery, never()).requireOriginalAccess(anyString());
+        verify(delivery, never()).requireOriginalAccessForMedia(anyString(), anyString());
         verifyNoInteractions(storage);
     }
     @Test void OtherCustomersCannotIssueOriginal() {
@@ -130,7 +130,7 @@ class CustomerMediaServiceTest {
         ordered.verify(retention).requireAccessible(asset);
         ordered.verify(storage).inspect("bucket", "original");
         ordered.verify(storage).createPresignedGetUrl("bucket", "original");
-        verify(delivery, never()).requireOriginalAccess(anyString());
+        verify(delivery, never()).requireOriginalAccessForMedia(anyString(), anyString());
     }
 
     @Test void viewingRefreshUsesReadyDerivativeInsteadOfExposingOriginal() {

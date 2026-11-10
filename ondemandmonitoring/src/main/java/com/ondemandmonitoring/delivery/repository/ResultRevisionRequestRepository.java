@@ -9,6 +9,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface ResultRevisionRequestRepository extends JpaRepository<ResultRevisionRequest, String> {
     Optional<ResultRevisionRequest> findByRoundId(String roundId);
     Optional<ResultRevisionRequest> findFirstByTicketIdOrderBySubmittedAtDesc(String ticketId);
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"round", "order"})
+    List<ResultRevisionRequest> findByTicketIdOrderBySubmittedAtAscIdAsc(String ticketId);
     Optional<ResultRevisionRequest> findByCustomerIdAndClientRequestId(String customerId, UUID clientRequestId);
     List<ResultRevisionRequest> findByOrderIdOrderBySubmittedAtDesc(String orderId);
 }

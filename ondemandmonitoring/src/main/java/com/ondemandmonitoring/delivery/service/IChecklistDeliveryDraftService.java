@@ -8,4 +8,8 @@ public interface IChecklistDeliveryDraftService {
     ChecklistDeliveryDraftResponse save(String orderId, SaveChecklistDeliveryDraftRequest request);
     void clear(String orderId, long expectedDraftVersion);
     void clearAfterPublish(String orderId);
+    ChecklistDeliveryDraftResponse get(String orderId, String missionId);
+    ChecklistDeliveryDraftResponse save(String orderId, SaveChecklistDeliveryDraftRequest request, String missionId);
+    void clear(String orderId, long expectedDraftVersion, String missionId);
+    void clearAfterPublish(String orderId, String missionId);
 }

@@ -28,14 +28,18 @@ public class ChecklistDeliveryDraftService implements IChecklistDeliveryDraftSer
     private final ResultRevisionCaseRepository cases;
     private final AuthenticatedUserResolver currentUser;
     private final ObjectMapper mapper;
+    @org.springframework.beans.factory.annotation.Autowired private DeliveryMissionScope missionScope;
 
     @Override
     @Transactional(readOnly = true)
-    public ChecklistDeliveryDraftResponse get(String orderId) {
+    public ChecklistDeliveryDraftResponse get(String orderId) { return get(orderId, null); }
+
+    @Override @Transactional(readOnly = true)
+    public ChecklistDeliveryDraftResponse get(String orderId, String missionId) {
         var order = orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-        var delivery = deliveries.findByOrderId(orderId).orElse(null);
+        var delivery = (missionId == null ? deliveries.findByOrderId(orderId) : missionScope.find(orderId, missionId, false)).orElse(null);
         var currentCase = cases.findByOrderIdAndActiveTrue(orderId).orElse(null);
-        var draft = drafts.findByOrderId(orderId).orElse(null);
+        var draft = (missionId == null ? drafts.findByOrderId(orderId) : drafts.findScoped(orderId, missionId)).orElse(null);
         if (draft == null) return new ChecklistDeliveryDraftResponse(order.getId(), 0, currentCase == null ? null : currentCase.getId(),
                 delivery == null ? null : delivery.getCurrentReviewRoundId(), delivery == null ? null : delivery.getVersion(), "", List.of(), null, false);
         List<SaveChecklistDeliveryDraftRequest.ChecklistOperation> operations = mapper.convertValue(
@@ -48,23 +52,27 @@ public class ChecklistDeliveryDraftService implements IChecklistDeliveryDraftSer
 
     @Override
     @Transactional
-    public ChecklistDeliveryDraftResponse save(String orderId, SaveChecklistDeliveryDraftRequest request) {
+    public ChecklistDeliveryDraftResponse save(String orderId, SaveChecklistDeliveryDraftRequest request) { return save(orderId, request, null); }
+
+    @Override @Transactional
+    public ChecklistDeliveryDraftResponse save(String orderId, SaveChecklistDeliveryDraftRequest request, String missionId) {
         var order = orders.findByIdForUpdate(orderId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-        var delivery = deliveries.findByOrderIdForUpdate(orderId).orElse(null);
+        var delivery = (missionId == null ? deliveries.findByOrderIdForUpdate(orderId) : missionScope.find(orderId, missionId, true)).orElse(null);
         var activeCase = cases.findByOrderIdAndActiveTrueForUpdate(orderId).orElse(null);
         if (!Objects.equals(request.baseReviewRoundId(), delivery == null ? null : delivery.getCurrentReviewRoundId())
                 || !Objects.equals(request.expectedDeliveryVersion(), delivery == null ? null : delivery.getVersion())
                 || !Objects.equals(request.caseId(), activeCase == null ? null : activeCase.getId()))
             throw new ApiException(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED);
 
-        var draft = drafts.findByOrderIdForUpdate(orderId).orElse(null);
+        var draft = (missionId == null ? drafts.findByOrderIdForUpdate(orderId) : drafts.findScopedForUpdate(orderId, missionId)).orElse(null);
         long actualVersion = draft == null || draft.getVersion() == null ? 0 : draft.getVersion();
         if (actualVersion != request.expectedDraftVersion())
             throw new ApiException(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED, "The saved delivery draft changed. Refresh before saving again.");
         if (draft == null) {
             draft = new ChecklistDeliveryDraft();
             draft.setOrder(order);
+            draft.setMissionId(missionId);
         }
         draft.setCaseId(request.caseId());
         draft.setBaseReviewRoundId(request.baseReviewRoundId());
@@ -78,9 +86,13 @@ public class ChecklistDeliveryDraftService implements IChecklistDeliveryDraftSer
 
     @Override
     @Transactional
-    public void clear(String orderId, long expectedDraftVersion) {
+    public void clear(String orderId, long expectedDraftVersion) { clear(orderId, expectedDraftVersion, null); }
+
+    @Override @Transactional
+    public void clear(String orderId, long expectedDraftVersion, String missionId) {
         orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-        var draft = drafts.findByOrderIdForUpdate(orderId).orElse(null);
+        if (missionId != null) missionScope.requireOriginal(orderId, missionId);
+        var draft = (missionId == null ? drafts.findByOrderIdForUpdate(orderId) : drafts.findScopedForUpdate(orderId, missionId)).orElse(null);
         long actualVersion = draft == null || draft.getVersion() == null ? 0 : draft.getVersion();
         if (actualVersion != expectedDraftVersion)
             throw new ApiException(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED,
@@ -90,8 +102,11 @@ public class ChecklistDeliveryDraftService implements IChecklistDeliveryDraftSer
 
     @Override
     @Transactional
-    public void clearAfterPublish(String orderId) {
-        drafts.deleteByOrderId(orderId);
+    public void clearAfterPublish(String orderId) { clearAfterPublish(orderId, null); }
+
+    @Override @Transactional
+    public void clearAfterPublish(String orderId, String missionId) {
+        (missionId == null ? drafts.findByOrderId(orderId) : drafts.findScoped(orderId, missionId)).ifPresent(drafts::delete);
     }
 
     private ChecklistDeliveryDraftResponse response(ChecklistDeliveryDraft draft,

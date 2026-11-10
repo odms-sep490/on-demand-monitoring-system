@@ -18,6 +18,7 @@ class ResultReviewContextTest {
     void createsBothReviewServicesWithoutJackson2AutoConfiguration() throws Exception {
         try (var context = new AnnotationConfigApplicationContext()) {
             context.register(ResultReviewJsonConfiguration.class);
+            registerMock(context, com.ondemandmonitoring.delivery.service.impl.DeliveryMissionScope.class);
             Set<Class<?>> dependencies = new HashSet<>();
             for (Class<?> service : new Class<?>[] {ResultReviewRoundPublisher.class, ResultReviewService.class}) {
                 for (Class<?> dependency : service.getConstructors()[0].getParameterTypes()) {

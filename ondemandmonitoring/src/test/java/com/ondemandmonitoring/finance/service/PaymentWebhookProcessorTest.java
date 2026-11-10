@@ -21,9 +21,11 @@ class PaymentWebhookProcessorTest {
             mock(com.ondemandmonitoring.mission.service.IMissionService.class);
     com.ondemandmonitoring.order.repository.OrderRepository orders = mock(com.ondemandmonitoring.order.repository.OrderRepository.class);
     PaymentWebhookProcessor processor = new PaymentWebhookProcessor(payments, invoices, missions, orders);
+    com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService delivery = mock(com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService.class);
     Payment payment; Invoice invoice;
 
     @BeforeEach void setUp() {
+        org.springframework.test.util.ReflectionTestUtils.setField(processor, "deliveryWorkflow", delivery);
         Order order = new Order(); order.setId("o1");
         Quote quote = new Quote(); quote.setStatus(QuoteStatus.ACCEPTED_BY_CUSTOMER);
         invoice = new Invoice(); invoice.setId("i1"); invoice.setOrder(order); invoice.setQuote(quote);
@@ -76,6 +78,7 @@ class PaymentWebhookProcessorTest {
         assertThat(invoice.getStatus()).isEqualTo(InvoiceStatus.PAID);
         assertThat(invoice.getRemainingAmount()).isEqualByComparingTo("0");
         verify(missions).transitionToPendingConfirmation("o1");
+        verify(delivery).completeAcceptedRevisionCase("o1");
     }
 
     @Test void partialFinalPaymentDoesNotOpenMissionConfirmation() {

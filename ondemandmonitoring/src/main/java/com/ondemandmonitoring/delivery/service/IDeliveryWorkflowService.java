@@ -18,6 +18,13 @@ public interface IDeliveryWorkflowService {
     void markReadyForManagerReview(String orderId);
     /** Publishes frozen inspector selections when the complete order/remediation scope is ready. */
     boolean publishInspectedResults(String orderId);
+    List<com.ondemandmonitoring.delivery.dto.response.MissionDeliverySummary> missionDeliveries(String orderId);
+    DeliveryResponse get(String orderId, String missionId);
+    DeliveryResponse previews(String orderId, String missionId);
+    DeliveryResponse originals(String orderId, String missionId);
+    DeliveryResponse releaseOriginals(String orderId, String missionId);
+    DeliveryResponse releaseChecklistPreview(String orderId, ChecklistDeliveryPublishRequest request, String missionId);
+    void requireOriginalAccessForMedia(String orderId, String mediaId);
     void requireOriginalAccess(String orderId);
     List<String> originalAccessibleMissionIds(List<String> missionIds);
     Set<String> publishedMediaAssetIds(List<String> missionIds);

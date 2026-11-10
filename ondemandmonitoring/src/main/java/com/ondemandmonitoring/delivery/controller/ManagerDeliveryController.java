@@ -25,38 +25,43 @@ public class ManagerDeliveryController {
     private final IChecklistDeliveryService checklistDelivery;
     private final IChecklistDeliveryDraftService deliveryDraft;
 
+    @GetMapping("/missions")
+    public ApiResponse<java.util.List<com.ondemandmonitoring.delivery.dto.response.MissionDeliverySummary>> missions(@PathVariable String orderId) {
+        return ApiResponse.ok(delivery.missionDeliveries(orderId));
+    }
+
     @GetMapping
-    public ApiResponse<DeliveryResponse> get(@PathVariable String orderId) {
-        return ApiResponse.ok(delivery.get(orderId));
+    public ApiResponse<DeliveryResponse> get(@PathVariable String orderId, @RequestParam(required = false) String missionId) {
+        return ApiResponse.ok(missionId == null ? delivery.get(orderId) : delivery.get(orderId, missionId));
     }
 
     @GetMapping("/checklists")
-    public ApiResponse<ManagerDeliveryChecklistsResponse> getChecklists(@PathVariable String orderId) {
-        return ApiResponse.ok(checklistDelivery.get(orderId));
+    public ApiResponse<ManagerDeliveryChecklistsResponse> getChecklists(@PathVariable String orderId, @RequestParam(required = false) String missionId) {
+        return ApiResponse.ok(missionId == null ? checklistDelivery.get(orderId) : checklistDelivery.get(orderId, missionId));
     }
 
     @GetMapping("/draft")
-    public ApiResponse<ChecklistDeliveryDraftResponse> getDraft(@PathVariable String orderId) {
-        return ApiResponse.ok(deliveryDraft.get(orderId));
+    public ApiResponse<ChecklistDeliveryDraftResponse> getDraft(@PathVariable String orderId, @RequestParam(required = false) String missionId) {
+        return ApiResponse.ok(missionId == null ? deliveryDraft.get(orderId) : deliveryDraft.get(orderId, missionId));
     }
 
     @PutMapping("/draft")
     public ApiResponse<ChecklistDeliveryDraftResponse> saveDraft(@PathVariable String orderId,
-            @Valid @RequestBody SaveChecklistDeliveryDraftRequest request) {
-        return ApiResponse.ok(deliveryDraft.save(orderId, request));
+            @Valid @RequestBody SaveChecklistDeliveryDraftRequest request, @RequestParam(required = false) String missionId) {
+        return ApiResponse.ok(deliveryDraft.save(orderId, request, missionId));
     }
 
     @DeleteMapping("/draft")
     public ApiResponse<Void> clearDraft(@PathVariable String orderId,
-            @RequestParam long expectedDraftVersion) {
-        deliveryDraft.clear(orderId, expectedDraftVersion);
+            @RequestParam long expectedDraftVersion, @RequestParam(required = false) String missionId) {
+        deliveryDraft.clear(orderId, expectedDraftVersion, missionId);
         return ApiResponse.ok(null);
     }
 
     @PostMapping("/checklists/publish")
     public ApiResponse<DeliveryResponse> publishChecklists(@PathVariable String orderId,
-            @Valid @RequestBody ChecklistDeliveryPublishRequest request) {
-        return ApiResponse.ok("Checklist results published", checklistDelivery.publish(orderId, request));
+            @Valid @RequestBody ChecklistDeliveryPublishRequest request, @RequestParam(required = false) String missionId) {
+        return ApiResponse.ok("Checklist results published", checklistDelivery.publish(orderId, request, missionId));
     }
 
     @PostMapping("/release-preview")
@@ -67,7 +72,7 @@ public class ManagerDeliveryController {
     }
 
     @PostMapping("/release-originals")
-    public ApiResponse<DeliveryResponse> releaseOriginals(@PathVariable String orderId) {
-        return ApiResponse.ok("Original deliverables released", delivery.releaseOriginals(orderId));
+    public ApiResponse<DeliveryResponse> releaseOriginals(@PathVariable String orderId, @RequestParam(required = false) String missionId) {
+        return ApiResponse.ok("Original deliverables released", delivery.releaseOriginals(orderId, missionId));
     }
 }

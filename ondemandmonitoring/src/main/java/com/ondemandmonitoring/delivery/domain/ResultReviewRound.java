@@ -22,6 +22,9 @@ public class ResultReviewRound extends BaseEntity {
     @Column(name = "delivery_id", nullable = false, updatable = false, length = 255)
     private String deliveryId;
 
+    @Column(name = "mission_id", updatable = false, length = 255)
+    private String missionId;
+
     @Column(name = "round_number", nullable = false, updatable = false)
     private int roundNumber;
 

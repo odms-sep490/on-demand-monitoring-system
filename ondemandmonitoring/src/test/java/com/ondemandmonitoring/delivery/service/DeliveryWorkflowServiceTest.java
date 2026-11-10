@@ -78,6 +78,8 @@ class DeliveryWorkflowServiceTest {
     User customer; Order order; Mission mission; Invoice invoice; OrderDelivery delivery;
 
     @BeforeEach void setUp() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "missionScope",
+                mock(com.ondemandmonitoring.delivery.service.impl.DeliveryMissionScope.class));
         customer = user("customer", RoleCode.CUSTOMER);
         order = new Order(); order.setId("order"); order.setCustomer(customer); order.setOrderStatus(OrderStatus.IN_PROGRESS);
         order.setDataRetentionDays(90);
@@ -88,7 +90,10 @@ class DeliveryWorkflowServiceTest {
         invoice.setRemainingAmount(new BigDecimal("5950000"));
         delivery = new OrderDelivery(); delivery.setOrder(order); delivery.setStatus(DeliveryStatus.CUSTOMER_REVIEW);
         delivery.setCurrentReviewRoundId("round");
+        delivery.setId("delivery");
         ResultReviewRound round = new ResultReviewRound(); round.setId("round"); round.setVersion(2L);
+        round.setOrder(order); round.setDeliveryId("delivery");
+        when(deliveries.findByIdForUpdate("delivery")).thenReturn(Optional.of(delivery));
         when(reviewRounds.findByIdForUpdate("round")).thenReturn(Optional.of(round));
         when(reviewRounds.findById("round")).thenReturn(Optional.of(round));
         when(users.getCurrentUser()).thenReturn(customer); when(users.getCurrentUserId()).thenReturn(customer.getId());
@@ -114,6 +119,48 @@ class DeliveryWorkflowServiceTest {
         assertThat(result.deliveryStatus()).isEqualTo(DeliveryStatus.FINAL_PAYMENT_PENDING);
         assertThat(delivery.getCustomerAcceptedAt()).isNotNull();
         assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.IN_PROGRESS);
+    }
+
+    private void configureMissionScope() {
+        var scope = mock(com.ondemandmonitoring.delivery.service.impl.DeliveryMissionScope.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "missionScope", scope);
+        delivery.setMissionId("mission");
+        when(scope.find("order", "mission", true)).thenReturn(Optional.of(delivery));
+        when(scope.missions("order", "mission")).thenReturn(List.of(mission));
+        when(scope.checklistIds("order", "mission")).thenReturn(Set.of("checklist"));
+        var item = new ResultReviewRoundItem(); item.setId("round-item");
+        when(roundItems.findByRoundIdOrderByDisplayOrderAsc("round")).thenReturn(List.of(item));
+        var selected = new com.ondemandmonitoring.delivery.domain.ResultReviewRoundEvidence();
+        selected.setMediaAsset(asset("original", MediaStatus.AVAILABLE));
+        when(roundEvidence.findByRoundItemIdInOrderByRoundItemIdAscCreatedAtAsc(List.of("round-item"))).thenReturn(List.of(selected));
+    }
+
+    @Test void acceptsAndReleasesOneMissionWhileAnotherMissionIsStillRunning() {
+        configureMissionScope();
+        var other = new Mission(); other.setId("other"); other.setOrder(order); other.setStatus(MissionStatus.IN_PROGRESS);
+        when(missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc("order")).thenReturn(List.of(mission, other));
+        invoice.setStatus(InvoiceStatus.PAID); invoice.setRemainingAmount(BigDecimal.ZERO);
+        assertThat(service.acceptResult("order", "round", 2L).deliveryStatus()).isEqualTo(DeliveryStatus.DELIVERED);
+        assertThat(other.getStatus()).isEqualTo(MissionStatus.IN_PROGRESS);
+        assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.IN_PROGRESS);
+        assertThat(order.getResultExpiresAt()).isNull();
+        verify(completion, never()).completeIfReady(any());
+    }
+
+    @Test void mediaDownloadDependsOnItsMissionAcceptanceNotAnotherMission() {
+        configureMissionScope();
+        delivery.setCustomerAcceptedAt(java.time.Instant.now());
+        reviewRounds.findById("round").orElseThrow().setStatus(com.ondemandmonitoring.delivery.enums.ResultReviewRoundStatus.ACCEPTED);
+        invoice.setStatus(InvoiceStatus.PAID); invoice.setRemainingAmount(BigDecimal.ZERO);
+        var other = new OrderDelivery(); other.setOrder(order); other.setMissionId("other");
+        when(deliveries.findCurrentForMedia("accepted-media")).thenReturn(List.of(delivery));
+        when(deliveries.findCurrentForMedia("unaccepted-media")).thenReturn(List.of(other));
+        assertThatCode(() -> service.requireOriginalAccessForMedia("order", "accepted-media")).doesNotThrowAnyException();
+        assertThatThrownBy(() -> service.requireOriginalAccessForMedia("order", "unaccepted-media"))
+                .isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.DELIVERABLE_NOT_RELEASED);
+        invoice.setStatus(InvoiceStatus.PARTIALLY_PAID);
+        assertThatThrownBy(() -> service.requireOriginalAccessForMedia("order", "accepted-media"))
+                .isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.FINAL_PAYMENT_REQUIRED);
     }
 
     @Test void paidOrderAcceptanceMovesDirectlyToDeliveryAndRetryDoesNotReopenPayment() {
@@ -268,14 +315,41 @@ class DeliveryWorkflowServiceTest {
 
         var result = service.get("order");
 
-        assertThat(result.deliveryStatus()).isEqualTo(DeliveryStatus.READY_FOR_MANAGER_REVIEW);
+        assertThat(result.deliveryStatus()).isEqualTo(DeliveryStatus.PROCESSING);
         verify(deliveries, never()).save(any());
         verifyNoInteractions(completion);
         assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.IN_PROGRESS);
     }
 
+    @Test void orderSummaryDoesNotReportDeliveredWhileAnotherMissionIsStillRunning() {
+        when(deliveries.findByOrderId("order")).thenReturn(Optional.empty());
+        delivery.setMissionId("mission"); delivery.setStatus(DeliveryStatus.DELIVERED);
+        when(deliveries.findScoped("order", "mission")).thenReturn(Optional.of(delivery));
+        var second = new Mission(); second.setId("second"); second.setOrder(order); second.setStatus(MissionStatus.IN_PROGRESS);
+        when(missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc("order")).thenReturn(List.of(mission, second));
+        assertThat(service.get("order").deliveryStatus()).isEqualTo(DeliveryStatus.PROCESSING);
+        var pending = new OrderDelivery(); pending.setStatus(DeliveryStatus.CUSTOMER_REVIEW);
+        when(deliveries.findScoped("order", "second")).thenReturn(Optional.of(pending));
+        assertThat(service.get("order").deliveryStatus()).isEqualTo(DeliveryStatus.CUSTOMER_REVIEW);
+        pending.setStatus(DeliveryStatus.DELIVERED);
+        assertThat(service.get("order").deliveryStatus()).isEqualTo(DeliveryStatus.DELIVERED);
+        assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.IN_PROGRESS);
+        verify(deliveries, never()).save(any());
+    }
+
+    @Test void anOrderLevelPublishCannotOverwriteIndependentMissionDeliveries() {
+        delivery.setMissionId("mission");
+        when(deliveries.findByOrderIdIn(List.of("order"))).thenReturn(List.of(delivery));
+        var request = new com.ondemandmonitoring.delivery.dto.request.ChecklistDeliveryPublishRequest(
+                UUID.randomUUID(), null, null, null, null, false, null, List.of());
+        assertThatThrownBy(() -> service.releaseChecklistPreview("order", request))
+                .isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.INVALID_REQUEST);
+        verifyNoInteractions(reviewPublisher);
+    }
+
     @Test void originalEligibilityFilteringDoesNotThrowForUndeliveredMissions() {
         when(missions.findByIdWithOrder("mission")).thenReturn(Optional.of(mission));
+        when(deliveries.findByOrderIdIn(List.of("order"))).thenReturn(List.of(delivery));
 
         assertThat(service.originalAccessibleMissionIds(List.of("mission"))).isEmpty();
 

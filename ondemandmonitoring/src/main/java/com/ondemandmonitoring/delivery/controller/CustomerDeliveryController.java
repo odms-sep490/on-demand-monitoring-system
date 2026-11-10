@@ -23,33 +23,38 @@ public class CustomerDeliveryController {
     private final IResultReviewService resultReview;
     private final com.ondemandmonitoring.delivery.service.IResultRevisionCaseService revisionCases;
 
+    @GetMapping("/mission-deliveries")
+    public ApiResponse<java.util.List<com.ondemandmonitoring.delivery.dto.response.MissionDeliverySummary>> missions(@PathVariable String orderId) {
+        return ApiResponse.ok(delivery.missionDeliveries(orderId));
+    }
+
     @GetMapping("/result-review")
     public ApiResponse<ResultReviewResponse> resultReview(@PathVariable String orderId,
-            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "50") int size) {
-        return ApiResponse.ok(resultReview.getOrderReview(orderId, page, size));
+            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "50") int size, @RequestParam(required = false) String missionId) {
+        return ApiResponse.ok(missionId == null ? resultReview.getOrderReview(orderId, page, size) : resultReview.getOrderReview(orderId, missionId, page, size));
     }
 
     @GetMapping("/result-review/history")
     public ApiResponse<com.ondemandmonitoring.delivery.dto.response.ResultReviewHistoryResponse> resultReviewHistory(
             @PathVariable String orderId,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return ApiResponse.ok(resultReview.getHistory(orderId, page, size));
+            @RequestParam(defaultValue = "20") int size, @RequestParam(required = false) String missionId) {
+        return ApiResponse.ok(missionId == null ? resultReview.getHistory(orderId, page, size) : resultReview.getHistory(orderId, missionId, page, size));
     }
 
     @GetMapping("/delivery")
-    public ApiResponse<DeliveryResponse> get(@PathVariable String orderId) {
-        return ApiResponse.ok(delivery.get(orderId));
+    public ApiResponse<DeliveryResponse> get(@PathVariable String orderId, @RequestParam(required = false) String missionId) {
+        return ApiResponse.ok(missionId == null ? delivery.get(orderId) : delivery.get(orderId, missionId));
     }
 
     @GetMapping("/deliverables/preview")
-    public ApiResponse<DeliveryResponse> previews(@PathVariable String orderId) {
-        return ApiResponse.ok(delivery.previews(orderId));
+    public ApiResponse<DeliveryResponse> previews(@PathVariable String orderId, @RequestParam(required = false) String missionId) {
+        return ApiResponse.ok(missionId == null ? delivery.previews(orderId) : delivery.previews(orderId, missionId));
     }
 
     @GetMapping("/deliverables")
-    public ApiResponse<DeliveryResponse> originals(@PathVariable String orderId) {
-        return ApiResponse.ok(delivery.originals(orderId));
+    public ApiResponse<DeliveryResponse> originals(@PathVariable String orderId, @RequestParam(required = false) String missionId) {
+        return ApiResponse.ok(missionId == null ? delivery.originals(orderId) : delivery.originals(orderId, missionId));
     }
 
     @PostMapping("/result/accept")

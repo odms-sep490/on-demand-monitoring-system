@@ -10,8 +10,7 @@ import com.ondemandmonitoring.delivery.enums.*;
 import com.ondemandmonitoring.delivery.repository.*;
 import com.ondemandmonitoring.delivery.service.IResultReviewService;
 import com.ondemandmonitoring.finance.repository.InvoiceRepository;
-import com.ondemandmonitoring.media.service.impl.MediaDerivativeService;
-import com.ondemandmonitoring.media.service.IResultRetentionAccessService;
+import com.ondemandmonitoring.delivery.mapper.ResultReviewEvidenceMapper;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.repository.OrderRepository;
@@ -50,22 +49,26 @@ public class ResultReviewService implements IResultReviewService {
     private final SupportTicketService supportTickets;
     private final ISupportAuthorizationService supportAuthorization;
     private final AuthenticatedUserResolver currentUser;
-    private final MediaDerivativeService derivatives;
-    private final IResultRetentionAccessService retentionAccess;
+    private final ResultReviewEvidenceMapper evidenceMapper;
     private final ObjectMapper mapper;
+    @org.springframework.beans.factory.annotation.Autowired private DeliveryMissionScope missionScope;
 
     @Override
     @Transactional(readOnly = true)
-    public ResultReviewResponse getOrderReview(String orderId, int page, int size) {
+    public ResultReviewResponse getOrderReview(String orderId, int page, int size) { return getOrderReview(orderId, null, page, size); }
+
+    @Override @Transactional(readOnly = true)
+    public ResultReviewResponse getOrderReview(String orderId, String missionId, int page, int size) {
         Order order = orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
         assertOwner(order);
         if (page < 0 || size < 1 || size > 100) throw new ApiException(ErrorCode.INVALID_REQUEST, "page must be nonnegative and size must be between 1 and 100");
-        OrderDelivery delivery = deliveries.findByOrderId(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESULT_NOT_READY_FOR_REVIEW));
+        OrderDelivery delivery = (missionId == null ? deliveries.findByOrderId(orderId) : missionScope.find(orderId, missionId, false)).orElseThrow(() -> new ApiException(ErrorCode.RESULT_NOT_READY_FOR_REVIEW));
         ResultReviewRound round = currentRound(delivery);
         var itemPage = roundItems.findByRoundIdOrderByDisplayOrderAscIdAsc(round.getId(),
                 org.springframework.data.domain.PageRequest.of(page, size));
         var activeCase = revisionCases.findByOrderIdAndActiveTrue(orderId).orElse(null);
-        boolean hasActiveCase = activeCase != null;
+        boolean hasActiveCase = activeCase != null && (missionId == null || caseItems.findByResultRevisionCaseIdOrderByCreatedAtAsc(activeCase.getId()).stream()
+                .anyMatch(item -> missionScope.checklistIds(orderId, missionId).contains(item.getOrderChecklistItem().getId())));
         ResultRevisionRequest revision = requests.findByRoundId(round.getId()).orElse(null);
         List<ResultReviewRoundItem> pageItems = itemPage.getContent();
         Map<String, List<ResultReviewRoundEvidence>> evidenceByItem = pageItems.isEmpty() ? Map.of()
@@ -87,12 +90,17 @@ public class ResultReviewService implements IResultReviewService {
 
     @Override
     @Transactional(readOnly = true)
-    public ResultReviewHistoryResponse getHistory(String orderId, int page, int size) {
+    public ResultReviewHistoryResponse getHistory(String orderId, int page, int size) { return getHistory(orderId, null, page, size); }
+
+    @Override @Transactional(readOnly = true)
+    public ResultReviewHistoryResponse getHistory(String orderId, String missionId, int page, int size) {
         Order order = orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
         assertOwner(order);
         if (page < 0 || size < 1 || size > 50)
             throw new ApiException(ErrorCode.INVALID_REQUEST, "page must be nonnegative and size must be between 1 and 50");
-        var roundPage = rounds.findByOrderIdOrderByRoundNumberDesc(orderId,
+        if (missionId != null) missionScope.requireOriginal(orderId, missionId);
+        var roundPage = missionId == null ? rounds.findByOrderIdOrderByRoundNumberDesc(orderId,
+                org.springframework.data.domain.PageRequest.of(page, size)) : rounds.findByOrderIdAndMissionIdOrderByRoundNumberDesc(orderId, missionId,
                 org.springframework.data.domain.PageRequest.of(page, size));
         List<ResultReviewRound> selected = roundPage.getContent();
         var selectedIds = selected.stream().map(ResultReviewRound::getId).toList();
@@ -133,8 +141,11 @@ public class ResultReviewService implements IResultReviewService {
             SupportCustomerTicket ticket = tickets.findById(prior.getTicketId()).orElseThrow(() -> new ApiException(ErrorCode.SUPPORT_TICKET_NOT_FOUND));
             return submitted(prior, ticket);
         }
-        OrderDelivery delivery = deliveries.findByOrderIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESULT_NOT_READY_FOR_REVIEW));
-        ResultReviewRound round = rounds.findByIdForUpdate(delivery.getCurrentReviewRoundId())
+        ResultReviewRound round = rounds.findByIdForUpdate(request.reviewRoundId())
+                .filter(value -> orderId.equals(value.getOrder().getId()))
+                .orElseThrow(() -> new ApiException(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED));
+        OrderDelivery delivery = deliveries.findByIdForUpdate(round.getDeliveryId())
+                .filter(value -> orderId.equals(value.getOrder().getId()) && round.getId().equals(value.getCurrentReviewRoundId()))
                 .orElseThrow(() -> new ApiException(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED));
         if (!round.getId().equals(request.reviewRoundId()) || !Objects.equals(round.getVersion(), request.expectedRoundVersion()))
             throw new ApiException(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED);
@@ -224,10 +235,16 @@ public class ResultReviewService implements IResultReviewService {
         if (!manager && (user.getRole().getCode() != RoleCode.CUSTOMER || !user.getId().equals(ticket.getCustomerId())))
             throw new ApiException(ErrorCode.ACCESS_DENIED);
         if (ticket.getTicketKind() != SupportTicketKind.RESULT_REVISION) throw new ApiException(ErrorCode.RESOURCE_NOT_FOUND);
-        ResultRevisionRequest request = requests.findFirstByTicketIdOrderBySubmittedAtDesc(ticketId)
-                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        var ticketRequests = requests.findByTicketIdOrderBySubmittedAtAscIdAsc(ticketId);
+        if (ticketRequests.isEmpty()) throw new ApiException(ErrorCode.RESOURCE_NOT_FOUND);
+        ResultRevisionRequest request = ticketRequests.getLast();
         ResultReviewRound round = request.getRound();
-        List<ResultRevisionRequestItem> requestRows = requestItems.findByRequestIdOrderByDisplayOrderAsc(request.getId());
+        List<ResultRevisionRequestItem> requestRows = requestItems.findByRequestIdInOrderByCreatedAtAscIdAsc(
+                ticketRequests.stream().map(ResultRevisionRequest::getId).toList());
+        var missionCodes = missions.findAllById(requestRows.stream().map(row -> row.getRoundItem().getMissionId())
+                .filter(Objects::nonNull).distinct().toList()).stream()
+                .collect(Collectors.toMap(com.ondemandmonitoring.mission.domain.Mission::getId,
+                        mission -> Objects.requireNonNullElse(mission.getMissionCode(), "")));
         Map<String, List<ResultReviewRoundEvidence>> evidenceByRequestItem = requestMedia.findByRequestItemIdIn(
                         requestRows.stream().map(ResultRevisionRequestItem::getId).toList()).stream()
                 .collect(Collectors.groupingBy(link -> link.getRequestItem().getId(),
@@ -241,8 +258,8 @@ public class ResultReviewService implements IResultReviewService {
             var guidance = source.getGuidanceSnapshot();
             return new ResultRevisionTicketReviewResponse.Item(source.getId(), source.getOrderChecklistItem().getId(), source.getContentSnapshot(),
                     text(guidance, "description"), strings(guidance, "executionSteps"), strings(guidance, "inputRequirements"),
-                    strings(guidance, "expectedOutputs"), source.getMissionId(), null, row.getReasonCode().name(), row.getNote(),
-                    selectedEvidence.stream().map(ResultReviewRoundEvidence::getId).toList(), mediaRows);
+                    strings(guidance, "expectedOutputs"), source.getMissionId(), missionCodes.get(source.getMissionId()), row.getReasonCode().name(), row.getNote(),
+                    selectedEvidence.stream().map(ResultReviewRoundEvidence::getId).toList(), mediaRows, row.getRequest().getRound().getRoundNumber());
         }).toList();
         List<ResultRevisionTicketReviewResponse.OutOfScopeItem> outOfScopeItems = Optional.ofNullable(ticketCase).stream()
                 .flatMap(revisionCase -> caseItems.findByResultRevisionCaseIdOrderByCreatedAtAsc(revisionCase.getId()).stream())
@@ -266,19 +283,7 @@ public class ResultReviewService implements IResultReviewService {
     }
 
     private ResultReviewResponse.Evidence mapEvidence(ResultReviewRoundEvidence row) {
-        var asset = row.getMediaAsset();
-        try {
-            retentionAccess.requireAccessible(asset);
-        } catch (ApiException ex) {
-            if (ex.getErrorCode() != ErrorCode.RESULT_RETENTION_EXPIRED && ex.getErrorCode() != ErrorCode.MEDIA_NOT_FOUND) throw ex;
-            return new ResultReviewResponse.Evidence(row.getId(), asset.getId(), row.getMediaTypeSnapshot(), row.getFileNameSnapshot(),
-                    asset.getFileSize(), row.getCapturedAtSnapshot(), null, null, false,
-                    ex.getErrorCode() == ErrorCode.RESULT_RETENTION_EXPIRED ? "RETENTION_EXPIRED" : "MEDIA_UNAVAILABLE",
-                    null, null, asset.getDerivativeStatus());
-        }
-        return new ResultReviewResponse.Evidence(row.getId(), asset.getId(), row.getMediaTypeSnapshot(), row.getFileNameSnapshot(),
-                asset.getFileSize(), row.getCapturedAtSnapshot(), null, null, false, null,
-                derivatives.thumbnailUrl(asset), derivatives.previewUrl(asset), asset.getDerivativeStatus());
+        return evidenceMapper.toResponse(row);
     }
 
     private String text(com.fasterxml.jackson.databind.JsonNode node, String field) {

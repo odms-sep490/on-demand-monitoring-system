@@ -664,4 +664,39 @@ CREATE INDEX IF NOT EXISTS ix_drone_media_derivative_queue_v2
     WHERE storage_provider = 'S3' AND storage_status = 'AVAILABLE'
       AND media_type IN ('IMAGE', 'VIDEO') AND derivative_status IN ('PENDING', 'FAILED', 'PROCESSING');
 
+-- Independent delivery/review state per original Mission. NULL retains historical order-level deliveries.
+ALTER TABLE order_deliveries ADD COLUMN IF NOT EXISTS mission_id varchar(255);
+ALTER TABLE checklist_delivery_drafts ADD COLUMN IF NOT EXISTS mission_id varchar(255);
+ALTER TABLE result_review_rounds ADD COLUMN IF NOT EXISTS mission_id varchar(255);
+
+DO $$
+DECLARE table_name text;
+BEGIN
+    FOREACH table_name IN ARRAY ARRAY['order_deliveries', 'checklist_delivery_drafts', 'result_review_rounds'] LOOP
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = table_name::regclass AND conname = 'fk_' || table_name || '_mission') THEN
+            EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (mission_id) REFERENCES missions(id)',
+                table_name, 'fk_' || table_name || '_mission');
+        END IF;
+    END LOOP;
+END $$;
+
+DO $$
+DECLARE row record;
+BEGIN
+    FOR row IN
+        SELECT c.conrelid::regclass AS table_name, c.conname
+        FROM pg_constraint c
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attname = 'order_id'
+        WHERE c.contype = 'u' AND c.conrelid IN ('order_deliveries'::regclass, 'checklist_delivery_drafts'::regclass)
+          AND c.conkey = ARRAY[a.attnum]::smallint[]
+    LOOP
+        EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I', row.table_name, row.conname);
+    END LOOP;
+END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_delivery_legacy_order ON order_deliveries(order_id) WHERE mission_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_delivery_mission ON order_deliveries(mission_id) WHERE mission_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_delivery_draft_legacy_order ON checklist_delivery_drafts(order_id) WHERE mission_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_delivery_draft_mission ON checklist_delivery_drafts(mission_id) WHERE mission_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_review_round_mission_number ON result_review_rounds(order_id, mission_id, round_number DESC);
+
 COMMIT;

@@ -57,9 +57,10 @@ public class ResultReviewRoundPublisher {
             User publishedBy, Map<String, String> sourceRoundEvidenceByMedia,
             Map<String, String> supersededEvidenceByMedia, Set<String> changedChecklistIds, boolean initialRound) {
         List<ResultReviewRound> history = rounds.findByOrderIdOrderByRoundNumberDesc(order.getId());
-        history.stream().filter(r -> r.getStatus() == ResultReviewRoundStatus.OPEN)
+        history.stream().filter(r -> Objects.equals(r.getDeliveryId(), delivery.getId()) && r.getStatus() == ResultReviewRoundStatus.OPEN)
                 .forEach(r -> r.setStatus(ResultReviewRoundStatus.SUPERSEDED));
-        List<OrderChecklistItem> snapshot = checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(order.getId());
+        List<OrderChecklistItem> snapshot = checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(order.getId()).stream()
+                .filter(item -> delivery.getMissionId() == null || (selectedByChecklist != null && selectedByChecklist.containsKey(item.getId()))).toList();
         Map<String, OrderChecklistItem> byId = snapshot.stream().collect(Collectors.toMap(OrderChecklistItem::getId, i -> i));
         Map<String, List<MissionChecklistExecution>> executionByItem = new LinkedHashMap<>();
         Map<String, List<MissionChecklistEvidence>> evidenceByExecution = new HashMap<>();
@@ -83,6 +84,7 @@ public class ResultReviewRoundPublisher {
         ResultReviewRound round = new ResultReviewRound();
         round.setOrder(order);
         round.setDeliveryId(delivery.getId());
+        round.setMissionId(delivery.getMissionId());
         round.setRoundNumber(history.stream()
                 .mapToInt(ResultReviewRound::getRoundNumber).max().orElse(0) + 1);
         round.setChecklistRevision(order.getChecklistRevision());

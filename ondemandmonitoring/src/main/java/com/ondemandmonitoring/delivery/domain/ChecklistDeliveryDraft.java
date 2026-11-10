@@ -7,7 +7,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.OneToOne;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
@@ -19,9 +19,12 @@ import lombok.Setter;
 @Getter
 @Setter
 public class ChecklistDeliveryDraft extends BaseEntity {
-    @OneToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "order_id", nullable = false, unique = true, updatable = false)
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "order_id", nullable = false, updatable = false)
     private Order order;
+
+    @Column(name = "mission_id", updatable = false, length = 255)
+    private String missionId;
 
     @Column(name = "case_id", length = 255)
     private String caseId;

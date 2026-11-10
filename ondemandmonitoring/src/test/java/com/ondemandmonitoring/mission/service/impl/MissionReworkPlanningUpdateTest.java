@@ -69,8 +69,10 @@ class MissionReworkPlanningUpdateTest {
         when(missions.save(mission)).thenReturn(mission);
     }
 
-    @Test
-    void editsReworkScheduleThroughTheSharedCommandWithoutChangingOriginalPreferences() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = OrderStatus.class, names = {"IN_PROGRESS", "COMPLETED"})
+    void editsReworkScheduleThroughTheSharedCommandWithoutChangingOriginalPreferences(OrderStatus status) {
+        order.setOrderStatus(status);
         var request = schedule();
         service.updateMission("mission", request);
         assertThat(mission.getScheduledStartAt()).isEqualTo(request.getScheduledStartAt());

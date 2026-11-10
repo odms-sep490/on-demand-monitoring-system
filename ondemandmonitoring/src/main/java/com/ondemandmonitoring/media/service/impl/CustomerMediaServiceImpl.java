@@ -137,7 +137,7 @@ public class CustomerMediaServiceImpl implements ICustomerMediaService {
         String orderId = media.findOrderIdByMediaId(mediaId)
                 .orElseThrow(() -> new ApiException(ErrorCode.MEDIA_NOT_FOUND));
         if (deliveryWorkflow == null) throw new ApiException(ErrorCode.DELIVERABLE_NOT_RELEASED);
-        deliveryWorkflow.requireOriginalAccess(orderId);
+        deliveryWorkflow.requireOriginalAccessForMedia(orderId, mediaId);
         retentionAccess.requireAccessible(asset);
         requireStoredObject(asset);
         return new OriginalMediaDownloadResponse(asset.getId(), asset.getOriginalFileName(),

@@ -11,5 +11,5 @@ public record ResultRevisionTicketReviewResponse(String ticketId, String ticketC
     public record Item(String roundItemId, String orderChecklistItemId, String title, String description,
             List<String> executionSteps, List<String> inputRequirements, List<String> expectedOutputs,
             String missionId, String missionCode, String reasonCode, String note, List<String> roundEvidenceIds,
-            List<ResultReviewResponse.Evidence> evidence) {}
+            List<ResultReviewResponse.Evidence> evidence, int roundNumber) {}
 }

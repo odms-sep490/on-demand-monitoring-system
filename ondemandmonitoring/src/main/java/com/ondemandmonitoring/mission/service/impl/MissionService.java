@@ -1833,7 +1833,7 @@ public class MissionService implements IMissionService {
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
                     "Assigned device must pass preflight before the mission can start");
         }
-        requireFreshSafeWeather(mission);
+        requireFreshAcceptedWeather(mission);
 
         mission.setStatus(MissionStatus.IN_PROGRESS);
         deviceAssignment.setStatus(MissionDeviceAssignmentStatus.IN_PROGRESS);
@@ -1866,7 +1866,7 @@ public class MissionService implements IMissionService {
         }
     }
 
-    private void requireFreshSafeWeather(Mission mission) {
+    private void requireFreshAcceptedWeather(Mission mission) {
         MissionWeatherCheck check = missionWeatherCheckRepository
                 .findFirstByMissionIdOrderByCreatedAtDesc(mission.getId())
                 .filter(weather -> weather.getCheckedAt() != null
@@ -1880,13 +1880,9 @@ public class MissionService implements IMissionService {
             throw new ApiException(ErrorCode.INVALID_REQUEST,
                     "Weather must be checked after the flight permit is approved");
         }
-        if (!Boolean.TRUE.equals(check.getSafeToFly())) {
-            throw new ApiException(ErrorCode.INVALID_REQUEST,
-                    "Thời tiết hiện tại chưa an toàn để bắt đầu Mission.");
-        }
         if (!Boolean.TRUE.equals(check.getInspectorAccepted())) {
             throw new ApiException(ErrorCode.INVALID_REQUEST,
-                    "Nghiệm thu cần xác nhận thời tiết đạt trước khi bắt đầu Mission.");
+                    "Người phụ trách cần xác nhận quyết định thời tiết trước khi bắt đầu Mission.");
         }
     }
 

@@ -123,8 +123,8 @@ class OrderReadinessServiceTest {
     @Test
     void failedRequiredManualCriterionBlocksApprovalAndSuggestsRejecting() {
         answerRequired(CriterionResult.PASS);
-        service.answer("o1", ReviewCriterionCode.CAPABILITY,
-                new ManualCriterionRequest(CriterionResult.FAIL, "Không có drone ảnh nhiệt"));
+        service.answer("o1", ReviewCriterionCode.SITE_ACCESS,
+                new ManualCriterionRequest(CriterionResult.FAIL, "Chưa xác nhận quyền truy cập hiện trường"));
         var result = service.evaluate("o1");
         assertThat(result.canApprove()).isFalse();
         assertThat(result.recommendation()).isEqualTo(ReadinessRecommendation.REQUEST_INFO_OR_REJECT);

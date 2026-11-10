@@ -41,6 +41,8 @@ public enum ReviewCriterionCode {
             "Xác nhận tình trạng giấy phép bay trước khi thực hiện nhiệm vụ"),
     SITE_ACCESS(ReviewCriterionType.MANUAL, true, "Quyền truy cập hiện trường",
             "Đã xác nhận chủ đất hoặc đơn vị quản lý đồng ý cho bay và quay chụp"),
+    /** Retained only so existing database rows can still be read; it is no longer part of review. */
+    @Deprecated
     CAPABILITY(ReviewCriterionType.MANUAL, true, "Năng lực thực hiện",
             "Công ty đủ thiết bị và nhân sự cho yêu cầu này"),
     REQUESTED_SCOPE_FEASIBLE(ReviewCriterionType.MANUAL, true,
@@ -67,6 +69,6 @@ public enum ReviewCriterionCode {
     public boolean isActive() {
         return this != CHECKLIST_REVIEWED && this != FLIGHT_SCALE
                 && this != SENSITIVE_AREA && this != AIRSPACE_PERMIT
-                && this != PRICE_REASONABLE && this != SURVEY_NEEDED;
+                && this != CAPABILITY && this != PRICE_REASONABLE && this != SURVEY_NEEDED;
     }
 }

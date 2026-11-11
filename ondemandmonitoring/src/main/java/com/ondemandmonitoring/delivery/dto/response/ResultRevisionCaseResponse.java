@@ -34,5 +34,5 @@ public record ResultRevisionCaseResponse(
             List<Feedback> feedback) {}
 
     public record Feedback(String requestId, int roundNumber, ResultRevisionReasonCode reasonCode,
-            String customerNote, Instant submittedAt) {}
+            String customerNote, Instant submittedAt, List<ResultReviewResponse.Evidence> evidence) {}
 }

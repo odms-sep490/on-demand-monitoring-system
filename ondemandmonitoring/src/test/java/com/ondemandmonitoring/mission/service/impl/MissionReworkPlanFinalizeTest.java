@@ -91,14 +91,30 @@ class MissionReworkPlanFinalizeTest {
         when(payments.isResourceAssignmentReady(mission)).thenReturn(true);
     }
 
-    @Test
-    void finalizesReworkUsingSharedMaterializationAndResourceActivationWithoutReopeningOriginalPlan() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = OrderStatus.class, names = {"IN_PROGRESS", "COMPLETED"})
+    void finalizesReworkUsingSharedMaterializationAndResourceActivationWithoutReopeningOriginalPlan(OrderStatus status) {
+        order.setOrderStatus(status);
         service.finalizeReworkPlan("case", new ExecutionPlanFinalizeRequest(7L, true));
         assertThat(mission.getStatus()).isEqualTo(MissionStatus.PENDING_CONFIRMATION);
         assertThat(order.getExecutionPlan().getStatus()).isEqualTo(ExecutionPlanStatus.FINALIZED);
         assertThat(staff).allSatisfy(row -> assertThat(row.getResponseStatus()).isEqualTo(MissionStaffAssignmentStatus.PENDING));
         assertThat(device.getCheckupStatus()).isEqualTo(MissionDeviceCheckStatus.PENDING);
         verify(materialization).materialize(mission);
+    }
+
+    @Test
+    void creatingReworkForAnInProgressOrderStillEnforcesFullPayment() {
+        order.setOrderStatus(OrderStatus.IN_PROGRESS);
+        revisionCase.setVersion(2L);
+        var invoice = invoices.findByOrderId("order").orElseThrow();
+        when(payments.isOriginalFinalPaymentConfirmed(invoice)).thenReturn(false);
+        var request = new com.ondemandmonitoring.mission.dto.request.CreateResultRevisionReworkMissionRequest(
+                2L, UUID.randomUUID(), "Rework roof", java.time.Instant.parse("2099-11-11T03:00:00Z"),
+                java.time.Instant.parse("2099-11-11T04:00:00Z"), List.of("case-item"));
+        assertThatThrownBy(() -> service.createResultRevisionReworkMission("case", request))
+                .isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.INVOICE_NOT_PAID);
+        verify(missions, never()).saveAndFlush(any());
     }
 
     @Test

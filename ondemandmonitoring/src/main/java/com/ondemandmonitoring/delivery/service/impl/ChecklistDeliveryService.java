@@ -23,10 +23,16 @@ public class ChecklistDeliveryService implements IChecklistDeliveryService {
     }
 
     @Override
+    public ManagerDeliveryChecklistsResponse get(String orderId, String missionId) { return query.get(orderId, missionId); }
+
+    @Override
     @Transactional
-    public DeliveryResponse publish(String orderId, ChecklistDeliveryPublishRequest request) {
-        DeliveryResponse response = delivery.releaseChecklistPreview(orderId, request);
-        drafts.clearAfterPublish(orderId);
+    public DeliveryResponse publish(String orderId, ChecklistDeliveryPublishRequest request) { return publish(orderId, request, null); }
+
+    @Override @Transactional
+    public DeliveryResponse publish(String orderId, ChecklistDeliveryPublishRequest request, String missionId) {
+        DeliveryResponse response = delivery.releaseChecklistPreview(orderId, request, missionId);
+        drafts.clearAfterPublish(orderId, missionId);
         return response;
     }
 }

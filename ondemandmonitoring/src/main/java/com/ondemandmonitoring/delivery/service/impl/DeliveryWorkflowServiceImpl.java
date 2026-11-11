@@ -21,7 +21,7 @@ import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.media.domain.MediaAsset;
 import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
-import com.ondemandmonitoring.media.service.IMediaObjectStorage;
+import com.ondemandmonitoring.media.service.impl.MediaDerivativeService;
 import com.ondemandmonitoring.media.service.IResultRetentionAccessService;
 import com.ondemandmonitoring.mission.domain.MissionChecklistEvidence;
 import com.ondemandmonitoring.mission.repository.MissionChecklistEvidenceRepository;
@@ -67,7 +67,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     private final MissionResultRepository missionResults;
     private final InvoiceRepository invoices;
     private final MediaAssetRepository media;
-    private final IMediaObjectStorage storage;
+    private final MediaDerivativeService derivatives;
     private final IResultRetentionAccessService retentionAccess;
     private final AuthenticatedUserResolver currentUser;
     private final com.ondemandmonitoring.order.service.IOrderExecutionCompletionPolicy completionPolicy;
@@ -82,6 +82,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     private final ResultRevisionCaseItemRepository revisionCaseItems;
     @Autowired @NonFinal
     private com.ondemandmonitoring.support.service.impl.SupportTicketService supportTickets;
+    @Autowired @NonFinal private DeliveryMissionScope missionScope;
 
     @Override
     @Transactional
@@ -106,12 +107,25 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     @Override
     @Transactional
     public boolean publishInspectedResults(String orderId) {
+        var legacy = deliveries.findByOrderId(orderId).orElse(null);
+        if (legacy != null && legacy.getCurrentReviewRoundId() != null) return publishInspectedScope(orderId, null);
+        boolean published = false;
+        for (var mission : missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc(orderId)) {
+            if (mission.getPurpose() != com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK
+                    && com.ondemandmonitoring.mission.service.impl.ExecutionPlanCoverageService.effective(mission))
+                published |= publishInspectedScope(orderId, mission.getId());
+        }
+        return published;
+    }
+
+    private boolean publishInspectedScope(String orderId, String missionId) {
         // Order -> all Missions serializes the last two confirmations and publication retries.
         var aggregate = completionPolicy.lockAggregate(orderId);
         Order order = aggregate.order();
         var effective = aggregate.missions().stream()
                 .filter(com.ondemandmonitoring.mission.service.impl.ExecutionPlanCoverageService::effective).toList();
-        var originals = effective.stream().filter(m -> m.getPurpose() != com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK).toList();
+        var originals = effective.stream().filter(m -> m.getPurpose() != com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK)
+                .filter(m -> missionId == null || missionId.equals(m.getId())).toList();
         if (originals.isEmpty()) return false;
         var inspectedPackages = missionResults.findByMissionIds(effective.stream().map(Mission::getId).toList());
         var approved = inspectedPackages.stream()
@@ -120,8 +134,8 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                 .map(r -> r.getMission().getId()).collect(Collectors.toSet());
         if (originals.stream().anyMatch(m -> m.getStatus() != MissionStatus.COMPLETED || !approved.contains(m.getId())))
             return false;
-        OrderDelivery delivery = deliveries.findByOrderIdForUpdate(orderId).orElse(null);
-        var revisionCase = revisionCases.findByOrderIdAndActiveTrueForUpdate(orderId).orElse(null);
+        OrderDelivery delivery = scopedDelivery(orderId, missionId, true).orElse(null);
+        var revisionCase = activeCaseForScope(orderId, missionId, true);
         var inspected = inspectedPackages.stream()
                 .filter(com.ondemandmonitoring.mission.domain.MissionResult::isInspectorConfirmed)
                 .map(r -> r.getMission().getId()).collect(Collectors.toSet());
@@ -132,11 +146,12 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                 || delivery.getStatus() == DeliveryStatus.DELIVERED
                 || delivery.getStatus() == DeliveryStatus.FINAL_PAYMENT_PENDING)) return false;
         if (revisionCase == null && delivery != null && delivery.getCurrentReviewRoundId() != null) return false;
-        var items = checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId);
+        var items = scopedChecklistItems(orderId, missionId);
         if (items.isEmpty()) return false;
         Map<String, com.ondemandmonitoring.delivery.domain.ResultRevisionCaseItem> reworkByItem = new LinkedHashMap<>();
         if (revisionCase != null) {
             for (var item : revisionCaseItems.findByResultRevisionCaseIdOrderByCreatedAtAsc(revisionCase.getId())) {
+                if (missionId != null && !missionScope.checklistIds(orderId, missionId).contains(item.getOrderChecklistItem().getId())) continue;
                 if (item.getStatus() == com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.RESOLVED
                         || item.getStatus() == com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.OUT_OF_SCOPE_ACKNOWLEDGED)
                     continue;
@@ -144,16 +159,16 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                 if (item.getScopeDecision() != com.ondemandmonitoring.delivery.enums.ResultRevisionScope.IN_SCOPE
                         || item.getStrategy() != com.ondemandmonitoring.delivery.enums.ResultRevisionStrategy.REWORK
                         || item.getStatus() != com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.IN_PROGRESS
-                        || item.getAssignedReworkMissionId() == null) return false;
+                        || item.getAssignedReworkMissionId() == null) continue;
                 var mission = effective.stream().filter(m -> m.getId().equals(item.getAssignedReworkMissionId())).findFirst().orElse(null);
                 if (mission == null || mission.getPurpose() != com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK
                         || !revisionCase.getId().equals(mission.getResultRevisionCaseId())
                         || mission.getStatus() != MissionStatus.COMPLETED || !approved.contains(mission.getId())
-                        || !inspected.contains(mission.getId())) return false;
+                        || !inspected.contains(mission.getId())) continue;
                 reworkByItem.put(item.getOrderChecklistItem().getId(), item);
             }
             if (reworkByItem.isEmpty()) return false;
-        } else if (order.getOrderStatus() != OrderStatus.COMPLETED && !completionPolicy.completeIfReady(aggregate)) {
+        } else if (missionId == null && order.getOrderStatus() != OrderStatus.COMPLETED && !completionPolicy.completeIfReady(aggregate)) {
             return false;
         }
         Map<String, List<MissionChecklistEvidence>> selected = new LinkedHashMap<>();
@@ -197,7 +212,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                     newIds.subList(paired, newIds.size()), old.subList(paired, old.size()).stream().map(com.ondemandmonitoring.delivery.domain.ResultReviewRoundEvidence::getId).toList(), replacements));
         }
         if (operations.isEmpty()) return false;
-        if (revisionCase == null) {
+        if (revisionCase == null && missionId == null) {
             validateSelectedOrderQuantity(order, selected.values().stream().flatMap(List::stream)
                     .map(MissionChecklistEvidence::getMediaAsset).toList());
         }
@@ -213,7 +228,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         String fingerprint = checklistPublishFingerprint(orderId, draft);
         var command = new ChecklistDeliveryPublishRequest(draft.clientRequestId(), draft.expectedDeliveryVersion(),
                 draft.baseReviewRoundId(), draft.expectedReviewRoundVersion(), null, true, fingerprint, operations);
-        releaseChecklistPreview(orderId, command);
+        releaseChecklistPreview(orderId, command, missionId);
         return true;
     }
 
@@ -221,6 +236,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     @Transactional
     public DeliveryResponse releasePreview(String orderId, ReleasePreviewRequest request) {
         List<Mission> effective = completedMissions(orderId);
+        requireLegacyPublicationScope(orderId);
         if (!isResultApproved(orderId) || !completionPolicy.completeIfReady(completionPolicy.lockAggregate(orderId))) {
             throw new ApiException(ErrorCode.DELIVERY_NOT_READY,
                     "Approve the mission result before releasing a customer preview");
@@ -265,21 +281,27 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     @Override
     @Transactional
     public DeliveryResponse releaseChecklistPreview(String orderId, ChecklistDeliveryPublishRequest request) {
+        return releaseChecklistPreview(orderId, request, null);
+    }
+
+    @Override @Transactional
+    public DeliveryResponse releaseChecklistPreview(String orderId, ChecklistDeliveryPublishRequest request, String missionId) {
         if (request == null || request.clientRequestId() == null || request.checklists() == null)
             throw new ApiException(ErrorCode.VALIDATION_ERROR);
         Order order = orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-        List<Mission> allEffectiveMissions = effectiveMissions(orderId);
-        List<Mission> publishableMissions = checklistPublicationMissions(orderId);
-        if (order.getOrderStatus() != OrderStatus.COMPLETED
+        if (missionId == null) requireLegacyPublicationScope(orderId);
+        List<Mission> allEffectiveMissions = scopedMissions(orderId, missionId);
+        List<Mission> publishableMissions = checklistPublicationMissions(orderId, missionId);
+        if (missionId == null && order.getOrderStatus() != OrderStatus.COMPLETED
                 && !completionPolicy.completeIfReady(completionPolicy.lockAggregate(orderId)))
             throw new ApiException(ErrorCode.DELIVERY_NOT_READY, "Approve every original Mission result before delivery");
-        OrderDelivery delivery = deliveries.findByOrderIdForUpdate(orderId).orElse(null);
-        var activeRevisionCase = revisionCases.findByOrderIdAndActiveTrueForUpdate(orderId).orElse(null);
+        OrderDelivery delivery = scopedDelivery(orderId, missionId, true).orElse(null);
+        var activeRevisionCase = activeCaseForScope(orderId, missionId, true);
         String fingerprint = checklistPublishFingerprint(orderId, request);
         if (delivery != null && Objects.equals(delivery.getLastChecklistPublishRequestId(), request.clientRequestId())) {
             if (!Objects.equals(delivery.getLastChecklistPublishFingerprint(), fingerprint))
                 throw new ApiException(ErrorCode.IDEMPOTENCY_KEY_REUSED);
-            return response(delivery, allEffectiveMissions, releasableAssets(allEffectiveMissions), false);
+            return response(delivery, allEffectiveMissions, currentAssets(delivery, allEffectiveMissions), false);
         }
         if (delivery != null && !Objects.equals(delivery.getVersion(), request.expectedDeliveryVersion()))
             throw new ApiException(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED);
@@ -296,7 +318,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
             throw new ApiException(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED);
 
         if (delivery == null) {
-            delivery = create(order);
+            delivery = create(order, missionId);
             delivery.setStatus(DeliveryStatus.READY_FOR_MANAGER_REVIEW);
         }
         if (delivery.getStatus() != DeliveryStatus.READY_FOR_MANAGER_REVIEW
@@ -304,7 +326,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                 && !(delivery.getStatus() == DeliveryStatus.CUSTOMER_REVIEW && currentRoundId == null))
             throw new ApiException(ErrorCode.INVALID_DELIVERY_STATE);
 
-        List<OrderChecklistItem> orderItems = checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId);
+        List<OrderChecklistItem> orderItems = scopedChecklistItems(orderId, missionId);
         Map<String, OrderChecklistItem> itemById = orderItems.stream()
                 .collect(Collectors.toMap(OrderChecklistItem::getId, item -> item));
         Map<String, Map<String, MissionChecklistEvidence>> eligibleByChecklist = eligibleEvidenceByChecklist(orderItems, publishableMissions);
@@ -444,13 +466,15 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
 
         Instant now = Instant.now();
         Set<String> allSelectedIds = candidateByChecklist.values().stream().flatMap(Set::stream).collect(Collectors.toSet());
-        List<MediaAsset> allAssets = assets(allEffectiveMissions);
+        List<MediaAsset> allAssets = assets(publishableMissions);
         allAssets.forEach(asset -> asset.setPreviewSelected(allSelectedIds.contains(asset.getId())));
         media.saveAll(allAssets);
         var reviewRound = reviewRoundPublisher.publishByChecklist(order, delivery, publishableMissions, candidateByChecklist,
                 now, currentUser.getCurrentUser(), sourceEvidenceByMedia, supersededEvidenceByMedia,
                 previousRound == null ? itemById.keySet() : changedChecklistIds, previousRound == null);
         delivery.setCurrentReviewRoundId(reviewRound.getId());
+        delivery.setCustomerAcceptedAt(null);
+        delivery.setOriginalsReleasedAt(null);
         delivery.setStatus(DeliveryStatus.CUSTOMER_REVIEW);
         delivery.setDeliveryNotes(trim(request.notes()));
         delivery.setPreviewReleasedAt(now);
@@ -477,10 +501,13 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     public DeliveryResponse acceptResult(String orderId, String expectedReviewRoundId, Long expectedRoundVersion) {
         assertOwner(orderId);
         orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-        var activeRevisionCase = revisionCases.findByOrderIdAndActiveTrueForUpdate(orderId).orElse(null);
-        List<Mission> effective = activeRevisionCase == null ? completedMissions(orderId) : effectiveMissions(orderId);
-        OrderDelivery delivery = locked(orderId);
-        var round = delivery.getCurrentReviewRoundId() == null ? null : reviewRounds.findByIdForUpdate(delivery.getCurrentReviewRoundId()).orElse(null);
+        var round = expectedReviewRoundId == null ? null : reviewRounds.findByIdForUpdate(expectedReviewRoundId).orElse(null);
+        if (round == null || !orderId.equals(round.getOrder().getId())) throw new ApiException(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED);
+        OrderDelivery delivery = deliveries.findByIdForUpdate(round.getDeliveryId()).orElseThrow(() -> new ApiException(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED));
+        if (!Objects.equals(delivery.getCurrentReviewRoundId(), round.getId())) throw new ApiException(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED);
+        String missionId = delivery.getMissionId();
+        var activeRevisionCase = activeCaseForScope(orderId, missionId, true);
+        List<Mission> effective = missionId == null && activeRevisionCase == null ? completedMissions(orderId) : scopedMissions(orderId, missionId);
         if (round == null || expectedReviewRoundId == null || expectedRoundVersion == null
                 || !round.getId().equals(expectedReviewRoundId))
             throw new ApiException(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED);
@@ -494,7 +521,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
             if (delivery.getStatus() == DeliveryStatus.FINAL_PAYMENT_PENDING && isInvoiceFullyPaid(invoice))
                 delivery.setStatus(DeliveryStatus.READY_FOR_DELIVERY);
             if (delivery.getStatus() == DeliveryStatus.READY_FOR_DELIVERY && isInvoiceFullyPaid(invoice))
-                return releaseOriginals(orderId);
+                return releaseOriginals(orderId, missionId);
             return response(delivery, effective, List.of(), false);
         }
         if (!Objects.equals(round.getVersion(), expectedRoundVersion))
@@ -509,10 +536,11 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         // A customer can accept the checklist changes currently published while a
         // different checklist is still being reworked. Keep the case open and return
         // delivery to Manager until every case item has reached a terminal decision.
-        delivery.setStatus(activeRevisionCase != null && !caseResolved
+        delivery.setStatus(activeRevisionCase != null && !caseResolved && hasBlockingCase(orderId, missionId)
                 ? DeliveryStatus.READY_FOR_MANAGER_REVIEW
                 : isInvoiceFullyPaid(invoice) ? DeliveryStatus.READY_FOR_DELIVERY : DeliveryStatus.FINAL_PAYMENT_PENDING);
-        if (delivery.getStatus() == DeliveryStatus.READY_FOR_DELIVERY) return releaseOriginals(orderId);
+        if (delivery.getStatus() == DeliveryStatus.READY_FOR_DELIVERY) return releaseOriginals(orderId, missionId);
+        if (delivery.getStatus() == DeliveryStatus.READY_FOR_MANAGER_REVIEW) publishInspectedResults(orderId);
         return response(delivery, effective, List.of(), false);
     }
 
@@ -520,6 +548,14 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     @Transactional
     public void completeAcceptedRevisionCase(String orderId) {
         orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        for (var scoped : deliveries.findByOrderIdIn(List.of(orderId))) {
+            if (scoped.getMissionId() != null && hasCustomerAcceptedCurrentReview(scoped)
+                    && !hasBlockingCase(orderId, scoped.getMissionId()) && scoped.getStatus() != DeliveryStatus.DELIVERED) {
+                var lockedScope = deliveries.findScopedForUpdate(orderId, scoped.getMissionId()).orElseThrow();
+                lockedScope.setStatus(isInvoiceFullyPaid(invoice(orderId)) ? DeliveryStatus.READY_FOR_DELIVERY : DeliveryStatus.FINAL_PAYMENT_PENDING);
+                if (lockedScope.getStatus() == DeliveryStatus.READY_FOR_DELIVERY) releaseOriginals(orderId, scoped.getMissionId());
+            }
+        }
         if (revisionCases.findByOrderIdAndActiveTrue(orderId).isPresent()) return;
 
         OrderDelivery delivery = deliveries.findByOrderIdForUpdate(orderId).orElse(null);
@@ -571,13 +607,19 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
 
     @Override
     @Transactional
-    public DeliveryResponse releaseOriginals(String orderId) {
-        List<Mission> effective = completedMissions(orderId);
+    public DeliveryResponse releaseOriginals(String orderId) { return releaseOriginals(orderId, null); }
+
+    @Override @Transactional
+    public DeliveryResponse releaseOriginals(String orderId, String missionId) {
+        List<Mission> effective = missionId == null ? completedMissions(orderId) : scopedMissions(orderId, missionId);
         Invoice invoice = invoice(orderId);
-        if (invoice.getStatus() != InvoiceStatus.PAID) throw new ApiException(ErrorCode.INVOICE_NOT_PAID);
-        OrderDelivery delivery = locked(orderId);
+        if (!isInvoiceFullyPaid(invoice)) throw new ApiException(ErrorCode.FINAL_PAYMENT_REQUIRED);
+        OrderDelivery delivery = scopedDelivery(orderId, missionId, true).orElseThrow(() -> new ApiException(ErrorCode.DELIVERY_NOT_READY));
+        if (!hasCustomerAcceptedCurrentReview(delivery)
+                || hasBlockingCase(orderId, missionId))
+            throw new ApiException(ErrorCode.DELIVERABLE_NOT_RELEASED);
         if (delivery.getStatus() == DeliveryStatus.DELIVERED) {
-            return response(delivery, effective, releasableAssets(effective), true);
+            return response(delivery, effective, currentAssets(delivery, effective), true);
         }
         // Legacy deliveries accepted before the assignment-first payment gate
         // can proceed after an external reconciliation updates the invoice.
@@ -586,45 +628,67 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
             delivery.setStatus(DeliveryStatus.READY_FOR_DELIVERY);
         }
         if (delivery.getStatus() != DeliveryStatus.READY_FOR_DELIVERY) throw new ApiException(ErrorCode.DELIVERY_NOT_READY);
-        List<MediaAsset> assets = releasableAssets(effective);
+        List<MediaAsset> assets = currentAssets(delivery, effective);
         if (assets.isEmpty()) throw new ApiException(ErrorCode.DELIVERY_NOT_READY, "No approved originals exist");
         Instant handedOverAt = Instant.now();
         delivery.setStatus(DeliveryStatus.DELIVERED);
         delivery.setOriginalsReleasedAt(handedOverAt);
         delivery.setOriginalsReleasedBy(currentUser.getCurrentUser());
         Order order = delivery.getOrder();
-        if (order.getResultExpiresAt() == null) {
+        if (order.getResultExpiresAt() == null && (missionId == null || allMissionResultsAccepted(orderId))) {
             order.setResultExpiresAt(handedOverAt.plus(order.getDataRetentionDays(), java.time.temporal.ChronoUnit.DAYS));
         }
-        if (!completionPolicy.completeIfReady(completionPolicy.lockAggregate(orderId)))
+        if (missionId == null && !completionPolicy.completeIfReady(completionPolicy.lockAggregate(orderId)))
             throw new ApiException(ErrorCode.DELIVERY_NOT_READY);
         return response(delivery, effective, assets, true);
     }
 
     @Override @Transactional(readOnly = true)
-    public DeliveryResponse get(String orderId) {
+    public DeliveryResponse get(String orderId) { return get(orderId, null); }
+
+    @Override @Transactional(readOnly = true)
+    public DeliveryResponse get(String orderId, String missionId) {
         assertOwnerOrManager(orderId);
-        var effective = effectiveMissions(orderId);
-        OrderDelivery delivery = deliveries.findByOrderId(orderId).orElseGet(() -> {
+        var effective = scopedMissions(orderId, missionId);
+        OrderDelivery delivery = scopedDelivery(orderId, missionId, false).orElseGet(() -> {
             OrderDelivery view = new OrderDelivery();
+            view.setMissionId(missionId);
             view.setOrder(orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND)));
             view.setStatus(isResultApproved(orderId) ? DeliveryStatus.READY_FOR_MANAGER_REVIEW : DeliveryStatus.PROCESSING);
             return view; // Unsaved read model: GET must never create/reconcile business state.
         });
+        if (missionId == null && delivery.getCurrentReviewRoundId() == null) {
+            var statuses = missionDeliveries(orderId).stream().map(summary -> summary.status()).toList();
+            if (!statuses.isEmpty()) {
+                // The order summary must not inherit the selected Mission's acceptance.
+                var summary = new OrderDelivery();
+                summary.setOrder(delivery.getOrder());
+                summary.setStatus(statuses.stream().allMatch(status -> status == DeliveryStatus.DELIVERED)
+                        ? DeliveryStatus.DELIVERED
+                        : statuses.contains(DeliveryStatus.CUSTOMER_REVIEW) ? DeliveryStatus.CUSTOMER_REVIEW
+                        : statuses.contains(DeliveryStatus.REVISION_REQUESTED) ? DeliveryStatus.REVISION_REQUESTED
+                        : DeliveryStatus.PROCESSING);
+                delivery = summary;
+            }
+        }
         List<MediaAsset> visible = isManager() ? assets(effective).stream()
                 .filter(a -> a.getMediaStatus() == MediaStatus.AVAILABLE).toList() : List.of();
         return response(delivery, effective, visible, false);
     }
 
     @Override @Transactional(readOnly = true)
-    public DeliveryResponse previews(String orderId) {
+    public DeliveryResponse previews(String orderId) { return previews(orderId, null); }
+
+    @Override @Transactional(readOnly = true)
+    public DeliveryResponse previews(String orderId, String missionId) {
         assertOwnerOrManager(orderId);
-        OrderDelivery delivery = deliveries.findByOrderId(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESULT_NOT_READY_FOR_REVIEW));
+        OrderDelivery delivery = scopedDelivery(orderId, missionId, false).orElseThrow(() -> new ApiException(ErrorCode.RESULT_NOT_READY_FOR_REVIEW));
         if (delivery.getPreviewReleasedAt() == null || delivery.getStatus().ordinal() < DeliveryStatus.CUSTOMER_REVIEW.ordinal()) {
             throw new ApiException(ErrorCode.RESULT_NOT_READY_FOR_REVIEW);
         }
-        List<Mission> effective = effectiveMissions(orderId);
-        Set<String> visibleIds = publishedMediaAssetIds(effective.stream().map(Mission::getId).toList());
+        List<Mission> effective = scopedMissions(orderId, missionId);
+        Set<String> visibleIds = delivery.getCurrentReviewRoundId() == null
+                ? publishedMediaAssetIds(effective.stream().map(Mission::getId).toList()) : publishedIds(delivery);
         List<MediaAsset> assets = assets(effective).stream()
                 .filter(asset -> visibleIds.contains(asset.getId()))
                 .filter(a -> a.getMediaStatus() == MediaStatus.AVAILABLE).toList();
@@ -632,12 +696,20 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     }
 
     @Override @Transactional(readOnly = true)
-    public DeliveryResponse originals(String orderId) {
+    public DeliveryResponse originals(String orderId) { return originals(orderId, null); }
+
+    @Override @Transactional(readOnly = true)
+    public DeliveryResponse originals(String orderId, String missionId) {
         assertOwnerOrManager(orderId);
-        requireOriginalAccess(orderId);
-        OrderDelivery delivery = deliveries.findByOrderId(orderId).orElseThrow();
-        List<Mission> effective = effectiveMissions(orderId);
-        List<MediaAsset> assets = releasableAssets(effective);
+        if (missionId == null) requireOriginalAccess(orderId);
+        else {
+            if (!isInvoiceFullyPaid(invoice(orderId))) throw new ApiException(ErrorCode.FINAL_PAYMENT_REQUIRED);
+            var selected = scopedDelivery(orderId, missionId, false).orElseThrow(() -> new ApiException(ErrorCode.DELIVERABLE_NOT_RELEASED));
+            if (!hasCustomerAcceptedCurrentReview(selected) || hasBlockingCase(orderId, missionId)) throw new ApiException(ErrorCode.DELIVERABLE_NOT_RELEASED);
+        }
+        OrderDelivery delivery = scopedDelivery(orderId, missionId, false).orElseThrow();
+        List<Mission> effective = scopedMissions(orderId, missionId);
+        List<MediaAsset> assets = currentAssets(delivery, effective);
         return response(delivery, effective, assets, true);
     }
 
@@ -646,24 +718,49 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         if (isManager()) return;
         assertOwner(orderId);
         Invoice invoice = invoice(orderId);
-        if (invoice.getStatus() != InvoiceStatus.PAID) throw new ApiException(ErrorCode.FINAL_PAYMENT_REQUIRED);
+        if (!isInvoiceFullyPaid(invoice)) throw new ApiException(ErrorCode.FINAL_PAYMENT_REQUIRED);
         OrderDelivery delivery = deliveries.findByOrderId(orderId).orElseThrow(() -> new ApiException(ErrorCode.DELIVERABLE_NOT_RELEASED));
-        if (delivery.getStatus() != DeliveryStatus.DELIVERED) throw new ApiException(ErrorCode.DELIVERABLE_NOT_RELEASED);
+        if (delivery.getStatus() != DeliveryStatus.DELIVERED || !hasCustomerAcceptedCurrentReview(delivery)
+                || revisionCases.findByOrderIdAndActiveTrue(orderId).isPresent())
+            throw new ApiException(ErrorCode.DELIVERABLE_NOT_RELEASED);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<String> originalAccessibleMissionIds(List<String> missionIds) {
         if (missionIds == null || missionIds.isEmpty()) return List.of();
-        String customerId = currentUser.getCurrentUserId();
-        return missionIds.stream().filter(missionId -> missions.findByIdWithOrder(missionId)
-                .map(Mission::getOrder)
-                .filter(order -> order.getCustomer().getId().equals(customerId))
-                .filter(order -> invoices.findByOrderId(order.getId())
-                        .filter(invoice -> invoice.getStatus() == InvoiceStatus.PAID).isPresent())
-                .filter(order -> deliveries.findByOrderId(order.getId())
-                        .filter(delivery -> delivery.getStatus() == DeliveryStatus.DELIVERED).isPresent())
-                .isPresent()).toList();
+        return missionIds.stream().filter(id -> missions.findByIdWithOrder(id).map(mission -> {
+            String orderId = mission.getOrder().getId();
+            if (!mission.getOrder().getCustomer().getId().equals(currentUser.getCurrentUserId()) || !isInvoiceFullyPaid(invoice(orderId))) return false;
+            return deliveries.findByOrderIdIn(List.of(orderId)).stream()
+                    .anyMatch(d -> hasCustomerAcceptedCurrentReview(d) && !hasBlockingCase(orderId, d.getMissionId())
+                            && scopedMissions(orderId, d.getMissionId()).stream().anyMatch(m -> m.getId().equals(id)));
+        }).orElse(false)).toList();
+    }
+
+    @Override @Transactional(readOnly = true)
+    public void requireOriginalAccessForMedia(String orderId, String mediaId) {
+        assertOwner(orderId);
+        if (!isInvoiceFullyPaid(invoice(orderId))) throw new ApiException(ErrorCode.FINAL_PAYMENT_REQUIRED);
+        boolean permitted = deliveries.findCurrentForMedia(mediaId).stream()
+                .filter(d -> orderId.equals(d.getOrder().getId()))
+                .anyMatch(d -> hasCustomerAcceptedCurrentReview(d) && !hasBlockingCase(orderId, d.getMissionId()));
+        if (!permitted) {
+            var legacy = deliveries.findByOrderId(orderId).orElse(null);
+            permitted = legacy != null && legacy.getCurrentReviewRoundId() == null
+                    && legacy.getStatus() == DeliveryStatus.DELIVERED && hasCustomerAcceptedCurrentReview(legacy)
+                    && !hasBlockingCase(orderId, null) && media.findById(mediaId).filter(MediaAsset::isPreviewSelected)
+                            .filter(a -> orderId.equals(a.getMission().getOrder().getId())).isPresent();
+        }
+        if (!permitted) throw new ApiException(ErrorCode.DELIVERABLE_NOT_RELEASED);
+    }
+
+    private boolean hasCustomerAcceptedCurrentReview(OrderDelivery delivery) {
+        if (delivery.getCustomerAcceptedAt() == null) return false;
+        if (delivery.getCurrentReviewRoundId() == null) return true; // Legacy accepted delivery.
+        return reviewRounds.findById(delivery.getCurrentReviewRoundId())
+                .map(round -> round.getStatus() == com.ondemandmonitoring.delivery.enums.ResultReviewRoundStatus.ACCEPTED)
+                .orElse(false);
     }
 
     @Override
@@ -694,8 +791,10 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     private OrderDelivery locked(String orderId) {
         return deliveries.findByOrderIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.DELIVERY_NOT_READY));
     }
-    private OrderDelivery create(Order order) {
-        OrderDelivery d = new OrderDelivery(); d.setOrder(order); d.setStatus(DeliveryStatus.PROCESSING); return deliveries.save(d);
+    private OrderDelivery create(Order order) { return create(order, null); }
+    private OrderDelivery create(Order order, String missionId) {
+        OrderDelivery d = new OrderDelivery(); d.setOrder(order); d.setMissionId(missionId);
+        d.setStatus(DeliveryStatus.PROCESSING); return deliveries.save(d);
     }
     private boolean isResultApproved(String orderId) {
         var effective = effectiveMissions(orderId);
@@ -723,10 +822,11 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
             throw new ApiException(ErrorCode.MISSION_NOT_COMPLETED);
         return effective;
     }
-    private List<Mission> checklistPublicationMissions(String orderId) {
-        List<Mission> effective = effectiveMissions(orderId);
+    private List<Mission> checklistPublicationMissions(String orderId, String missionId) {
+        List<Mission> effective = scopedMissions(orderId, missionId);
         List<Mission> original = effective.stream()
                 .filter(mission -> mission.getPurpose() != com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK)
+                .filter(mission -> missionId == null || missionId.equals(mission.getId()))
                 .toList();
         if (original.isEmpty() || original.stream().anyMatch(mission ->
                 mission.getStatus() != MissionStatus.COMPLETED || !isMissionResultApproved(mission)))
@@ -888,18 +988,96 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     }
     private DeliveryResponse response(OrderDelivery d, List<Mission> effective, List<MediaAsset> assets, boolean downloadable) {
         Invoice invoice = invoice(d.getOrder().getId());
-        Instant expires = Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds());
-        List<DeliveryAssetResponse> mapped = assets.stream().map(a -> new DeliveryAssetResponse(a.getId(), a.getType(),
-                a.getOriginalFileName(), a.getFileSize(), retainedUrl(a),
-                expires, downloadable)).toList();
+        List<DeliveryAssetResponse> mapped = assets.stream().map(a -> {
+            String previewUrl = null;
+            String thumbnailUrl = null;
+            try {
+                retentionAccess.requireAccessible(a);
+                previewUrl = derivatives.previewUrl(a);
+                thumbnailUrl = derivatives.thumbnailUrl(a);
+            } catch (ApiException ex) {
+                if (ex.getErrorCode() != ErrorCode.RESULT_RETENTION_EXPIRED
+                        && ex.getErrorCode() != ErrorCode.MEDIA_NOT_FOUND) throw ex;
+            }
+            return new DeliveryAssetResponse(a.getId(), a.getType(), a.getOriginalFileName(), a.getFileSize(),
+                    null, null, downloadable, thumbnailUrl, previewUrl, a.getDerivativeStatus());
+        }).toList();
         return new DeliveryResponse(d.getOrder().getId(), d.getStatus(), executionStatus(effective), d.getOrder().getOrderStatus(),
                 invoice.getStatus(), invoice.getTotalAmount(), invoice.getPaidAmount(), invoice.getRemainingAmount(),
                 d.getDeliveryNotes(), d.getPreviewReleasedAt(), d.getCustomerAcceptedAt(), d.getRevisionRequestedAt(),
                 d.getRevisionReason(), d.getRevisionCount(), d.getFinalPaymentConfirmedAt(), d.getOriginalsReleasedAt(), mapped);
     }
-    private String trim(String value) { return value == null || value.isBlank() ? null : value.trim(); }
-    private String retainedUrl(MediaAsset asset) {
-        retentionAccess.requireAccessible(asset);
-        return storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key());
+    private Optional<OrderDelivery> scopedDelivery(String orderId, String missionId, boolean lock) {
+        if (missionId == null) return lock ? deliveries.findByOrderIdForUpdate(orderId) : deliveries.findByOrderId(orderId);
+        return missionScope.find(orderId, missionId, lock);
     }
+
+    private void requireLegacyPublicationScope(String orderId) {
+        if (deliveries.findByOrderIdIn(List.of(orderId)).stream().anyMatch(d -> d.getMissionId() != null))
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Select the Mission whose results are being published");
+    }
+
+    private List<Mission> scopedMissions(String orderId, String missionId) {
+        return missionId == null ? effectiveMissions(orderId) : missionScope.missions(orderId, missionId);
+    }
+
+    private List<OrderChecklistItem> scopedChecklistItems(String orderId, String missionId) {
+        var all = checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId);
+        if (missionId == null) return all;
+        var ids = missionScope.checklistIds(orderId, missionId);
+        return all.stream().filter(item -> ids.contains(item.getId())).toList();
+    }
+
+    private com.ondemandmonitoring.delivery.domain.ResultRevisionCase activeCaseForScope(String orderId, String missionId, boolean lock) {
+        var revisionCase = (lock ? revisionCases.findByOrderIdAndActiveTrueForUpdate(orderId)
+                : revisionCases.findByOrderIdAndActiveTrue(orderId)).orElse(null);
+        if (revisionCase == null || missionId == null) return revisionCase;
+        var ids = missionScope.checklistIds(orderId, missionId);
+        return revisionCaseItems.findByResultRevisionCaseIdOrderByCreatedAtAsc(revisionCase.getId()).stream()
+                .anyMatch(item -> ids.contains(item.getOrderChecklistItem().getId())
+                        && item.getStatus() != com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.RESOLVED
+                        && item.getStatus() != com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.OUT_OF_SCOPE_ACKNOWLEDGED)
+                ? revisionCase : null;
+    }
+
+    private boolean hasBlockingCase(String orderId, String missionId) {
+        return activeCaseForScope(orderId, missionId, false) != null;
+    }
+
+    private Set<String> publishedIds(OrderDelivery delivery) {
+        if (delivery.getCurrentReviewRoundId() == null) return Set.of();
+        var ids = reviewRoundItems.findByRoundIdOrderByDisplayOrderAsc(delivery.getCurrentReviewRoundId()).stream()
+                .map(com.ondemandmonitoring.delivery.domain.ResultReviewRoundItem::getId).toList();
+        if (ids.isEmpty()) return Set.of();
+        return roundEvidence.findByRoundItemIdInOrderByRoundItemIdAscCreatedAtAsc(ids).stream()
+                .map(e -> e.getMediaAsset().getId()).collect(Collectors.toSet());
+    }
+
+    private List<MediaAsset> currentAssets(OrderDelivery delivery, List<Mission> effective) {
+        if (delivery.getMissionId() == null) return releasableAssets(effective);
+        var ids = publishedIds(delivery);
+        return assets(effective).stream().filter(a -> ids.contains(a.getId()) && a.getMediaStatus() == MediaStatus.AVAILABLE).toList();
+    }
+
+    private boolean allMissionResultsAccepted(String orderId) {
+        var originals = effectiveMissions(orderId).stream()
+                .filter(m -> m.getPurpose() != com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK).toList();
+        return !originals.isEmpty() && originals.stream().allMatch(m -> m.getStatus() == MissionStatus.COMPLETED
+                && deliveries.findScoped(orderId, m.getId()).filter(this::hasCustomerAcceptedCurrentReview).isPresent())
+                && revisionCases.findByOrderIdAndActiveTrue(orderId).isEmpty();
+    }
+
+    @Override @Transactional(readOnly = true)
+    public List<com.ondemandmonitoring.delivery.dto.response.MissionDeliverySummary> missionDeliveries(String orderId) {
+        assertOwnerOrManager(orderId);
+        var legacy = deliveries.findByOrderId(orderId).orElse(null);
+        if (legacy != null && legacy.getCurrentReviewRoundId() != null) return List.of();
+        return effectiveMissions(orderId).stream()
+                .filter(m -> m.getPurpose() != com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK)
+                .map(m -> new com.ondemandmonitoring.delivery.dto.response.MissionDeliverySummary(m.getId(), m.getMissionCode(),
+                        deliveries.findScoped(orderId, m.getId()).map(OrderDelivery::getStatus).orElse(DeliveryStatus.PROCESSING),
+                        scopedMissions(orderId, m.getId()).stream().map(Mission::getId).toList())).toList();
+    }
+
+    private String trim(String value) { return value == null || value.isBlank() ? null : value.trim(); }
 }

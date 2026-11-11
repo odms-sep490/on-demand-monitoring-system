@@ -85,7 +85,7 @@ public class WeatherPreflightController {
                         .orElse(null)));
     }
 
-    @Operation(summary = "Inspector accepts the latest safe weather check")
+    @Operation(summary = "Inspector records a decision for the latest weather check")
     @PostMapping("/missions/{missionId}/checks/{checkId}/accept")
     @PreAuthorize("@missionAuthorizationService.canStartMission(#missionId)")
     public ResponseEntity<ApiResponse<WeatherPreflightCheckResponse>> acceptLatest(
@@ -102,15 +102,14 @@ public class WeatherPreflightController {
                         && latest.getCheckedAt().isAfter(Instant.now().minusSeconds(15 * 60L)))
                 .filter(latest -> mission.getFlightPermit().getUpdatedAt() == null
                         || latest.getCheckedAt().isAfter(mission.getFlightPermit().getUpdatedAt()))
-                .filter(latest -> Boolean.TRUE.equals(latest.getSafeToFly()))
                 .orElseThrow(() -> new ApiException(ErrorCode.INVALID_REQUEST,
-                        "Thời tiết phải an toàn và được kiểm tra trong vòng 15 phút trước khi xác nhận."));
+                        "Thời tiết phải được kiểm tra sau khi cấp phép và trong vòng 15 phút trước khi xác nhận."));
 
         check.setInspectorAccepted(true);
         check.setInspectorAcceptedBy(currentUser.getCurrentUserId());
         check.setInspectorAcceptedAt(Instant.now());
         return ResponseEntity.ok(ApiResponse.ok(
-                "Weather conditions accepted by inspector",
+                "Weather decision recorded by inspector",
                 toResponse(weatherCheckRepository.save(check))));
     }
 

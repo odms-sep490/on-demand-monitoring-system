@@ -45,7 +45,7 @@ public interface IMissionService {
 
     MissionResponse cancelMission(String missionId, String reason);
 
-    void deleteDraftMission(String missionId);
+    void cancelDraftMission(String missionId);
 
 
     MissionResponse updateMission(String missionId, MissionUpdateRequest request);
@@ -60,6 +60,8 @@ public interface IMissionService {
     MissionResponse replaceDevice(String missionId, String assignmentId, ReplaceDeviceRequest request);
 
     MissionResponse requestDeviceReplacement(String missionId, RequestDeviceReplacementRequest request);
+
+    MissionResponse cancelDeviceReplacementRequest(String missionId, String assignmentId);
 
     MissionResponse assignStaff(String missionId, AssignStaffRequest request);
 
@@ -244,6 +246,7 @@ public interface IMissionService {
      * @return {@link MissionResponse} Mission set to FAILED
      */
     MissionResponse failMission(String missionId, String reason);
+    MissionResponse requestMissionFailure(String missionId, String reason);
 
     /**
      * Updates postflight status and device health notes.

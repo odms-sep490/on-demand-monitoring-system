@@ -131,6 +131,9 @@ public class MissionResponse {
     @Schema(description = "Reason for mission failure, if any")
     String failureReason;
 
+    @Schema(description = "Timestamp when the operator requested mission failure during flight")
+    Instant failureRequestedAt;
+
     String rejectionReason;
 
     MediaType mediaType;

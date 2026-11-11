@@ -27,6 +27,8 @@ public class PaymentWebhookProcessor implements IPaymentWebhookService {
     private final InvoiceRepository invoices;
     private final IMissionService missions;
     private final com.ondemandmonitoring.order.repository.OrderRepository orders;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService deliveryWorkflow;
 
     @Transactional
     public PaymentWebhookResult process(VerifiedWebhook webhook) {
@@ -103,6 +105,11 @@ public class PaymentWebhookProcessor implements IPaymentWebhookService {
     /** Financial settlement commits first; mission state is a separately retryable side effect. */
     private void transitionAfterSettlement(String orderId) {
         Runnable activation = () -> {
+            try {
+                deliveryWorkflow.completeAcceptedRevisionCase(orderId);
+            } catch (RuntimeException exception) {
+                log.warn("Payment recorded but accepted Mission deliveries require reconciliation for Order {}", orderId, exception);
+            }
             try {
                 missions.transitionToPendingConfirmation(orderId);
             } catch (RuntimeException exception) {

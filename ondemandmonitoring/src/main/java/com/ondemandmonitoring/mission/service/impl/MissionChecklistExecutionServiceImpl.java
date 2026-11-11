@@ -43,6 +43,28 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
     public void requireMaterialized(Mission mission) { scope.requireMaterialized(mission); }
 
     @Override
+    @Transactional
+    public void markMissionFailed(String missionId, String reason) {
+        Instant now = Instant.now();
+        String failureReason = trimmed(reason, 1000);
+        if (failureReason == null) failureReason = "Mission failed during flight";
+        List<MissionChecklistExecution> missionExecutions = executions.findOrderedByMissionId(missionId);
+        for (MissionChecklistExecution execution : missionExecutions) {
+            execution.setExecutionStatus(ChecklistExecutionStatus.UNABLE_TO_VERIFY);
+            execution.setUnableToVerifyReason(failureReason);
+            if (execution.getStartedAt() == null) execution.setStartedAt(now);
+            execution.setCompletedAt(now);
+            execution.setAssessmentStatus(ChecklistAssessmentStatus.NOT_ASSESSED);
+            execution.setAssessmentNote(null);
+            execution.setAssessedBy(null);
+            execution.setAssessedAt(null);
+            execution.setLastModifiedBy(currentUser.getCurrentUserId());
+            execution.setUpdatedAt(now);
+        }
+        executions.saveAll(missionExecutions);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public MissionChecklistResponse getByMissionId(String missionId) {
         Mission mission = requireMission(missionId, false);
@@ -201,7 +223,7 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
 
     private boolean operationalReady(Mission mission, List<MissionChecklistExecution> actual,
             List<com.ondemandmonitoring.mission.domain.MissionChecklistEvidence> links) {
-        return actual.stream().allMatch(execution ->
+        return !actual.isEmpty() && actual.stream().allMatch(execution ->
                 mission.getOrder().getId().equals(execution.getOrderId())
                 && execution.getExecutionStatus().isTerminal()
                 && execution.getOrderChecklistItem() != null
@@ -209,7 +231,7 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
                 && evidenceService.ready(execution, links, false)
                 && (execution.getExecutionStatus() != ChecklistExecutionStatus.UNABLE_TO_VERIFY
                     || execution.getUnableToVerifyReason() != null && !execution.getUnableToVerifyReason().isBlank()));
-        // An empty finalized assignment scope is satisfied; never infer current templates or sibling scope.
+        // A flight cannot finish without at least one assigned checklist execution.
     }
 
     @Override

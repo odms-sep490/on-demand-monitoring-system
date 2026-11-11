@@ -16,8 +16,8 @@ import java.time.Instant;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class ControlHandover extends BaseEntity {
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "device_connection_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "device_connection_id")
     DeviceConnection deviceConnection;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)

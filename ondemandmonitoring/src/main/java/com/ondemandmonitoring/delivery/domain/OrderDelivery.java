@@ -16,12 +16,16 @@ import lombok.Setter;
  * overloading the broader order or mission lifecycle.</p>
  */
 @Entity
-@Table(name = "order_deliveries", uniqueConstraints = @UniqueConstraint(name = "uk_order_delivery_order", columnNames = "order_id"))
+@Table(name = "order_deliveries")
 @Getter @Setter
 public class OrderDelivery extends BaseEntity {
-    @OneToOne(fetch = FetchType.LAZY, optional = false)
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "order_id", nullable = false)
     private Order order;
+
+    /** Original Mission whose result is versioned by this delivery; null preserves legacy order deliveries. */
+    @Column(name = "mission_id", updatable = false, length = 255)
+    private String missionId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 40)

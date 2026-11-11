@@ -14,6 +14,7 @@ import com.ondemandmonitoring.delivery.repository.ResultReviewRoundItemRepositor
 import com.ondemandmonitoring.delivery.repository.ResultReviewRoundRepository;
 import com.ondemandmonitoring.media.domain.MediaAsset;
 import com.ondemandmonitoring.media.service.IMediaObjectStorage;
+import com.ondemandmonitoring.media.service.impl.MediaDerivativeService;
 import com.ondemandmonitoring.media.service.IResultRetentionAccessService;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.domain.MissionChecklistEvidence;
@@ -59,11 +60,16 @@ public class ChecklistDeliveryQueryService {
     private final ChecklistEvidencePolicy evidencePolicy;
     private final IResultRetentionAccessService retentionAccess;
     private final IMediaObjectStorage storage;
+    private final MediaDerivativeService derivatives;
+    @org.springframework.beans.factory.annotation.Autowired private DeliveryMissionScope missionScope;
 
-    public ManagerDeliveryChecklistsResponse get(String orderId) {
+    public ManagerDeliveryChecklistsResponse get(String orderId) { return get(orderId, null); }
+    public ManagerDeliveryChecklistsResponse get(String orderId, String missionId) {
         Order order = orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-        OrderDelivery delivery = deliveries.findByOrderId(orderId).orElse(null);
-        List<OrderChecklistItem> items = checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId);
+        OrderDelivery delivery = (missionId == null ? deliveries.findByOrderId(orderId) : missionScope.find(orderId, missionId, false)).orElse(null);
+        var scopedIds = missionId == null ? null : missionScope.checklistIds(orderId, missionId);
+        List<OrderChecklistItem> items = checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId).stream()
+                .filter(item -> scopedIds == null || scopedIds.contains(item.getId())).toList();
         List<Mission> effectiveMissions = missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc(orderId).stream()
                 .filter(ExecutionPlanCoverageService::effective).toList();
         List<String> effectiveMissionIds = effectiveMissions.stream().map(Mission::getId).toList();
@@ -130,10 +136,14 @@ public class ChecklistDeliveryQueryService {
     private ManagerDeliveryChecklistsResponse.Asset mapAsset(MediaAsset asset, String missionId, String missionCode,
             ResultReviewRoundEvidence currentEvidence, Instant expiresAt) {
         String url = null;
+        String previewUrl = null;
+        String thumbnailUrl = null;
         String reason = null;
         try {
             retentionAccess.requireAccessible(asset);
             url = storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key());
+            thumbnailUrl = derivatives.thumbnailUrl(asset);
+            previewUrl = derivatives.previewUrl(asset);
         } catch (ApiException ex) {
             if (ex.getErrorCode() == ErrorCode.RESULT_RETENTION_EXPIRED) reason = "RETENTION_EXPIRED";
             else if (ex.getErrorCode() == ErrorCode.MEDIA_NOT_FOUND) reason = "MEDIA_UNAVAILABLE";
@@ -141,7 +151,7 @@ public class ChecklistDeliveryQueryService {
         }
         return new ManagerDeliveryChecklistsResponse.Asset(currentEvidence == null ? null : currentEvidence.getId(),
                 asset.getId(), asset.getType(), asset.getOriginalFileName(), asset.getFileSize(), asset.getCapturedAt(),
-                missionId, missionCode, url, url == null ? null : expiresAt, reason,
-                currentEvidence == null ? null : currentEvidence.getChangeType());
+                missionId, missionCode, url, thumbnailUrl, previewUrl, url == null ? null : expiresAt, reason,
+                currentEvidence == null ? null : currentEvidence.getChangeType(), asset.getDerivativeStatus());
     }
 }

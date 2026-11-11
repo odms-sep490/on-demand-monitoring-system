@@ -44,8 +44,10 @@ function Copy-PackageDirectory([string]$Source, [string]$Destination) {
 function Assert-PackageAssets([string]$Root) {
     $forest3DPath = Join-Path $Root "Forest3D"
     $worldFile = Join-Path $forest3DPath "worlds\forest_monitoring_compact.sdf"
+    $fastDemoWorldFile = Join-Path $forest3DPath "worlds\forest_monitoring_compact_fast_demo.sdf"
     $requiredModels = @(
         "compact_terrain",
+        "compact_terrain_fast_demo",
         "compact_water",
         "compact_roads",
         "compact_bridges",
@@ -62,6 +64,9 @@ function Assert-PackageAssets([string]$Root) {
 
     if (-not (Test-Path $worldFile)) {
         throw "Cannot package drone stack because compact world is missing: $worldFile"
+    }
+    if (-not (Test-Path $fastDemoWorldFile)) {
+        throw "Cannot package drone stack because compact fast demo world is missing: $fastDemoWorldFile"
     }
 
     foreach ($model in $requiredModels) {
@@ -117,8 +122,8 @@ try {
     Write-Host "Package is ready:" -ForegroundColor Green
     Write-Host $zipPath
     Write-Host ""
-    Write-Host "Receiver only needs to unzip it, open on-demand-monitoring-system, then run RUN_DRONE_STACK.cmd."
-    Write-Host "For simulator only, run RUN_DRONE_SIM_ONLY.cmd from the same folder."
+    Write-Host "Receiver: unzip, open on-demand-monitoring-system, then run .\scripts\RUN_DRONE_STACK.cmd."
+    Write-Host "Simulator only: run .\scripts\RUN_DRONE_SIM_ONLY.cmd from the repository folder."
 } finally {
     if (Test-Path $stageRoot) {
         Remove-Item -LiteralPath $stageRoot -Recurse -Force

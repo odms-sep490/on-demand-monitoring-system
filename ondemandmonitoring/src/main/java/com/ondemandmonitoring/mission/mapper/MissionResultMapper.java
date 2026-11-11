@@ -4,6 +4,7 @@ import com.ondemandmonitoring.media.domain.MediaAsset;
 import com.ondemandmonitoring.media.dto.response.MediaResponse;
 import com.ondemandmonitoring.media.mapper.MediaAssetMapper;
 import com.ondemandmonitoring.media.service.IMediaAssetService;
+import com.ondemandmonitoring.media.service.impl.MediaDerivativeService;
 import com.ondemandmonitoring.mission.domain.MissionResult;
 import com.ondemandmonitoring.mission.dto.response.MissionResultResponse;
 import java.util.List;
@@ -18,6 +19,9 @@ public abstract class MissionResultMapper {
 
     @Autowired
     protected MediaAssetMapper mediaAssetMapper;
+
+    @Autowired
+    protected MediaDerivativeService derivatives;
 
     public MissionResultResponse toResponse(
             MissionResult result,
@@ -47,7 +51,8 @@ public abstract class MissionResultMapper {
                 .map(media -> mediaAssetMapper.toMediaResponse(
                         media,
                         mediaAssetService.createPresignedGetUrl(media),
-                        mediaAssetService.presignedUrlExpiresSeconds()))
+                        mediaAssetService.presignedUrlExpiresSeconds(), derivatives.thumbnailUrl(media),
+                        derivatives.previewUrl(media)))
                 .toList();
     }
 }

@@ -2,6 +2,8 @@ package com.ondemandmonitoring.mission.service.impl;
 
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.domain.MissionStaffAssignment;
+import com.ondemandmonitoring.devicecheck.enums.DeviceCheckStatus;
+import com.ondemandmonitoring.devicecheck.repository.PersistedPostDeviceCheckRepository;
 import com.ondemandmonitoring.mission.enums.MissionStaffRole;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
@@ -43,6 +45,8 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
     private ControlHandoverRepository handovers;
     @Autowired
     private MissionWeatherCheckRepository weatherChecks;
+    @Autowired
+    private PersistedPostDeviceCheckRepository postDeviceChecks;
 
     @Override
     public boolean canAttachChecklistEvidence(String missionId) {
@@ -161,6 +165,21 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
         return normalOperationAllowed(missionId) && canPerform(missionId, MissionStaffRole.PILOT);
     }
 
+    @Override
+    public boolean canContinueRequestedFailurePostflight(String missionId) {
+        User user = currentUser.getCurrentUser();
+        if (!hasRole(user, RoleCode.STAFF)) return false;
+        return findRuntimeMissionById(missionId)
+                .filter(mission -> mission.getStatus() == MissionStatus.FAILED
+                        && mission.getFailureRequestedAt() != null
+                        && mission.getActualEndAt() == null)
+                .filter(mission -> hasCurrentMainDeviceAssignmentIn(mission,
+                        MissionDeviceAssignmentStatus.RETURNING,
+                        MissionDeviceAssignmentStatus.POSTFLIGHT_CHECKING))
+                .map(mission -> hasEligiblePilotAssignment(mission, user))
+                .orElse(false);
+    }
+
     private boolean normalOperationAllowed(String missionId) {
         return findRuntimeMissionById(missionId).isPresent();
     }
@@ -243,12 +262,33 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
 
     @Override
     public boolean canMaintainDevice(String missionId) {
-        // Postflight records actualEndAt before inspector acceptance. Keep the assigned
-        // maintainer authorized while the mission is still active; canPerform rejects
-        // terminal missions, including those already submitted for manager review.
+        // Keep the assigned maintainer authorized through the postflight run, including
+        // a flight failure that was recorded before the maintenance inspection completed.
         return findRuntimeMissionById(missionId)
-                .map(mission -> canPerform(missionId, MissionStaffRole.MAINTAINER))
+                .map(mission -> canPerform(missionId, MissionStaffRole.MAINTAINER)
+                        || canMaintainFailedPostflight(mission))
                 .orElse(false);
+    }
+
+    private boolean canMaintainFailedPostflight(Mission mission) {
+        User user = currentUser.getCurrentUser();
+        return mission.getStatus() == MissionStatus.FAILED
+                && mission.getFailureRequestedAt() != null
+                && hasCurrentMainDeviceAssignmentIn(mission,
+                        MissionDeviceAssignmentStatus.POSTFLIGHT_CHECKING,
+                        MissionDeviceAssignmentStatus.COMPLETED)
+                && hasEligibleAssignment(mission, user, MissionStaffRole.MAINTAINER);
+    }
+
+    private boolean hasCurrentMainDeviceAssignmentIn(
+            Mission mission, MissionDeviceAssignmentStatus... statuses) {
+        Set<MissionDeviceAssignmentStatus> allowedStatuses = Set.of(statuses);
+        return deviceAssignments
+                .findAllByMissionIdAndDeviceRoleAndIsCurrentTrueOrderByCreatedAtDesc(
+                        mission.getId(), DeviceRole.MAIN)
+                .stream()
+                .anyMatch(assignment -> assignment.getReleasedAt() == null
+                        && allowedStatuses.contains(assignment.getStatus()));
     }
 
     @Override
@@ -286,8 +326,38 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
     public boolean canCompleteMission(String missionId) {
         return findRuntimeMissionById(missionId)
                 .filter(mission -> mission.getStatus() == MissionStatus.IN_PROGRESS
-                        && mission.getActualEndAt() != null && mission.getCompletedAt() == null)
+                        && mission.getActualEndAt() != null && mission.getCompletedAt() == null
+                        && mission.getFailureRequestedAt() == null)
                 .map(mission -> hasEligibleInspectorAssignment(mission, currentUser.getCurrentUser())).orElse(false);
+    }
+
+    @Override
+    public boolean canConfirmMissionFailure(String missionId) {
+        User user = currentUser.getCurrentUser();
+        if (!hasRole(user, RoleCode.STAFF) || postDeviceChecks == null) return false;
+        return findRuntimeMissionById(missionId)
+                .filter(mission -> mission.getStatus() == MissionStatus.IN_PROGRESS
+                        && mission.getFailureRequestedAt() != null
+                        && mission.getActualEndAt() != null
+                        && mission.getCompletedAt() == null)
+                .filter(mission -> hasCurrentMainDeviceAssignmentIn(
+                        mission, MissionDeviceAssignmentStatus.COMPLETED))
+                .filter(mission -> postDeviceChecks
+                        .findFirstByMissionIdOrderByCreatedAtDesc(mission.getId())
+                        .map(run -> run.getStatus() == DeviceCheckStatus.PASSED
+                                || run.getStatus() == DeviceCheckStatus.FAILED)
+                        .orElse(false))
+                .map(mission -> hasEligibleInspectorAssignment(mission, user))
+                .orElse(false);
+    }
+
+    @Override
+    public boolean canFailMission(String missionId) {
+        return findRuntimeMissionById(missionId)
+                .map(mission -> mission.getFailureRequestedAt() != null
+                        ? canConfirmMissionFailure(missionId)
+                        : canControlFlight(missionId) || canMaintainDevice(missionId))
+                .orElse(false);
     }
 
     @Override

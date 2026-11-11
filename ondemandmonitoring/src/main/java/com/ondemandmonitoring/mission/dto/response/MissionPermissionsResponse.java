@@ -15,5 +15,6 @@ public record MissionPermissionsResponse(
         boolean canExecuteMonitoringChecklist,
         boolean canAttachChecklistEvidence,
         boolean canDetachChecklistEvidence,
-        boolean canAssessMonitoringChecklist) {
+        boolean canAssessMonitoringChecklist,
+        boolean canConfirmMissionFailure) {
 }

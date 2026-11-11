@@ -9,5 +9,5 @@ if not exist "%DRONE_LAUNCHER%" (
     exit /b 1
 )
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%DRONE_LAUNCHER%" -SimWorld compact -SkipBootstrap %*
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%DRONE_LAUNCHER%" -SimWorld compact -NoTelemetry %*
 endlocal

@@ -29,6 +29,7 @@ public class OperatorMissionMediaServiceImpl implements IOperatorMissionMediaSer
     IMissionMediaAccessService missionAccess;
     MediaAssetRepository media;
     IMediaObjectStorage storage;
+    MediaDerivativeService derivatives;
     MediaWorkflowMapper mapper;
 
     @Override
@@ -52,6 +53,8 @@ public class OperatorMissionMediaServiceImpl implements IOperatorMissionMediaSer
     private OperatorMissionMediaResponse toResponse(MediaAsset asset) {
         return mapper.toOperatorResponse(asset,
                 storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key()),
+                derivatives.thumbnailUrl(asset),
+                derivatives.previewUrl(asset),
                 Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds()));
     }
 }

@@ -11,5 +11,5 @@ if (-not (Test-Path $target)) {
     throw "Cannot find start-drone-stack.ps1 next to this launcher."
 }
 
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $target -SimWorld compact -SkipBootstrap @Arguments
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $target -SimWorld compact -NoTelemetry @Arguments
 exit $LASTEXITCODE

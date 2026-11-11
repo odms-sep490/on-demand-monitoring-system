@@ -3,6 +3,7 @@ package com.ondemandmonitoring.devicecheck.domain;
 import com.ondemandmonitoring.common.entity.BaseEntity;
 import com.ondemandmonitoring.devicecheck.enums.PreDeviceCheckStatus;
 import com.ondemandmonitoring.mission.domain.DeviceConnection;
+import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import com.ondemandmonitoring.mission.domain.Mission;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -25,6 +26,9 @@ import lombok.Setter;
 @Getter
 @Setter
 @Entity
+@Table(name = "persisted_pre_device_check", indexes = {
+        @Index(name = "idx_persisted_pre_device_check_assignment", columnList = "mission_device_assignment_id")
+})
 
 public class PersistedPreDeviceCheck extends BaseEntity {
 
@@ -35,6 +39,10 @@ public class PersistedPreDeviceCheck extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "device_connection_id")
     DeviceConnection deviceConnection;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "mission_device_assignment_id")
+    MissionDeviceAssignment missionDeviceAssignment;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)

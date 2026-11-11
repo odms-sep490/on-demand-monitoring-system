@@ -4,6 +4,8 @@ import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.delivery.domain.ResultRevisionCase;
 import com.ondemandmonitoring.delivery.domain.ResultRevisionCaseItem;
+import com.ondemandmonitoring.delivery.domain.ResultRevisionRequestItem;
+import com.ondemandmonitoring.delivery.dto.response.ResultReviewResponse;
 import com.ondemandmonitoring.delivery.dto.request.NotifyOutOfScopeRequest;
 import com.ondemandmonitoring.delivery.dto.request.ResultRevisionDecisionRequest;
 import com.ondemandmonitoring.delivery.dto.response.ResultRevisionCaseResponse;
@@ -14,6 +16,8 @@ import com.ondemandmonitoring.delivery.enums.ResultRevisionStrategy;
 import com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository;
 import com.ondemandmonitoring.delivery.repository.ResultRevisionCaseRepository;
 import com.ondemandmonitoring.delivery.repository.ResultRevisionRequestItemRepository;
+import com.ondemandmonitoring.delivery.repository.ResultRevisionRequestItemMediaRepository;
+import com.ondemandmonitoring.delivery.mapper.ResultReviewEvidenceMapper;
 import com.ondemandmonitoring.delivery.service.IResultRevisionCaseService;
 import com.ondemandmonitoring.support.domain.SupportCustomerTicket;
 import com.ondemandmonitoring.support.repository.SupportCustomerTicketRepository;
@@ -24,8 +28,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -40,6 +47,8 @@ public class ResultRevisionCaseService implements IResultRevisionCaseService {
     private final com.ondemandmonitoring.mission.repository.MissionRepository missionRepository;
     private final com.ondemandmonitoring.order.repository.OrderRepository orders;
     private final com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService deliveryWorkflow;
+    private final ResultRevisionRequestItemMediaRepository requestMedia;
+    private final ResultReviewEvidenceMapper evidenceMapper;
 
     @Override
     @Transactional(readOnly = true)
@@ -136,6 +145,7 @@ public class ResultRevisionCaseService implements IResultRevisionCaseService {
         item.setOutOfScopeAcknowledgedAt(Instant.now());
         caseItems.saveAndFlush(item);
         closeIfResolved(revisionCase);
+        deliveryWorkflow.completeAcceptedRevisionCase(orderId);
         return map(revisionCase);
     }
 
@@ -188,16 +198,24 @@ public class ResultRevisionCaseService implements IResultRevisionCaseService {
                 .filter(Objects::nonNull).distinct().toList()).stream()
                 .collect(java.util.stream.Collectors.toMap(com.ondemandmonitoring.mission.domain.Mission::getId, row -> row));
         var feedbackByItem = caseItemRows.isEmpty()
-                ? java.util.Map.<String, List<com.ondemandmonitoring.delivery.domain.ResultRevisionRequestItem>>of()
+                ? Map.<String, List<ResultRevisionRequestItem>>of()
                 : requestItems.findByCaseItemIdInOrderByCreatedAtAscIdAsc(
                         caseItemRows.stream().map(ResultRevisionCaseItem::getId).toList()).stream()
-                    .collect(java.util.stream.Collectors.groupingBy(row -> row.getCaseItem().getId()));
+                    .collect(Collectors.groupingBy(row -> row.getCaseItem().getId()));
+        var feedbackIds = feedbackByItem.values().stream().flatMap(List::stream)
+                .map(ResultRevisionRequestItem::getId).sorted().toList();
+        var evidenceByFeedback = feedbackIds.isEmpty()
+                ? Map.<String, List<ResultReviewResponse.Evidence>>of()
+                : requestMedia.findByRequestItemIdIn(feedbackIds).stream()
+                    .sorted(Comparator.comparing(link -> link.getRoundEvidence().getId()))
+                    .collect(Collectors.groupingBy(link -> link.getRequestItem().getId(),
+                            Collectors.mapping(link -> evidenceMapper.toResponse(link.getRoundEvidence()), Collectors.toList())));
         List<ResultRevisionCaseResponse.Item> items = caseItemRows.stream()
                 .map(item -> {
                     List<ResultRevisionCaseResponse.Feedback> feedback = feedbackByItem.getOrDefault(item.getId(), List.of()).stream()
                             .map(row -> new ResultRevisionCaseResponse.Feedback(row.getRequest().getId(),
                                     row.getRequest().getRound().getRoundNumber(), row.getReasonCode(), row.getNote(),
-                                    row.getRequest().getSubmittedAt()))
+                                    row.getRequest().getSubmittedAt(), evidenceByFeedback.getOrDefault(row.getId(), List.of())))
                             .toList();
                     return new ResultRevisionCaseResponse.Item(item.getId(), item.getOrderChecklistItem().getId(),
                             item.getOrderChecklistItem().getContent(), item.getScopeDecision(), item.getStrategy(),

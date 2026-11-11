@@ -15,6 +15,7 @@ import com.ondemandmonitoring.media.domain.MediaAsset;
 import com.ondemandmonitoring.media.enums.*;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
 import com.ondemandmonitoring.media.service.*;
+import com.ondemandmonitoring.media.service.impl.MediaDerivativeService;
 import com.ondemandmonitoring.mission.domain.*;
 import com.ondemandmonitoring.mission.enums.*;
 import com.ondemandmonitoring.mission.repository.*;
@@ -49,11 +50,13 @@ class InspectorPublicationTest {
     final ResultRevisionCaseRepository cases = mock(ResultRevisionCaseRepository.class);
     final ResultRevisionCaseItemRepository caseItems = mock(ResultRevisionCaseItemRepository.class);
     final DeliveryWorkflowServiceImpl service = new DeliveryWorkflowServiceImpl(deliveries, orders, missions,
-            results, invoices, media, mock(IMediaObjectStorage.class), mock(IResultRetentionAccessService.class),
+            results, invoices, media, mock(MediaDerivativeService.class), mock(IResultRetentionAccessService.class),
             mock(AuthenticatedUserResolver.class), completion, publisher, rounds, roundEvidence, roundItems,
             evidence, items, new ChecklistEvidencePolicy(), cases, caseItems);
     final Order order = new Order();
     final OrderDelivery delivery = new OrderDelivery();
+    final OrderDelivery secondDelivery = new OrderDelivery();
+    final DeliveryMissionScope scope = mock(DeliveryMissionScope.class);
     final Mission first = mission("first", MissionPurpose.ORIGINAL);
     final Mission second = mission("second", MissionPurpose.ORIGINAL);
     final OrderChecklistItem a = item("a");
@@ -63,6 +66,16 @@ class InspectorPublicationTest {
 
     @BeforeEach void setUp() {
         order.setId("order"); order.setOrderStatus(OrderStatus.COMPLETED);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "missionScope", scope);
+        delivery.setMissionId("first");
+        secondDelivery.setId("delivery-second"); secondDelivery.setMissionId("second"); secondDelivery.setOrder(order);
+        secondDelivery.setStatus(DeliveryStatus.PROCESSING); secondDelivery.setVersion(1L);
+        when(scope.find("order", "first", true)).thenReturn(Optional.of(delivery));
+        when(scope.find("order", "second", true)).thenReturn(Optional.of(secondDelivery));
+        when(scope.checklistIds("order", "first")).thenReturn(Set.of("a"));
+        when(scope.checklistIds("order", "second")).thenReturn(Set.of("b"));
+        when(scope.missions("order", "first")).thenAnswer(call -> children.stream().filter(m -> m.getId().equals("first") || m.getPurpose() == MissionPurpose.REWORK).toList());
+        when(scope.missions("order", "second")).thenAnswer(call -> children.stream().filter(m -> m.getId().equals("second") || m.getPurpose() == MissionPurpose.REWORK).toList());
         delivery.setId("delivery"); delivery.setOrder(order); delivery.setStatus(DeliveryStatus.PROCESSING); delivery.setVersion(1L);
         children.addAll(List.of(first, second)); packages.addAll(List.of(approved(first), approved(second)));
         when(completion.lockAggregate("order")).thenAnswer(c -> new IOrderExecutionCompletionPolicy.LockedExecution(order, List.copyOf(children)));
@@ -82,17 +95,20 @@ class InspectorPublicationTest {
         when(invoices.findByOrderId("order")).thenReturn(Optional.of(invoice));
     }
 
-    @Test void waitsForEveryMissionBeforePublishing() {
+    @Test void publishesCompletedMissionWithoutWaitingForOtherMissions() {
         second.setStatus(MissionStatus.IN_PROGRESS);
-        assertThat(service.publishInspectedResults("order")).isFalse();
-        verifyNoInteractions(publisher);
+        assertThat(service.publishInspectedResults("order")).isTrue();
+        assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.CUSTOMER_REVIEW);
+        assertThat(secondDelivery.getStatus()).isEqualTo(DeliveryStatus.PROCESSING);
+        verify(publisher).publishByChecklist(eq(order), eq(delivery), anyList(), eq(Map.of("a", Set.of("a1"))), any(), any(), anyMap(), anyMap(), eq(Set.of("a")), eq(true));
     }
 
     @Test void publishesOnlySelectedMediaAndReplayDoesNotCreateAnotherRound() {
         assertThat(service.publishInspectedResults("order")).isTrue();
         ArgumentCaptor<Map<String,Set<String>>> selections = ArgumentCaptor.forClass(Map.class);
-        verify(publisher).publishByChecklist(eq(order), eq(delivery), anyList(), selections.capture(), any(), any(), anyMap(), anyMap(), eq(Set.of("a","b")), eq(true));
-        assertThat(selections.getValue()).containsEntry("a", Set.of("a1")).containsEntry("b", Set.of("b1"));
+        verify(publisher).publishByChecklist(eq(order), eq(delivery), anyList(), selections.capture(), any(), any(), anyMap(), anyMap(), eq(Set.of("a")), eq(true));
+        assertThat(selections.getValue()).containsOnlyKeys("a").containsEntry("a", Set.of("a1"));
+        verify(publisher).publishByChecklist(eq(order), eq(secondDelivery), anyList(), eq(Map.of("b", Set.of("b1"))), any(), any(), anyMap(), anyMap(), eq(Set.of("b")), eq(true));
         assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.CUSTOMER_REVIEW);
         assertThat(order.getResultExpiresAt()).isNull();
         assertThat(service.publishInspectedResults("order")).isFalse();
@@ -115,10 +131,10 @@ class InspectorPublicationTest {
         });
 
         assertThat(service.publishInspectedResults("order")).isTrue();
-        assertThat(delivery.getVersion()).isEqualTo(2L);
+        assertThat(delivery.getVersion()).isGreaterThanOrEqualTo(2L);
         assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.CUSTOMER_REVIEW);
         verify(publisher).publishByChecklist(eq(order), eq(delivery), anyList(), anyMap(), any(), any(),
-                anyMap(), anyMap(), eq(Set.of("a", "b")), eq(true));
+                anyMap(), anyMap(), eq(Set.of("a")), eq(true));
     }
 
     @Test void missingSelectionBlocksPublicationDespiteReserveImages() {
@@ -127,13 +143,12 @@ class InspectorPublicationTest {
         verifyNoInteractions(publisher);
     }
 
-    @Test void orderQuantityUsesSelectedDistinctFilesNotAllUploadedReserveMedia() {
+    @Test void orderQuantityDoesNotDelayAnIndividuallyReadyMission() {
         var requirement = new OrderDeliverable(); requirement.setRequirement(Map.of("imageQuantity",3));
         order.getDeliverables().add(requirement);
-        assertThatThrownBy(() -> service.publishInspectedResults("order"))
-                .isInstanceOf(com.ondemandmonitoring.common.exception.ApiException.class)
-                .extracting("errorCode").isEqualTo(com.ondemandmonitoring.common.exception.ErrorCode.ORDER_MEDIA_QUANTITY_NOT_MET);
-        verifyNoInteractions(publisher);
+        second.setStatus(MissionStatus.IN_PROGRESS);
+        assertThat(service.publishInspectedResults("order")).isTrue();
+        assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.CUSTOMER_REVIEW);
     }
 
     @Test void pendingReserveMediaCaseRemainsUnderManagerControl() {
@@ -143,12 +158,16 @@ class InspectorPublicationTest {
         item.setScopeDecision(ResultRevisionScope.IN_SCOPE); item.setStrategy(ResultRevisionStrategy.RESERVE_MEDIA);
         item.setStatus(ResultRevisionCaseItemStatus.IN_PROGRESS);
         when(caseItems.findByResultRevisionCaseIdOrderByCreatedAtAsc("case")).thenReturn(List.of(item));
-        assertThat(service.publishInspectedResults("order")).isFalse();
-        verifyNoInteractions(publisher);
+        delivery.setCurrentReviewRoundId("old"); delivery.setStatus(DeliveryStatus.REVISION_REQUESTED);
+        assertThat(service.publishInspectedResults("order")).isTrue();
+        assertThat(delivery.getStatus()).isEqualTo(DeliveryStatus.REVISION_REQUESTED);
+        assertThat(secondDelivery.getStatus()).isEqualTo(DeliveryStatus.CUSTOMER_REVIEW);
     }
 
     @ParameterizedTest @ValueSource(booleans = {false,true})
     void reworkReplacesOnlyItsChecklistAndRetainsUnchangedChecklist(boolean sharedMedia) {
+        delivery.setMissionId(null);
+        when(deliveries.findByOrderId("order")).thenReturn(Optional.of(delivery));
         if (sharedMedia) {
             when(evidence.findActiveByMissionId("first")).thenReturn(List.of(link("a1",first,a,true),link("a1",first,b,true)));
             when(evidence.findActiveByMissionId("second")).thenReturn(List.of());

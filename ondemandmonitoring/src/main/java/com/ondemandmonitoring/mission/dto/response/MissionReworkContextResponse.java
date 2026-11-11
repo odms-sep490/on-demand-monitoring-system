@@ -13,5 +13,6 @@ public record MissionReworkContextResponse(String missionId, String missionCode,
     public record Feedback(int roundNumber, ResultRevisionReasonCode reasonCode, String customerNote,
             Instant submittedAt, List<Evidence> evidence) {}
     public record Evidence(String roundEvidenceId, String mediaAssetId, String fileName,
-            String mediaType, String url, Instant urlExpiresAt, String unavailableReason) {}
+            String mediaType, String url, String thumbnailUrl, String previewUrl,
+            Instant urlExpiresAt, String unavailableReason) {}
 }

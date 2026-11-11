@@ -47,9 +47,11 @@ LOCK TABLE public.orders, public.order_execution_plans, public.order_flight_comp
     public.resource_time_locks, public.mission_device_assignments IN ACCESS EXCLUSIVE MODE;
 
 -- These columns need no migration DDL in current JPA. Still reject incomplete
--- prerequisites: silently omitting safe-stop/release audit is not a bootstrap.
+-- prerequisites: failure-request and safe-stop/release audit are operational state.
 DO $$ DECLARE entry record; BEGIN
     FOR entry IN SELECT * FROM (VALUES
+        ('missions','failure_requested_at','timestamp with time zone'),
+        ('missions','failure_reason','character varying(1000)'),
         ('missions','safe_stop_status','character varying(40)'),
         ('missions','safe_stop_requested_at','timestamp with time zone'),
         ('missions','safe_stop_requested_by','character varying(255)'),
@@ -645,6 +647,57 @@ CREATE INDEX IF NOT EXISTS ix_review_evidence_source
     ON result_review_round_evidence(source_round_evidence_id) WHERE source_round_evidence_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ix_review_evidence_replaced
     ON result_review_round_evidence(supersedes_round_evidence_id) WHERE supersedes_round_evidence_id IS NOT NULL;
+
+ALTER TABLE public.drone_media
+    ADD COLUMN IF NOT EXISTS derivative_status varchar(24) NOT NULL DEFAULT 'PENDING',
+    ADD COLUMN IF NOT EXISTS thumbnail_key varchar(1000),
+    ADD COLUMN IF NOT EXISTS preview_key varchar(1000),
+    ADD COLUMN IF NOT EXISTS thumbnail_size_bytes bigint,
+    ADD COLUMN IF NOT EXISTS preview_size_bytes bigint,
+    ADD COLUMN IF NOT EXISTS derivative_attempt_count integer NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS derivative_processed_at timestamptz,
+    ADD COLUMN IF NOT EXISTS derivative_error_code varchar(80);
+
+DROP INDEX IF EXISTS public.ix_drone_media_derivative_queue;
+CREATE INDEX IF NOT EXISTS ix_drone_media_derivative_queue_v2
+    ON public.drone_media (created_at, id)
+    WHERE storage_provider = 'S3' AND storage_status = 'AVAILABLE'
+      AND media_type IN ('IMAGE', 'VIDEO') AND derivative_status IN ('PENDING', 'FAILED', 'PROCESSING');
+
+-- Independent delivery/review state per original Mission. NULL retains historical order-level deliveries.
+ALTER TABLE order_deliveries ADD COLUMN IF NOT EXISTS mission_id varchar(255);
+ALTER TABLE checklist_delivery_drafts ADD COLUMN IF NOT EXISTS mission_id varchar(255);
+ALTER TABLE result_review_rounds ADD COLUMN IF NOT EXISTS mission_id varchar(255);
+
+DO $$
+DECLARE table_name text;
+BEGIN
+    FOREACH table_name IN ARRAY ARRAY['order_deliveries', 'checklist_delivery_drafts', 'result_review_rounds'] LOOP
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = table_name::regclass AND conname = 'fk_' || table_name || '_mission') THEN
+            EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (mission_id) REFERENCES missions(id)',
+                table_name, 'fk_' || table_name || '_mission');
+        END IF;
+    END LOOP;
+END $$;
+
+DO $$
+DECLARE row record;
+BEGIN
+    FOR row IN
+        SELECT c.conrelid::regclass AS table_name, c.conname
+        FROM pg_constraint c
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attname = 'order_id'
+        WHERE c.contype = 'u' AND c.conrelid IN ('order_deliveries'::regclass, 'checklist_delivery_drafts'::regclass)
+          AND c.conkey = ARRAY[a.attnum]::smallint[]
+    LOOP
+        EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I', row.table_name, row.conname);
+    END LOOP;
+END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_delivery_legacy_order ON order_deliveries(order_id) WHERE mission_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_delivery_mission ON order_deliveries(mission_id) WHERE mission_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_delivery_draft_legacy_order ON checklist_delivery_drafts(order_id) WHERE mission_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_delivery_draft_mission ON checklist_delivery_drafts(mission_id) WHERE mission_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_review_round_mission_number ON result_review_rounds(order_id, mission_id, round_number DESC);
 
 -- SECTION: Cross-domain Admin audit log (ADM-06).
 CREATE TABLE IF NOT EXISTS admin_audit_logs (

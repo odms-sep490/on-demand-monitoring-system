@@ -28,6 +28,15 @@ public class AdminAccountServiceImpl implements IAdminAccountService {
     IdentityProviderPort identityProvider;
     AuthCompensationPort compensationPort;
 
+    @lombok.experimental.NonFinal
+    com.ondemandmonitoring.audit.service.AdminAuditLogService auditLog;
+
+    /** Optional collaborator: records the change on the Admin audit log. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAuditLog(com.ondemandmonitoring.audit.service.AdminAuditLogService auditLog) {
+        this.auditLog = auditLog;
+    }
+
     @Override
     @Transactional
     public ManagedAccountResponse create(CreateManagedAccountRequest request) {
@@ -57,6 +66,11 @@ public class AdminAccountServiceImpl implements IAdminAccountService {
             throw providerError(exception);
         }
 
+        if (auditLog != null) {
+            auditLog.record(com.ondemandmonitoring.audit.enums.AuditAction.CREATE, "account", email, null,
+                    java.util.Map.of("email", email, "fullName", String.valueOf(request.getFullName()),
+                            "role", request.getRole().name()));
+        }
         return ManagedAccountResponse.builder()
                 .email(email)
                 .role(request.getRole())

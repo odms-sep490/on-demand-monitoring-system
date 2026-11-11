@@ -16,6 +16,14 @@ import org.springframework.transaction.annotation.Transactional;
 public class PricingPolicyService {
     private final PricingPolicyRepository policies;
 
+    private com.ondemandmonitoring.audit.service.AdminAuditLogService auditLog;
+
+    /** Optional collaborator: records the change on the Admin audit log. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAuditLog(com.ondemandmonitoring.audit.service.AdminAuditLogService auditLog) {
+        this.auditLog = auditLog;
+    }
+
     private com.ondemandmonitoring.checklist.repository.ChecklistDefinitionRepository checklistDefinitions;
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -39,7 +47,7 @@ public class PricingPolicyService {
     public PricingPolicyResponse createDraft(PricingPolicyRequest request) {
         int version = policies.findAllByOrderByPolicyVersionDesc().stream().mapToInt(PricingPolicy::getPolicyVersion).max().orElse(0) + 1;
         PricingPolicy policy = new PricingPolicy(); policy.setPolicyVersion(version); policy.setStatus(PricingPolicyStatus.DRAFT);
-        apply(policy, request); return response(policies.save(policy));
+        apply(policy, request); return audited(com.ondemandmonitoring.audit.enums.AuditAction.CREATE, null, response(policies.save(policy)));
     }
 
     @Transactional
@@ -61,21 +69,21 @@ public class PricingPolicyService {
         draft.setMinimumPriceRatio(source.getMinimumPriceRatio());
         draft.setMinimumPrice(source.getMinimumPrice());
         draft.replaceRules(migrateLegacyCustomerAdded(source.getRules()).stream().map(this::copyRule).toList());
-        return response(policies.save(draft));
+        return audited(com.ondemandmonitoring.audit.enums.AuditAction.CREATE, Map.of("clonedFrom", id), response(policies.save(draft)));
     }
 
     @Transactional
     public PricingPolicyResponse updateDraft(String id, PricingPolicyRequest request) {
         PricingPolicy policy = policies.findById(id).orElseThrow(() -> new ApiException(ErrorCode.PRICING_POLICY_NOT_FOUND,
                 "Pricing policy draft no longer exists. Reload the page to get the current version."));
-        requireDraft(policy); apply(policy, request); return response(policy);
+        requireDraft(policy); apply(policy, request); return audited(com.ondemandmonitoring.audit.enums.AuditAction.UPDATE, null, response(policy));
     }
 
     @Transactional
     public PricingPolicyResponse publish(String id) {
         PricingPolicy policy = policies.findById(id).orElseThrow(() -> new ApiException(ErrorCode.PRICING_POLICY_NOT_FOUND,
                 "Pricing policy draft no longer exists. Reload the page to get the current version."));
-        requireDraft(policy); Instant now = Instant.now();
+        requireDraft(policy); Instant now = Instant.now(); String previousStatus = policy.getStatus().name();
         for (PricingPolicy active : policies.findAllByStatus(PricingPolicyStatus.ACTIVE)) {
             active.setStatus(PricingPolicyStatus.SUPERSEDED); active.setEffectiveTo(now);
         }
@@ -84,7 +92,18 @@ public class PricingPolicyService {
         policies.flush();
         // New included-media prices, tiers and difficulty rules change what every service's default checklists cost.
         if (defaultPrices != null) defaultPrices.refreshAll();
-        return response(policy);
+        return audited(com.ondemandmonitoring.audit.enums.AuditAction.APPROVE, Map.of("status", previousStatus), response(policy));
+    }
+
+    private PricingPolicyResponse audited(com.ondemandmonitoring.audit.enums.AuditAction action, Map<String, ?> before, PricingPolicyResponse result) {
+        if (auditLog != null) {
+            Map<String, Object> after = new LinkedHashMap<>();
+            after.put("name", result.name());
+            after.put("version", result.version());
+            after.put("status", result.status());
+            auditLog.record(action, "pricing_policy", result.id(), before, after);
+        }
+        return result;
     }
 
     private void apply(PricingPolicy p, PricingPolicyRequest r) {

@@ -646,4 +646,22 @@ CREATE INDEX IF NOT EXISTS ix_review_evidence_source
 CREATE INDEX IF NOT EXISTS ix_review_evidence_replaced
     ON result_review_round_evidence(supersedes_round_evidence_id) WHERE supersedes_round_evidence_id IS NOT NULL;
 
+-- SECTION: Cross-domain Admin audit log (ADM-06).
+CREATE TABLE IF NOT EXISTS admin_audit_logs (
+    id VARCHAR(255) PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL,
+    actor_id VARCHAR(255) NOT NULL,
+    actor_name VARCHAR(255) NOT NULL,
+    action VARCHAR(30) NOT NULL CHECK (action IN ('CREATE','UPDATE','DELETE','APPROVE','STATUS_CHANGE')),
+    entity_type VARCHAR(80) NOT NULL,
+    entity_id VARCHAR(255) NOT NULL,
+    ip VARCHAR(64),
+    user_agent VARCHAR(512),
+    before_json JSONB,
+    after_json JSONB
+);
+CREATE INDEX IF NOT EXISTS ix_admin_audit_logs_created_at ON admin_audit_logs(created_at);
+CREATE INDEX IF NOT EXISTS ix_admin_audit_logs_actor_id ON admin_audit_logs(actor_id);
+CREATE INDEX IF NOT EXISTS ix_admin_audit_logs_entity_type ON admin_audit_logs(entity_type);
+
 COMMIT;

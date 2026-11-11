@@ -36,6 +36,15 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserManagementServiceImpl implements IUserManagementService {
 
     static int MAX_PAGE_SIZE = 100;
+
+    @lombok.experimental.NonFinal
+    com.ondemandmonitoring.audit.service.AdminAuditLogService auditLog;
+
+    /** Optional collaborator: records the change on the Admin audit log. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAuditLog(com.ondemandmonitoring.audit.service.AdminAuditLogService auditLog) {
+        this.auditLog = auditLog;
+    }
     static Set<String> ALLOWED_SORT_PROPERTIES = Set.of(
             "id",
             "fullName",
@@ -99,6 +108,11 @@ public class UserManagementServiceImpl implements IUserManagementService {
 
         target.setIsActive(active);
         userRepository.save(target);
+        if (auditLog != null) {
+            auditLog.record(com.ondemandmonitoring.audit.enums.AuditAction.STATUS_CHANGE, "account", target.getId(),
+                    java.util.Map.of("status", active ? "INACTIVE" : "ACTIVE"),
+                    java.util.Map.of("status", active ? "ACTIVE" : "INACTIVE"));
+        }
         List<UserIdentity> identities = userIdentityRepository.findAllByUserId(userId);
         identities.stream()
                 .map(UserIdentity::getCognitoUsername)

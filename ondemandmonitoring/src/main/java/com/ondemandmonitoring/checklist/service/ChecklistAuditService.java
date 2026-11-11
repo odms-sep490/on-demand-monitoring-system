@@ -41,6 +41,14 @@ public class ChecklistAuditService {
     private final ChecklistConfigAuditRepository repository;
     private final AuthenticatedUserResolver currentUser;
 
+    private com.ondemandmonitoring.audit.service.AdminAuditLogService auditLog;
+
+    /** Optional collaborator: mirrors checklist changes onto the cross-domain Admin audit log. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAuditLog(com.ondemandmonitoring.audit.service.AdminAuditLogService auditLog) {
+        this.auditLog = auditLog;
+    }
+
     /** The tracked fields of a library checklist, as comparable text. */
     public Map<String, String> snapshot(ChecklistDefinition checklist) {
         var values = new LinkedHashMap<String, String>();
@@ -143,6 +151,33 @@ public class ChecklistAuditService {
         }
         if (!changes.isEmpty()) entry.setChanges(MAPPER.writeValueAsString(changes));
         repository.save(entry);
+        mirrorToAdminLog(action, checklist, service, changes);
+    }
+
+    private void mirrorToAdminLog(ChecklistConfigAuditAction action, ChecklistDefinition checklist, Service service,
+            List<ChecklistAuditResponse.Change> changes) {
+        if (auditLog == null) return;
+        boolean onService = action.name().startsWith("SERVICE_");
+        String entityType = onService ? "service_checklist" : "checklist";
+        String entityId = onService && service != null ? service.getId() : checklist == null ? null : checklist.getId();
+        Map<String, Object> before = new LinkedHashMap<>();
+        Map<String, Object> after = new LinkedHashMap<>();
+        after.put("event", action.name());
+        if (checklist != null) after.put("checklistId", checklist.getId());
+        for (ChecklistAuditResponse.Change change : changes) {
+            before.put(change.field(), change.from());
+            after.put(change.field(), change.to());
+        }
+        auditLog.record(adminAction(action), entityType, entityId, before.isEmpty() ? null : before, after);
+    }
+
+    static com.ondemandmonitoring.audit.enums.AuditAction adminAction(ChecklistConfigAuditAction action) {
+        return switch (action) {
+            case CHECKLIST_CREATED, SERVICE_CHECKLIST_ASSIGNED, SERVICE_CHECKLIST_FORKED -> com.ondemandmonitoring.audit.enums.AuditAction.CREATE;
+            case CHECKLIST_ACTIVATED, CHECKLIST_DEACTIVATED -> com.ondemandmonitoring.audit.enums.AuditAction.STATUS_CHANGE;
+            case SERVICE_CHECKLIST_REMOVED -> com.ondemandmonitoring.audit.enums.AuditAction.DELETE;
+            default -> com.ondemandmonitoring.audit.enums.AuditAction.UPDATE;
+        };
     }
 
     private ChecklistAuditResponse toResponse(ChecklistConfigAudit entry) {

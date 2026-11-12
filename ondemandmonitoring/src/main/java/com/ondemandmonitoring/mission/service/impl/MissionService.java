@@ -994,24 +994,21 @@ public class MissionService implements IMissionService {
             return missionMapper.toResponse(missionRepository.save(mission));
         }
 
-        if (role == DeviceRole.MAIN) {
-            List<MissionDeviceAssignment> currentMainAssignments = !planFinalized
-                    ? missionDeviceAssignmentRepository.findByMissionId(resolvedMissionId).stream()
-                        .filter(a -> a.getReleasedAt() == null && a.getDeviceRole() == DeviceRole.MAIN).toList()
-                    : missionDeviceAssignmentRepository.findAllByMissionIdAndDeviceRoleAndIsCurrentTrueOrderByCreatedAtDesc(
-                            resolvedMissionId, DeviceRole.MAIN);
-            for (MissionDeviceAssignment assignment : currentMainAssignments) {
-                if (planFinalized) {
-                    assignment.setIsCurrent(false);
-                    assignment.setReleasedAt(now);
-                    assignment.setReleaseReason("Replaced by device assignment " + deviceId);
-                }
+        if (replacingFailedMainDevice) {
+            List<MissionDeviceAssignment> failedMainAssignments = missionDeviceAssignmentRepository
+                    .findAllByMissionIdAndDeviceRoleAndIsCurrentTrueOrderByCreatedAtDesc(
+                            resolvedMissionId, DeviceRole.MAIN)
+                    .stream()
+                    .filter(assignment -> assignment.getReleasedAt() == null
+                            && assignment.getStatus() == MissionDeviceAssignmentStatus.FAILED)
+                    .toList();
+            for (MissionDeviceAssignment assignment : failedMainAssignments) {
+                assignment.setIsCurrent(false);
+                assignment.setReleasedAt(now);
+                assignment.setReleaseReason("Replaced by device assignment " + deviceId);
                 resources.releaseResource(resolvedMissionId, assignment.getDevice().getId(), "DEVICE_REPLACED");
             }
-            if (!currentMainAssignments.isEmpty() && !planFinalized) {
-                missionDeviceAssignmentRepository.deleteAll(currentMainAssignments);
-                missionDeviceAssignmentRepository.flush();
-            }
+            missionDeviceAssignmentRepository.saveAll(failedMainAssignments);
         }
 
         MissionDeviceAssignment newAssignment = MissionDeviceAssignment.builder()

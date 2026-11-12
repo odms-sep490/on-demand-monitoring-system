@@ -91,7 +91,6 @@ class MissionCreationServiceTest {
         var mission=new Mission(); mission.setId("m");
         mission.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.IN_FLIGHT);
         when(fixture.missionRepository.findById("m")).thenReturn(Optional.of(mission));
-        error(ErrorCode.CHECKLIST_ASSIGNMENT_NOT_FINALIZED,()->fixture.deviceConnectionService.connectGcs("m"));
         error(ErrorCode.CHECKLIST_ASSIGNMENT_NOT_FINALIZED,()->fixture.missionService.completeMission("m"));
         verifyNoInteractions(fixture.missionDeviceAssignmentRepository,fixture.missionStaffAssignmentRepository);
     }

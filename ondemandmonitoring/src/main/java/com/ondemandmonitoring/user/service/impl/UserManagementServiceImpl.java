@@ -36,6 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserManagementServiceImpl implements IUserManagementService {
 
     static int MAX_PAGE_SIZE = 100;
+
     static Set<String> ALLOWED_SORT_PROPERTIES = Set.of(
             "id",
             "fullName",

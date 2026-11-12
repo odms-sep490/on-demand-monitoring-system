@@ -16,7 +16,6 @@ import com.ondemandmonitoring.devicecheck.enums.PreDeviceItemStatus;
 import com.ondemandmonitoring.devicecheck.service.IPreDeviceCheckCompletionService;
 import com.ondemandmonitoring.devicecheck.service.IPersistedPostDeviceCheckService;
 import com.ondemandmonitoring.mission.domain.ControlHandover;
-import com.ondemandmonitoring.mission.domain.DeviceConnection;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.domain.MissionPlan;
 import com.ondemandmonitoring.mission.dto.request.*;
@@ -29,10 +28,8 @@ import com.ondemandmonitoring.mission.enums.*;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.enums.OrderStatus;
 import com.ondemandmonitoring.mission.repository.ControlHandoverRepository;
-import com.ondemandmonitoring.mission.repository.DeviceConnectionRepository;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.mission.mapper.MissionMapper;
-import com.ondemandmonitoring.mission.service.IDeviceConnectionService;
 import com.ondemandmonitoring.mission.service.IMissionResultService;
 import com.ondemandmonitoring.mission.service.IMissionChecklistExecutionService;
 import com.ondemandmonitoring.mission.service.IMissionChecklistMaterializationService;
@@ -71,7 +68,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -114,7 +110,6 @@ public class MissionService implements IMissionService {
 
     // Supporting audit & work order repositories
     MissionPlanRepository missionPlanRepository;
-    DeviceConnectionRepository deviceConnectionRepository;
     ControlHandoverRepository controlHandoverRepository;
     PersistedPostDeviceCheckRepository postDeviceCheckRepository;
     @Autowired @NonFinal
@@ -126,7 +121,6 @@ public class MissionService implements IMissionService {
     com.ondemandmonitoring.warehouse.repository.PreferredTimeRepository preferredTimeRepository;
     InvoiceRepository invoiceRepository;
     IMissionPaymentEligibilityService missionPaymentEligibilityService;
-    IDeviceConnectionService deviceConnectionService;
     IMissionResultService missionResultService;
     IPreDeviceCheckCompletionService preDeviceCheckCompletionService;
     IPersistedPostDeviceCheckService persistedPostDeviceCheckService;
@@ -1168,12 +1162,7 @@ public class MissionService implements IMissionService {
         boolean hasFailedCheckForAssignedDrone = assignment.getDevice() != null
                 && preDeviceCheckRepository.findFirstByMissionIdOrderByCreatedAtDesc(missionId)
                         .filter(run -> run.getMissionDeviceAssignment() != null
-                                ? java.util.Objects.equals(run.getMissionDeviceAssignment().getId(), assignment.getId())
-                                : run.getDeviceConnection() != null
-                                        && run.getDeviceConnection().getDevice() != null
-                                        && java.util.Objects.equals(
-                                                run.getDeviceConnection().getDevice().getId(),
-                                                assignment.getDevice().getId()))
+                                && java.util.Objects.equals(run.getMissionDeviceAssignment().getId(), assignment.getId()))
                         .map(run -> run.getFailedChecks() != null && run.getFailedChecks() > 0)
                         .orElse(false);
         if (!hasFailedCheckForAssignedDrone) {
@@ -1585,15 +1574,8 @@ public class MissionService implements IMissionService {
     }
 
     // =========================================================================
-    // F3.2 – GCS Pairing & Pre-flight Gate
+    // F3.2 – Telemetry & Pre-flight Gate
     // =========================================================================
-
-    @Override
-    @Transactional
-    @PreAuthorize("@missionAuthorizationService.canOperatePayload(#missionId)")
-    public MissionResponse connectGcs(String missionId) {
-        return deviceConnectionService.connectGcs(getRuntimeMissionOrThrow(missionId).getId());
-    }
 
     @Override
     @Transactional(readOnly = true)
@@ -1614,34 +1596,19 @@ public class MissionService implements IMissionService {
             return new MissionTelemetryReadinessResponse(deviceId, false, null);
         }
         checklistExecutionService.requireMaterialized(mission);
-        var session = deviceConnectionRepository
-                .findTopByMissionIdAndConnectionStatusOrderByConnectedAtDesc(missionId, "CONNECTED")
-                .filter(c -> Boolean.TRUE.equals(c.getTelemetryActive()) && c.getDisconnectedAt() == null)
-                .filter(c -> c.getDeviceAssignment() != null && assignment.getId().equals(c.getDeviceAssignment().getId()))
-                .filter(c -> c.getStaffAssignment() != null && Boolean.TRUE.equals(c.getStaffAssignment().getIsCurrent())
-                        && c.getStaffAssignment().getReleasedAt() == null
-                        && c.getStaffAssignment().getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED);
-        var telemetry = session.flatMap(c -> telemetryRepository.findTopByDeviceConnectionIdOrderByRecordedAtDesc(c.getId()));
+        boolean acceptedCrew = missionStaffAssignmentRepository
+                .findAllByMissionIdAndIsCurrentTrue(missionId).stream()
+                .anyMatch(staff -> staff.getReleasedAt() == null
+                        && staff.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED);
+        var telemetry = acceptedCrew
+                ? telemetryRepository.findTopByMissionDeviceAssignmentIdOrderByRecordedAtDesc(assignment.getId())
+                : java.util.Optional.<com.ondemandmonitoring.device.domain.DeviceTelemetry>empty();
         Instant recordedAt = telemetry.map(com.ondemandmonitoring.device.domain.DeviceTelemetry::getRecordedAt).orElse(null);
         // Preserve the original preflight-readiness freshness contract (10 seconds).
         boolean ready = telemetry.map(t -> Boolean.TRUE.equals(t.getConnected())).orElse(false)
                 && recordedAt != null
                 && java.time.Duration.between(recordedAt, Instant.now()).abs().compareTo(java.time.Duration.ofSeconds(10)) <= 0;
         return new MissionTelemetryReadinessResponse(deviceId, ready, recordedAt);
-    }
-
-    @Override
-    @Transactional
-    @PreAuthorize("@missionAuthorizationService.canOperatePayload(#missionId)")
-    public MissionResponse disconnectGcs(String missionId, String disconnectReason) {
-        return deviceConnectionService.disconnectGcs(getRuntimeMissionOrThrow(missionId).getId(), disconnectReason);
-    }
-
-    @Override
-    @Transactional
-    @PreAuthorize("@missionAuthorizationService.canOperatePayload(#missionId)")
-    public MissionResponse handleGcsSessionLost(String missionId, String reason) {
-        return deviceConnectionService.handleGcsSessionLost(getRuntimeMissionOrThrow(missionId).getId(), reason);
     }
 
     @Override
@@ -1790,17 +1757,12 @@ public class MissionService implements IMissionService {
         }
         requireFreshPreflightAuthorization(resolvedMissionId);
 
-        // A preflight handover can be acknowledged before a live controller session is opened.
-        // Keep the audit link only when it belongs to the currently assigned main device.
+        // The assigned drone is the source of truth for handover records; live simulator
+        // control is opened separately from the cockpit workflow.
         MissionDeviceAssignment currentMainAssignment = getCurrentMainDeviceAssignment(resolvedMissionId);
-        DeviceConnection activeConnection = deviceConnectionRepository
-                .findTopByMissionIdAndConnectionStatusOrderByConnectedAtDesc(resolvedMissionId, "CONNECTED")
-                .filter(connection -> connection.getDeviceAssignment() != null
-                        && currentMainAssignment.getId().equals(connection.getDeviceAssignment().getId()))
-                .orElse(null);
 
         ControlHandover handover = new ControlHandover();
-        handover.setDeviceConnection(activeConnection);
+        handover.setMissionDeviceAssignment(currentMainAssignment);
         handover.setStaffAssignment(requireCurrentStaffAssignment(resolvedMissionId, staffId));
         handover.setStatus("CONFIRMED");
         handover.setAcknowledgementText(
@@ -2034,13 +1996,9 @@ public class MissionService implements IMissionService {
                         .map(run -> run.getStatus() == DeviceCheckStatus.PASSED
                                 || run.getStatus() == DeviceCheckStatus.FAILED)
                         .orElse(false);
-        boolean flightConnectionStillActive = deviceConnectionRepository.findByMissionId(mission.getId()).stream()
-                .anyMatch(c -> "CONNECTED".equals(c.getConnectionStatus())
-                        || Boolean.TRUE.equals(c.getTelemetryActive()));
         if ((mission.getStatus() == MissionStatus.IN_PROGRESS && !requestedFlightFailure)
                 || (mission.getActualStartAt() != null && mission.getStatus() != MissionStatus.AWAITING_REVIEW
-                    && mission.getStatus() != MissionStatus.COMPLETED && !requestedFlightFailure)
-                || flightConnectionStillActive)
+                    && mission.getStatus() != MissionStatus.COMPLETED && !requestedFlightFailure))
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
                     "An active mission cannot be marked failed before flight operations are closed");
         String effectiveReason = reason == null || reason.isBlank()
@@ -2280,7 +2238,6 @@ public class MissionService implements IMissionService {
         Instant releasedAt = Instant.now();
         String missionId = mission.getId();
         resources.release(missionId, reason);
-        closeMissionSessions(missionId, reason);
 
         Device device = getCurrentDevice(mission.getId());
         if (device != null && !"MISSION_COMPLETE".equals(reason)) {
@@ -2338,7 +2295,6 @@ public class MissionService implements IMissionService {
     private void releaseOperationalReservations(Mission mission) {
         String missionId = mission.getId();
         resources.release(missionId, "POSTFLIGHT_COMPLETE");
-        closeMissionSessions(missionId, "POSTFLIGHT_COMPLETE");
         // Do not change isCurrent/releasedAt: final assignments still authorize evidence/report work.
         var schedules = userScheduleRepository.findByReferenceId(missionId);
         for (var schedule : schedules) {
@@ -2359,16 +2315,6 @@ public class MissionService implements IMissionService {
             return notes;
         }
         return notes + " | " + releaseNote;
-    }
-
-    private void closeMissionSessions(String missionId, String reason) {
-        var connections = deviceConnectionRepository.findByMissionId(missionId);
-        for (var session : connections) if ("CONNECTED".equals(session.getConnectionStatus()) || Boolean.TRUE.equals(session.getTelemetryActive())) {
-            session.setConnectionStatus("DISCONNECTED"); session.setTelemetryActive(false);
-            if (session.getDisconnectedAt() == null) session.setDisconnectedAt(Instant.now());
-            session.setDisconnectReason(reason);
-        }
-        deviceConnectionRepository.saveAll(connections);
     }
 
     private Device getCurrentDevice(String missionId) {

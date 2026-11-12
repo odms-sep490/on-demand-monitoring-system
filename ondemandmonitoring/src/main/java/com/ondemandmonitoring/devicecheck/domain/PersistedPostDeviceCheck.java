@@ -2,20 +2,19 @@ package com.ondemandmonitoring.devicecheck.domain;
 
 import com.ondemandmonitoring.common.entity.BaseEntity;
 import com.ondemandmonitoring.devicecheck.enums.DeviceCheckStatus;
-import com.ondemandmonitoring.mission.domain.DeviceConnection;
 import com.ondemandmonitoring.mission.domain.Mission;
+import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
-import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
-import jakarta.persistence.Table;
+
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,9 +30,9 @@ public class PersistedPostDeviceCheck extends BaseEntity {
     @JoinColumn(name = "mission_id", nullable = false)
     Mission mission;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "device_connection_id", nullable = false)
-    DeviceConnection deviceConnection;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "mission_device_assignment_id")
+    MissionDeviceAssignment missionDeviceAssignment;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)

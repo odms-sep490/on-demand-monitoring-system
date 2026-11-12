@@ -13,6 +13,7 @@ import lombok.experimental.FieldDefaults;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 @Getter
 @Builder
@@ -85,6 +86,8 @@ public class MissionResponse {
     Double longitude;
 
     Double radiusM;
+
+    Map<String, Object> coverageArea;
 
     Double altitudeM;
 

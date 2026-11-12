@@ -38,6 +38,7 @@ public interface MissionMapper {
     @Mapping(source = ".", target = "latitude", qualifiedByName = "missionLatitude")
     @Mapping(source = ".", target = "longitude", qualifiedByName = "missionLongitude")
     @Mapping(source = ".", target = "radiusM", qualifiedByName = "missionRadiusM")
+    @Mapping(source = ".", target = "coverageArea", qualifiedByName = "missionCoverageArea")
     @Mapping(source = ".", target = "mediaType", qualifiedByName = "missionMediaType")
     @Mapping(source = ".", target = "mediaSummary", qualifiedByName = "missionMediaSummary")
     // One method-local lookup supplies all resource fields; no application cache.

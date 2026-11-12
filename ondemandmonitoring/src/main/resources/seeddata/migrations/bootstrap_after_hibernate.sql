@@ -701,4 +701,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_delivery_draft_legacy_order ON checklist_de
 CREATE UNIQUE INDEX IF NOT EXISTS uq_delivery_draft_mission ON checklist_delivery_drafts(mission_id) WHERE mission_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ix_review_round_mission_number ON result_review_rounds(order_id, mission_id, round_number DESC);
 
+-- SECTION: Cross-domain Admin audit log (ADM-06).
+CREATE TABLE IF NOT EXISTS admin_audit_logs (
+    id VARCHAR(255) PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL,
+    actor_id VARCHAR(255) NOT NULL,
+    actor_name VARCHAR(255) NOT NULL,
+    action VARCHAR(30) NOT NULL CHECK (action IN ('CREATE','UPDATE','DELETE','APPROVE','STATUS_CHANGE')),
+    entity_type VARCHAR(80) NOT NULL,
+    entity_id VARCHAR(255) NOT NULL,
+    ip VARCHAR(64),
+    user_agent VARCHAR(512),
+    before_json JSONB,
+    after_json JSONB
+);
+CREATE INDEX IF NOT EXISTS ix_admin_audit_logs_created_at ON admin_audit_logs(created_at);
+CREATE INDEX IF NOT EXISTS ix_admin_audit_logs_actor_id ON admin_audit_logs(actor_id);
+CREATE INDEX IF NOT EXISTS ix_admin_audit_logs_entity_type ON admin_audit_logs(entity_type);
+
 COMMIT;

@@ -3,6 +3,7 @@ package com.ondemandmonitoring.flightpermit.service.impl;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.devicecheck.service.IPersistedPreDeviceCheckService;
+import com.ondemandmonitoring.finance.enums.DepositStatus;
 import com.ondemandmonitoring.finance.enums.InvoiceStatus;
 import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.flightpermit.service.IFlightPermitService;
@@ -12,6 +13,7 @@ import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.dto.request.FlightPermitUpdateRequest;
 import com.ondemandmonitoring.mission.dto.response.MissionResponse;
 import com.ondemandmonitoring.mission.enums.FlightPermitStatus;
+import com.ondemandmonitoring.mission.enums.MissionPurpose;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
 import com.ondemandmonitoring.mission.mapper.MissionMapper;
@@ -20,12 +22,14 @@ import com.ondemandmonitoring.mission.repository.MissionStaffAssignmentRepositor
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.enums.LegalReviewStatus;
 import com.ondemandmonitoring.order.repository.OrderRepository;
+import com.ondemandmonitoring.refund.service.IRefundHoldService;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import java.time.Instant;
 import java.util.Set;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,6 +48,8 @@ public class FlightPermitServiceImpl implements IFlightPermitService {
     MissionStaffAssignmentRepository missionStaffAssignmentRepository;
     AuthenticatedUserResolver authenticatedUserResolver;
     IPersistedPreDeviceCheckService persistedPreDeviceCheckService;
+    @Autowired
+    IRefundHoldService refundHoldService;
 
     @Override
     @Transactional
@@ -51,17 +57,21 @@ public class FlightPermitServiceImpl implements IFlightPermitService {
     public MissionResponse updateFlightPermit(String missionId, FlightPermitUpdateRequest request) {
         Mission mission = missionRepository.findByIdWithOrder(missionId)
                 .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
-        if (mission.getPurpose() == com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK
+        Order lockedOrder = orderRepository.findByIdForUpdate(mission.getOrder().getId())
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found"));
+        if (refundHoldService != null) refundHoldService.requireOrderNotOnRefundHold(lockedOrder.getId());
+        if (mission.getPurpose() == MissionPurpose.REWORK
                 && mission.getStatus() == MissionStatus.PLANNING)
             throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_FINALIZED);
         var invoice = invoiceRepository.findByOrderId(mission.getOrder().getId())
                 .orElseThrow(() -> new ApiException(ErrorCode.INVALID_REQUEST,
-                        "Flight permit updates require the order invoice to be paid in full"));
-        if (invoice.getStatus() != InvoiceStatus.PAID
-                || invoice.getRemainingAmount() == null
-                || invoice.getRemainingAmount().signum() > 0) {
+                        "Flight permit updates require the order deposit to be paid"));
+        if (invoice.getStatus() == InvoiceStatus.CANCELLED
+                || invoice.getStatus() == InvoiceStatus.REFUNDED
+                || invoice.getStatus() == InvoiceStatus.OVERDUE
+                || invoice.effectiveDepositStatus() != DepositStatus.DEPOSIT_PAID) {
             throw new ApiException(ErrorCode.INVALID_REQUEST,
-                    "Flight permit updates require the order invoice to be paid in full");
+                    "Flight permit updates require the order deposit to be paid");
         }
         FlightPermit permit = flightPermitRepository.findByMissionId(missionId)
                 .orElseGet(() -> FlightPermit.pendingFor(mission));
@@ -131,6 +141,7 @@ public class FlightPermitServiceImpl implements IFlightPermitService {
 
     @Override
     public void requireApprovedForExecution(Mission mission) {
+        if (refundHoldService != null) refundHoldService.requireOrderNotOnRefundHold(mission.getOrder().getId());
         if (mission.getFlightPermit() == null
                 || mission.getFlightPermit().getStatus() != FlightPermitStatus.APPROVED) {
             throw new ApiException(ErrorCode.INVALID_REQUEST,

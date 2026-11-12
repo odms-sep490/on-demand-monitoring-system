@@ -29,7 +29,7 @@ public final class FinanceMapper {
                 quote.getAdjustmentRequestedAt(), quote.getPricingApprovalStatus(),
                 quote.getPricingApprovedBy() == null ? null : quote.getPricingApprovedBy().getFullName(),
                 quote.getPricingApprovedAt(), quote.getPricingApprovalNote(), quote.getPricingRevision(),
-                quote.getPricingRiskFlags() == null ? java.util.List.of() : quote.getPricingRiskFlags(),
+                quote.getPricingRiskFlags() == null ? List.of() : quote.getPricingRiskFlags(),
                 quote.getChecklistRevision(), quote.getChecklistGuidanceSnapshot(), quote.getExpiresAt());
     }
 
@@ -64,20 +64,20 @@ public final class FinanceMapper {
                 quote.getOrder().getCancellationReason() == null ? null : quote.getOrder().getCancellationReason().name());
     }
 
-    public static InvoiceResponse invoice(Invoice invoice, boolean finalPaymentAllowed) {
+    public static InvoiceResponse invoice(Invoice invoice) {
         return new InvoiceResponse(invoice.getId(), invoice.getInvoiceNumber(), invoice.getOrder().getId(),
                 invoice.getQuote().getId(), invoice.getTotalAmount(), invoice.getDepositAmount(),
                 invoice.getPaidAmount(), invoice.getRemainingAmount(), invoice.getStatus(),
                 invoice.effectiveDepositStatus(), invoice.getIssuedAt(),
-                finalPaymentAllowed, invoice.getDepositExpiresAt(),
-                invoice.getFinalPaymentExpiresAt(),
-                invoice.getFinalPaymentStartedAt(),
+                invoice.getDepositExpiresAt(),
                 invoice.getOrder().getCancellationReason() == null ? null : invoice.getOrder().getCancellationReason().name());
     }
 
     public static PaymentResponse payment(Payment payment) {
         return new PaymentResponse(payment.getId(), payment.getInvoice().getId(), payment.getPaymentCode(),
-                payment.getPaymentType(), payment.getAmount(), payment.getCurrency(), payment.getStatus(),
+                payment.getPaymentType(), payment.getMissionPaymentMilestone() == null
+                        ? null : payment.getMissionPaymentMilestone().getId(),
+                payment.getAmount(), payment.getCurrency(), payment.getStatus(),
                 payment.getProvider(), payment.getPaymentUrl(), payment.getTransactionReference(),
                 payment.getProviderTransactionId(), payment.getPaidAt());
     }

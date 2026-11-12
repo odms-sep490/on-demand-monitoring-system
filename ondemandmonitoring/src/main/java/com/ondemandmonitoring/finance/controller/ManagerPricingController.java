@@ -2,8 +2,11 @@ package com.ondemandmonitoring.finance.controller;
 
 import com.ondemandmonitoring.common.api.ApiResponse;
 import com.ondemandmonitoring.finance.dto.*;
+import com.ondemandmonitoring.finance.service.IPaymentService;
+import com.ondemandmonitoring.order.dto.response.OrderChecklistItemResponse;
 import com.ondemandmonitoring.finance.service.IQuoteService;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -14,7 +17,7 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class ManagerPricingController {
     private final IQuoteService quoteService;
-    private final com.ondemandmonitoring.finance.service.IPaymentService paymentService;
+    private final IPaymentService paymentService;
 
     @GetMapping("/pricing")
     public ApiResponse<PricingReviewResponse> pricing(@PathVariable String orderId) {
@@ -30,15 +33,15 @@ public class ManagerPricingController {
      * Re-checks the order's pending VNPAY payments directly with VNPAY (QueryDR) and returns the up-to-date invoice. Used when
      * the payment notification cannot reach the server (for example a development machine).
      */
-    @org.springframework.web.bind.annotation.PostMapping("/payments/refresh")
+    @PostMapping("/payments/refresh")
     public ApiResponse<InvoiceResponse> refreshPayments(@PathVariable String orderId,
-            jakarta.servlet.http.HttpServletRequest request) {
+            HttpServletRequest request) {
         paymentService.refreshOrderPayments(orderId, request.getRemoteAddr());
         return ApiResponse.ok("Payment status reconciled", quoteService.getInvoiceByOrder(orderId));
     }
 
     @PatchMapping("/checklist-items/{itemId}")
-    public ApiResponse<com.ondemandmonitoring.order.dto.response.OrderChecklistItemResponse> review(
+    public ApiResponse<OrderChecklistItemResponse> review(
             @PathVariable String orderId, @PathVariable String itemId,
             @Valid @RequestBody ChecklistReviewRequest request) {
         return ApiResponse.ok("Checklist review saved", quoteService.reviewChecklist(orderId, itemId, request));
@@ -51,7 +54,7 @@ public class ManagerPricingController {
     }
 
     @PutMapping("/checklist-items/{itemId}/guidance")
-    public ApiResponse<com.ondemandmonitoring.order.dto.response.OrderChecklistItemResponse> guidance(
+    public ApiResponse<OrderChecklistItemResponse> guidance(
             @PathVariable String orderId, @PathVariable String itemId,
             @Valid @RequestBody ChecklistGuidanceRequest request) {
         return ApiResponse.ok("Checklist guidance saved", quoteService.saveChecklistGuidance(orderId, itemId, request));

@@ -45,7 +45,6 @@ import com.ondemandmonitoring.order.repository.OrderRepository;
 import com.ondemandmonitoring.finance.enums.QuoteStatus;
 import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService;
-import com.ondemandmonitoring.finance.service.IFinalPaymentNotificationService;
 import com.ondemandmonitoring.role.enumeration.RoleCode;
 import com.ondemandmonitoring.user.domain.User;
 import com.ondemandmonitoring.user.service.IStaffDirectoryService;
@@ -150,8 +149,6 @@ public class MissionService implements IMissionService {
     IFlightPermitService flightPermitService;
 
     MissionChecklistExecutionRepository missionChecklistExecutionRepository;
-    @Autowired @NonFinal
-    IFinalPaymentNotificationService finalPaymentNotifications;
     @Autowired @NonFinal
     com.ondemandmonitoring.delivery.repository.ResultRevisionCaseRepository resultRevisionCases;
     @Autowired @NonFinal
@@ -327,9 +324,9 @@ public class MissionService implements IMissionService {
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Rework requires an in-progress or completed Order with a finalized execution plan");
         var invoice = invoiceRepository.findByOrderId(order.getId())
                 .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
-        if (!missionPaymentEligibilityService.isOriginalFinalPaymentConfirmed(invoice))
+        if (!missionPaymentEligibilityService.isDepositSatisfied(invoice))
             throw new ApiException(ErrorCode.INVOICE_NOT_PAID,
-                    "The original Order must be fully paid before a rework Mission can be created");
+                    "The original Order Deposit must be paid before a rework Mission can be created");
 
         var requestedIds = new java.util.LinkedHashSet<>(request.caseItemIds());
         if (requestedIds.size() != request.caseItemIds().size())
@@ -523,10 +520,10 @@ public class MissionService implements IMissionService {
         requirePlanningReady(mission);
         var invoice = invoiceRepository.findByOrderId(order.getId())
                 .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
-        if (!missionPaymentEligibilityService.isOriginalFinalPaymentConfirmed(invoice))
+        if (!missionPaymentEligibilityService.isDepositSatisfied(invoice))
             throw new ApiException(ErrorCode.INVOICE_NOT_PAID);
         if (!missionPaymentEligibilityService.isResourceAssignmentReady(mission))
-            throw new ApiException(ErrorCode.FINAL_PAYMENT_NOT_ALLOWED,
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
                     "Rework crew, equipment, schedule or resource reservations are no longer valid");
 
         checklistMaterializationService.materialize(mission);
@@ -565,9 +562,9 @@ public class MissionService implements IMissionService {
         }
         var invoice = invoiceRepository.findByOrderId(orderId)
                 .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
-        if (!missionPaymentEligibilityService.isFinalPaymentConfirmed(invoice)) {
+        if (!missionPaymentEligibilityService.isMissionExecutionEligible(invoice)) {
             throw new ApiException(ErrorCode.INVOICE_NOT_PAID,
-                    "Final payment must be fully settled before Mission activation");
+                    "The Deposit and agreed Mission payment allocations must be ready before Mission activation");
         }
         Set<MissionStatus> alreadyActivatedOrTerminal = Set.of(
                 MissionStatus.PENDING_CONFIRMATION, MissionStatus.READY, MissionStatus.IN_PROGRESS,

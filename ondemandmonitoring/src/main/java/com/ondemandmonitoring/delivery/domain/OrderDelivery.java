@@ -46,7 +46,6 @@ public class OrderDelivery extends BaseEntity {
     private java.util.UUID lastChecklistPublishRequestId;
     @Column(name = "last_checklist_publish_fingerprint", length = 128)
     private String lastChecklistPublishFingerprint;
-    @Column(name = "final_payment_confirmed_at") private Instant finalPaymentConfirmedAt;
     @ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "originals_released_by")
     private User originalsReleasedBy;
     @Column(name = "originals_released_at") private Instant originalsReleasedAt;

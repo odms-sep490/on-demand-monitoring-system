@@ -30,6 +30,7 @@ import com.ondemandmonitoring.order.domain.OrderChecklistItem;
 import com.ondemandmonitoring.order.repository.OrderChecklistItemRepository;
 import com.ondemandmonitoring.order.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -61,7 +62,7 @@ public class ChecklistDeliveryQueryService {
     private final IResultRetentionAccessService retentionAccess;
     private final IMediaObjectStorage storage;
     private final MediaDerivativeService derivatives;
-    @org.springframework.beans.factory.annotation.Autowired private DeliveryMissionScope missionScope;
+    @Autowired private DeliveryMissionScope missionScope;
 
     public ManagerDeliveryChecklistsResponse get(String orderId) { return get(orderId, null); }
     public ManagerDeliveryChecklistsResponse get(String orderId, String missionId) {

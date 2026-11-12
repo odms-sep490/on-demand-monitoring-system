@@ -3,6 +3,9 @@ package com.ondemandmonitoring.order.service.impl;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot;
 import com.ondemandmonitoring.finance.enums.QuoteStatus;
+import com.ondemandmonitoring.finance.enums.InvoiceStatus;
+import com.ondemandmonitoring.finance.repository.InvoiceRepository;
+import com.ondemandmonitoring.finance.repository.QuoteRepository;
 import com.ondemandmonitoring.order.enums.OrderChecklistSourceType;
 import java.util.Map;
 import java.util.HashMap;
@@ -75,8 +78,8 @@ public class OrderService implements IOrderService {
     OrderMapper orderMapper;
     IOrderChecklistSnapshotService checklistSnapshots;
     OrderReviewRecordInitializer reviewRecords;
-    com.ondemandmonitoring.finance.repository.QuoteRepository quoteRepository;
-    com.ondemandmonitoring.finance.repository.InvoiceRepository invoiceRepository;
+    QuoteRepository quoteRepository;
+    InvoiceRepository invoiceRepository;
 
     @Override
     @Transactional
@@ -530,7 +533,7 @@ public class OrderService implements IOrderService {
                 && order.getOrderStatus() != OrderStatus.APPROVED)
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Only unpaid Orders can be edited");
         var acceptedQuote = quoteRepository.findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc(orderId,
-                java.util.List.of(com.ondemandmonitoring.finance.enums.QuoteStatus.ACCEPTED_BY_CUSTOMER));
+                List.of(QuoteStatus.ACCEPTED_BY_CUSTOMER));
         if (acceptedQuote.isPresent())
             throw new ApiException(ErrorCode.INVALID_REQUEST, "An Order cannot be edited after its quote is accepted");
 
@@ -618,11 +621,11 @@ public class OrderService implements IOrderService {
         }
         if (order.getOrderStatus() == OrderStatus.APPROVED || pricingInputsChanged) {
             quoteRepository.findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc(orderId,
-                    java.util.List.of(com.ondemandmonitoring.finance.enums.QuoteStatus.DRAFT,
-                            com.ondemandmonitoring.finance.enums.QuoteStatus.PENDING_REVIEW,
-                            com.ondemandmonitoring.finance.enums.QuoteStatus.APPROVED))
+                    List.of(QuoteStatus.DRAFT,
+                            QuoteStatus.PENDING_REVIEW,
+                            QuoteStatus.APPROVED))
                     .ifPresent(quote -> {
-                        quote.setStatus(com.ondemandmonitoring.finance.enums.QuoteStatus.SUPERSEDED);
+                        quote.setStatus(QuoteStatus.SUPERSEDED);
                         quoteRepository.save(quote);
                     });
             order.setOrderStatus(OrderStatus.PENDING);
@@ -719,7 +722,7 @@ public class OrderService implements IOrderService {
                     response.setDepositSatisfied(
                             invoice.getPaidAmount().compareTo(invoice.getDepositAmount()) >= 0);
                     response.setInvoicePaidInFull(invoice.getStatus()
-                            == com.ondemandmonitoring.finance.enums.InvoiceStatus.PAID
+                            == InvoiceStatus.PAID
                             && invoice.getRemainingAmount().signum() == 0);
                 }, () -> {
                     response.setDepositSatisfied(false);

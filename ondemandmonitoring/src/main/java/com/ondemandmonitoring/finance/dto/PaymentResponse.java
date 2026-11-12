@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 
 public record PaymentResponse(String id, String invoiceId, Long paymentCode, PaymentType type,
+                              String missionPaymentMilestoneId,
                               BigDecimal amount, String currency, PaymentStatus status,
                               PaymentProvider provider, String paymentUrl,
                               String transactionReference, String providerTransactionId,

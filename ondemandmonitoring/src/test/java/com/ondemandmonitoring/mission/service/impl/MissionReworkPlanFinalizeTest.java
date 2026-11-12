@@ -87,7 +87,7 @@ class MissionReworkPlanFinalizeTest {
         when(devices.findByMissionId("rework")).thenReturn(List.of(device));
         var invoice = new Invoice();
         when(invoices.findByOrderId("order")).thenReturn(Optional.of(invoice));
-        when(payments.isOriginalFinalPaymentConfirmed(invoice)).thenReturn(true);
+        when(payments.isDepositSatisfied(invoice)).thenReturn(true);
         when(payments.isResourceAssignmentReady(mission)).thenReturn(true);
     }
 
@@ -108,7 +108,7 @@ class MissionReworkPlanFinalizeTest {
         order.setOrderStatus(OrderStatus.IN_PROGRESS);
         revisionCase.setVersion(2L);
         var invoice = invoices.findByOrderId("order").orElseThrow();
-        when(payments.isOriginalFinalPaymentConfirmed(invoice)).thenReturn(false);
+        when(payments.isDepositSatisfied(invoice)).thenReturn(false);
         var request = new com.ondemandmonitoring.mission.dto.request.CreateResultRevisionReworkMissionRequest(
                 2L, UUID.randomUUID(), "Rework roof", java.time.Instant.parse("2099-11-11T03:00:00Z"),
                 java.time.Instant.parse("2099-11-11T04:00:00Z"), List.of("case-item"));

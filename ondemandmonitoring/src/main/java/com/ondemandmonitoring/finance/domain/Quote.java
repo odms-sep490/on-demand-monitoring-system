@@ -2,6 +2,7 @@ package com.ondemandmonitoring.finance.domain;
 
 import com.ondemandmonitoring.common.entity.BaseEntity;
 import com.ondemandmonitoring.finance.enums.QuoteStatus;
+import com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.user.domain.User;
 import com.ondemandmonitoring.pricing.enums.*;
@@ -26,7 +27,7 @@ import lombok.Setter;
 public class Quote extends BaseEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "checklist_guidance_snapshot", columnDefinition = "jsonb")
-    private com.ondemandmonitoring.finance.dto.ChecklistGuidanceSnapshot checklistGuidanceSnapshot;
+    private ChecklistGuidanceSnapshot checklistGuidanceSnapshot;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "order_id", nullable = false)

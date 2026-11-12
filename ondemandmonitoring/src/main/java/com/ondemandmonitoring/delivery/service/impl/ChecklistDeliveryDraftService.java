@@ -16,6 +16,7 @@ import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import java.util.List;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,7 +29,7 @@ public class ChecklistDeliveryDraftService implements IChecklistDeliveryDraftSer
     private final ResultRevisionCaseRepository cases;
     private final AuthenticatedUserResolver currentUser;
     private final ObjectMapper mapper;
-    @org.springframework.beans.factory.annotation.Autowired private DeliveryMissionScope missionScope;
+    @Autowired private DeliveryMissionScope missionScope;
 
     @Override
     @Transactional(readOnly = true)

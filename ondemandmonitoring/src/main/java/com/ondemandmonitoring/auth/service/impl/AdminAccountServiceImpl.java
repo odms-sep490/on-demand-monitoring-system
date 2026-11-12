@@ -12,6 +12,7 @@ import com.ondemandmonitoring.user.service.IUserService;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.CognitoIdentityProviderException;
@@ -32,7 +33,7 @@ public class AdminAccountServiceImpl implements IAdminAccountService {
     com.ondemandmonitoring.audit.service.AdminAuditLogService auditLog;
 
     /** Optional collaborator: records the change on the Admin audit log. */
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     public void setAuditLog(com.ondemandmonitoring.audit.service.AdminAuditLogService auditLog) {
         this.auditLog = auditLog;
     }

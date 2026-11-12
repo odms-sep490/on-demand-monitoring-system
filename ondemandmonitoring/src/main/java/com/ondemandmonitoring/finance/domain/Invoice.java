@@ -18,8 +18,7 @@ import lombok.Setter;
         indexes = {
                 @Index(name = "ix_invoices_status", columnList = "status"),
                 @Index(name = "ix_invoices_deposit_status", columnList = "deposit_status"),
-                @Index(name = "ix_invoices_deposit_expiration", columnList = "deposit_expires_at,status"),
-                @Index(name = "ix_invoices_final_payment_expiration", columnList = "final_payment_expires_at,status")
+                @Index(name = "ix_invoices_deposit_expiration", columnList = "deposit_expires_at,status")
         })
 @Getter @Setter
 public class Invoice extends BaseEntity {
@@ -51,14 +50,6 @@ public class Invoice extends BaseEntity {
     /** Commercial deadline assigned once at quote acceptance; configuration changes never move it. */
     @Column(name = "deposit_expires_at")
     private Instant depositExpiresAt;
-
-    /** Commercial deadline assigned once when the final balance first becomes payable. */
-    @Column(name = "final_payment_expires_at")
-    private Instant finalPaymentExpiresAt;
-
-    /** Timestamp when the final-payment window first opened. */
-    @Column(name = "final_payment_started_at")
-    private Instant finalPaymentStartedAt;
 
     @PrePersist
     @PreUpdate

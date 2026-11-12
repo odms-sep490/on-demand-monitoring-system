@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
@@ -44,7 +45,7 @@ public class ChecklistAuditService {
     private com.ondemandmonitoring.audit.service.AdminAuditLogService auditLog;
 
     /** Optional collaborator: mirrors checklist changes onto the cross-domain Admin audit log. */
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     public void setAuditLog(com.ondemandmonitoring.audit.service.AdminAuditLogService auditLog) {
         this.auditLog = auditLog;
     }

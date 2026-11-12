@@ -23,6 +23,7 @@ import java.util.Set;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -41,7 +42,7 @@ public class UserManagementServiceImpl implements IUserManagementService {
     com.ondemandmonitoring.audit.service.AdminAuditLogService auditLog;
 
     /** Optional collaborator: records the change on the Admin audit log. */
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     public void setAuditLog(com.ondemandmonitoring.audit.service.AdminAuditLogService auditLog) {
         this.auditLog = auditLog;
     }

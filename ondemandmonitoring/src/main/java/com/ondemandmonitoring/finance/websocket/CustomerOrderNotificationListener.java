@@ -1,6 +1,5 @@
 package com.ondemandmonitoring.finance.websocket;
 
-import com.ondemandmonitoring.finance.event.FinalPaymentRequiredEvent;
 import com.ondemandmonitoring.finance.event.QuoteApprovedEvent;
 import com.ondemandmonitoring.user.domain.UserIdentity;
 import com.ondemandmonitoring.user.repository.UserIdentityRepository;
@@ -25,13 +24,6 @@ public class CustomerOrderNotificationListener {
     public void notifyQuoteApproved(QuoteApprovedEvent event) {
         CustomerOrderEvent message = new CustomerOrderEvent(
                 "QUOTE_APPROVED", event.orderId(), event.quoteId(), null, event.approvedAt());
-        sendToCustomer(event.customerId(), event.orderId(), message);
-    }
-
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    public void notifyFinalPaymentRequired(FinalPaymentRequiredEvent event) {
-        CustomerOrderEvent message = new CustomerOrderEvent(
-                "FINAL_PAYMENT_REQUIRED", event.orderId(), null, event.invoiceId(), event.occurredAt());
         sendToCustomer(event.customerId(), event.orderId(), message);
     }
 

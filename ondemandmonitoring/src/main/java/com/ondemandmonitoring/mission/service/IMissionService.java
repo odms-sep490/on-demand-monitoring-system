@@ -40,7 +40,7 @@ public interface IMissionService {
 
     MissionResponse confirmMissionPlanning(String missionId);
 
-    /** Opens resource confirmation for every Mission of an Order after final payment. */
+    /** Opens resource confirmation after the Deposit and Mission payment allocations are ready. */
     List<MissionResponse> transitionToPendingConfirmation(String orderId);
 
     MissionResponse cancelMission(String missionId, String reason);

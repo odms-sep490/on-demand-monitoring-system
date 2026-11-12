@@ -7,5 +7,7 @@ public interface IOperatorMissionMediaService {
 
     PageResponse<OperatorMissionMediaResponse> listAvailable(String missionId, int page, int size);
 
+    PageResponse<OperatorMissionMediaResponse> listWorkspace(String missionId, int page, int size);
+
     OperatorMissionMediaResponse getAvailable(String missionId, String mediaId);
 }

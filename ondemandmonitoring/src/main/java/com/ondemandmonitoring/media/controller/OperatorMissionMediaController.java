@@ -30,6 +30,13 @@ public class OperatorMissionMediaController {
         return ApiResponse.ok(mediaService.listAvailable(missionId, page, size));
     }
 
+    @GetMapping("/media-library")
+    public ApiResponse<PageResponse<OperatorMissionMediaResponse>> library(@PathVariable String missionId,
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "50") @Min(1) @Max(100) int size) {
+        return ApiResponse.ok(mediaService.listWorkspace(missionId, page, size));
+    }
+
     @GetMapping("/{mediaId}")
     public ApiResponse<OperatorMissionMediaResponse> get(@PathVariable String missionId,
             @PathVariable String mediaId) {

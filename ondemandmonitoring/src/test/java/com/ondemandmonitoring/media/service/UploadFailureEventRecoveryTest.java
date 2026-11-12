@@ -15,6 +15,7 @@ import com.ondemandmonitoring.media.policy.MediaUploadPolicy;
 import com.ondemandmonitoring.media.repository.*;
 import com.ondemandmonitoring.media.service.impl.ManualUploadTaskServiceImpl;
 import com.ondemandmonitoring.media.service.impl.UploadFailureEventServiceImpl;
+import com.ondemandmonitoring.media.service.IMediaValidationService;
 import com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard;
 import java.time.Instant;
 import java.util.*;
@@ -41,6 +42,7 @@ class UploadFailureEventRecoveryTest {
     private final ManualUploadTaskRepository manualTasks = mock(ManualUploadTaskRepository.class);
     private final IMediaObjectStorage storage = mock(IMediaObjectStorage.class);
     private final IMissionMediaEvidenceGuard missionLock = mock(IMissionMediaEvidenceGuard.class);
+    private final IMediaValidationService validation = mock(IMediaValidationService.class);
     private final ManualUploadTaskServiceImpl manualTaskService = new ManualUploadTaskServiceImpl(manualTasks);
     private final MediaUploadPolicy policy = new MediaUploadPolicy();
 
@@ -58,7 +60,7 @@ class UploadFailureEventRecoveryTest {
         taskInserts.set(0);
         storedTask = null;
         service = new UploadFailureEventServiceImpl(events, attempts, media, policy, storage,
-                manualTaskService, missionLock);
+                manualTaskService, missionLock, validation, mock(org.springframework.transaction.PlatformTransactionManager.class));
 
         captured = new MediaAsset();
         captured.setId(MEDIA_ID);
@@ -76,6 +78,7 @@ class UploadFailureEventRecoveryTest {
         captured.setMediaStatus(MediaStatus.UPLOAD_PENDING);
 
         when(media.findById(MEDIA_ID)).thenReturn(Optional.of(captured));
+        when(media.findByIdForUpdate(MEDIA_ID)).thenReturn(Optional.of(captured));
         when(media.save(any(MediaAsset.class))).thenAnswer(c -> c.getArgument(0));
 
         when(events.findByEventKey(any())).thenAnswer(c -> Optional.ofNullable(ledger.get(c.getArgument(0))));
@@ -101,9 +104,15 @@ class UploadFailureEventRecoveryTest {
             String id = c.getArgument(0);
             return attemptRows.stream().filter(a -> id.equals(a.getId())).findFirst();
         });
+        when(attempts.findByIdAndMediaIdForUpdate(any(), eq(MEDIA_ID))).thenAnswer(c -> {
+            String id = c.getArgument(0);
+            return attemptRows.stream().filter(a -> id.equals(a.getId())).findFirst();
+        });
         when(attempts.countByMediaIdAndManualAttemptFalseAndStatus(eq(MEDIA_ID), eq(UploadAttemptStatus.FAILED)))
                 .thenAnswer(c -> attemptRows.stream()
                         .filter(a -> !a.isManualAttempt() && a.getStatus() == UploadAttemptStatus.FAILED).count());
+        when(attempts.findFirstByMediaIdOrderByAttemptNumberDesc(MEDIA_ID)).thenAnswer(c ->
+                attemptRows.stream().max(java.util.Comparator.comparingInt(MediaUploadAttempt::getAttemptNumber)));
         when(attempts.save(any(MediaUploadAttempt.class))).thenAnswer(c -> c.getArgument(0));
 
         when(manualTasks.findByMediaId(MEDIA_ID)).thenAnswer(c -> Optional.ofNullable(storedTask));
@@ -113,6 +122,52 @@ class UploadFailureEventRecoveryTest {
             storedTask = t;
             return t;
         });
+    }
+
+    @Test
+    void lateFailureDoesNotDemoteNewAttempt() {
+        var old = attempt(1);
+        var current = attempt(2);
+        service.ingest(request("late", 1));
+        assertThat(old.getStatus()).isEqualTo(UploadAttemptStatus.FAILED);
+        assertThat(current.getStatus()).isEqualTo(UploadAttemptStatus.PENDING);
+        assertThat(captured.getMediaStatus()).isEqualTo(MediaStatus.UPLOAD_PENDING);
+        assertThat(storedTask).isNull();
+    }
+
+    @Test
+    void lateAckDoesNotValidateSupersededObject() {
+        attempt(1); attempt(2);
+        var req = request("late-ack", 1);
+        req.setCategory(UploadFailureCategory.TRANSFER_ACK_LOST);
+        service.ingest(req);
+        assertThat(captured.getMediaStatus()).isEqualTo(MediaStatus.UPLOAD_PENDING);
+        verifyNoInteractions(storage, validation);
+    }
+
+    @Test
+    void multipartCleanupFailureRemainsPendingAndIsRetriedWithoutSendingBytes() {
+        var a = attempt(1); a.setMultipartUploadId("multipart");
+        doThrow(new RuntimeException("storage unavailable")).doNothing()
+                .when(storage).abortMultipartUpload(a.getStorageKey(), "multipart");
+        var ack = service.ingest(request("cleanup", 1));
+        assertThat(ack.isRetryLater()).isTrue();
+        assertThat(ledger.get("upload-failure:cleanup").isProcessed()).isFalse();
+        service.retryPending();
+        assertThat(ledger.get("upload-failure:cleanup").isProcessed()).isTrue();
+        verify(storage, times(2)).abortMultipartUpload(a.getStorageKey(), "multipart");
+        assertThat(failedCount()).isEqualTo(1);
+    }
+
+    @Test
+    void missingS3ObjectAfterLostAckFailsAndCleansMultipart() {
+        var a = attempt(1); a.setMultipartUploadId("multipart");
+        when(storage.inspect(any(), any())).thenThrow(software.amazon.awssdk.services.s3.model.S3Exception.builder().statusCode(404).build());
+        var req = request("missing-s3", 1); req.setCategory(UploadFailureCategory.TRANSFER_ACK_LOST);
+        service.ingest(req);
+        assertThat(a.getStatus()).isEqualTo(UploadAttemptStatus.FAILED);
+        verify(storage).abortMultipartUpload(a.getStorageKey(), "multipart");
+        assertThat(ledger.get("upload-failure:missing-s3").isProcessed()).isTrue();
     }
 
     private MediaUploadAttempt attempt(int n) {
@@ -185,6 +240,10 @@ class UploadFailureEventRecoveryTest {
         assertThat(failedCount()).as("a confirmed object is never a failed transfer").isZero();
         assertThat(ledger.get("upload-failure:evt-ack-present").getProcessingOutcome())
                 .isEqualTo(UploadFailureEventServiceImpl.OUTCOME_OBJECT_PRESENT);
+        assertThat(attemptRows.getFirst().getStatus()).isEqualTo(UploadAttemptStatus.UPLOADED);
+        assertThat(captured.getMediaStatus()).isEqualTo(MediaStatus.VALIDATING);
+        verify(validation).processObjectCreated(eq("test-bucket"), eq(attemptRows.getFirst().getStorageKey()),
+                eq("ack-recovery:upload-failure:evt-ack-present"));
     }
 
     // ---------- 4. Duplicate arriving while the original row is still pending ----------
@@ -288,4 +347,19 @@ class UploadFailureEventRecoveryTest {
         assertThat(taskInserts.get()).isZero();
         assertThat(ledger.values()).allMatch(UploadFailureEvent::isProcessed);
     }
+    @Test void lateFailureAndAckLostAreAcknowledgedWithoutReopeningRemovedMedia() {
+        captured.setMediaStatus(MediaStatus.REMOVED);
+        for (var category : UploadFailureCategory.values()) {
+            var event=new UploadFailureEvent();event.setEventKey("removed-"+category);event.setMediaId(MEDIA_ID);
+            event.setAttemptId("attempt");event.setCategory(category);
+            var attempt=new MediaUploadAttempt();attempt.setId("attempt");attempt.setMedia(captured);attempt.setStatus(UploadAttemptStatus.PENDING);
+            when(attempts.findByIdAndMediaIdForUpdate("attempt",MEDIA_ID)).thenReturn(Optional.of(attempt));
+            when(attempts.findByIdAndMediaId("attempt",MEDIA_ID)).thenReturn(Optional.of(attempt));
+            var method=org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"applyRecorded",event,null,category);
+            assertThat(method).isNotNull();assertThat(event.getProcessingOutcome()).isEqualTo("MEDIA_REMOVED");
+            assertThat(event.getProcessedAt()).isNotNull();assertThat(captured.getMediaStatus()).isEqualTo(MediaStatus.REMOVED);
+        }
+        verifyNoInteractions(validation);assertThat(taskInserts.get()).isZero();
+    }
+
 }

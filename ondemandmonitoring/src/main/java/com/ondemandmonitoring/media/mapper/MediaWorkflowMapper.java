@@ -16,6 +16,12 @@ public interface MediaWorkflowMapper {
     @Mapping(target = "mediaType", source = "asset.type")
     @Mapping(target = "fileName", source = "asset.originalFileName")
     @Mapping(target = "status", source = "asset.mediaStatus")
+    @Mapping(target = "staffCreated", ignore = true)
+    @Mapping(target = "uploadChannel", ignore = true)
+    @Mapping(target = "attemptNumber", ignore = true)
+    @Mapping(target = "failureCode", ignore = true)
+    @Mapping(target = "failureMessage", ignore = true)
+    @Mapping(target = "manualTaskId", ignore = true)
     OperatorMissionMediaResponse toOperatorResponse(MediaAsset asset, String downloadUrl,
             String thumbnailUrl, String previewUrl, java.time.Instant urlExpiresAt);
 
@@ -53,6 +59,9 @@ public interface MediaWorkflowMapper {
     @Mapping(target = "partSizeBytes", source = "partSizeBytes")
     @Mapping(target = "partCount", source = "partCount")
     @Mapping(target = "manualTaskId", source = "manualTaskId")
+    @Mapping(target = "uploadChannel", source = "attempt.uploadChannel")
+    @Mapping(target = "failureCode", source = "attempt.failureCode")
+    @Mapping(target = "failureMessage", source = "attempt.failureMessage")
     MediaUploadResponse toUploadResponse(MediaAsset asset, MediaUploadAttempt attempt,
             String uploadMethod, String uploadUrl, Map<String, List<String>> uploadHeaders,
             long partSizeBytes, int partCount, java.time.Instant expiresAt, String manualTaskId);

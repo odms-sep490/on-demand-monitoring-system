@@ -138,4 +138,16 @@ class MediaValidationServiceImplTest {
         assertThat(attempt.getStatus()).isEqualTo(UploadAttemptStatus.SUCCEEDED);
         verify(storage).copy(bucket, stagingKey, stagingKey.replace("/staging/", "/final/"));
     }
+    @Test void lateSqsEventCannotResurrectARemovedAssetAfterCleanupFailure() {
+        var removed=new MediaAsset();removed.setId("removed");removed.setMediaStatus(MediaStatus.REMOVED);
+        removed.setStorageStatus(com.ondemandmonitoring.media.enums.MediaStorageStatus.DELETE_FAILED);
+        var attempt=new MediaUploadAttempt();attempt.setMedia(removed);attempt.setStatus(UploadAttemptStatus.UPLOADED);
+        when(storage.bucket()).thenReturn("bucket");when(attempts.findMediaIdByStorageKey("late-key")).thenReturn(Optional.of("removed"));
+        when(media.findByIdForUpdate("removed")).thenReturn(Optional.of(removed));
+        when(attempts.findByStorageKeyForUpdate("late-key")).thenReturn(Optional.of(attempt));
+        service.processObjectCreated("bucket","late-key","late-removed");
+        assertThat(removed.getMediaStatus()).isEqualTo(MediaStatus.REMOVED);
+        verify(storage).delete("bucket","late-key");org.mockito.Mockito.verifyNoInteractions(auditService);
+    }
+
 }

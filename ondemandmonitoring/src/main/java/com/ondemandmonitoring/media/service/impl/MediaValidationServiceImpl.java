@@ -68,7 +68,7 @@ public class MediaValidationServiceImpl implements IMediaValidationService {
         }
 
         MediaUploadAttempt attempt = found.get();
-        if (captured.getStorageStatus() == MediaStorageStatus.DELETED
+        if (captured.getMediaStatus() == MediaStatus.REMOVED || captured.getStorageStatus() == MediaStorageStatus.DELETED
                 || captured.getStorageStatus() == MediaStorageStatus.DELETE_PENDING
                 || "ORPHAN_CLEANUP".equals(attempt.getFailureCode())) {
             // A PUT started before expiry can arrive late. Never resurrect a removed object.

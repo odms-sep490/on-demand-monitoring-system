@@ -5,6 +5,9 @@ import com.ondemandmonitoring.media.domain.MediaAsset;
 import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.mapper.MediaWorkflowMapper;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
+import com.ondemandmonitoring.media.repository.MediaUploadAttemptRepository;
+import com.ondemandmonitoring.media.repository.ManualUploadTaskRepository;
+import com.ondemandmonitoring.media.service.impl.MediaDerivativeService;
 import com.ondemandmonitoring.media.service.impl.OperatorMissionMediaServiceImpl;
 import com.ondemandmonitoring.mission.dto.response.MissionMediaContext;
 import com.ondemandmonitoring.mission.service.IMissionMediaAccessService;
@@ -20,9 +23,13 @@ import static org.mockito.Mockito.*;
 class OperatorMissionMediaServiceTest {
     final IMissionMediaAccessService access = mock(IMissionMediaAccessService.class);
     final MediaAssetRepository media = mock(MediaAssetRepository.class);
+    final MediaUploadAttemptRepository attempts = mock(MediaUploadAttemptRepository.class);
+    final ManualUploadTaskRepository manualTasks = mock(ManualUploadTaskRepository.class);
     final IMediaObjectStorage storage = mock(IMediaObjectStorage.class);
+    final MediaDerivativeService derivatives = mock(MediaDerivativeService.class);
     final MediaWorkflowMapper mapper = org.mapstruct.factory.Mappers.getMapper(MediaWorkflowMapper.class);
-    final IOperatorMissionMediaService service = new OperatorMissionMediaServiceImpl(access, media, storage, mapper);
+    final IOperatorMissionMediaService service = new OperatorMissionMediaServiceImpl(
+            access, media, attempts, manualTasks, storage, derivatives, mapper);
 
     @Test
     void listsOnlyAvailableForAuthorizedCanonicalMissionWithPagination() {
@@ -68,6 +75,26 @@ class OperatorMissionMediaServiceTest {
         when(media.findById("media")).thenReturn(Optional.of(asset("mission", MediaStatus.AVAILABLE)));
         when(storage.createPresignedGetUrl("bucket", "final/key")).thenReturn("fresh-url");
         assertThat(service.getAvailable("mission", "media").getDownloadUrl()).isEqualTo("fresh-url");
+    }
+
+    @Test
+    void workspaceIncludesFailedStaffAttemptWithoutSigningStagingObject() {
+        when(access.authorizeOperator("MS-1")).thenReturn(new MissionMediaContext("mission", false));
+        var asset = asset("mission", MediaStatus.MANUAL_UPLOAD_REQUIRED);
+        asset.setLocalMediaId("staff-capture"); asset.setChecksumSha256("a".repeat(64));
+        var attempt = new com.ondemandmonitoring.media.domain.MediaUploadAttempt();
+        attempt.setMedia(asset); attempt.setAttemptNumber(2);
+        attempt.setUploadChannel(com.ondemandmonitoring.media.enums.MediaUploadChannel.STAFF_FILE);
+        attempt.setFailureCode("TRANSFER_FAILED"); attempt.setFailureMessage("offline");
+        when(media.findMissionCandidates(eq("mission"), any(Pageable.class)))
+                .thenAnswer(call -> new PageImpl<>(List.of(asset), call.getArgument(1), 1));
+        when(attempts.findLatestByMediaIds(List.of("media"))).thenReturn(List.of(attempt));
+        var response = service.listWorkspace("MS-1", 0, 50).getItems().getFirst();
+        assertThat(response.getUploadChannel()).isEqualTo(com.ondemandmonitoring.media.enums.MediaUploadChannel.STAFF_FILE);
+        assertThat(response.getAttemptNumber()).isEqualTo(2);
+        assertThat(response.getFailureMessage()).isEqualTo("offline");
+        assertThat(response.getDownloadUrl()).isNull();
+        verifyNoInteractions(storage, derivatives);
     }
 
     private MediaAsset asset(String missionId, MediaStatus status) {

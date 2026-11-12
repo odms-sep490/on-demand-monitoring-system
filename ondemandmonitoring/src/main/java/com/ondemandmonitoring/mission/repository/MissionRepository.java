@@ -77,6 +77,21 @@ public interface MissionRepository extends JpaRepository<Mission, String>, JpaSp
             """)
     List<Mission> findByStaffIdAndStatusIn(@Param("staffId") String staffId, @Param("statuses") List<MissionStatus> statuses);
 
+    @EntityGraph(attributePaths = "order")
+    @Query("""
+            SELECT DISTINCT m FROM Mission m
+            JOIN MissionStaffAssignment msa ON msa.mission = m
+            WHERE msa.staff.id = :staffId
+              AND msa.isCurrent = true
+              AND msa.releasedAt IS NULL
+              AND m.status IN :statuses
+            ORDER BY m.updatedAt DESC
+            """)
+    List<Mission> findCurrentAssignmentsForStaff(
+            @Param("staffId") String staffId,
+            @Param("statuses") List<MissionStatus> statuses,
+            org.springframework.data.domain.Pageable pageable);
+
     List<Mission> findByStatusIn(List<MissionStatus> statuses);
 
     long countByStatusIn(java.util.Collection<MissionStatus> statuses);

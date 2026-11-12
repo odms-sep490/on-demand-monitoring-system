@@ -46,6 +46,14 @@ class MediaOrphanCleanupServiceTest {
         assertThat(asset.getMediaStatus()).isEqualTo(MediaStatus.RETRY_REQUIRED);
         assertThat(asset.getValidatedAt()).isNull(); verify(media, never()).delete(any());
     }
+    @Test void failedMultipartIsAbortedDuringOrphanCleanup() {
+        var attempt = new MediaUploadAttempt(); attempt.setStatus(UploadAttemptStatus.FAILED);
+        attempt.setStorageKey("staging/failed.mp4"); attempt.setMultipartUploadId("upload-id");
+        attempt.setExpiresAt(Instant.now().minusSeconds(3600));
+        when(attempts.findByMediaIdOrderByAttemptNumberDesc("media")).thenReturn(List.of(attempt));
+        assertThat(service.cleanup()).isEqualTo(1);
+        verify(storage).abortMultipartUpload("staging/failed.mp4", "upload-id");
+    }
     @Test void aRemainingChecklistOrResultReferenceCancelsCleanup() {
         when(guard.hasEvidenceOrResultReferences("media")).thenReturn(true);
         assertThat(service.cleanup()).isZero(); verifyNoInteractions(storage);
@@ -89,4 +97,20 @@ class MediaOrphanCleanupServiceTest {
         asset.setOrphanCleanupRequestedAt(null); when(guard.hasEvidenceOrResultReferences("media")).thenReturn(true);
         service.request("media"); assertThat(asset.getOrphanCleanupRequestedAt()).isNull();
     }
+    @Test void removedAvailableMediaIsCleanedWithoutLosingTheTombstoneAndAuditTimestamps() {
+        var validated=asset.getValidatedAt(); asset.setMediaStatus(MediaStatus.REMOVED);
+        asset.setAvailableAt(Instant.now()); asset.setStorageStatus(MediaStorageStatus.DELETE_PENDING);
+        assertThat(service.cleanup()).isEqualTo(1);
+        assertThat(asset.getMediaStatus()).isEqualTo(MediaStatus.REMOVED);
+        assertThat(asset.getStorageStatus()).isEqualTo(MediaStorageStatus.DELETED);
+        assertThat(asset.getValidatedAt()).isEqualTo(validated);
+        assertThat(asset.getAvailableAt()).isNotNull();
+    }
+    @Test void removedMediaKeepsItsTombstoneWhenDeletionFailsAndRetries() {
+        asset.setMediaStatus(MediaStatus.REMOVED); asset.setStorageStatus(MediaStorageStatus.DELETE_PENDING);
+        doThrow(new IllegalStateException("offline")).doNothing().when(storage).delete("qa-only","canonical/media.jpg");
+        assertThat(service.cleanup()).isZero(); assertThat(asset.getMediaStatus()).isEqualTo(MediaStatus.REMOVED);
+        assertThat(service.cleanup()).isEqualTo(1); assertThat(asset.getMediaStatus()).isEqualTo(MediaStatus.REMOVED);
+    }
+
 }

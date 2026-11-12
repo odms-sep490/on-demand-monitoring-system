@@ -7,20 +7,16 @@ import com.ondemandmonitoring.finance.dto.CommercialExpirationSettingsRequest;
 import com.ondemandmonitoring.finance.dto.CommercialExpirationSettingsResponse;
 import com.ondemandmonitoring.finance.repository.CommercialExpirationSettingsAuditRepository;
 import com.ondemandmonitoring.finance.repository.CommercialExpirationSettingsRepository;
-import com.ondemandmonitoring.audit.enums.AuditAction;
-import com.ondemandmonitoring.audit.service.AdminAuditLogService;
 import com.ondemandmonitoring.user.domain.UserIdentity;
 import com.ondemandmonitoring.user.repository.UserIdentityRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,14 +36,6 @@ public class CommercialExpirationSettingsService {
     private final CommercialExpirationSettingsAuditRepository auditRepository;
     private final UserIdentityRepository userIdentityRepository;
     private final Clock clock;
-
-    private AdminAuditLogService auditLog;
-
-    /** Optional collaborator: records the change on the Admin audit log. */
-    @Autowired(required = false)
-    public void setAuditLog(AdminAuditLogService auditLog) {
-        this.auditLog = auditLog;
-    }
 
     @Transactional(readOnly = true)
     public CommercialExpirationSettingsResponse current() {
@@ -83,16 +71,6 @@ public class CommercialExpirationSettingsService {
             settings.setUpdatedAt(changedAt);
             settingsRepository.save(settings);
             auditRepository.saveAll(audits);
-            if (auditLog != null) {
-                Map<String, Object> before = new LinkedHashMap<>();
-                Map<String, Object> after = new LinkedHashMap<>();
-                for (CommercialExpirationSettingsAudit change : audits) {
-                    before.put(change.getSettingName(), change.getPreviousValue());
-                    after.put(change.getSettingName(), change.getNewValue());
-                }
-                auditLog.record(AuditAction.UPDATE, "order_expiration_settings",
-                        CommercialExpirationSettings.DEFAULT_ID, before, after);
-            }
         }
         return response(settings);
     }

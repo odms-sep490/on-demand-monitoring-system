@@ -91,7 +91,7 @@ public class MediaOrphanCleanupServiceImpl implements IMediaOrphanCleanupService
         if ((asset.getMediaStatus() == MediaStatus.VALIDATING || asset.getMediaStatus() == MediaStatus.UPLOADING)
                 && asset.getUpdatedAt() != null && asset.getUpdatedAt().plusSeconds(graceSeconds).isAfter(now)) return null;
         for (var attempt : history) {
-          if (attempt.getStatus() == UploadAttemptStatus.PENDING || attempt.getStatus() == UploadAttemptStatus.UPLOADED || "ORPHAN_CLEANUP".equals(attempt.getFailureCode())) {
+          if (attempt.getStatus() != UploadAttemptStatus.SUCCEEDED) {
             if (attempt.getMultipartUploadId() != null) {
                 multipart.add(new Multipart(attempt.getStorageKey(), attempt.getMultipartUploadId()));
             }
@@ -107,8 +107,10 @@ public class MediaOrphanCleanupServiceImpl implements IMediaOrphanCleanupService
         if (asset.getPreviewKey() != null) keys.add(asset.getPreviewKey());
         keys.removeIf(k -> k == null || k.isBlank());
         asset.setStorageStatus(MediaStorageStatus.DELETE_PENDING);
-        asset.setMediaStatus(MediaStatus.RETRY_REQUIRED);
-        asset.setValidatedAt(null);
+        if (asset.getMediaStatus() != MediaStatus.REMOVED) {
+            asset.setMediaStatus(MediaStatus.RETRY_REQUIRED);
+            asset.setValidatedAt(null);
+        }
         asset.setOrphanCleanupClaimedAt(now);
         asset.setStorageDeletionError(null);
         return new Claim(asset.getS3Bucket(), List.copyOf(keys), List.copyOf(multipart), now);
@@ -121,15 +123,18 @@ public class MediaOrphanCleanupServiceImpl implements IMediaOrphanCleanupService
             asset.setStorageDeletionError(success ? null : "ORPHAN_CLEANUP_FAILED");
             if (success) {
                 asset.setDeletedFromStorageAt(Instant.now());
-                asset.setValidatedAt(null);
-                asset.setMediaStatus(MediaStatus.RETRY_REQUIRED);
-                asset.setValidationError("ORPHAN_OBJECT_DELETED");
+                if (asset.getMediaStatus() != MediaStatus.REMOVED) {
+                    asset.setValidatedAt(null);
+                    asset.setMediaStatus(MediaStatus.RETRY_REQUIRED);
+                    asset.setValidationError("ORPHAN_OBJECT_DELETED");
+                }
             }
         }));
     }
 
     private boolean protectedAsset(MediaAsset asset) {
-        return asset.getMediaStatus() == MediaStatus.AVAILABLE || asset.getAvailableAt() != null || asset.isPreviewSelected();
+        return asset.getMediaStatus() != MediaStatus.REMOVED
+                && (asset.getMediaStatus() == MediaStatus.AVAILABLE || asset.getAvailableAt() != null || asset.isPreviewSelected());
     }
     private record Multipart(String key, String uploadId) {}
     private record Claim(String bucket, List<String> keys, List<Multipart> multipart, Instant claimedAt) {}

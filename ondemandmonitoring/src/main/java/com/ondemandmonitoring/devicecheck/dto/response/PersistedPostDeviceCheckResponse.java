@@ -6,7 +6,8 @@ import com.ondemandmonitoring.devicecheck.domain.PersistedPostDeviceCheckItem;
 import com.ondemandmonitoring.devicecheck.enums.DeviceCheckItemStatus;
 import com.ondemandmonitoring.devicecheck.enums.DeviceCheckLevel;
 import com.ondemandmonitoring.devicecheck.enums.DeviceCheckStatus;
-import com.ondemandmonitoring.mission.domain.DeviceConnection;
+import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
+
 import java.time.Instant;
 import java.util.List;
 import lombok.Builder;
@@ -18,7 +19,7 @@ public class PersistedPostDeviceCheckResponse {
 
     String id;
     String missionId;
-    String deviceConnectionId;
+    String deviceAssignmentId;
     String deviceId;
     String deviceCode;
     String deviceName;
@@ -49,8 +50,8 @@ public class PersistedPostDeviceCheckResponse {
     }
 
     public static PersistedPostDeviceCheckResponse from(PersistedPostDeviceCheck run) {
-        DeviceConnection connection = run.getDeviceConnection();
-        Device device = connection == null ? null : connection.getDevice();
+        MissionDeviceAssignment assignment = run.getMissionDeviceAssignment();
+        Device device = assignment == null ? null : assignment.getDevice();
         int total = run.getTotalChecks() == null ? 0 : run.getTotalChecks();
         Double landingBatteryPercent = run.getItems().stream()
                 .filter(i -> "e1".equalsIgnoreCase(i.getCheckType())
@@ -68,7 +69,7 @@ public class PersistedPostDeviceCheckResponse {
         return builder()
                 .id(run.getId())
                 .missionId(run.getMission().getId())
-                .deviceConnectionId(connection == null ? null : connection.getId())
+                .deviceAssignmentId(assignment == null ? null : assignment.getId())
                 .deviceId(device == null ? null : device.getId())
                 .deviceCode(device == null ? null : device.getDeviceCode())
                 .deviceName(device == null ? null : device.getName())

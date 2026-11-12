@@ -1,6 +1,7 @@
 package com.ondemandmonitoring.media.dto.response;
 
 import com.ondemandmonitoring.media.enums.MediaStatus;
+import com.ondemandmonitoring.media.enums.MediaUploadChannel;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -29,4 +30,7 @@ public class MediaUploadResponse {
     int partCount;
     Instant expiresAt;
     String manualTaskId;
+    MediaUploadChannel uploadChannel;
+    String failureCode;
+    String failureMessage;
 }

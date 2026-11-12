@@ -10,12 +10,14 @@ import com.ondemandmonitoring.media.domain.UploadFailureEvent;
 import com.ondemandmonitoring.media.dto.request.ReportUploadFailureRequest;
 import com.ondemandmonitoring.media.dto.response.UploadFailureAckResponse;
 import com.ondemandmonitoring.media.enums.UploadFailureCategory;
+import com.ondemandmonitoring.media.enums.MediaUploadChannel;
 import com.ondemandmonitoring.media.policy.MediaUploadPolicy;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
 import com.ondemandmonitoring.media.repository.MediaUploadAttemptRepository;
 import com.ondemandmonitoring.media.repository.UploadFailureEventRepository;
 import com.ondemandmonitoring.media.service.IMediaObjectStorage;
 import com.ondemandmonitoring.media.service.IUploadFailureEventService;
+import com.ondemandmonitoring.media.service.IMediaValidationService;
 import com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -57,6 +59,8 @@ public class UploadFailureEventServiceImpl implements IUploadFailureEventService
     IMediaObjectStorage storage;
     ManualUploadTaskServiceImpl manualTaskService;
     IMissionMediaEvidenceGuard missionLock;
+    IMediaValidationService validation;
+    org.springframework.transaction.PlatformTransactionManager transactions;
 
     @Override
     @Transactional
@@ -129,12 +133,29 @@ public class UploadFailureEventServiceImpl implements IUploadFailureEventService
      * event retryable.
      */
     private UploadFailureAckResponse applyAckLost(UploadFailureEvent event) {
-        MediaUploadAttempt attempt = attemptOf(event);
-        if (attempt == null) return attemptMissing(event);
-        MediaAsset captured = media.findById(event.getMediaId()).orElse(null);
+        missionLock.lock(event.getMediaId());
+        MediaAsset captured = media.findByIdForUpdate(event.getMediaId()).orElse(null);
+        MediaUploadAttempt attempt = attempts.findByIdAndMediaIdForUpdate(
+                event.getAttemptId(), event.getMediaId()).orElse(null);
+        if (attempt == null || captured == null) return attemptMissing(event);
+        if (captured.getMediaStatus() == MediaStatus.REMOVED) return removedEvent(event);
+        if (!isLatest(attempt) || attempt.getStatus() == UploadAttemptStatus.SUCCEEDED) {
+            event.setProcessingOutcome("SUPERSEDED_OR_SUCCEEDED");
+            event.setProcessedAt(Instant.now());
+            events.save(event);
+            return acceptedWithStatus(event, captured.getMediaStatus());
+        }
+        if (attempt.getStatus() == UploadAttemptStatus.FAILED) {
+            return applyTransferFailure(event);
+        }
         IMediaObjectStorage.StoredObjectInfo object;
         try {
             object = storage.inspect(captured == null ? null : captured.getS3Bucket(), attempt.getStorageKey());
+        } catch (software.amazon.awssdk.services.s3.model.S3Exception failure) {
+            if (failure.statusCode() == 404) return applyTransferFailure(event);
+            return UploadFailureAckResponse.builder().durablyAccepted(true).retryLater(true)
+                    .eventKey(event.getEventKey()).mediaId(event.getMediaId())
+                    .category(event.getCategory()).build();
         } catch (RuntimeException storageUnavailable) {
             // Retain a retryable state rather than guessing the transfer outcome.
             return UploadFailureAckResponse.builder()
@@ -146,10 +167,22 @@ public class UploadFailureEventServiceImpl implements IUploadFailureEventService
             // The object is definitively absent, so this really was a failed transfer.
             return applyTransferFailure(event);
         }
+        if (attempt.getStatus() == UploadAttemptStatus.PENDING) {
+            attempt.setStatus(UploadAttemptStatus.UPLOADED);
+            attempt.setCompletedAt(Instant.now());
+            attempts.save(attempt);
+        }
+        if (captured.getMediaStatus() != MediaStatus.AVAILABLE
+                && captured.getMediaStatus() != MediaStatus.PENDING_MANAGER_APPROVAL) {
+            captured.setMediaStatus(MediaStatus.VALIDATING);
+            media.save(captured);
+        }
         event.setProcessingOutcome(OUTCOME_OBJECT_PRESENT);
         event.setProcessedAt(Instant.now());
         events.save(event);
-        // The object exists: let the existing validation/reconciliation workflow continue it.
+        // The object exists: hand it to the same checksum/type validator as the S3 event path.
+        validation.processObjectCreated(captured.getS3Bucket(), attempt.getStorageKey(),
+                "ack-recovery:" + event.getEventKey());
         return UploadFailureAckResponse.builder()
                 .durablyAccepted(true).duplicate(false)
                 .eventKey(event.getEventKey()).mediaId(event.getMediaId())
@@ -165,7 +198,15 @@ public class UploadFailureEventServiceImpl implements IUploadFailureEventService
         missionLock.lock(event.getMediaId());
         MediaUploadAttempt attempt = attemptOf(event);
         if (attempt == null) return attemptMissing(event);
+        if (media.findById(event.getMediaId()).map(asset -> asset.getMediaStatus() == MediaStatus.REMOVED).orElse(false))
+            return removedEvent(event);
 
+        if (attempt.getStatus() == UploadAttemptStatus.SUCCEEDED) {
+            event.setProcessingOutcome("SUCCEEDED");
+            event.setProcessedAt(Instant.now());
+            events.save(event);
+            return accepted(event);
+        }
         if (attempt.getStatus() != UploadAttemptStatus.FAILED) {
             attempt.setStatus(UploadAttemptStatus.FAILED);
             attempt.setFailureCode(event.getFailureCode());
@@ -173,19 +214,30 @@ public class UploadFailureEventServiceImpl implements IUploadFailureEventService
             attempt.setCompletedAt(Instant.now());
             attempts.save(attempt);
         }
-        event.setProcessingOutcome(OUTCOME_APPLIED);
-        event.setProcessedAt(Instant.now());
+        boolean cleanupPending = false;
+        if (attempt.getMultipartUploadId() != null) {
+            try {
+                storage.abortMultipartUpload(attempt.getStorageKey(), attempt.getMultipartUploadId());
+            } catch (RuntimeException unavailable) {
+                // Keep the durable event pending until cleanup succeeds; never retry file bytes.
+                cleanupPending = true;
+            }
+        }
+        event.setProcessingOutcome(cleanupPending ? "CLEANUP_PENDING" : OUTCOME_APPLIED);
+        if (!cleanupPending) event.setProcessedAt(Instant.now());
         events.save(event);
 
         MediaAsset captured = media.findById(event.getMediaId()).orElse(null);
         if (captured == null) return accepted(event);
+        if (!isLatest(attempt)) return acceptedWithStatus(event, captured.getMediaStatus());
         if (captured.getMediaStatus() == MediaStatus.PENDING_MANAGER_APPROVAL
                 || captured.getMediaStatus() == MediaStatus.AVAILABLE) {
             // Already recovered or approved: never demote it because of a late event.
             return acceptedWithStatus(event, captured.getMediaStatus());
         }
         captured.setValidationError(event.getFailureMessage());
-        if (policy.failedAutomaticAttemptsExhausted(failedCount(captured.getId()))) {
+        if (attempt.isManualAttempt() || attempt.getUploadChannel() == MediaUploadChannel.STAFF_FILE
+                || policy.failedAutomaticAttemptsExhausted(failedCount(captured.getId()))) {
             captured.setMediaStatus(MediaStatus.MANUAL_UPLOAD_REQUIRED);
             manualTaskService.requireOpen(captured, event.getFailureMessage());
         } else {
@@ -203,7 +255,10 @@ public class UploadFailureEventServiceImpl implements IUploadFailureEventService
         // on the next pass.
         for (UploadFailureEvent event : events.findByProcessedAtIsNullOrderByOccurredAtAsc()) {
             try {
-                last = applyRecorded(event, null, event.getCategory());
+                last = new org.springframework.transaction.support.TransactionTemplate(transactions).execute(tx -> {
+                    UploadFailureEvent current = events.findByEventKey(event.getEventKey()).orElse(event);
+                    return applyRecorded(current, null, current.getCategory());
+                });
             } catch (RuntimeException transientFailure) {
                 last = UploadFailureAckResponse.builder()
                         .durablyAccepted(true).retryLater(true)
@@ -212,6 +267,13 @@ public class UploadFailureEventServiceImpl implements IUploadFailureEventService
             }
         }
         return last;
+    }
+
+    private UploadFailureAckResponse removedEvent(UploadFailureEvent event) {
+        event.setProcessingOutcome("MEDIA_REMOVED");
+        event.setProcessedAt(Instant.now());
+        events.save(event);
+        return acceptedWithStatus(event, MediaStatus.REMOVED);
     }
 
     private UploadFailureAckResponse attemptMissing(UploadFailureEvent event) {
@@ -229,12 +291,17 @@ public class UploadFailureEventServiceImpl implements IUploadFailureEventService
         return UploadFailureAckResponse.builder()
                 .durablyAccepted(true).duplicate(false)
                 .eventKey(event.getEventKey()).mediaId(event.getMediaId())
-                .category(event.getCategory()).status(status).retryLater(false)
+                .category(event.getCategory()).status(status).retryLater(!event.isProcessed())
                 .build();
     }
 
     private MediaUploadAttempt attemptOf(UploadFailureEvent event) {
-        return attempts.findByIdAndMediaId(event.getAttemptId(), event.getMediaId()).orElse(null);
+        return attempts.findByIdAndMediaIdForUpdate(event.getAttemptId(), event.getMediaId()).orElse(null);
+    }
+
+    private boolean isLatest(MediaUploadAttempt attempt) {
+        return attempts.findFirstByMediaIdOrderByAttemptNumberDesc(attempt.getMedia().getId())
+                .map(latest -> latest.getId().equals(attempt.getId())).orElse(false);
     }
 
     private long failedCount(String mediaId) {

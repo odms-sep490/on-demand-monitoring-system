@@ -156,33 +156,6 @@ public interface IMissionService {
 //    MissionResponse assignResources(String missionId, String deviceId, String staffId);
 
     /**
-     * Connects GCS app for the mission (Delegated to IGcsConnectionService).
-     *
-     * @param missionId Mission ID
-     * @return {@link MissionResponse} Updated mission DTO
-     */
-    MissionResponse connectGcs(String missionId);
-
-    /**
-     * Disconnects GCS session cleanly (Delegated to IGcsConnectionService).
-     *
-     * @param missionId        Mission ID
-     * @param disconnectReason Disconnect reason
-     * @return {@link MissionResponse} Updated mission DTO
-     */
-    MissionResponse disconnectGcs(String missionId, String disconnectReason);
-
-    /**
-     * Handles GCS session signal loss and triggers RTL (Delegated to
-     * IGcsConnectionService).
-     *
-     * @param missionId Mission ID
-     * @param reason    Cause of signal loss
-     * @return {@link MissionResponse} Updated mission DTO
-     */
-    MissionResponse handleGcsSessionLost(String missionId, String reason);
-
-    /**
      * Executes digital pre-device safety check before takeoff.
      * Passed -> Sets status to READY_TO_FLY.
      * Failed -> Logs battery/hardware diagnostics, creates maintenance ticket, and

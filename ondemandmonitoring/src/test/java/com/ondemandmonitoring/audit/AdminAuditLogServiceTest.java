@@ -2,6 +2,7 @@ package com.ondemandmonitoring.audit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -16,6 +17,11 @@ import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.user.domain.User;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Path;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -106,6 +112,40 @@ class AdminAuditLogServiceTest {
             assertThat(item.id()).isEqualTo("a-1");
             assertThat(item.ip()).isEmpty();
         });
+    }
+
+    @Test
+    void searchExcludesTechnicalAndSystemGeneratedUserStatusEntries() {
+        when(repository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenAnswer(inv -> Page.empty(inv.getArgument(1)));
+
+        service.search(null, null, null);
+
+        ArgumentCaptor<Specification<AdminAuditLog>> specification = ArgumentCaptor.forClass(Specification.class);
+        verify(repository).findAll(specification.capture(), any(Pageable.class));
+
+        @SuppressWarnings("unchecked")
+        Root<AdminAuditLog> root = mock(Root.class);
+        CriteriaBuilder criteriaBuilder = mock(CriteriaBuilder.class);
+        Path<String> entityType = mock(Path.class);
+        Path<String> actorId = mock(Path.class);
+        Path<AuditAction> action = mock(Path.class);
+        Predicate predicate = mock(Predicate.class);
+
+        when(root.<String>get("entityType")).thenReturn(entityType);
+        when(root.<String>get("actorId")).thenReturn(actorId);
+        when(root.<AuditAction>get("action")).thenReturn(action);
+        when(entityType.in(anyCollection())).thenReturn(predicate);
+        when(criteriaBuilder.not(any(Predicate.class))).thenReturn(predicate);
+        when(criteriaBuilder.equal(any(Expression.class), any(Object.class))).thenReturn(predicate);
+        when(criteriaBuilder.and(any(Predicate[].class))).thenReturn(predicate);
+
+        assertThat(specification.getValue().toPredicate(root, null, criteriaBuilder)).isNotNull();
+
+        verify(entityType).in(java.util.Set.of("refresh_token_cookie", "service_default_price"));
+        verify(criteriaBuilder).equal(entityType, "user");
+        verify(criteriaBuilder).equal(actorId, "system");
+        verify(criteriaBuilder).equal(action, AuditAction.STATUS_CHANGE);
     }
 
     @Test

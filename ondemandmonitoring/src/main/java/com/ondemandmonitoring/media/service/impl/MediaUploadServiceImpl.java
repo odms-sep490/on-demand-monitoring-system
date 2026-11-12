@@ -1,6 +1,7 @@
 package com.ondemandmonitoring.media.service.impl;
 import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.enums.UploadAttemptStatus;
+import com.ondemandmonitoring.media.enums.MediaUploadChannel;
 import com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard;
 
 import com.ondemandmonitoring.common.exception.ApiException;
@@ -68,16 +69,27 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
         MediaAsset asset = media.findByIdForUpdate(mediaId)
                 .orElseThrow(() -> new ApiException(ErrorCode.MEDIA_NOT_FOUND));
         missionAccess.requireUploadPermission(asset.getMissionId());
+        requireStorageMutable(asset);
         if (!asset.getFileSize().equals(request.getFileSize())
                 || !asset.getContentType().equalsIgnoreCase(request.getContentType())
                 || !asset.getChecksumSha256().equalsIgnoreCase(request.getChecksumSha256())) {
             throw new ApiException(ErrorCode.MEDIA_IDEMPOTENCY_CONFLICT,
                     "Selected file is not an exact copy of the original capture");
         }
-        if (manualTasks.findByMediaId(mediaId).isEmpty()) {
+        if (asset.getMediaStatus() == MediaStatus.AVAILABLE
+                || asset.getMediaStatus() == MediaStatus.PENDING_MANAGER_APPROVAL
+                || asset.getMediaStatus() == MediaStatus.VALIDATING) return status(mediaId);
+        if (asset.getMediaStatus() == MediaStatus.UPLOAD_PENDING) {
+            var latest = attempts.findFirstByMediaIdOrderByAttemptNumberDesc(mediaId);
+            if (latest.isPresent() && latest.get().getUploadChannel() == MediaUploadChannel.STAFF_FILE
+                    && latest.get().getStatus() == UploadAttemptStatus.PENDING) return existingResponse(asset);
+        }
+        if (asset.getMediaStatus() != MediaStatus.MANUAL_UPLOAD_REQUIRED
+                || manualTasks.findByMediaId(mediaId).filter(task -> task.getStatus()
+                    == com.ondemandmonitoring.media.enums.ManualUploadTaskStatus.OPEN).isEmpty()) {
             throw new ApiException(ErrorCode.MEDIA_UPLOAD_ATTEMPT_INVALID, "No manual task exists");
         }
-        MediaUploadResponse response = retry(mediaId, true);
+        MediaUploadResponse response = newAttempt(asset, true, MediaUploadChannel.STAFF_FILE);
         audit(asset, null, "PC_BACKUP_SELECTED", "Exact backup selected for manual upload");
         return response;
     }
@@ -106,8 +118,9 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
                     || !captured.getChecksumSha256().equalsIgnoreCase(request.getChecksumSha256())) {
                 throw new ApiException(ErrorCode.MEDIA_IDEMPOTENCY_CONFLICT);
             }
+            if (captured.getMediaStatus() == MediaStatus.REMOVED) throw new ApiException(ErrorCode.MEDIA_NOT_FOUND);
             if (captured.getStorageStatus() == com.ondemandmonitoring.media.enums.MediaStorageStatus.DELETED)
-                return newAttempt(captured, false);
+                return newAttempt(captured, false, MediaUploadChannel.FLIGHT_CONTROLLER);
             requireStorageMutable(captured);
             captured.setOrphanCleanupRequestedAt(null);
             return existingResponse(captured);
@@ -125,7 +138,7 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
         captured.setMission(deviceAssignment.getMission());
         captured.setLocalMediaId(request.getLocalMediaId());
         captured.setOperatorId(actor());
-        captured.setSourceType(request.getSourceType());
+        captured.setSourceType(request.getSourceType() == null ? "DRONE_CAMERA" : request.getSourceType());
         captured.setType(request.getMediaType());
         captured.setStorageProvider("S3");
         captured.setOriginalFileName(request.getFileName().replaceAll("[^A-Za-z0-9._-]", "_"));
@@ -140,7 +153,72 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
         captured = media.saveAndFlush(captured);
         audit(captured, null, "PREPARED", null);
 
-        return newAttempt(captured, false);
+        return newAttempt(captured, false, MediaUploadChannel.FLIGHT_CONTROLLER);
+    }
+
+    @Override
+    @Transactional
+    public MediaUploadResponse prepareStaffFile(String missionId, PrepareMediaUploadRequest request) {
+        MissionMediaContext mission = missionAccess.authorizeOperator(missionId);
+        missionAccess.requireUploadPermission(mission.getId());
+        missionLock.lockMission(mission.getId());
+        MissionDeviceAssignment deviceAssignment = requireAssignedDeviceAssignment(mission, request.getDeviceId());
+        validateMetadata(request, mission);
+        requireCaptureWithinMission(request, mission);
+
+        Optional<MediaAsset> existing = media.findByMissionIdAndDeviceIdAndLocalMediaId(
+                mission.getId(), deviceAssignment.getDevice().getId(), request.getLocalMediaId());
+        if (existing.isPresent()) {
+            MediaAsset captured = existing.get();
+            if (!captured.getType().equals(request.getMediaType())
+                    || !captured.getContentType().equals(request.getContentType())
+                    || !captured.getFileSize().equals(request.getFileSize())
+                    || !captured.getChecksumSha256().equalsIgnoreCase(request.getChecksumSha256())
+                    || !"DRONE_CAMERA".equals(captured.getSourceType())) {
+                throw new ApiException(ErrorCode.MEDIA_IDEMPOTENCY_CONFLICT);
+            }
+            if (captured.getMediaStatus() == MediaStatus.REMOVED) {
+                throw new ApiException(ErrorCode.MEDIA_REMOVED);
+            }
+            requireStorageMutable(captured);
+            if (captured.getMediaStatus() == MediaStatus.MANUAL_UPLOAD_REQUIRED) {
+                declareStaffCaptureTime(captured, request);
+                return newAttempt(captured, true, MediaUploadChannel.STAFF_FILE);
+            }
+            if (Math.abs(java.time.Duration.between(captured.getCapturedAt(), request.getCapturedAt()).getSeconds()) > 2)
+                throw new ApiException(ErrorCode.MEDIA_IDEMPOTENCY_CONFLICT, "Capture time cannot change during an active or completed upload");
+            return existingResponse(captured);
+        }
+
+        if (storage.bucket() == null || storage.bucket().isBlank()) {
+            throw new ApiException(ErrorCode.INTERNAL_SERVER_ERROR, "S3 bucket is required");
+        }
+        if (media.existsActiveDuplicate(mission.getId(), request.getChecksumSha256())) {
+            throw new ApiException(ErrorCode.MEDIA_DUPLICATE_CONTENT);
+        }
+
+        MediaAsset captured = new MediaAsset();
+        captured.setDeviceAssignment(deviceAssignment);
+        captured.setMission(deviceAssignment.getMission());
+        captured.setLocalMediaId(request.getLocalMediaId());
+        captured.setOperatorId(actor());
+        // Capture provenance stays DRONE_CAMERA; STAFF_FILE records the transport channel.
+        captured.setSourceType("DRONE_CAMERA");
+        captured.setType(request.getMediaType());
+        captured.setStorageProvider("S3");
+        captured.setOriginalFileName(request.getFileName().replaceAll("[^A-Za-z0-9._-]", "_"));
+        captured.setContentType(request.getContentType());
+        captured.setFileSize(request.getFileSize());
+        captured.setChecksumSha256(request.getChecksumSha256().toLowerCase(Locale.ROOT));
+        captured.setCapturedAt(request.getCapturedAt());
+        captured.setMediaStatus(MediaStatus.UPLOAD_PENDING);
+        captured.setS3Bucket(storage.bucket());
+        captured.setS3Key("staging/pending/" + UUID.randomUUID());
+        captured.setS3Url("s3://" + storage.bucket() + "/" + captured.getS3Key());
+        declareStaffCaptureTime(captured, request);
+        captured = media.saveAndFlush(captured);
+        audit(captured, null, "STAFF_FILE_UPLOAD_PREPARED", "Drone capture selected from local media");
+        return newAttempt(captured, true, MediaUploadChannel.STAFF_FILE);
     }
 
     @Override
@@ -170,7 +248,7 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
                     "Automatic attempts exhausted");
         }
 
-        return newAttempt(captured, manual);
+        return newAttempt(captured, manual, MediaUploadChannel.FLIGHT_CONTROLLER);
     }
 
     @Override
@@ -209,6 +287,9 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
 
         captured.setValidationError(request.getMessage());
         audit(captured, attempt, "UPLOAD_FAILED", request.getCode());
+        if (attempt.isManualAttempt() || attempt.getUploadChannel() == MediaUploadChannel.STAFF_FILE) {
+            return requireManualUpload(captured, request.getMessage());
+        }
         // The attempt was just persisted as FAILED, so it is already part of the tally.
         if (policy.failedAutomaticAttemptsExhausted(failedAutomaticAttempts(mediaId))) {
             return requireManualUpload(captured, request.getMessage());
@@ -224,7 +305,7 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
     @Transactional(readOnly = true)
     public MediaUploadResponse status(String mediaId) {
 
-        MediaAsset captured = requireMedia(mediaId);
+        MediaAsset captured = media.findById(mediaId).orElseThrow(() -> new ApiException(ErrorCode.MEDIA_NOT_FOUND));
         missionAccess.authorizeOperator(captured.getMissionId());
         MediaUploadAttempt latest = attempts
                 .findFirstByMediaIdOrderByAttemptNumberDesc(mediaId).orElse(null);
@@ -232,13 +313,18 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
         return new MediaUploadResponse(mediaId, latest == null ? null : latest.getId(),
                 latest == null ? 0 : latest.getAttemptNumber(), effectiveStatus(captured), null,
                 null, Map.of(), 0, 0, null,
-                manualTasks.findByMediaId(mediaId).map(ManualUploadTask::getId).orElse(null));
+                manualTasks.findByMediaId(mediaId).map(ManualUploadTask::getId).orElse(null),
+                latest == null ? null : latest.getUploadChannel(),
+                latest == null ? captured.getValidationError() : latest.getFailureCode(),
+                latest == null ? captured.getValidationError() : latest.getFailureMessage());
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public MediaUploadResponse presignPart(String mediaId, String attemptId, int partNumber) {
-        MediaAsset captured = requireMedia(mediaId);
+        missionLock.lock(mediaId);
+        MediaAsset captured = media.findByIdForUpdate(mediaId).orElseThrow(() -> new ApiException(ErrorCode.MEDIA_NOT_FOUND));
+        requireStorageMutable(captured);
         missionAccess.requireUploadPermission(captured.getMissionId());
         MediaUploadAttempt attempt = requireAttempt(mediaId, attemptId);
         int count = partCount(captured.getFileSize());
@@ -253,13 +339,16 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
                 .createPresignedPartUrl(attempt.getStorageKey(),
                         attempt.getMultipartUploadId(), partNumber);
 
+        Instant expiresAt = Instant.now().plusSeconds(signed.expiresInSeconds());
+        if (attempt.getExpiresAt() == null || attempt.getExpiresAt().isBefore(expiresAt)) attempt.setExpiresAt(expiresAt);
         return new MediaUploadResponse(
                 mediaId,
                 attemptId,
                 attempt.getAttemptNumber(),
                 effectiveStatus(captured),
                 "MULTIPART", signed.url(), signed.headers(), PART_SIZE, count,
-                Instant.now().plusSeconds(signed.expiresInSeconds()), null);
+                expiresAt, null,
+                attempt.getUploadChannel(), attempt.getFailureCode(), attempt.getFailureMessage());
     }
 
     @Override
@@ -335,7 +424,7 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
         audit(captured, attempt, "UPLOAD_ACKNOWLEDGED", null);
     }
 
-    private MediaUploadResponse newAttempt(MediaAsset captured, boolean manual) {
+    private MediaUploadResponse newAttempt(MediaAsset captured, boolean manual, MediaUploadChannel channel) {
         requireStorageMutable(captured);
         var order = captured.getMission() == null ? null : captured.getMission().getOrder();
         if (order != null && order.getResultExpiresAt() != null && !order.getResultExpiresAt().isAfter(Instant.now()))
@@ -367,6 +456,8 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
         attempt.setStatus(UploadAttemptStatus.PENDING);
         attempt.setStorageKey(key);
         attempt.setManualAttempt(manual);
+        attempt.setUploadChannel(channel);
+        attempt.setUploadedBy(actor());
         attempt.setExpiresAt(Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds()));
         String method;
         String url = null;
@@ -405,7 +496,10 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
         media.save(captured);
 
         audit(captured, attempt, manual ? "MANUAL_UPLOAD_PREPARED"
-                : "UPLOAD_PREPARED", null);
+                : "UPLOAD_PREPARED", channel == MediaUploadChannel.STAFF_FILE
+                        ? "captureTime=" + captured.getCapturedAt() + ";source=" + captured.getCaptureTimeSource()
+                          + ";zone=" + captured.getCaptureTimeZone() + ";reason=" + captured.getCaptureTimeConfirmationReason()
+                        : null);
 
         return new MediaUploadResponse(
                 captured.getId(),
@@ -420,7 +514,8 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
                 attempt.getExpiresAt(),
                 manualTasks
                         .findByMediaId(captured.getId()).map(ManualUploadTask::getId)
-                        .orElse(null));
+                        .orElse(null),
+                attempt.getUploadChannel(), attempt.getFailureCode(), attempt.getFailureMessage());
     }
 
     private MediaUploadResponse existingResponse(MediaAsset captured) {
@@ -441,7 +536,8 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
                     "MULTIPART",
                     null,
                     Map.of(), PART_SIZE,
-                    partCount(captured.getFileSize()), attempt.getExpiresAt(), null);
+                    partCount(captured.getFileSize()), attempt.getExpiresAt(), null,
+                    attempt.getUploadChannel(), attempt.getFailureCode(), attempt.getFailureMessage());
         }
 
         var signed = storage.createPresignedPutUrl(
@@ -467,7 +563,8 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
                 0,
                 0,
                 attempt.getExpiresAt(),
-                null);
+                null,
+                attempt.getUploadChannel(), attempt.getFailureCode(), attempt.getFailureMessage());
     }
 
     private long failedAutomaticAttempts(String mediaId) {
@@ -497,9 +594,48 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
         }
     }
 
+    private void declareStaffCaptureTime(MediaAsset asset, PrepareMediaUploadRequest request) {
+        String source = request.getCaptureTimeSource() == null ? "STAFF_CONFIRMED" : request.getCaptureTimeSource();
+        if (!Set.of("METADATA", "STAFF_CONFIRMED").contains(source))
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Invalid capture time source");
+        String zone = request.getCaptureTimeZone() == null ? "Asia/Ho_Chi_Minh" : request.getCaptureTimeZone();
+        if (!zone.equals("Asia/Ho_Chi_Minh") && !zone.equals("UTC")) {
+            try { java.time.ZoneOffset.of(zone); }
+            catch (java.time.DateTimeException invalidZone) {
+                throw new ApiException(ErrorCode.INVALID_REQUEST, "Invalid capture time zone");
+            }
+        }
+        asset.setCapturedAt(request.getCapturedAt());
+        asset.setCaptureTimeSource(source);
+        asset.setCaptureTimeZone(zone);
+        asset.setCaptureTimeConfirmedBy(actor());
+        asset.setCaptureTimeConfirmedAt(Instant.now());
+        String reason = request.getCaptureTimeConfirmationReason();
+        if (request.getCaptureTimeSource() == null && reason == null) reason = "Staff declared capture time (legacy client)";
+        if ("STAFF_CONFIRMED".equals(source) && (reason == null || reason.isBlank()))
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Capture time confirmation reason is required");
+        asset.setCaptureTimeConfirmationReason(reason);
+
+    }
+
+    /** Staff imports use the declared camera capture time, constrained to the Mission flight window. */
+    private void requireCaptureWithinMission(PrepareMediaUploadRequest request, MissionMediaContext mission) {
+        Instant start = mission.getActualStartAt() != null ? mission.getActualStartAt() : mission.getScheduledStartAt();
+        Instant end = mission.getActualEndAt() != null ? mission.getActualEndAt() : mission.getScheduledEndAt();
+        if (start == null || end == null || !end.isAfter(start)) {
+            throw new ApiException(ErrorCode.MEDIA_UPLOAD_NOT_ALLOWED,
+                    "Mission has no valid flight window for Staff media import");
+        }
+        java.time.Duration tolerance = java.time.Duration.ofMinutes(30);
+        if (request.getCapturedAt().isBefore(start.minus(tolerance))
+                || request.getCapturedAt().isAfter(end.plus(tolerance))) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "Declared capture time is outside this Mission's flight window");
+        }
+    }
+
     private void validateMetadata(PrepareMediaUploadRequest request, MissionMediaContext mission) {
-        if (request.getSourceType() != null && !java.util.Set.of(
-                "DRONE_CAMERA", "SATELLITE_SNAPSHOT", "MANUAL_UPLOAD").contains(request.getSourceType())) {
+        if (request.getSourceType() != null && !"DRONE_CAMERA".equals(request.getSourceType())) {
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Unsupported media source type");
         }
         if ((request.getMediaType().equals("IMAGE") && request.getContentType().equals("video/mp4"))
@@ -521,7 +657,9 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
     }
 
     private MediaAsset requireMedia(String mediaId) {
-        return media.findById(mediaId).orElseThrow(() -> new ApiException(ErrorCode.MEDIA_NOT_FOUND));
+        var asset = media.findById(mediaId).orElseThrow(() -> new ApiException(ErrorCode.MEDIA_NOT_FOUND));
+        if (asset.getMediaStatus() == MediaStatus.REMOVED) throw new ApiException(ErrorCode.MEDIA_NOT_FOUND);
+        return asset;
     }
 
     private MediaUploadAttempt requireAttempt(String mediaId, String attemptId) {
@@ -540,6 +678,7 @@ public class MediaUploadServiceImpl implements IMediaUploadService {
     }
 
     private void requireStorageMutable(MediaAsset asset) {
+        if (asset.getMediaStatus() == MediaStatus.REMOVED) throw new ApiException(ErrorCode.MEDIA_NOT_FOUND);
         if (asset.getStorageStatus() == com.ondemandmonitoring.media.enums.MediaStorageStatus.DELETE_PENDING
                 || asset.getStorageStatus() == com.ondemandmonitoring.media.enums.MediaStorageStatus.DELETE_FAILED)
             throw new ApiException(ErrorCode.MEDIA_EVIDENCE_PROTECTED, "Storage cleanup is in progress");

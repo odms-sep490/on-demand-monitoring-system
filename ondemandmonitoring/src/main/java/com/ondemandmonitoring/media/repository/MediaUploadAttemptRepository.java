@@ -13,8 +13,30 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface MediaUploadAttemptRepository extends JpaRepository<MediaUploadAttempt, String> {
     List<MediaUploadAttempt> findByMediaIdOrderByAttemptNumberDesc(String mediaId);
+    Optional<MediaUploadAttempt> findFirstByMediaIdOrderByAttemptNumberAsc(String mediaId);
+
+    @Query("""
+            select a from MediaUploadAttempt a
+            where a.media.id in :mediaIds
+              and a.attemptNumber = (select min(initial.attemptNumber) from MediaUploadAttempt initial
+                                     where initial.media.id = a.media.id)
+            """)
+    List<MediaUploadAttempt> findInitialByMediaIds(@Param("mediaIds") List<String> mediaIds);
+
+    @Query("""
+            select a from MediaUploadAttempt a
+            where a.media.id in :mediaIds
+              and a.attemptNumber = (select max(latest.attemptNumber) from MediaUploadAttempt latest
+                                     where latest.media.id = a.media.id)
+            """)
+    List<MediaUploadAttempt> findLatestByMediaIds(@Param("mediaIds") List<String> mediaIds);
 
     Optional<MediaUploadAttempt> findByIdAndMediaId(String id, String mediaId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from MediaUploadAttempt a where a.id = :id and a.media.id = :mediaId")
+    Optional<MediaUploadAttempt> findByIdAndMediaIdForUpdate(
+            @Param("id") String id, @Param("mediaId") String mediaId);
 
     Optional<MediaUploadAttempt> findFirstByMediaIdOrderByAttemptNumberDesc(String mediaId);
 

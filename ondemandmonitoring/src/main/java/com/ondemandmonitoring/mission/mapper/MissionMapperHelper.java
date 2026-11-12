@@ -13,6 +13,7 @@ import com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentReposito
 import com.ondemandmonitoring.mission.repository.MissionPlanRepository;
 import com.ondemandmonitoring.mission.repository.MissionStaffAssignmentRepository;
 import com.ondemandmonitoring.order.domain.OrderDeliverable;
+import com.ondemandmonitoring.order.util.GeoReader;
 import com.ondemandmonitoring.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.mapstruct.Named;
@@ -72,6 +73,14 @@ public class MissionMapperHelper {
                 .filter(Objects::nonNull)
                 .findFirst()
                 .orElse(null);
+    }
+
+    @Named("missionCoverageArea")
+    public Map<String, Object> getCoverageArea(Mission mission) {
+        if (mission == null || mission.getOrder() == null) {
+            return null;
+        }
+        return GeoReader.toCoverageArea(mission.getOrder().getTargetArea());
     }
 
     @Named("missionMediaType")

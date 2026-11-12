@@ -17,6 +17,8 @@ public interface IMediaUploadService {
 
     MediaUploadResponse prepare(String missionId, PrepareMediaUploadRequest request);
 
+    MediaUploadResponse prepareStaffFile(String missionId, PrepareMediaUploadRequest request);
+
     MediaUploadResponse retry(String mediaId, boolean manual);
 
     MediaUploadResponse reportFailure(String mediaId, String attemptId, ReportUploadFailureRequest request);

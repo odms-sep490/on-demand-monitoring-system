@@ -367,49 +367,11 @@ public class MissionController {
         return ResponseEntity.ok(ApiResponse.ok("Mission đã bị từ chối, hệ thống sẽ phân công lại", response));
     }
 
-    /**
-     * POST /api/missions/{id}/connect
-     * Confirm telemetry link with GCS app (powerOnAndPairWithGCSApp).
-     */
-    @PostMapping("/{id}/connect")
-    @PreAuthorize("@missionAuthorizationService.canOperatePayload(#id)")
-    public ResponseEntity<ApiResponse<MissionResponse>> connectGcs(@PathVariable String id) {
-        MissionResponse response = missionService.connectGcs(id);
-        return ResponseEntity.ok(ApiResponse.ok("Telemetry link with GCS confirmed (CONNECTED)", response));
-    }
-
     @GetMapping("/{id}/telemetry-readiness")
     @PreAuthorize("@missionAuthorizationService.canViewMission(#id)")
     public ResponseEntity<ApiResponse<MissionTelemetryReadinessResponse>> getTelemetryReadiness(
             @PathVariable String id) {
         return ResponseEntity.ok(ApiResponse.ok(missionService.getTelemetryReadiness(id)));
-    }
-
-    /**
-     * POST /api/missions/{id}/disconnect
-     * Normal or explicit disconnection from GCS app.
-     */
-    @PostMapping("/{id}/disconnect")
-    @PreAuthorize("@missionAuthorizationService.canOperatePayload(#id)")
-    public ResponseEntity<ApiResponse<MissionResponse>> disconnectGcs(
-            @PathVariable String id,
-            @RequestParam(required = false, defaultValue = "NORMAL") String reason) {
-        MissionResponse response = missionService.disconnectGcs(id, reason);
-        return ResponseEntity.ok(ApiResponse.ok("GCS session disconnected (DISCONNECTED)", response));
-    }
-
-    /**
-     * POST /api/missions/{id}/gcs-lost
-     * Report GCS telemetry signal loss (LOST), triggering automatic
-     * Return-To-Launch (RTL).
-     */
-    @PostMapping("/{id}/gcs-lost")
-    @PreAuthorize("@missionAuthorizationService.canOperatePayload(#id)")
-    public ResponseEntity<ApiResponse<MissionResponse>> reportGcsLost(
-            @PathVariable String id,
-            @RequestParam(required = false, defaultValue = "SIGNAL_LOSS") String reason) {
-        MissionResponse response = missionService.handleGcsSessionLost(id, reason);
-        return ResponseEntity.ok(ApiResponse.ok("GCS signal LOST – Return-To-Launch (RTL) triggered", response));
     }
 
     @PostMapping("/{id}/pre-device-check")

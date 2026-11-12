@@ -13,6 +13,7 @@ cp "$REPO_CONTROLLER/flight_controller.py" flight_controller.py
 cp "$REPO_CONTROLLER/devicecheck_media_probe.py" devicecheck_media_probe.py
 cp "$REPO_CONTROLLER/media_uploader.py" media_uploader.py
 cp "$REPO_CONTROLLER/media_review.py" media_review.py
+cp "$REPO_CONTROLLER/fresh_frame_capture.py" fresh_frame_capture.py
 cp "$REPO_CONTROLLER/battery_simulator.py" battery_simulator.py
 cp "$REPO_CONTROLLER/geofence_monitor.py" geofence_monitor.py
 cp "$REPO_CONTROLLER/thermal_camera_gateway.py" thermal_camera_gateway.py

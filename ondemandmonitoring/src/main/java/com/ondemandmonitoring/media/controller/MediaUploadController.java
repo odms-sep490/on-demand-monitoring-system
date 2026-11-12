@@ -58,6 +58,14 @@ public class MediaUploadController {
                 .body(ApiResponse.created(uploads.prepare(missionId, request)));
     }
 
+    @Operation(summary = "Prepare a Staff-selected drone capture for direct S3 upload")
+    @PostMapping("/missions/{missionId}/staff-media-uploads")
+    public ResponseEntity<ApiResponse<MediaUploadResponse>> prepareStaffFile(
+            @PathVariable String missionId, @Valid @RequestBody PrepareMediaUploadRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.created(uploads.prepareStaffFile(missionId, request)));
+    }
+
     @Operation(summary = "Get upload status", description = "Retrieves the current upload attempt status for a media asset")
     @GetMapping("/media/{mediaId}/upload-status")
     public ResponseEntity<ApiResponse<MediaUploadResponse>> status(@PathVariable String mediaId) {

@@ -21,5 +21,3 @@ END $$;
 CREATE INDEX IF NOT EXISTS idx_persisted_pre_device_check_assignment
     ON persisted_pre_device_check (mission_device_assignment_id);
 
-ALTER TABLE IF EXISTS control_handovers
-    ALTER COLUMN device_connection_id DROP NOT NULL;

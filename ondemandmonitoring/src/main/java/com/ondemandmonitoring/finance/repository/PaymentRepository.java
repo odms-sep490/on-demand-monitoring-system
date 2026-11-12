@@ -67,4 +67,15 @@ public interface PaymentRepository extends JpaRepository<Payment, String> {
     @EntityGraph(attributePaths = {"invoice", "invoice.order"})
     List<Payment> findByStatusOrderByPaidAtDesc(PaymentStatus status, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"invoice", "invoice.order"})
+    @Query("""
+            select p from Payment p
+            where p.status = :status and p.paymentType = :paymentType
+            order by coalesce(p.paidAt, p.updatedAt, p.createdAt) desc
+            """)
+    List<Payment> findRecentByStatusAndPaymentType(
+            @Param("status") PaymentStatus status,
+            @Param("paymentType") PaymentType paymentType,
+            Pageable pageable);
+
 }

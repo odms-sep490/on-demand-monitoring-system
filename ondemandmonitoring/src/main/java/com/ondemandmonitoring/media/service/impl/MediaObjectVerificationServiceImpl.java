@@ -37,15 +37,28 @@ public class MediaObjectVerificationServiceImpl implements IMediaObjectVerificat
             return "Object metadata differs from upload request";
         }
 
-        try (InputStream stream = storage.open(captured.getS3Bucket(), key).inputStream()) {
+        java.nio.file.Path metadataFile = null;
+        try {
+            if (captured.getCaptureTimeSource() != null) metadataFile = java.nio.file.Files.createTempFile("odms-capture-", ".media");
+        } catch (IOException failure) {
+            throw new IllegalStateException("Cannot prepare capture metadata verification", failure);
+        }
+        try (var metadataOutput = metadataFile == null ? java.io.OutputStream.nullOutputStream()
+                    : java.nio.file.Files.newOutputStream(metadataFile);
+                InputStream stream = storage.open(captured.getS3Bucket(), key).inputStream()) {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] signature = stream.readNBytes(12);
             digest.update(signature);
+            metadataOutput.write(signature);
+            long total = signature.length;
             byte[] buffer = new byte[64 * 1024];
             int read;
 
             while ((read = stream.read(buffer)) != -1) {
+                total += read;
+                if (total > captured.getFileSize()) return "Object exceeds declared size";
                 digest.update(buffer, 0, read);
+                metadataOutput.write(buffer, 0, read);
             }
 
             if (!validSignature(captured.getContentType(), signature)) {
@@ -57,11 +70,42 @@ public class MediaObjectVerificationServiceImpl implements IMediaObjectVerificat
                 return "SHA-256 checksum mismatch";
             }
 
+            metadataOutput.flush();
+            if (metadataFile != null) return verifyCaptureTime(captured, metadataFile);
             return null;
 
         } catch (IOException | NoSuchAlgorithmException error) {
             throw new IllegalStateException("Cannot inspect uploaded object", error);
+        } finally {
+            if (metadataFile != null) {
+                try { java.nio.file.Files.deleteIfExists(metadataFile); }
+                catch (IOException failure) { throw new IllegalStateException("Cannot remove capture metadata temporary file", failure); }
+            }
         }
+    }
+
+    private String verifyCaptureTime(MediaAsset asset, java.nio.file.Path file) throws IOException {
+        var actual = MediaCaptureMetadataReader.read(file);
+        asset.setMetadataCapturedAt(actual == null ? null : actual.instant());
+        asset.setMetadataTimeZone(actual == null ? null : actual.zone());
+        boolean confirmed = "STAFF_CONFIRMED".equals(asset.getCaptureTimeSource())
+                && asset.getCaptureTimeConfirmedBy() != null
+                && asset.getCaptureTimeConfirmationReason() != null
+                && !asset.getCaptureTimeConfirmationReason().isBlank();
+        if (actual == null) return confirmed ? null : "Capture metadata missing; confirm capture time and provide a reason";
+        var instant = actual.instant();
+        if (instant.isBefore(java.time.Instant.parse("2000-01-01T00:00:00Z"))
+                || instant.isAfter(java.time.Instant.now().plusSeconds(300))) return "Capture metadata time is invalid";
+        var mission = asset.getMission();
+        if (mission == null) return "Mission capture window is unavailable";
+        var start = mission.getActualStartAt() != null ? mission.getActualStartAt() : mission.getScheduledStartAt();
+        var end = mission.getActualEndAt() != null ? mission.getActualEndAt() : mission.getScheduledEndAt();
+        if (start == null || end == null || !end.isAfter(start)
+                || instant.isBefore(start.minusSeconds(1800)) || instant.isAfter(end.plusSeconds(1800)))
+            return "Capture metadata time is outside this Mission's flight window";
+        if (Math.abs(java.time.Duration.between(asset.getCapturedAt(), instant).getSeconds()) > 2 && !confirmed)
+            return "Capture metadata differs from declared time; confirm the correction and provide a reason";
+        return null;
     }
 
     private boolean validSignature(String contentType, byte[] value) {

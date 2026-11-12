@@ -7,7 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
 public interface MissionChecklistEvidenceRepository extends JpaRepository<MissionChecklistEvidence, String> {
-    @Query("select e from MissionChecklistEvidence e join fetch e.mediaAsset join fetch e.missionChecklistExecution where e.missionId = :missionId and e.detachedAt is null order by e.attachedAt, e.id")
+    @Query("select e from MissionChecklistEvidence e join fetch e.mediaAsset m left join fetch m.captureMetadata left join fetch m.derivative left join fetch m.deviceAssignment join fetch e.missionChecklistExecution where e.missionId = :missionId and e.detachedAt is null order by e.attachedAt, e.id")
     List<MissionChecklistEvidence> findActiveByMissionId(String missionId);
     Optional<MissionChecklistEvidence> findByMissionChecklistExecution_IdAndMediaAsset_IdAndDetachedAtIsNull(String executionId, String mediaId);
     boolean existsByMediaAsset_Id(String mediaId);

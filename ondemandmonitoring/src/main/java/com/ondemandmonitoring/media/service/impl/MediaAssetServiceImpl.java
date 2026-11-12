@@ -146,6 +146,7 @@ public class MediaAssetServiceImpl implements IMediaAssetService {
     @Override
     public MediaAsset getById(String mediaId) {
         return mediaAssetRepository.findById(mediaId)
+                .filter(asset -> asset.getMediaStatus() != com.ondemandmonitoring.media.enums.MediaStatus.REMOVED)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND,
                         "Media not found"));
     }

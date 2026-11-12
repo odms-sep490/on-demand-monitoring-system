@@ -10,23 +10,28 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface MediaAssetRepository extends JpaRepository<MediaAsset, String> {
+        @Override
+        @EntityGraph(attributePaths = {"captureMetadata", "derivative", "deviceAssignment"})
+        Optional<MediaAsset> findById(String id);
+
         @Query("""
-                select m.id from MediaAsset m
+                select m.id from MediaAsset m left join m.derivative d
                 where m.storageProvider = 'S3'
                   and m.storageStatus = com.ondemandmonitoring.media.enums.MediaStorageStatus.AVAILABLE
                   and (m.validatedAt is not null or m.mediaStatus is null)
                   and m.type = :mediaType
-                  and (m.derivativeStatus = com.ondemandmonitoring.media.enums.MediaDerivativeStatus.PENDING
-                    or (m.derivativeStatus = com.ondemandmonitoring.media.enums.MediaDerivativeStatus.FAILED
-                        and m.derivativeAttemptCount < :maxAttempts
-                        and (m.derivativeProcessedAt is null or m.derivativeProcessedAt < :retryBefore))
-                    or (m.derivativeStatus = com.ondemandmonitoring.media.enums.MediaDerivativeStatus.PROCESSING
-                        and (m.derivativeProcessedAt is null or m.derivativeProcessedAt < :staleBefore)))
+                  and (d is null or d.derivativeStatus = com.ondemandmonitoring.media.enums.MediaDerivativeStatus.PENDING
+                    or (d.derivativeStatus = com.ondemandmonitoring.media.enums.MediaDerivativeStatus.FAILED
+                        and d.derivativeAttemptCount < :maxAttempts
+                        and (d.derivativeProcessedAt is null or d.derivativeProcessedAt < :retryBefore))
+                    or (d.derivativeStatus = com.ondemandmonitoring.media.enums.MediaDerivativeStatus.PROCESSING
+                        and (d.derivativeProcessedAt is null or d.derivativeProcessedAt < :staleBefore)))
                 order by m.createdAt, m.id
                 """)
         List<String> findDerivativeCandidates(@Param("mediaType") String mediaType,
@@ -51,7 +56,8 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, String> 
                         @Param("now") Instant now,
                         @Param("statuses") List<MediaStorageStatus> statuses,
                         Pageable pageable);
-        @Query("select m from MediaAsset m where m.mission.id = :missionId order by m.capturedAt desc, m.id")
+        @EntityGraph(attributePaths = {"captureMetadata", "derivative", "deviceAssignment"})
+        @Query("select m from MediaAsset m where m.mission.id = :missionId and (m.mediaStatus is null or m.mediaStatus <> com.ondemandmonitoring.media.enums.MediaStatus.REMOVED) order by m.capturedAt desc, m.id")
         Page<MediaAsset> findMissionCandidates(String missionId, Pageable pageable);
         @Query("select m.mission.id from MediaAsset m where m.id = :id")
         Optional<String> findMissionId(String id);
@@ -65,10 +71,12 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, String> 
         @Query("select count(m) from MediaAsset m where m.mission.id = :missionId and m.mediaStatus in :statuses")
         long countByMissionIdAndMediaStatusIn(String missionId, List<MediaStatus> statuses);
 
+        @EntityGraph(attributePaths = {"captureMetadata", "derivative", "deviceAssignment"})
         @Query("select m from MediaAsset m where m.mission.id = :missionId and m.mediaStatus = :status")
         Page<MediaAsset> findByMissionIdAndMediaStatus(
                         String missionId, MediaStatus status, Pageable pageable);
 
+        @EntityGraph(attributePaths = {"captureMetadata", "derivative", "deviceAssignment"})
         Page<MediaAsset> findByMissionIdAndIdInAndMediaStatus(
                         String missionId, java.util.Collection<String> ids, MediaStatus status, Pageable pageable);
 
@@ -86,29 +94,36 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, String> 
         Optional<MediaAsset> findByMissionIdAndDeviceIdAndLocalMediaId(
                         String missionId, String deviceId, String localMediaId);
 
-        /** The same file (same SHA-256) already stored for the mission and not rejected. */
+        /** Active content deduplication excludes rejected media and immutable removal tombstones. */
         @Query("""
                         select count(m) > 0 from MediaAsset m
                         where m.mission.id = :missionId
                           and lower(m.checksumSha256) = lower(:checksum)
-                          and (m.mediaStatus is null or m.mediaStatus <> com.ondemandmonitoring.media.enums.MediaStatus.REJECTED)
+                          and (m.mediaStatus is null or m.mediaStatus not in (
+                              com.ondemandmonitoring.media.enums.MediaStatus.REJECTED,
+                              com.ondemandmonitoring.media.enums.MediaStatus.REMOVED))
                         """)
         boolean existsActiveDuplicate(@Param("missionId") String missionId, @Param("checksum") String checksum);
 
-        @Query("select m from MediaAsset m where m.mission.id = :missionId order by m.capturedAt desc")
+        @EntityGraph(attributePaths = {"captureMetadata", "derivative", "deviceAssignment"})
+        @Query("select m from MediaAsset m where m.mission.id = :missionId and (m.mediaStatus is null or m.mediaStatus <> com.ondemandmonitoring.media.enums.MediaStatus.REMOVED) order by m.capturedAt desc")
         List<MediaAsset> findByMissionIdOrderByCapturedAtDesc(String missionId);
 
+        @EntityGraph(attributePaths = {"captureMetadata", "derivative", "deviceAssignment"})
         @Query("select m from MediaAsset m where m.mission.id in :missionIds and m.mediaStatus = :status order by m.capturedAt desc")
         List<MediaAsset> findByMissionIdInAndMediaStatusOrderByCapturedAtDesc(
                         List<String> missionIds, MediaStatus status);
 
-        @Query("select m from MediaAsset m where m.mission.id = :missionId and m.type = :type order by m.capturedAt desc")
+        @EntityGraph(attributePaths = {"captureMetadata", "derivative", "deviceAssignment"})
+        @Query("select m from MediaAsset m where m.mission.id = :missionId and (m.mediaStatus is null or m.mediaStatus <> com.ondemandmonitoring.media.enums.MediaStatus.REMOVED) and m.type = :type order by m.capturedAt desc")
         List<MediaAsset> findByMissionIdAndTypeOrderByCapturedAtDesc(String missionId, String type);
 
-        @Query("select m from MediaAsset m where m.deviceAssignment.device.id = :deviceId order by m.capturedAt desc")
+        @EntityGraph(attributePaths = {"captureMetadata", "derivative", "deviceAssignment"})
+        @Query("select m from MediaAsset m where (m.mediaStatus is null or m.mediaStatus <> com.ondemandmonitoring.media.enums.MediaStatus.REMOVED) and m.deviceAssignment.device.id = :deviceId order by m.capturedAt desc")
         List<MediaAsset> findByDeviceIdOrderByCapturedAtDesc(String deviceId);
 
-        @Query("select m from MediaAsset m where m.deviceAssignment.device.id = :deviceId and m.type = :type order by m.capturedAt desc")
+        @EntityGraph(attributePaths = {"captureMetadata", "derivative", "deviceAssignment"})
+        @Query("select m from MediaAsset m where (m.mediaStatus is null or m.mediaStatus <> com.ondemandmonitoring.media.enums.MediaStatus.REMOVED) and m.deviceAssignment.device.id = :deviceId and m.type = :type order by m.capturedAt desc")
         List<MediaAsset> findByDeviceIdAndTypeOrderByCapturedAtDesc(String deviceId, String type);
 
 }

@@ -11,6 +11,7 @@ import com.ondemandmonitoring.device.service.IDeviceService;
 import com.ondemandmonitoring.media.domain.*;
 import com.ondemandmonitoring.media.dto.request.PrepareMediaUploadRequest;
 import com.ondemandmonitoring.media.enums.MediaStatus;
+import com.ondemandmonitoring.media.enums.MediaUploadChannel;
 import com.ondemandmonitoring.media.repository.*;
 import com.ondemandmonitoring.media.service.impl.MediaUploadServiceImpl;
 import com.ondemandmonitoring.mission.domain.*;
@@ -239,16 +240,84 @@ class MediaUploadWorkflowTest {
     @Test
     void preparePersistsDeclaredProvenanceWithoutInventingCaptureActor() {
         var request = request("IMAGE", "image/jpeg"); request.setSourceType("SATELLITE_SNAPSHOT");
+        assertThatThrownBy(() -> service.prepare("mission-id", request))
+                .isInstanceOf(ApiException.class).hasMessageContaining("Unsupported media source type");
+        verify(media, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void staffCanCreateDroneCaptureFromFileAfterFlightWithoutManualTaskAndRecordTransportChannel() {
+        Mission mission = missions.findById("mission-id").orElseThrow();
+        Instant now = Instant.now();
+        mission.setStatus(MissionStatus.COMPLETED);
+        mission.setActualStartAt(now.minusSeconds(900));
+        mission.setActualEndAt(now.minusSeconds(300));
+        var request = request("IMAGE", "image/jpeg");
+        request.setCapturedAt(now.minusSeconds(600));
+        request.setSourceType("DRONE_CAMERA");
+        request.setCaptureTimeSource("METADATA");
+        request.setCaptureTimeZone("+07:00");
+        when(media.findByMissionIdAndDeviceIdAndLocalMediaId("mission-id", "device-id", "capture-1"))
+                .thenReturn(Optional.empty());
+        when(media.existsActiveDuplicate("mission-id", request.getChecksumSha256())).thenReturn(false);
         when(media.saveAndFlush(any())).thenAnswer(call -> {
-            MediaAsset saved = call.getArgument(0); saved.setId("media-id"); return saved;
+            MediaAsset saved = call.getArgument(0); saved.setId("media-staff"); return saved;
         });
         when(storage.createPresignedPutUrl(any(), any(), anyLong(), any()))
-                .thenReturn(new IMediaObjectStorage.PresignedUpload("https://test/upload", Map.of(), 300));
-        service.prepare("mission-id", request);
-        var captured = org.mockito.ArgumentCaptor.forClass(MediaAsset.class);
-        verify(media).saveAndFlush(captured.capture());
-        assertThat(captured.getValue().getSourceType()).isEqualTo("SATELLITE_SNAPSHOT");
-        assertThat(captured.getValue().getOperatorId()).isEqualTo(userResolver.getCurrentUserId());
+                .thenReturn(new IMediaObjectStorage.PresignedUpload("https://test/staff-upload", Map.of(), 300));
+        when(attempts.findFirstByMediaIdOrderByAttemptNumberDesc("media-staff")).thenReturn(Optional.empty());
+
+        var response = service.prepareStaffFile("mission-id", request);
+
+        assertThat(response.getMediaId()).isEqualTo("media-staff");
+        assertThat(response.getUploadChannel()).isEqualTo(MediaUploadChannel.STAFF_FILE);
+        assertThat(response.getManualTaskId()).isNull();
+        var asset = org.mockito.ArgumentCaptor.forClass(MediaAsset.class);
+        verify(media).saveAndFlush(asset.capture());
+        assertThat(asset.getValue().getSourceType()).isEqualTo("DRONE_CAMERA");
+        assertThat(asset.getValue().getCaptureTimeSource()).isEqualTo("METADATA");
+        assertThat(asset.getValue().getCaptureTimeZone()).isEqualTo("+07:00");
+        assertThat(asset.getValue().getCaptureTimeConfirmedBy()).isEqualTo(userResolver.getCurrentUserId());
+        assertThat(asset.getValue().getCaptureTimeConfirmedAt()).isNotNull();
+        var attempt = org.mockito.ArgumentCaptor.forClass(MediaUploadAttempt.class);
+        verify(attempts).save(attempt.capture());
+        assertThat(attempt.getValue().isManualAttempt()).isTrue();
+        assertThat(attempt.getValue().getUploadChannel()).isEqualTo(MediaUploadChannel.STAFF_FILE);
+        assertThat(attempt.getValue().getUploadedBy()).isEqualTo(userResolver.getCurrentUserId());
+    }
+
+    @Test
+    void staffFileImportRejectsCaptureTimeOutsideTheFlightWindow() {
+        Mission mission = missions.findById("mission-id").orElseThrow();
+        Instant start = Instant.now().minusSeconds(3600);
+        mission.setStatus(MissionStatus.COMPLETED);
+        mission.setActualStartAt(start);
+        mission.setActualEndAt(start.plusSeconds(300));
+        var request = request("IMAGE", "image/jpeg");
+        request.setCapturedAt(start.minusSeconds(3600));
+
+        assertThatThrownBy(() -> service.prepareStaffFile("mission-id", request))
+                .isInstanceOf(ApiException.class).hasMessageContaining("outside this Mission's flight window");
+        verify(storage, never()).createPresignedPutUrl(any(), any(), anyLong(), any());
+        verify(media, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void manualRecoveryCannotReplaceAvailableMediaOrReopenResolvedTask() {
+        var asset = new MediaAsset(); asset.setId("existing"); asset.setMissionId("mission-id");
+        asset.setFileSize(100L); asset.setContentType("image/jpeg"); asset.setChecksumSha256("a".repeat(64));
+        when(media.findByIdForUpdate("existing")).thenReturn(Optional.of(asset));
+        when(media.findById("existing")).thenReturn(Optional.of(asset));
+        var request = new com.ondemandmonitoring.media.dto.request.ManualMediaFileRequest();
+        request.setFileSize(100L); request.setContentType("image/jpeg"); request.setChecksumSha256("a".repeat(64));
+        asset.setMediaStatus(MediaStatus.AVAILABLE);
+        assertThat(service.prepareManualFile("existing", request).getStatus()).isEqualTo(MediaStatus.AVAILABLE);
+        var task = new ManualUploadTask(); task.setStatus(com.ondemandmonitoring.media.enums.ManualUploadTaskStatus.RESOLVED);
+        when(manualTasks.findByMediaId("existing")).thenReturn(Optional.of(task));
+        asset.setMediaStatus(MediaStatus.MANUAL_UPLOAD_REQUIRED);
+        assertThatThrownBy(() -> service.prepareManualFile("existing", request)).isInstanceOf(ApiException.class);
+        verify(attempts, never()).save(any());
+        verifyNoInteractions(storage);
     }
 
     @Test
@@ -260,4 +329,66 @@ class MediaUploadWorkflowTest {
         assertThatThrownBy(() -> service.prepare("mission-id", request)).isInstanceOf(ApiException.class);
         verify(media, never()).saveAndFlush(any());
     }
+    @Test void removedMediaCannotMintPartsRetryOrAcknowledgeUploadButStatusCanBeRead() {
+        var removed=new MediaAsset();removed.setId("removed");removed.setMissionId("mission-id");removed.setMediaStatus(MediaStatus.REMOVED);
+        when(media.findById("removed")).thenReturn(Optional.of(removed));when(media.findByIdForUpdate("removed")).thenReturn(Optional.of(removed));
+        assertThatThrownBy(() -> service.presignPart("removed","attempt",1)).isInstanceOf(ApiException.class);
+        assertThatThrownBy(() -> service.retry("removed",true)).isInstanceOf(ApiException.class);
+        assertThatThrownBy(() -> service.markUploaded("removed","attempt")).isInstanceOf(ApiException.class);
+        assertThat(service.status("removed").getStatus()).isEqualTo(MediaStatus.REMOVED);
+        verifyNoInteractions(storage);
+    }
+    @Test void newMultipartPartUrlsExtendTheRecordedCleanupHorizon() {
+        var asset=new MediaAsset();asset.setId("multipart");asset.setMissionId("mission-id");asset.setFileSize(50_000_000L);asset.setMediaStatus(MediaStatus.UPLOAD_PENDING);
+        var attempt=new MediaUploadAttempt();attempt.setMedia(asset);attempt.setStatus(com.ondemandmonitoring.media.enums.UploadAttemptStatus.PENDING);
+        attempt.setStorageKey("staging/multipart");attempt.setMultipartUploadId("upload");attempt.setExpiresAt(Instant.now().minusSeconds(3600));
+        when(media.findByIdForUpdate("multipart")).thenReturn(Optional.of(asset));
+        when(attempts.findByIdAndMediaId("attempt","multipart")).thenReturn(Optional.of(attempt));
+        when(storage.createPresignedPartUrl("staging/multipart","upload",1)).thenReturn(new IMediaObjectStorage.PresignedUpload("https://example.test/part",Map.of(),600));
+        var before=Instant.now(); service.presignPart("multipart","attempt",1);
+        assertThat(attempt.getExpiresAt()).isAfter(before.plusSeconds(599));
+    }
+
+    @Test void selectingTheSameRemovedStaffFileReturnsAnExplicitConflictWithoutRecreatingIt() {
+        Mission mission=missions.findById("mission-id").orElseThrow();Instant now=Instant.now();
+        mission.setStatus(MissionStatus.COMPLETED);mission.setActualStartAt(now.minusSeconds(900));mission.setActualEndAt(now.minusSeconds(300));
+        var request=request("IMAGE","image/jpeg");request.setCapturedAt(now.minusSeconds(600));request.setSourceType("DRONE_CAMERA");
+        request.setCaptureTimeSource("METADATA");request.setCaptureTimeZone("+07:00");
+        var removed=new MediaAsset();removed.setId("removed");removed.setMediaStatus(MediaStatus.REMOVED);removed.setSourceType("DRONE_CAMERA");
+        removed.setType(request.getMediaType());removed.setContentType(request.getContentType());removed.setFileSize(request.getFileSize());removed.setChecksumSha256(request.getChecksumSha256());
+        when(media.findByMissionIdAndDeviceIdAndLocalMediaId("mission-id","device-id","capture-1")).thenReturn(Optional.of(removed));
+        assertThatThrownBy(() -> service.prepareStaffFile("mission-id",request)).isInstanceOfSatisfying(ApiException.class,e -> {
+            assertThat(e.getErrorCode()).isEqualTo(com.ondemandmonitoring.common.exception.ErrorCode.MEDIA_REMOVED);
+            assertThat(e.getStatus()).isEqualTo(org.springframework.http.HttpStatus.CONFLICT);
+        });
+        assertThat(removed.getMediaStatus()).isEqualTo(MediaStatus.REMOVED);
+        verify(media,never()).saveAndFlush(any());verify(attempts,never()).save(any());verifyNoInteractions(storage);
+    }
+
+    private PrepareMediaUploadRequest newStaffIntentRequest() {
+        var mission=missions.findById("mission-id").orElseThrow();var now=Instant.now();
+        mission.setStatus(MissionStatus.COMPLETED);mission.setActualStartAt(now.minusSeconds(900));mission.setActualEndAt(now.minusSeconds(300));
+        var request=request("IMAGE","image/jpeg");request.setCapturedAt(now.minusSeconds(600));request.setSourceType("DRONE_CAMERA");
+        request.setCaptureTimeSource("METADATA");request.setCaptureTimeZone("UTC");request.setLocalMediaId("staff-new-intent");
+        return request;
+    }
+    @Test void aNewStaffIntentCreatesANewAssetWithoutRestoringTheRemovedIdentity() {
+        var request=newStaffIntentRequest();
+        when(media.existsActiveDuplicate("mission-id",request.getChecksumSha256())).thenReturn(false);
+        when(media.saveAndFlush(any())).thenAnswer(call -> {MediaAsset created=call.getArgument(0);created.setId("new-media");return created;});
+        when(storage.createPresignedPutUrl(any(),any(),anyLong(),any())).thenReturn(new IMediaObjectStorage.PresignedUpload("https://test/new-upload",Map.of(),300));
+        var response=service.prepareStaffFile("mission-id",request);
+        assertThat(response.getMediaId()).isEqualTo("new-media");assertThat(response.getStatus()).isEqualTo(MediaStatus.UPLOAD_PENDING);
+        var saved=org.mockito.ArgumentCaptor.forClass(MediaAsset.class);verify(media).saveAndFlush(saved.capture());
+        assertThat(saved.getValue().getLocalMediaId()).isEqualTo("staff-new-intent");
+        assertThat(saved.getValue().getS3Key()).contains("/new-media/1.jpg");
+        verify(media).findByMissionIdAndDeviceIdAndLocalMediaId("mission-id","device-id","staff-new-intent");
+    }
+    @Test void aNewIntentDoesNotBypassDeduplicationWhileTheContentIsStillActive() {
+        var request=newStaffIntentRequest();when(media.existsActiveDuplicate("mission-id",request.getChecksumSha256())).thenReturn(true);
+        assertThatThrownBy(() -> service.prepareStaffFile("mission-id",request)).isInstanceOfSatisfying(ApiException.class,e ->
+            assertThat(e.getErrorCode()).isEqualTo(com.ondemandmonitoring.common.exception.ErrorCode.MEDIA_DUPLICATE_CONTENT));
+        verify(media,never()).saveAndFlush(any());verify(storage,never()).createPresignedPutUrl(any(),any(),anyLong(),any());verify(storage,never()).createMultipartUpload(any(),any(),any());
+    }
+
 }

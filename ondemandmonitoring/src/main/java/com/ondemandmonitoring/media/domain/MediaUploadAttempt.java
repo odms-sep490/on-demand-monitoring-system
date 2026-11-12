@@ -2,12 +2,14 @@ package com.ondemandmonitoring.media.domain;
 
 import com.ondemandmonitoring.common.entity.BaseEntity;
 import com.ondemandmonitoring.media.enums.UploadAttemptStatus;
+import com.ondemandmonitoring.media.enums.MediaUploadChannel;
 import jakarta.persistence.*;
 import java.time.Instant;
 import lombok.AccessLevel;
 import lombok.experimental.FieldDefaults;
 import lombok.Getter;
 import lombok.Builder;
+import lombok.Builder.Default;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Setter;
@@ -19,7 +21,8 @@ import lombok.Setter;
 @AllArgsConstructor
 @Entity
 @FieldDefaults(level = AccessLevel.PRIVATE)
-@Table(name = "media_upload_attempts", uniqueConstraints = {
+@Table(name = "media_upload_attempts", indexes = @Index(name = "ix_media_upload_attempt_channel_actor",
+        columnList = "upload_channel,uploaded_by,created_at DESC"), uniqueConstraints = {
         @UniqueConstraint(name = "uk_media_attempt_number", columnNames = {"media_id", "attempt_number"}),
         @UniqueConstraint(name = "uk_media_attempt_storage_key", columnNames = "storage_key")
 })
@@ -59,4 +62,12 @@ public class MediaUploadAttempt extends BaseEntity {
 
     @Column(name = "manual_attempt", nullable = false)
     boolean manualAttempt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "upload_channel", nullable = false, length = 30)
+    @Default
+    MediaUploadChannel uploadChannel = MediaUploadChannel.FLIGHT_CONTROLLER;
+
+    @Column(name = "uploaded_by", length = 255)
+    String uploadedBy;
 }

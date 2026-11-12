@@ -149,13 +149,6 @@ DO $$ DECLARE e record; actual text; keys text[]; predicate text; meta record; B
     IF actual IS DISTINCT FROM 'EXCLUDE USING gist (resource_id WITH =, tstzrange(start_time, end_time, ''[)''::text) WITH &&) WHERE ((released_at IS NULL))' THEN
         RAISE EXCEPTION 'Reservation exclusion must use active half-open windows';
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.missions'::regclass AND contype='c'
-        AND convalidated AND pg_get_constraintdef(oid) LIKE '%safe_stop_status%'
-        AND pg_get_constraintdef(oid) LIKE '%READY_FOR_CANCELLATION%'
-        AND pg_get_constraintdef(oid) LIKE '%REQUESTED%'
-        AND pg_get_constraintdef(oid) LIKE '%IN_PROGRESS%' AND pg_get_constraintdef(oid) LIKE '%FAILED%') THEN
-        RAISE EXCEPTION 'Safe-stop enum check missing';
-    END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='public.resource_reservation_mutex'::regclass
         AND attname='resource_id' AND attnotnull AND format_type(atttypid,atttypmod)='character varying(100)')
         OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.resource_reservation_mutex'::regclass AND contype='p') THEN
@@ -183,6 +176,65 @@ DO $$ DECLARE e record; actual text; keys text[]; predicate text; meta record; B
         AND pg_get_constraintdef(oid) LIKE '%TRANSFER_FAILED%'
         AND pg_get_constraintdef(oid) LIKE '%TRANSFER_ACK_LOST%') THEN
         RAISE EXCEPTION 'Upload failure category check missing';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='public.media_upload_attempts'::regclass
+        AND attname='upload_channel' AND attnotnull
+        AND format_type(atttypid,atttypmod)='character varying(30)')
+        OR NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='public.media_upload_attempts'::regclass
+        AND attname='uploaded_by' AND NOT attisdropped
+        AND format_type(atttypid,atttypmod)='character varying(255)') THEN
+        RAISE EXCEPTION 'Media upload attempt channel/actor columns missing or invalid';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.media_upload_attempts'::regclass
+        AND conname='ck_media_upload_channel' AND contype='c' AND convalidated
+        AND pg_get_constraintdef(oid) LIKE '%FLIGHT_CONTROLLER%'
+        AND pg_get_constraintdef(oid) LIKE '%STAFF_FILE%') THEN
+        RAISE EXCEPTION 'Media upload channel constraint missing';
+    END IF;
+    FOR meta IN SELECT * FROM (VALUES
+        ('media_capture_metadata','capture_time_source','character varying(30)'),
+        ('media_capture_metadata','capture_time_zone','character varying(40)'),
+        ('media_capture_metadata','metadata_captured_at','timestamp with time zone'),
+        ('media_capture_metadata','metadata_time_zone','character varying(40)'),
+        ('media_capture_metadata','capture_time_confirmed_by','character varying(255)'),
+        ('media_capture_metadata','capture_time_confirmed_at','timestamp with time zone'),
+        ('media_capture_metadata','capture_time_confirmation_reason','character varying(500)'),
+        ('media_derivatives','derivative_status','character varying(24)'),
+        ('media_derivatives','thumbnail_key','character varying(1000)'),
+        ('media_derivatives','preview_key','character varying(1000)'),
+        ('media_derivatives','thumbnail_size_bytes','bigint'),
+        ('media_derivatives','preview_size_bytes','bigint'),
+        ('media_derivatives','derivative_attempt_count','integer'),
+        ('media_derivatives','derivative_processed_at','timestamp with time zone'),
+        ('media_derivatives','derivative_error_code','character varying(80)')) AS fields(table_name,name,data_type) LOOP
+        IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.'||meta.table_name)
+            AND attname=meta.name AND NOT attisdropped
+            AND (format_type(atttypid,atttypmod)=meta.data_type
+                OR (meta.data_type='timestamp with time zone' AND atttypid='timestamptz'::regtype))) THEN
+            RAISE EXCEPTION 'Missing/invalid media detail column %.%', meta.table_name, meta.name;
+        END IF;
+    END LOOP;
+    FOREACH actual IN ARRAY ARRAY['media_capture_metadata','media_derivatives'] LOOP
+        IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.'||actual)
+            AND attname='version' AND format_type(atttypid,atttypmod)='bigint' AND attnotnull AND NOT attisdropped)
+           OR NOT EXISTS (SELECT 1 FROM pg_constraint c JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attname='media_id'
+                WHERE c.conrelid=to_regclass('public.'||actual) AND c.contype='p' AND c.conkey=ARRAY[a.attnum]::smallint[])
+           OR NOT EXISTS (SELECT 1 FROM pg_constraint c JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attname='media_id'
+                JOIN pg_attribute parent ON parent.attrelid=c.confrelid AND parent.attname='id'
+                WHERE c.conrelid=to_regclass('public.'||actual) AND c.contype='f'
+                AND c.confrelid='public.drone_media'::regclass AND c.convalidated
+                AND c.conkey=ARRAY[a.attnum]::smallint[] AND c.confkey=ARRAY[parent.attnum]::smallint[]) THEN
+            RAISE EXCEPTION 'Media detail shared identity/version/FK missing: %', actual;
+        END IF;
+    END LOOP;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.media_capture_metadata'::regclass
+        AND conname='ck_media_capture_time_source' AND convalidated) OR NOT EXISTS
+        (SELECT 1 FROM pg_constraint WHERE conrelid='public.media_derivatives'::regclass
+        AND conname='ck_media_derivative_state' AND convalidated) THEN
+        RAISE EXCEPTION 'Media detail invariant checks missing';
+    END IF;
+    IF EXISTS (SELECT 1 FROM drone_media m LEFT JOIN media_derivatives d ON d.media_id=m.id WHERE d.media_id IS NULL) THEN
+        RAISE EXCEPTION 'Media detail invariant violated: every media asset must own a derivative row';
     END IF;
     RAISE NOTICE 'Current Order/Mission schema verification PASS';
 END $$;

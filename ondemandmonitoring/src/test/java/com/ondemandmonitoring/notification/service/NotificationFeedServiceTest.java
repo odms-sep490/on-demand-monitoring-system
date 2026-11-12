@@ -101,6 +101,39 @@ class NotificationFeedServiceTest {
     }
 
     @Test
+    void managerFeedIncludesOnlyNewOrdersThatNeedReview() {
+        when(currentUser.getCurrentUser()).thenReturn(user("manager-1", RoleCode.MANAGER));
+        Order pending = order("order-1", "ORD-1", OrderStatus.PENDING);
+        when(orders.findByOrderStatusInOrderByCreatedAtDesc(eq(List.of(OrderStatus.PENDING)), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(pending)));
+        when(missions.findByStatusInOrderByUpdatedAtDesc(any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        var response = service.listForCurrentUser(30);
+
+        assertEquals(1, response.items().size());
+        assertEquals(NotificationType.ORDER_CREATED, response.items().get(0).type());
+        verify(orders).findByOrderStatusInOrderByCreatedAtDesc(
+                eq(List.of(OrderStatus.PENDING)), any(Pageable.class));
+    }
+
+    @Test
+    void customerFeedReceivesTheUnderReviewStatusForTheirOwnOrder() {
+        when(currentUser.getCurrentUser()).thenReturn(user("customer-1", RoleCode.CUSTOMER));
+        Order underReview = order("order-1", "ORD-1", OrderStatus.UNDER_REVIEW);
+        when(orders.findByCustomer_IdOrderByCreatedAtDesc(eq("customer-1"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(underReview)));
+        when(missions.findByOrder_Customer_IdAndStatusIn(eq("customer-1"), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        var response = service.listForCurrentUser(30);
+
+        assertEquals(1, response.items().size());
+        assertEquals(NotificationType.ORDER_UNDER_REVIEW, response.items().get(0).type());
+        assertEquals("order-1", response.items().get(0).entityId());
+    }
+
+    @Test
     void adminReceivesTheManagerOperationalFeed() {
         when(currentUser.getCurrentUser()).thenReturn(user("admin-1", RoleCode.ADMIN));
         when(orders.findByOrderStatusInOrderByCreatedAtDesc(any(), any(Pageable.class)))
@@ -135,5 +168,15 @@ class NotificationFeedServiceTest {
         order.setId("order-1");
         mission.setOrder(order);
         return mission;
+    }
+
+    private static Order order(String id, String code, OrderStatus status) {
+        Order order = new Order();
+        order.setId(id);
+        order.setOrderCode(code);
+        order.setOrderStatus(status);
+        order.setCreatedAt(Instant.parse("2026-11-12T10:00:00Z"));
+        order.setUpdatedAt(Instant.parse("2026-11-12T10:00:00Z"));
+        return order;
     }
 }

@@ -90,8 +90,10 @@ public class NotificationFeedService {
 
     private List<NotificationItemResponse> managerItems(int limit) {
         List<NotificationItemResponse> items = new ArrayList<>();
+        // Only new orders need manager action. UNDER_REVIEW and NEEDS_INFO are
+        // customer-facing status updates and belong in the customer's feed.
         orders.findByOrderStatusInOrderByCreatedAtDesc(
-                        List.of(OrderStatus.PENDING, OrderStatus.UNDER_REVIEW, OrderStatus.NEEDS_INFO),
+                        List.of(OrderStatus.PENDING),
                         PageRequest.of(0, limit))
                 .forEach(order -> items.add(orderStatusChanged(order)));
 

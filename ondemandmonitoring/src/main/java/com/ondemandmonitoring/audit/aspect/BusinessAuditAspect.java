@@ -18,6 +18,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -38,6 +39,8 @@ public class BusinessAuditAspect {
         this.auditLog = auditLog;
         this.snapshots = snapshots;
         this.transactions = new TransactionTemplate(transactionManager);
+        // Run the audited mutation and its audit writes in a fresh writable transaction.
+        this.transactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     @Around("execution(public * com.ondemandmonitoring..service..*(..))"

@@ -38,6 +38,9 @@ public class AuditInvocationSnapshot {
             Pattern.CASE_INSENSITIVE);
     private static final Pattern UUID_VALUE = Pattern.compile(
             "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$");
+    static final Set<String> NON_BUSINESS_ENTITY_TYPES = Set.of(
+            "refresh_token_cookie",
+            "service_default_price");
     private static final Set<String> CRITICAL_SERVICE_PACKAGES = Set.of(
             "com.ondemandmonitoring.auth.service",
             "com.ondemandmonitoring.checklist.service",
@@ -72,6 +75,7 @@ public class AuditInvocationSnapshot {
 
     public boolean isCriticalBusinessMutation(Class<?> serviceType, Method method) {
         if (isReadOnlyTransaction(serviceType, method)) return false;
+        if (NON_BUSINESS_ENTITY_TYPES.contains(entityType(serviceType))) return false;
 
         String packageName = serviceType.getPackageName();
         boolean criticalService = CRITICAL_SERVICE_PACKAGES.stream()

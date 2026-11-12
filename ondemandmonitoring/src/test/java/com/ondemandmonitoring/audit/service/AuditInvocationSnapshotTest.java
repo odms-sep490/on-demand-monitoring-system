@@ -11,6 +11,7 @@ import com.ondemandmonitoring.mission.service.impl.MissionChecklistAssignmentSer
 import com.ondemandmonitoring.mission.service.impl.MissionResultService;
 import com.ondemandmonitoring.order.service.impl.OrderService;
 import com.ondemandmonitoring.pricing.domain.PricingPolicy;
+import com.ondemandmonitoring.pricing.service.ServiceDefaultPriceService;
 import com.ondemandmonitoring.pricing.service.ServicePriceResolver;
 import com.ondemandmonitoring.service.domain.Service;
 import com.ondemandmonitoring.user.service.impl.UserManagementServiceImpl;
@@ -42,6 +43,11 @@ class AuditInvocationSnapshotTest {
     @Test
     void doesNotAuditReadOnlyPricingResolverAsAMutation() {
         assertThat(isAudited(ServicePriceResolver.class, "resolve", Service.class, PricingPolicy.class)).isFalse();
+    }
+
+    @Test
+    void ignoresTechnicalDefaultPriceRefreshes() {
+        assertThat(isAudited(ServiceDefaultPriceService.class, "refresh")).isFalse();
     }
 
     private boolean isAudited(Class<?> serviceType, String methodName) {

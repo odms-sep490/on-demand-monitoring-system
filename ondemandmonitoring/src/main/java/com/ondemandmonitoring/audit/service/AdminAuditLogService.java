@@ -97,6 +97,11 @@ public class AdminAuditLogService {
     static Specification<AdminAuditLog> specification(AuditLogFilter filter) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
+            predicates.add(cb.not(root.get("entityType").in(AuditInvocationSnapshot.NON_BUSINESS_ENTITY_TYPES)));
+            predicates.add(cb.not(cb.and(
+                    cb.equal(root.get("entityType"), "user"),
+                    cb.equal(root.get("actorId"), SYSTEM_ACTOR),
+                    cb.equal(root.get("action"), AuditAction.STATUS_CHANGE))));
             if (filter != null) {
                 if (hasText(filter.actorId())) predicates.add(cb.equal(root.get("actorId"), filter.actorId()));
                 if (hasText(filter.actorQuery())) {

@@ -199,7 +199,7 @@ class MissionServiceTest {
         String orderId = first.getOrder().getId();
         when(missionRepository.findAllByOrderIdForUpdateOrderById(orderId)).thenReturn(List.of(first, second));
         when(missionRepository.saveAllAndFlush(anyList())).thenAnswer(call -> call.getArgument(0));
-        when(missionPaymentEligibilityService.isFinalPaymentConfirmed(any())).thenReturn(true);
+        when(missionPaymentEligibilityService.isMissionExecutionEligible(any())).thenReturn(true);
 
         List<MissionResponse> result = missionService.transitionToPendingConfirmation(orderId);
 
@@ -215,7 +215,7 @@ class MissionServiceTest {
         second.setOrder(first.getOrder());
         String orderId = first.getOrder().getId();
         when(missionRepository.findAllByOrderIdForUpdateOrderById(orderId)).thenReturn(List.of(first, second));
-        when(missionPaymentEligibilityService.isFinalPaymentConfirmed(any())).thenReturn(true);
+        when(missionPaymentEligibilityService.isMissionExecutionEligible(any())).thenReturn(true);
 
         assertThatThrownBy(() -> missionService.transitionToPendingConfirmation(orderId))
                 .isInstanceOf(ApiException.class)
@@ -234,7 +234,7 @@ class MissionServiceTest {
         String orderId = first.getOrder().getId();
         when(missionRepository.findAllByOrderIdForUpdateOrderById(orderId)).thenReturn(List.of(first, second));
         when(missionRepository.saveAllAndFlush(anyList())).thenAnswer(call -> call.getArgument(0));
-        when(missionPaymentEligibilityService.isFinalPaymentConfirmed(any())).thenReturn(true);
+        when(missionPaymentEligibilityService.isMissionExecutionEligible(any())).thenReturn(true);
 
         List<MissionResponse> result = missionService.transitionToPendingConfirmation(orderId);
 
@@ -255,7 +255,7 @@ class MissionServiceTest {
         when(missionRepository.findAllByOrderIdForUpdateOrderById(orderId))
                 .thenReturn(List.of(confirming, completed, cancelled));
         when(missionRepository.saveAllAndFlush(anyList())).thenAnswer(call -> call.getArgument(0));
-        when(missionPaymentEligibilityService.isFinalPaymentConfirmed(any())).thenReturn(true);
+        when(missionPaymentEligibilityService.isMissionExecutionEligible(any())).thenReturn(true);
 
         missionService.transitionToPendingConfirmation(orderId);
 
@@ -891,27 +891,6 @@ class MissionServiceTest {
                     .hasMessageContaining("MAINTENANCE");
         }
 
-        @Test
-        @DisplayName("Resource changes are blocked while final payment is in progress")
-        void resourceChanges_blockedDuringActiveFinalPayment() {
-            Mission mission = buildMission("m-active-final-payment", MissionStatus.PLANNING);
-            String orderId = mission.getOrder().getId();
-            when(missionPaymentEligibilityService.hasActiveFinalPayment(orderId)).thenReturn(true);
-
-            AssignDeviceRequest assignment = new AssignDeviceRequest();
-            assignment.setDeviceId("device-1");
-            ReplaceDeviceRequest replacement = new ReplaceDeviceRequest();
-            replacement.setDeviceId("device-2");
-            replacement.setReason("Equipment change");
-
-            assertThatThrownBy(() -> missionService.assignDevice(mission.getId(), assignment))
-                    .isInstanceOf(ApiException.class)
-                    .extracting("errorCode").isEqualTo(ErrorCode.ACTIVE_PAYMENT_EXISTS);
-            assertThatThrownBy(() -> missionService.replaceDevice(mission.getId(), "assignment-1", replacement))
-                    .isInstanceOf(ApiException.class)
-                    .extracting("errorCode").isEqualTo(ErrorCode.ACTIVE_PAYMENT_EXISTS);
-            verify(missionRepository, never()).findByIdForUpdate(mission.getId());
-        }
     }
 
     // =========================================================================

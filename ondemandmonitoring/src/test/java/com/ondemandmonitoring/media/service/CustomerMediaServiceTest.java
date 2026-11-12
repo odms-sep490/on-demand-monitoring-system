@@ -57,7 +57,7 @@ class CustomerMediaServiceTest {
         ordered.verify(storage).createPresignedDownloadUrl("bucket", "original", "image.jpg");
     }
     @Test void unpaidOrUnacceptedDeliveryCannotIssueOriginal() {
-        doThrow(new ApiException(ErrorCode.FINAL_PAYMENT_REQUIRED)).when(delivery).requireOriginalAccessForMedia("order", "a");
+        doThrow(new ApiException(ErrorCode.INVOICE_NOT_PAID)).when(delivery).requireOriginalAccessForMedia("order", "a");
         assertThatThrownBy(() -> service.createOriginalDownload("a")).isInstanceOf(ApiException.class);
         verifyNoInteractions(storage);
     }

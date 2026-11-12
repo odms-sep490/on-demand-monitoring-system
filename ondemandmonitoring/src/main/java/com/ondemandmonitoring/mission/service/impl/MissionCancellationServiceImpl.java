@@ -12,6 +12,7 @@ import com.ondemandmonitoring.order.repository.OrderRepository;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,9 +25,9 @@ public class MissionCancellationServiceImpl implements IMissionCancellationServi
     private final MissionRepository missions;
     private final MissionResultRepository results;
     private final AuthenticatedUserResolver actor;
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     private IMissionAuthorizationService authorization;
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     private ChecklistAssignmentStatusSync checklistAssignmentStatusSync;
 
     @Override

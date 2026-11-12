@@ -1,7 +1,7 @@
 package com.ondemandmonitoring.finance.service.impl;
 
 import com.ondemandmonitoring.finance.repository.InvoiceRepository;
-import com.ondemandmonitoring.mission.service.IMissionService;
+import com.ondemandmonitoring.finance.service.IMissionExecutionActivationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -12,28 +12,33 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class FinalPaymentMissionActivationRecoveryJob {
+public class MissionExecutionActivationRecoveryJob {
     private static final int BATCH_SIZE = 500;
 
     private final InvoiceRepository invoices;
-    private final IMissionService missions;
+    private final IMissionExecutionActivationService activation;
 
     @Scheduled(fixedDelayString = "${omss.payment.mission-activation-recovery-delay-ms:60000}")
     public void recoverPendingMissionActivations() {
+        recoverMilestoneActivations();
+    }
+
+    private void recoverMilestoneActivations() {
         String cursor = "";
         while (true) {
-            var batch = invoices.findOrderIdsPendingFinalPaymentActivationAfter(
+            var payableMilestoneOrders = invoices.findOrderIdsAwaitingMissionActivationAfter(
                     cursor, PageRequest.of(0, BATCH_SIZE));
-            if (batch.isEmpty()) return;
-            for (String orderId : batch) {
+            if (payableMilestoneOrders.isEmpty()) return;
+            for (String orderId : payableMilestoneOrders) {
                 try {
-                    missions.transitionToPendingConfirmation(orderId);
+                    activation.activateIfEligible(orderId);
                 } catch (RuntimeException exception) {
-                    log.warn("Mission activation remains pending for paid Order {} and will be retried", orderId, exception);
+                    log.warn("Mission activation remains pending for Order {} and will be retried", orderId, exception);
                 }
             }
-            cursor = batch.get(batch.size() - 1);
-            if (batch.size() < BATCH_SIZE) return;
+            cursor = payableMilestoneOrders.get(payableMilestoneOrders.size() - 1);
+            if (payableMilestoneOrders.size() < BATCH_SIZE) return;
         }
     }
+
 }

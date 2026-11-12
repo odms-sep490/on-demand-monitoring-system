@@ -304,7 +304,7 @@ public class MissionController {
     /**
      * PATCH /api/missions/{id}/accept
      * Staff confirms they accept the mission.
-     * Staff accepts the assigned mission after final payment, while it is PENDING_CONFIRMATION.
+     * Staff accepts the assigned mission once the Deposit and Mission payment allocations are ready.
      */
     @PatchMapping("/{id}/accept")
     @PreAuthorize("@missionAuthorizationService.canRespondToMission(#id)")

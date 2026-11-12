@@ -9,6 +9,7 @@ import com.ondemandmonitoring.pricing.repository.PricingPolicyRepository;
 import java.time.Instant;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,7 +19,7 @@ public class PricingPolicyService {
 
     private com.ondemandmonitoring.checklist.repository.ChecklistDefinitionRepository checklistDefinitions;
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public void setChecklistDefinitions(
             com.ondemandmonitoring.checklist.repository.ChecklistDefinitionRepository checklistDefinitions) {
         this.checklistDefinitions = checklistDefinitions;
@@ -27,7 +28,7 @@ public class PricingPolicyService {
     private com.ondemandmonitoring.pricing.service.ServiceDefaultPriceService defaultPrices;
 
     /** Optional collaborator: keeps the stored service default price current. */
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     public void setDefaultPrices(com.ondemandmonitoring.pricing.service.ServiceDefaultPriceService defaultPrices) {
         this.defaultPrices = defaultPrices;
     }

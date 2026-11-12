@@ -2,7 +2,10 @@ package com.ondemandmonitoring.finance.service.impl;
 
 import com.ondemandmonitoring.finance.config.PaymentProperties;
 import com.ondemandmonitoring.finance.repository.InvoiceRepository;
+import com.ondemandmonitoring.finance.repository.MissionPaymentMilestoneRepository;
 import com.ondemandmonitoring.finance.repository.QuoteRepository;
+import com.ondemandmonitoring.finance.enums.MissionPaymentMilestoneStatus;
+import java.util.List;
 import java.time.Clock;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
@@ -17,8 +20,8 @@ import org.springframework.stereotype.Component;
 public class CommercialExpirationJob {
     private final QuoteRepository quotes;
     private final InvoiceRepository invoices;
+    private final MissionPaymentMilestoneRepository milestones;
     private final CommercialExpirationProcessor processor;
-    private final FinalPaymentDeadlineService finalPaymentDeadlines;
     private final PaymentProperties properties;
     private final Clock clock;
 
@@ -28,8 +31,9 @@ public class CommercialExpirationJob {
         var page = PageRequest.of(0, properties.expirationBatchSize());
         quotes.findExpiredApprovedIds(now, page).forEach(id -> processQuote(id));
         invoices.findExpiredDepositInvoiceIds(now, page).forEach(id -> processInvoice(id));
-        invoices.findCandidatesMissingFinalPaymentDeadline(page).forEach(id -> assignFinalPaymentDeadline(id));
-        invoices.findExpiredFinalPaymentInvoiceIds(now, page).forEach(id -> processFinalPayment(id));
+        milestones.findExpiredPaymentMilestoneIds(now,
+                List.of(MissionPaymentMilestoneStatus.UNPAID, MissionPaymentMilestoneStatus.PENDING), page)
+                .forEach(this::processMissionPayment);
     }
 
     private void processQuote(String id) {
@@ -42,13 +46,8 @@ public class CommercialExpirationJob {
         catch (RuntimeException exception) { log.error("Could not expire deposit invoice {}", id, exception); }
     }
 
-    private void processFinalPayment(String id) {
-        try { processor.expireFinalPayment(id); }
-        catch (RuntimeException exception) { log.error("Could not expire final-payment invoice {}", id, exception); }
-    }
-
-    private void assignFinalPaymentDeadline(String id) {
-        try { finalPaymentDeadlines.assignIfEligible(id); }
-        catch (RuntimeException exception) { log.error("Could not assign final-payment deadline for invoice {}", id, exception); }
+    private void processMissionPayment(String id) {
+        try { processor.expireMissionPayment(id); }
+        catch (RuntimeException exception) { log.error("Could not expire Mission payment milestone {}", id, exception); }
     }
 }

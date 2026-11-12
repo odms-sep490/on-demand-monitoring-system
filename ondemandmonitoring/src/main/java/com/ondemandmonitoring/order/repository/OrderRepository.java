@@ -1,10 +1,13 @@
 package com.ondemandmonitoring.order.repository;
 
 import com.ondemandmonitoring.order.domain.Order;
+import com.ondemandmonitoring.order.enums.ChecklistPricingStatus;
+import com.ondemandmonitoring.finance.enums.QuoteStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Collection;
 import java.util.Optional;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.Lock;
@@ -27,13 +30,13 @@ public interface OrderRepository extends JpaRepository<Order, String> {
 
     List<Order> findByOrderStatusOrderByCreatedAtAsc(OrderStatus status);
 
-    List<Order> findByOrderStatusInOrderByCreatedAtAsc(java.util.Collection<OrderStatus> statuses);
+    List<Order> findByOrderStatusInOrderByCreatedAtAsc(Collection<OrderStatus> statuses);
 
     Page<Order> findByOrderStatusInOrderByCreatedAtAsc(
-            java.util.Collection<OrderStatus> statuses, Pageable pageable);
+            Collection<OrderStatus> statuses, Pageable pageable);
 
     Page<Order> findByOrderStatusInOrderByCreatedAtDesc(
-            java.util.Collection<OrderStatus> statuses, Pageable pageable);
+            Collection<OrderStatus> statuses, Pageable pageable);
 
     List<Order> findByCustomer_IdOrderByCreatedAtDesc(String customerId);
 
@@ -61,9 +64,9 @@ public interface OrderRepository extends JpaRepository<Order, String> {
               and not exists (select q.id from Quote q where q.order = o and q.checklistRevision = o.checklistRevision and q.status in :activeQuoteStatuses)
             """)
     long countQuoteReadyOrders(
-            @Param("terminalStatuses") java.util.Collection<OrderStatus> terminalStatuses,
-            @Param("blockingStatuses") java.util.Collection<com.ondemandmonitoring.order.enums.ChecklistPricingStatus> blockingStatuses,
-            @Param("activeQuoteStatuses") java.util.Collection<com.ondemandmonitoring.finance.enums.QuoteStatus> activeQuoteStatuses);
+            @Param("terminalStatuses") Collection<OrderStatus> terminalStatuses,
+            @Param("blockingStatuses") java.util.Collection<ChecklistPricingStatus> blockingStatuses,
+            @Param("activeQuoteStatuses") java.util.Collection<QuoteStatus> activeQuoteStatuses);
 
     @EntityGraph(attributePaths = {"customer", "service"})
     @Query("""
@@ -75,8 +78,8 @@ public interface OrderRepository extends JpaRepository<Order, String> {
             order by o.createdAt asc
             """)
     Page<Order> findQuoteReadyOrders(
-            @Param("terminalStatuses") java.util.Collection<OrderStatus> terminalStatuses,
-            @Param("blockingStatuses") java.util.Collection<com.ondemandmonitoring.order.enums.ChecklistPricingStatus> blockingStatuses,
-            @Param("activeQuoteStatuses") java.util.Collection<com.ondemandmonitoring.finance.enums.QuoteStatus> activeQuoteStatuses,
+            @Param("terminalStatuses") Collection<OrderStatus> terminalStatuses,
+            @Param("blockingStatuses") java.util.Collection<ChecklistPricingStatus> blockingStatuses,
+            @Param("activeQuoteStatuses") java.util.Collection<QuoteStatus> activeQuoteStatuses,
             Pageable pageable);
 }

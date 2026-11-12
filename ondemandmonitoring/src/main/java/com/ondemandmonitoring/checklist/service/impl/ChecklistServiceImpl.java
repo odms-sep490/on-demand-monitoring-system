@@ -13,6 +13,7 @@ import static com.ondemandmonitoring.checklist.util.ChecklistContentNormalizer.c
 import java.util.Locale;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.*;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -33,12 +34,12 @@ public class ChecklistServiceImpl implements IChecklistService {
     private com.ondemandmonitoring.order.repository.OrderChecklistItemRepository orderUsage;
 
     /** Optional collaborators: change history and the "used by" counts. */
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     public void setAudit(com.ondemandmonitoring.checklist.service.ChecklistAuditService audit) {
         this.audit = audit;
     }
 
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     public void setUsage(com.ondemandmonitoring.checklist.repository.ServiceChecklistRepository serviceUsage,
             com.ondemandmonitoring.order.repository.OrderChecklistItemRepository orderUsage) {
         this.serviceUsage = serviceUsage;
@@ -66,7 +67,7 @@ public class ChecklistServiceImpl implements IChecklistService {
     }
 
     /** Optional collaborator: keeps the stored service default price current. */
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     public void setDefaultPrices(com.ondemandmonitoring.pricing.service.ServiceDefaultPriceService defaultPrices) {
         this.defaultPrices = defaultPrices;
     }

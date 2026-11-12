@@ -9,10 +9,9 @@ import com.ondemandmonitoring.device.enums.DeviceStatus;
 import com.ondemandmonitoring.finance.domain.Invoice;
 import com.ondemandmonitoring.finance.domain.Quote;
 import com.ondemandmonitoring.finance.enums.InvoiceStatus;
-import com.ondemandmonitoring.finance.enums.PaymentStatus;
-import com.ondemandmonitoring.finance.enums.PaymentType;
 import com.ondemandmonitoring.finance.enums.QuoteStatus;
 import com.ondemandmonitoring.finance.repository.InvoiceRepository;
+import com.ondemandmonitoring.finance.repository.MissionPaymentMilestoneRepository;
 import com.ondemandmonitoring.finance.repository.PaymentRepository;
 import com.ondemandmonitoring.finance.service.impl.MissionPaymentEligibilityService;
 import com.ondemandmonitoring.mission.domain.Mission;
@@ -42,14 +41,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class MissionPaymentEligibilityServiceTest {
-    InvoiceRepository invoices = mock(InvoiceRepository.class);
-    PaymentRepository payments = mock(PaymentRepository.class);
+    MissionPaymentMilestoneRepository milestones = mock(MissionPaymentMilestoneRepository.class);
     MissionRepository missions = mock(MissionRepository.class);
     MissionStaffAssignmentRepository staff = mock(MissionStaffAssignmentRepository.class);
     MissionDeviceAssignmentRepository devices = mock(MissionDeviceAssignmentRepository.class);
     ResourceTimeLockRepository locks = mock(ResourceTimeLockRepository.class);
     MissionPaymentEligibilityService service = new MissionPaymentEligibilityService(
-            invoices, payments, missions, staff, devices, locks);
+            milestones, missions, staff, devices, locks);
     Invoice invoice;
     Mission mission;
     List<MissionStaffAssignment> crew;
@@ -95,71 +93,25 @@ class MissionPaymentEligibilityServiceTest {
         assertThat(service.isDepositSatisfied(invoice)).isFalse();
     }
 
-    @Test void opensFinalPaymentOnlyAfterEveryMissionHasACompleteReservedAssignment() {
-        assertThat(service.isFinalPaymentEligible(invoice)).isTrue();
+    @Test void missionExecutionEligibilityRequiresExactAllocationAndReadyResources() {
+        var milestone = new com.ondemandmonitoring.finance.domain.MissionPaymentMilestone();
+        milestone.setId("milestone-1");
+        milestone.setInvoice(invoice);
+        milestone.setMission(mission);
+        milestone.setAmount(new BigDecimal("700"));
+        milestone.setCurrency("VND");
+        milestone.setStatus(com.ondemandmonitoring.finance.enums.MissionPaymentMilestoneStatus.NOT_YET_DUE);
+        when(milestones.findAllByInvoiceIdForDisplay("i1")).thenReturn(List.of(milestone));
+        when(milestones.sumAmountByInvoiceIdAndStatusIn(eq("i1"), anyList()))
+                .thenReturn(new BigDecimal("700"));
+
+        assertThat(service.isMissionExecutionEligible(invoice)).isTrue();
         verify(locks).findConflictingResourceIds(anySet(), eq("m1"), eq(mission.getScheduledStartAt()),
                 eq(mission.getScheduledEndAt()));
-    }
 
-    @Test void blocksFinalPaymentWhenCrewOrMainDeviceIsMissing() {
-        when(staff.findByMissionId("m1")).thenReturn(crew.subList(1, crew.size()));
-        assertThat(service.isFinalPaymentEligible(invoice)).isFalse();
-        when(staff.findByMissionId("m1")).thenReturn(crew);
-        when(devices.findByMissionId("m1")).thenReturn(List.of());
-        assertThat(service.isFinalPaymentEligible(invoice)).isFalse();
-    }
-
-    @Test void blocksFinalPaymentWhenReservationIsMissingOrConflicting() {
-        when(locks.findByMissionId("m1")).thenReturn(List.of());
-        assertThat(service.isFinalPaymentEligible(invoice)).isFalse();
-        when(locks.findByMissionId("m1")).thenReturn(List.of(
-                lock("staff-PILOT"), lock("staff-OPERATOR"), lock("staff-MAINTAINER"),
-                lock("staff-INSPECTOR"), lock("device-1")));
-        when(locks.findConflictingResourceIds(anySet(), eq("m1"), any(), any())).thenReturn(Set.of("device-1"));
-        assertThat(service.isFinalPaymentEligible(invoice)).isFalse();
-    }
-
-    @Test void blocksFinalPaymentForIncompletePlanOrderOrDeposit() {
-        mission.setStatus(MissionStatus.PLANNING);
-        assertThat(service.isFinalPaymentEligible(invoice)).isFalse();
-        mission.setStatus(MissionStatus.PENDING_PAYMENT);
-        invoice.getOrder().setOrderStatus(OrderStatus.CANCELLED);
-        assertThat(service.isFinalPaymentEligible(invoice)).isFalse();
-        invoice.getOrder().setOrderStatus(OrderStatus.APPROVED);
-        invoice.setPaidAmount(new BigDecimal("200"));
-        assertThat(service.isFinalPaymentEligible(invoice)).isFalse();
-    }
-
-    @Test void confirmsActivationOnlyForFullyPaidInvoiceWithSuccessfulFinalPayment() {
-        invoice.setStatus(InvoiceStatus.PAID); invoice.setPaidAmount(invoice.getTotalAmount());
-        invoice.setRemainingAmount(BigDecimal.ZERO);
-        when(payments.existsByInvoiceIdAndPaymentTypeAndStatus("i1", PaymentType.FINAL_PAYMENT, PaymentStatus.SUCCESS))
-                .thenReturn(true);
-        assertThat(service.isFinalPaymentConfirmed(invoice)).isTrue();
-        when(payments.existsByInvoiceIdAndPaymentTypeAndStatus("i1", PaymentType.FINAL_PAYMENT, PaymentStatus.SUCCESS))
-                .thenReturn(false);
-        assertThat(service.isFinalPaymentConfirmed(invoice)).isFalse();
-    }
-
-    @Test void detectsAnActiveFinalPaymentForAnOrder() {
-        when(invoices.findByOrderId("o1")).thenReturn(Optional.of(invoice));
-        when(payments.findFirstByInvoiceIdAndPaymentTypeAndProviderAndStatusInOrderByCreatedAtDesc(
-                eq("i1"), eq(PaymentType.FINAL_PAYMENT), eq(com.ondemandmonitoring.finance.enums.PaymentProvider.VNPAY), anyList()))
-                .thenReturn(Optional.of(new com.ondemandmonitoring.finance.domain.Payment()));
-        assertThat(service.hasActiveFinalPayment("o1")).isTrue();
-    }
-
-    @Test void completedOrderRetainsOriginalPaymentConfirmationForRework() {
-        invoice.getOrder().setOrderStatus(OrderStatus.COMPLETED);
-        invoice.setStatus(InvoiceStatus.PAID);
-        invoice.setPaidAmount(invoice.getTotalAmount());
-        invoice.setRemainingAmount(BigDecimal.ZERO);
-        when(payments.existsByInvoiceIdAndPaymentTypeAndStatus("i1", PaymentType.FINAL_PAYMENT, PaymentStatus.SUCCESS))
-                .thenReturn(true);
-        assertThat(service.isOriginalFinalPaymentConfirmed(invoice)).isTrue();
-        assertThat(service.isFinalPaymentConfirmed(invoice)).isFalse();
-        invoice.getOrder().getExecutionPlan().setStatus(ExecutionPlanStatus.DRAFT);
-        assertThat(service.isOriginalFinalPaymentConfirmed(invoice)).isFalse();
+        when(milestones.sumAmountByInvoiceIdAndStatusIn(eq("i1"), anyList()))
+                .thenReturn(new BigDecimal("699"));
+        assertThat(service.isMissionExecutionEligible(invoice)).isFalse();
     }
 
     private ResourceTimeLock lock(String id) {

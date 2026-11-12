@@ -304,9 +304,9 @@ class ChecklistGuidancePostgresTest {
                             mock(com.ondemandmonitoring.finance.repository.CommercialExpirationSettingsAuditRepository.class),
                             mock(com.ondemandmonitoring.user.repository.UserIdentityRepository.class),
                             java.time.Clock.systemUTC()),
-                    mock(com.ondemandmonitoring.finance.service.impl.FinalPaymentDeadlineService.class),
-                    mock(com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService.class), mock(IOrderReadinessService.class),
-                    pricing.engine, policies, mock(ChecklistPricingAuditRepository.class), java.time.Clock.systemUTC());
+                    mock(IOrderReadinessService.class), pricing.engine, policies,
+                    mock(ChecklistPricingAuditRepository.class), mock(org.springframework.context.ApplicationEventPublisher.class),
+                    java.time.Clock.systemUTC());
         }
         @Bean OrderChecklistUpdateService guidanceCustomerEdits(OrderRepository orders,
                 com.ondemandmonitoring.service.repository.ServiceRepository services,

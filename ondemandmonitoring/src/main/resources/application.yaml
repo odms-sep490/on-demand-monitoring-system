@@ -71,6 +71,8 @@ app:
   seed:
     demo-drones: ${APP_SEED_DEMO_DRONES:false}
     staff-licenses: ${APP_SEED_STAFF_LICENSES:true}
+  refund:
+    receipt-max-image-bytes: ${APP_REFUND_RECEIPT_MAX_IMAGE_BYTES:5242880}
   media:
     derivatives:
       enabled: ${APP_MEDIA_DERIVATIVES_ENABLED:true}
@@ -115,6 +117,8 @@ omss:
     deposit-rate: ${OMSS_PAYMENT_DEPOSIT_RATE:0.30}
     pending-payment-grace: ${OMSS_PENDING_PAYMENT_GRACE:30m}
     expiration-batch-size: ${OMSS_EXPIRATION_BATCH_SIZE:100}
+    # Enable only for a non-production sandbox test environment; production profile/mode rejects it.
+    test-payments-enabled: ${OMSS_PAYMENT_TEST_PAYMENTS_ENABLED:false}
     expiration-job-delay-ms: ${OMSS_EXPIRATION_JOB_DELAY_MS:60000}
 
 odms:
@@ -125,6 +129,7 @@ odms:
       batch-size: ${ODMS_RESULT_RETENTION_CLEANUP_BATCH_SIZE:100}
 
 vnpay:
+  mode: ${VNPAY_MODE:SANDBOX}
   tmn-code: ${VNPAY_TMN_CODE:}
   hash-secret: ${VNPAY_HASH_SECRET:}
   payment-url: ${VNPAY_PAYMENT_URL:https://sandbox.vnpayment.vn/paymentv2/vpcpay.html}

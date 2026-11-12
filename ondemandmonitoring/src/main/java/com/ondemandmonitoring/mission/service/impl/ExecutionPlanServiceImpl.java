@@ -9,7 +9,7 @@ import com.ondemandmonitoring.mission.service.*;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.enums.*;
 import com.ondemandmonitoring.order.repository.*;
-import com.ondemandmonitoring.finance.service.IFinalPaymentNotificationService;
+import com.ondemandmonitoring.finance.service.IMissionExecutionActivationService;
 import java.time.*;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
@@ -31,7 +31,7 @@ public class ExecutionPlanServiceImpl implements IExecutionPlanService {
     private final ExecutionPlanCoverageService coverage;
     private final MissionStaffAssignmentRepository staff;
     private final MissionDeviceAssignmentRepository devices;
-    private final IFinalPaymentNotificationService finalPaymentNotifications;
+    private final IMissionExecutionActivationService missionActivation;
 
     @Override
     @Transactional(readOnly = true)
@@ -85,7 +85,7 @@ public class ExecutionPlanServiceImpl implements IExecutionPlanService {
         order.getExecutionPlan().setFinalizedBy(currentUser.getCurrentUserId());
         missions.saveAllAndFlush(effective);
         orders.saveAndFlush(order);
-        finalPaymentNotifications.notifyIfEligible(orderId);
+        missionActivation.activateIfEligible(orderId);
         return response(order, children);
     }
 

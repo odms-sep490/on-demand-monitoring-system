@@ -55,10 +55,10 @@ class QuoteServiceTest {
     @BeforeEach void setUp() {
         service = new QuoteService(orders, items, mock(OrderChecklistItemMapper.class), quotes, invoices, missions,
                 executions, users, new PaymentProperties(new BigDecimal("0.30")), expirationSettings,
-                mock(com.ondemandmonitoring.finance.service.impl.FinalPaymentDeadlineService.class), paymentEligibility,
-                readiness, pricingEngine, pricingPolicies, pricingAudits, Clock.systemUTC());
+                readiness, pricingEngine, pricingPolicies, pricingAudits,
+                mock(org.springframework.context.ApplicationEventPublisher.class), Clock.systemUTC());
         when(expirationSettings.current()).thenReturn(new com.ondemandmonitoring.finance.dto.CommercialExpirationSettingsResponse(
-                48, 24, "system", java.time.Instant.EPOCH));
+                48, 24, 24, "system", java.time.Instant.EPOCH));
         order = new Order(); order.setId("o1"); order.getFlightAreaReview().setLegalReviewStatus(com.ondemandmonitoring.order.enums.LegalReviewStatus.NOT_REQUIRED); order.setOrderStatus(OrderStatus.PENDING);
         var catalog = new com.ondemandmonitoring.service.domain.Service(); catalog.setName("Building inspection");
         order.setService(catalog);

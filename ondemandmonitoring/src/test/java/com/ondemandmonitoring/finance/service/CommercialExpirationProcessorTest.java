@@ -28,10 +28,11 @@ class CommercialExpirationProcessorTest {
     QuoteRepository quotes = mock(QuoteRepository.class);
     InvoiceRepository invoices = mock(InvoiceRepository.class);
     PaymentRepository payments = mock(PaymentRepository.class);
+    MissionPaymentMilestoneRepository milestones = mock(MissionPaymentMilestoneRepository.class);
     MissionRepository missions = mock(MissionRepository.class);
     PaymentProperties properties = new PaymentProperties(new BigDecimal("0.30"), Duration.ofMinutes(30), 100);
     CommercialExpirationProcessor processor = new CommercialExpirationProcessor(orders, quotes, invoices, payments,
-            missions, properties, Clock.fixed(NOW, ZoneOffset.UTC));
+            milestones, missions, properties, Clock.fixed(NOW, ZoneOffset.UTC));
     Order order;
     Quote quote;
     Invoice invoice;

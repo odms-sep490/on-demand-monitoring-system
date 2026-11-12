@@ -53,12 +53,12 @@ class QuoteGuidanceServiceTest {
     @BeforeEach void setup() {
         CommercialExpirationSettingsService expirationSettings = mock(CommercialExpirationSettingsService.class);
         when(expirationSettings.current()).thenReturn(new com.ondemandmonitoring.finance.dto.CommercialExpirationSettingsResponse(
-                48, 24, "system", java.time.Instant.EPOCH));
+                48, 24, 24, "system", java.time.Instant.EPOCH));
         service = new QuoteService(orders, items, mapper, quotes, invoices, missions,
                 mock(IMissionChecklistExecutionService.class), users, new PaymentProperties(new BigDecimal("0.30")),
-                expirationSettings, mock(com.ondemandmonitoring.finance.service.impl.FinalPaymentDeadlineService.class),
-                mock(com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService.class), readiness, pricingEngine,
-                mock(PricingPolicyRepository.class), mock(ChecklistPricingAuditRepository.class), java.time.Clock.systemUTC());
+                expirationSettings, readiness, pricingEngine, mock(PricingPolicyRepository.class),
+                mock(ChecklistPricingAuditRepository.class), mock(org.springframework.context.ApplicationEventPublisher.class),
+                java.time.Clock.systemUTC());
         order = new Order(); order.setId("o1"); order.setChecklistRevision(2); order.setOrderStatus(OrderStatus.APPROVED);
         order.getFlightAreaReview().setLegalReviewStatus(LegalReviewStatus.NOT_REQUIRED);
         item = new OrderChecklistItem(); item.setId("i1"); item.setOrder(order); item.setChecklistRevision(2);

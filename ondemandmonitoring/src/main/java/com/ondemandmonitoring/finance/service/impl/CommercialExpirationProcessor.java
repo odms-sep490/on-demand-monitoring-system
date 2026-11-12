@@ -3,14 +3,17 @@ package com.ondemandmonitoring.finance.service.impl;
 import com.ondemandmonitoring.finance.config.PaymentProperties;
 import com.ondemandmonitoring.finance.domain.Invoice;
 import com.ondemandmonitoring.finance.domain.Payment;
+import com.ondemandmonitoring.finance.domain.MissionPaymentMilestone;
 import com.ondemandmonitoring.finance.domain.Quote;
 import com.ondemandmonitoring.finance.enums.InvoiceStatus;
 import com.ondemandmonitoring.finance.enums.DepositStatus;
 import com.ondemandmonitoring.finance.enums.PaymentStatus;
 import com.ondemandmonitoring.finance.enums.PaymentType;
+import com.ondemandmonitoring.finance.enums.MissionPaymentMilestoneStatus;
 import com.ondemandmonitoring.finance.enums.QuoteStatus;
 import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.finance.repository.PaymentRepository;
+import com.ondemandmonitoring.finance.repository.MissionPaymentMilestoneRepository;
 import com.ondemandmonitoring.finance.repository.QuoteRepository;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
@@ -22,6 +25,7 @@ import com.ondemandmonitoring.order.repository.OrderRepository;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,6 +42,7 @@ public class CommercialExpirationProcessor {
     private final QuoteRepository quotes;
     private final InvoiceRepository invoices;
     private final PaymentRepository payments;
+    private final MissionPaymentMilestoneRepository milestones;
     private final MissionRepository missions;
     private final PaymentProperties properties;
     private final Clock clock;
@@ -99,38 +104,45 @@ public class CommercialExpirationProcessor {
         return true;
     }
 
-    /** Mark the final balance overdue only after any already-open payment attempt has settled or failed. */
+    /** Expire one Mission receivable after its own handover deadline. */
     @Transactional
-    public boolean expireFinalPayment(String invoiceId) {
-        Invoice candidate = invoices.findById(invoiceId).orElse(null);
-        if (candidate == null) return false;
-        Order order = orders.findByIdForUpdate(candidate.getOrder().getId()).orElse(null);
-        if (order == null || (order.getOrderStatus() != OrderStatus.APPROVED
-                && order.getOrderStatus() != OrderStatus.IN_PROGRESS)
-                || candidate.getFinalPaymentExpiresAt() == null) return false;
+    public boolean expireMissionPayment(String milestoneId) {
+        MissionPaymentMilestone candidate = milestones.findById(milestoneId).orElse(null);
+        if (candidate == null || candidate.getPaymentExpiresAt() == null) return false;
+        String orderId = candidate.getInvoice().getOrder().getId();
+        Order order = orders.findByIdForUpdate(orderId).orElse(null);
+        if (order == null || order.getOrderStatus() == OrderStatus.CANCELLED) return false;
+        String invoiceId = candidate.getInvoice().getId();
         Instant now = Instant.now(clock);
-        if (now.isBefore(candidate.getFinalPaymentExpiresAt())) return false;
+        if (now.isBefore(candidate.getPaymentExpiresAt())) return false;
 
         List<Payment> lockedPayments = payments.findAllByInvoiceIdForUpdate(invoiceId);
         Invoice invoice = invoices.findByIdForUpdate(invoiceId).orElse(null);
-        if (invoice == null || invoice.getStatus() == InvoiceStatus.CANCELLED
+        MissionPaymentMilestone milestone = milestones.findByIdForUpdate(milestoneId).orElse(null);
+        if (invoice == null || milestone == null || invoice.getStatus() == InvoiceStatus.CANCELLED
                 || invoice.getStatus() == InvoiceStatus.PAID || invoice.getStatus() == InvoiceStatus.REFUNDED
-                || invoice.getFinalPaymentExpiresAt() == null || now.isBefore(invoice.getFinalPaymentExpiresAt())
-                || invoice.getRemainingAmount() == null || invoice.getRemainingAmount().signum() <= 0)
+                || invoice.getRemainingAmount() == null || invoice.getRemainingAmount().signum() <= 0
+                || milestone.getPaymentExpiresAt() == null || now.isBefore(milestone.getPaymentExpiresAt())
+                || (milestone.getStatus() != MissionPaymentMilestoneStatus.UNPAID
+                    && milestone.getStatus() != MissionPaymentMilestoneStatus.PENDING))
             return false;
-        boolean finalPaymentInFlight = lockedPayments.stream()
-                .filter(payment -> payment.getPaymentType() == PaymentType.FINAL_PAYMENT)
+        boolean missionPaymentInFlight = lockedPayments.stream()
+                .filter(payment -> payment.getMissionPaymentMilestone() != null
+                        && payment.getMissionPaymentMilestone().getId().equals(milestoneId))
                 .anyMatch(payment -> payment.getStatus() == PaymentStatus.PENDING
                         || payment.getStatus() == PaymentStatus.PROCESSING);
-        if (finalPaymentInFlight) return false;
+        if (missionPaymentInFlight || lockedPayments.stream().anyMatch(payment ->
+                payment.getMissionPaymentMilestone() != null
+                        && payment.getMissionPaymentMilestone().getId().equals(milestoneId)
+                        && payment.getStatus() == PaymentStatus.SUCCESS)) return false;
 
-        invoice.setStatus(InvoiceStatus.OVERDUE);
+        milestone.setStatus(MissionPaymentMilestoneStatus.EXPIRED);
         return true;
     }
 
     /** Null means an operational/resource inconsistency that must be handled manually, never force-cancelled. */
     private List<Mission> cancellableMissions(String orderId) {
-        List<Mission> result = new java.util.ArrayList<>();
+        List<Mission> result = new ArrayList<>();
         for (String id : missions.findIdsByOrderIdOrderById(orderId).stream().sorted().toList()) {
             Mission mission = missions.findByIdForUpdate(id).orElse(null);
             if (mission == null) return null;

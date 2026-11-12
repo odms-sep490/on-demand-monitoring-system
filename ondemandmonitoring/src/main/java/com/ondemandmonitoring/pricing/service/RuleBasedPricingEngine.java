@@ -12,6 +12,7 @@ import com.ondemandmonitoring.pricing.repository.*;
 import java.math.*;
 import java.time.Instant;
 import java.util.*;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.locationtech.jts.geom.Coordinate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,7 +26,7 @@ public class RuleBasedPricingEngine implements PricingEngine {
     private final ChecklistPriceCalculator checklistPrices;
     private final OrderLevelPriceCalculator orderLevelPrices;
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public RuleBasedPricingEngine(PricingPolicyRepository policies, CustomWorkAssessmentRepository assessments,
             ChecklistPriceCalculator checklistPrices, OrderLevelPriceCalculator orderLevelPrices) {
         this.policies = policies;

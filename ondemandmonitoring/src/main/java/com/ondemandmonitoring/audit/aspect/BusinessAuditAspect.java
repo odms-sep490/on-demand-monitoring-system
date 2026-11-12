@@ -42,14 +42,13 @@ public class BusinessAuditAspect {
 
     @Around("execution(public * com.ondemandmonitoring..service..*(..))"
             + " && !within(com.ondemandmonitoring.audit..*)"
-            + " && !within(com.ondemandmonitoring..repository..*)"
-            + " && !target(org.springframework.data.repository.Repository+)")
+            + " && !within(com.ondemandmonitoring..repository..*)")
     public Object auditBusinessOperation(ProceedingJoinPoint joinPoint) throws Throwable {
         MethodSignature signature = (MethodSignature) joinPoint.getSignature();
         Method method = AopUtils.getMostSpecificMethod(signature.getMethod(), joinPoint.getTarget().getClass());
         Class<?> serviceType = AopUtils.getTargetClass(joinPoint.getTarget());
 
-        if (!snapshots.isBusinessMutation(method)
+        if (!snapshots.isCriticalBusinessMutation(serviceType, method)
                 || isHighVolumeTelemetry(serviceType, method)
                 || isScheduledEntryPoint(method)) {
             return joinPoint.proceed();

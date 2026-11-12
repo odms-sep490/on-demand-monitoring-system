@@ -14,9 +14,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
@@ -35,6 +38,19 @@ public class AuditInvocationSnapshot {
             Pattern.CASE_INSENSITIVE);
     private static final Pattern UUID_VALUE = Pattern.compile(
             "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$");
+    private static final Set<String> CRITICAL_SERVICE_PACKAGES = Set.of(
+            "com.ondemandmonitoring.auth.service",
+            "com.ondemandmonitoring.checklist.service",
+            "com.ondemandmonitoring.delivery.service",
+            "com.ondemandmonitoring.device.service",
+            "com.ondemandmonitoring.finance.service",
+            "com.ondemandmonitoring.flightpermit.service",
+            "com.ondemandmonitoring.mission.service",
+            "com.ondemandmonitoring.order.service",
+            "com.ondemandmonitoring.pricing.service",
+            "com.ondemandmonitoring.service.service",
+            "com.ondemandmonitoring.stafflicense.service",
+            "com.ondemandmonitoring.user.service");
     private static final List<String> MUTATION_PREFIXES = List.of(
             "create", "add", "register", "clone", "fork", "update", "edit", "save", "upsert",
             "delete", "remove", "purge", "approve", "reject", "accept", "decline", "review",
@@ -54,9 +70,31 @@ public class AuditInvocationSnapshot {
         this.objectMapper = objectMapper;
     }
 
-    public boolean isBusinessMutation(Method method) {
+    public boolean isCriticalBusinessMutation(Class<?> serviceType, Method method) {
+        if (isReadOnlyTransaction(serviceType, method)) return false;
+
+        String packageName = serviceType.getPackageName();
+        boolean criticalService = CRITICAL_SERVICE_PACKAGES.stream()
+                .anyMatch(prefix -> packageName.equals(prefix) || packageName.startsWith(prefix + "."));
+        if (!criticalService) return false;
+
         String name = method.getName();
+        if (!isFinanceService(serviceType) && name.toLowerCase(Locale.ROOT).contains("status")) return false;
         return MUTATION_PREFIXES.stream().anyMatch(name::startsWith);
+    }
+
+    private static boolean isReadOnlyTransaction(Class<?> serviceType, Method method) {
+        Transactional transaction = AnnotatedElementUtils.findMergedAnnotation(method, Transactional.class);
+        if (transaction == null) {
+            transaction = AnnotatedElementUtils.findMergedAnnotation(serviceType, Transactional.class);
+        }
+        return transaction != null && transaction.readOnly();
+    }
+
+    private static boolean isFinanceService(Class<?> serviceType) {
+        String packageName = serviceType.getPackageName();
+        String financePackage = "com.ondemandmonitoring.finance.service";
+        return packageName.equals(financePackage) || packageName.startsWith(financePackage + ".");
     }
 
     public AuditAction action(Method method) {

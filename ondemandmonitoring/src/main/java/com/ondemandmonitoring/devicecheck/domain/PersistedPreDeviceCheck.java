@@ -2,9 +2,8 @@ package com.ondemandmonitoring.devicecheck.domain;
 
 import com.ondemandmonitoring.common.entity.BaseEntity;
 import com.ondemandmonitoring.devicecheck.enums.PreDeviceCheckStatus;
-import com.ondemandmonitoring.mission.domain.DeviceConnection;
-import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import com.ondemandmonitoring.mission.domain.Mission;
+import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -35,10 +34,6 @@ public class PersistedPreDeviceCheck extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "mission_id", nullable = false)
     Mission mission;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "device_connection_id")
-    DeviceConnection deviceConnection;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "mission_device_assignment_id")

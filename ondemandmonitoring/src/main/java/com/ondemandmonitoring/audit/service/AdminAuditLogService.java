@@ -16,20 +16,23 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 /** Records administrative changes and serves the Admin audit log page. */
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AdminAuditLogService {
@@ -41,10 +44,6 @@ public class AdminAuditLogService {
     private final AdminAuditLogRepository repository;
     private final AuthenticatedUserResolver currentUser;
 
-    /**
-     * Appends an audit entry inside the caller's transaction, so the entry commits
-     * or rolls back together with the audited change.
-     */
     @Transactional
     public void record(AuditAction action, String entityType, String entityId,
             Map<String, ?> before, Map<String, ?> after) {
@@ -58,6 +57,31 @@ public class AdminAuditLogService {
         applyActor(entry);
         applyRequest(entry);
         repository.save(entry);
+    }
+
+    /** Inserts and flushes the audit envelope before the business mutation starts. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public AdminAuditLog begin(AuditAction action, String entityType, String entityId,
+            Map<String, ?> before) {
+        AdminAuditLog entry = new AdminAuditLog();
+        entry.setCreatedAt(Instant.now());
+        entry.setAction(action);
+        entry.setEntityType(entityType);
+        entry.setEntityId(entityId == null || entityId.isBlank() ? "-" : entityId);
+        entry.setBefore(copy(before));
+        applyActor(entry);
+        applyRequest(entry);
+        return repository.saveAndFlush(entry);
+    }
+
+    /** Completes the operation snapshot before the shared transaction commits. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void complete(AdminAuditLog entry, String entityId, Map<String, ?> after) {
+        if (entityId != null && !entityId.isBlank() && !"-".equals(entityId)) {
+            entry.setEntityId(entityId);
+        }
+        entry.setAfter(copy(after));
+        repository.saveAndFlush(entry);
     }
 
     @Transactional(readOnly = true)
@@ -75,6 +99,12 @@ public class AdminAuditLogService {
             List<Predicate> predicates = new ArrayList<>();
             if (filter != null) {
                 if (hasText(filter.actorId())) predicates.add(cb.equal(root.get("actorId"), filter.actorId()));
+                if (hasText(filter.actorQuery())) {
+                    String actorPattern = "%" + filter.actorQuery().trim().toLowerCase(Locale.ROOT) + "%";
+                    predicates.add(cb.or(
+                            cb.like(cb.lower(root.<String>get("actorId")), actorPattern),
+                            cb.like(cb.lower(root.<String>get("actorName")), actorPattern)));
+                }
                 if (filter.action() != null) predicates.add(cb.equal(root.get("action"), filter.action()));
                 if (hasText(filter.entityType())) predicates.add(cb.equal(root.get("entityType"), filter.entityType()));
                 if (filter.from() != null)
@@ -91,15 +121,18 @@ public class AdminAuditLogService {
     }
 
     private void applyActor(AdminAuditLog entry) {
-        try {
-            User user = currentUser.getCurrentUser();
-            entry.setActorId(user.getId());
-            entry.setActorName(hasText(user.getFullName()) ? user.getFullName() : user.getEmail());
-        } catch (RuntimeException exception) {
-            log.debug("Audit entry recorded without an authenticated actor: {}", exception.getMessage());
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null
+                || !authentication.isAuthenticated()
+                || authentication instanceof AnonymousAuthenticationToken) {
             entry.setActorId(SYSTEM_ACTOR);
             entry.setActorName(SYSTEM_ACTOR);
+            return;
         }
+
+        User user = currentUser.getCurrentUser();
+        entry.setActorId(user.getId());
+        entry.setActorName(hasText(user.getFullName()) ? user.getFullName() : user.getEmail());
         if (!hasText(entry.getActorName())) entry.setActorName(entry.getActorId());
     }
 

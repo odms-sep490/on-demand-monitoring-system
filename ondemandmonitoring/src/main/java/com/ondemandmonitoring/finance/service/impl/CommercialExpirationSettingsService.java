@@ -37,14 +37,6 @@ public class CommercialExpirationSettingsService {
     private final UserIdentityRepository userIdentityRepository;
     private final Clock clock;
 
-    private com.ondemandmonitoring.audit.service.AdminAuditLogService auditLog;
-
-    /** Optional collaborator: records the change on the Admin audit log. */
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
-    public void setAuditLog(com.ondemandmonitoring.audit.service.AdminAuditLogService auditLog) {
-        this.auditLog = auditLog;
-    }
-
     @Transactional(readOnly = true)
     public CommercialExpirationSettingsResponse current() {
         return settingsRepository.findById(CommercialExpirationSettings.DEFAULT_ID)
@@ -79,16 +71,6 @@ public class CommercialExpirationSettingsService {
             settings.setUpdatedAt(changedAt);
             settingsRepository.save(settings);
             auditRepository.saveAll(audits);
-            if (auditLog != null) {
-                java.util.Map<String, Object> before = new java.util.LinkedHashMap<>();
-                java.util.Map<String, Object> after = new java.util.LinkedHashMap<>();
-                for (CommercialExpirationSettingsAudit change : audits) {
-                    before.put(change.getSettingName(), change.getPreviousValue());
-                    after.put(change.getSettingName(), change.getNewValue());
-                }
-                auditLog.record(com.ondemandmonitoring.audit.enums.AuditAction.UPDATE, "order_expiration_settings",
-                        CommercialExpirationSettings.DEFAULT_ID, before, after);
-            }
         }
         return response(settings);
     }

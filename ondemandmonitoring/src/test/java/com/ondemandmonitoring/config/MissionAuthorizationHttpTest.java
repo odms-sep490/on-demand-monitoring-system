@@ -69,22 +69,6 @@ class MissionAuthorizationHttpTest {
     }
 
     @Test
-    void acceptedOperatorCanConnectButInspectorAndPilotCannot() throws Exception {
-        crew(MissionStaffRole.INSPECTOR, MissionStaffAssignmentStatus.ACCEPTED);
-        mvc.perform(post("/api/missions/mission-1/connect").with(jwt().authorities(() -> "ROLE_STAFF")).with(csrf()))
-                .andExpect(status().isForbidden());
-        verifyNoInteractions(service);
-        crew(MissionStaffRole.PILOT, MissionStaffAssignmentStatus.ACCEPTED);
-        mvc.perform(post("/api/missions/mission-1/connect").with(jwt().authorities(() -> "ROLE_STAFF")).with(csrf()))
-                .andExpect(status().isForbidden());
-        verifyNoInteractions(service);
-        crew(MissionStaffRole.OPERATOR, MissionStaffAssignmentStatus.ACCEPTED);
-        mvc.perform(post("/api/missions/mission-1/connect").with(jwt().authorities(() -> "ROLE_STAFF")).with(csrf()))
-                .andExpect(status().isOk());
-        verify(service).connectGcs("mission-1");
-    }
-
-    @Test
     void exactRoutesRejectOrderAndCodeAliasesWhileCodeLookupRemainsExplicit() throws Exception {
         var order = new com.ondemandmonitoring.order.domain.Order(); order.setId("order-1");
         mission.setOrder(order);
@@ -93,8 +77,6 @@ class MissionAuthorizationHttpTest {
         mvc.perform(get("/api/missions/order-1").with(jwt().authorities(() -> "ROLE_STAFF")))
                 .andExpect(status().isForbidden());
         mvc.perform(get("/api/missions/MS-001").with(jwt().authorities(() -> "ROLE_STAFF")))
-                .andExpect(status().isForbidden());
-        mvc.perform(post("/api/missions/order-1/connect").with(jwt().authorities(() -> "ROLE_STAFF")).with(csrf()))
                 .andExpect(status().isForbidden());
         verifyNoInteractions(service);
         mvc.perform(get("/api/missions/code/MS-001").with(jwt().authorities(() -> "ROLE_STAFF")))
@@ -108,9 +90,6 @@ class MissionAuthorizationHttpTest {
         crew(MissionStaffRole.PILOT, MissionStaffAssignmentStatus.ACCEPTED);
         mvc.perform(get("/api/missions/pending-assignment")
                         .with(jwt().authorities(() -> "ROLE_MANAGER"))).andExpect(status().isOk());
-        mvc.perform(post("/api/missions/mission-1/connect").with(jwt().authorities(() -> "ROLE_MANAGER")).with(csrf()))
-                .andExpect(status().isForbidden());
-        verify(service, never()).connectGcs(anyString());
     }
 
     @Test

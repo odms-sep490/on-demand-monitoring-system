@@ -32,7 +32,12 @@ public interface OrderRepository extends JpaRepository<Order, String> {
     Page<Order> findByOrderStatusInOrderByCreatedAtAsc(
             java.util.Collection<OrderStatus> statuses, Pageable pageable);
 
+    Page<Order> findByOrderStatusInOrderByCreatedAtDesc(
+            java.util.Collection<OrderStatus> statuses, Pageable pageable);
+
     List<Order> findByCustomer_IdOrderByCreatedAtDesc(String customerId);
+
+    Page<Order> findByCustomer_IdOrderByCreatedAtDesc(String customerId, Pageable pageable);
 
     List<Order> findByCustomer_IdAndOrderStatusOrderByCreatedAtDesc(String customerId, OrderStatus status);
 

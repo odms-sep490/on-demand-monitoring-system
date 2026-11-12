@@ -50,8 +50,6 @@ public interface MissionRepository extends JpaRepository<Mission, String>, JpaSp
             select exists(select 1 from mission_device_assignments where mission_id=:missionId and released_at is null)
                 or exists(select 1 from mission_staff_assignments where mission_id=:missionId and released_at is null)
                 or exists(select 1 from resource_time_locks where mission_id=:missionId and released_at is null)
-                or exists(select 1 from device_connections where mission_id=:missionId
-                    and (connection_status='CONNECTED' or telemetry_active=true))
             """, nativeQuery = true)
     boolean hasUnsafeCancellationResources(@Param("missionId") String missionId);
 
@@ -76,6 +74,21 @@ public interface MissionRepository extends JpaRepository<Mission, String>, JpaSp
               AND m.status IN :statuses
             """)
     List<Mission> findByStaffIdAndStatusIn(@Param("staffId") String staffId, @Param("statuses") List<MissionStatus> statuses);
+
+    @EntityGraph(attributePaths = "order")
+    @Query("""
+            SELECT DISTINCT m FROM Mission m
+            JOIN MissionStaffAssignment msa ON msa.mission = m
+            WHERE msa.staff.id = :staffId
+              AND msa.isCurrent = true
+              AND msa.releasedAt IS NULL
+              AND m.status IN :statuses
+            ORDER BY m.updatedAt DESC
+            """)
+    List<Mission> findCurrentAssignmentsForStaff(
+            @Param("staffId") String staffId,
+            @Param("statuses") List<MissionStatus> statuses,
+            org.springframework.data.domain.Pageable pageable);
 
     List<Mission> findByStatusIn(List<MissionStatus> statuses);
 

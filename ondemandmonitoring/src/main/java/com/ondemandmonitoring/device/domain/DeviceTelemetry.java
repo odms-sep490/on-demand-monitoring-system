@@ -1,7 +1,7 @@
 package com.ondemandmonitoring.device.domain;
 
 import com.ondemandmonitoring.common.entity.BaseEntity;
-import com.ondemandmonitoring.mission.domain.DeviceConnection;
+import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -21,9 +21,9 @@ import lombok.experimental.FieldDefaults;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class DeviceTelemetry extends BaseEntity {
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "device_connection_id", nullable = false)
-    DeviceConnection deviceConnection;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "mission_device_assignment_id")
+    MissionDeviceAssignment missionDeviceAssignment;
 
     @Column(name = "battery_percent")
     Double batteryPercent;

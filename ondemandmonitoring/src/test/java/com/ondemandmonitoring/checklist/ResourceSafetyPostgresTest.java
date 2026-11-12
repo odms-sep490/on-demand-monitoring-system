@@ -37,7 +37,6 @@ import static org.mockito.Mockito.*;
 class ResourceSafetyPostgresTest extends ExecutionPlanAmendmentPostgresTest {
     @Autowired IResourceReservationService reservations;
     MissionService operational;
-    DeviceConnectionService sessions;
 
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.EnumSource(value = MissionStatus.class, names = {"COMPLETED", "CANCELLED"})
@@ -54,7 +53,6 @@ class ResourceSafetyPostgresTest extends ExecutionPlanAmendmentPostgresTest {
         assertThrows(ApiException.class, () -> transaction.executeWithoutResult(tx -> operational.assignStaff(first, crew)));
         assertThrows(ApiException.class, () -> transaction.executeWithoutResult(tx -> operational.assignDevice(first, device)));
         assertThrows(ApiException.class, () -> choose(first));
-        assertThrows(ApiException.class, () -> transaction.executeWithoutResult(tx -> sessions.connectGcs(first)));
         assertThrows(ApiException.class, () -> transaction.executeWithoutResult(tx -> operational.startMission(first)));
         assertEquals(terminal, missions.findById(first).orElseThrow().getStatus());
         assertEquals(beforeRevision, revision()); assertEquals(before, history(first));
@@ -73,19 +71,24 @@ class ResourceSafetyPostgresTest extends ExecutionPlanAmendmentPostgresTest {
         });
         var directory = mock(IStaffDirectoryService.class);
         when(directory.requireActiveStaff(anyString())).thenAnswer(c -> repository(entityManagerFactory, UserRepository.class).findById(c.getArgument(0)).orElseThrow());
-        sessions = new DeviceConnectionService(missions, repository(entityManagerFactory, DeviceConnectionRepository.class),
-                repository(entityManagerFactory, MissionDeviceAssignmentRepository.class), repository(entityManagerFactory, MissionStaffAssignmentRepository.class),
-                repository(entityManagerFactory, DeviceRepository.class), mapper, scope, reservations);
         operational = new MissionService(missions, repository(entityManagerFactory, DeviceRepository.class),
                 mapper,
-                null,repository(entityManagerFactory, DeviceConnectionRepository.class),null,
-                repository(entityManagerFactory, PersistedPostDeviceCheckRepository.class),null,orders,null,null,null,sessions,resultService,
-                null,null,directory,resolver,repository(entityManagerFactory, UserScheduleRepository.class),
+                null,repository(entityManagerFactory, ControlHandoverRepository.class),
+                repository(entityManagerFactory, PersistedPostDeviceCheckRepository.class),
+                repository(entityManagerFactory, com.ondemandmonitoring.device.repository.MaintenanceTicketRepository.class),
+                orders,null,null,null,resultService,null,null,directory,resolver,
+                repository(entityManagerFactory, UserScheduleRepository.class),
                 repository(entityManagerFactory, MissionDeviceAssignmentRepository.class),repository(entityManagerFactory, MissionStaffAssignmentRepository.class),
                 repository(entityManagerFactory, ResourceTimeLockRepository.class),runtime,
+                mock(com.ondemandmonitoring.mission.service.IMissionChecklistMaterializationService.class),
                 mock(com.ondemandmonitoring.mission.service.IMissionChecklistAssignmentService.class),
                 reservations,
-                repository(entityManagerFactory, com.ondemandmonitoring.device.repository.DeviceTelemetryRepository.class));
+                repository(entityManagerFactory, com.ondemandmonitoring.device.repository.DeviceTelemetryRepository.class),
+                mock(com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService.class),
+                mock(ChecklistAssignmentStatusSync.class),
+                repository(entityManagerFactory, com.ondemandmonitoring.order.repository.OrderChecklistItemRepository.class),
+                mock(com.ondemandmonitoring.flightpermit.service.IFlightPermitService.class),
+                repository(entityManagerFactory, MissionChecklistExecutionRepository.class));
     }
     void withMission(String id, Consumer<Mission> action) {
         transaction.executeWithoutResult(tx -> {
@@ -209,8 +212,8 @@ class ResourceSafetyPostgresTest extends ExecutionPlanAmendmentPostgresTest {
 
     @Test void telemetryReadinessIsNonMutatingInPostgresReadOnlyTransaction() {
         ready(0); operationalFixture(first);
-        String connection = jdbc.queryForObject("select id from device_connections where mission_id=?",String.class,first);
-        jdbc.update("insert into device_telemetry(id,created_at,version,device_connection_id,connected,recorded_at) values (?,now(),0,?,true,now())",UUID.randomUUID().toString(),connection);
+        String assignment = jdbc.queryForObject("select id from mission_device_assignments where mission_id=? and is_current=true",String.class,first);
+        jdbc.update("insert into device_telemetry(id,created_at,version,mission_device_assignment_id,connected,recorded_at) values (?,now(),0,?,true,now())",UUID.randomUUID().toString(),assignment);
         var before = readinessState(first);
         var readOnly = new org.springframework.transaction.support.TransactionTemplate(transaction.getTransactionManager());
         readOnly.setReadOnly(true);
@@ -225,13 +228,13 @@ class ResourceSafetyPostgresTest extends ExecutionPlanAmendmentPostgresTest {
         assertTrue(response.ready());
         assertEquals(jdbc.queryForObject("select device_id from mission_device_assignments where mission_id=?",String.class,first),response.deviceId());
         assertEquals(before,readinessState(first));
-        jdbc.update("update device_telemetry set recorded_at=now()-interval '20 seconds' where device_connection_id=?",connection);
+        jdbc.update("update device_telemetry set recorded_at=now()-interval '20 seconds' where mission_device_assignment_id=?",assignment);
         assertFalse(readOnly.execute(tx -> operational.getTelemetryReadiness(first)).ready());
         jdbc.update("update missions set status='CANCELLED' where id=?",first);
         assertFalse(readOnly.execute(tx -> operational.getTelemetryReadiness(first)).ready());
     }
     List<String> readinessState(String missionId) {
-        return List.of("missions","mission_device_assignments","mission_staff_assignments","device_connections","resource_time_locks").stream()
+        return List.of("missions","mission_device_assignments","mission_staff_assignments","resource_time_locks").stream()
                 .map(table -> jdbc.queryForObject("select coalesce(jsonb_agg(to_jsonb(t) order by id)::text,'[]') from "+table+" t where "+(table.equals("missions")?"id":"mission_id")+"=?",String.class,missionId)).toList();
     }
 
@@ -299,7 +302,6 @@ class ResourceSafetyPostgresTest extends ExecutionPlanAmendmentPostgresTest {
         String pilot=staff(), device=device(), da=UUID.randomUUID().toString(), sa=UUID.randomUUID().toString();
         jdbc.update("insert into mission_device_assignments(id,created_at,version,mission_id,device_id,device_role,checkup_status,is_current) values (?,now(),0,?,?,'MAIN','PENDING',true)",da,mission,device);
         jdbc.update("insert into mission_staff_assignments(id,created_at,version,mission_id,staff_id,assigned_role,response_status,is_current) values (?,now(),0,?,?,'PILOT','ACCEPTED',true)",sa,mission,pilot);
-        jdbc.update("insert into device_connections(id,created_at,version,mission_id,mission_device_assignment_id,mission_staff_assignment_id,connection_status,telemetry_active,connected_at) values (?,now(),0,?, ?,?,'CONNECTED',true,now())",UUID.randomUUID().toString(),mission,da,sa);
         withMission(mission,m -> reservations.reserveAll(m,Map.of(device,false,pilot,true)));
         jdbc.update("update missions set status='IN_FLIGHT',actual_start_at=now(),completed_at=null where id=?",mission); return pilot;
     }

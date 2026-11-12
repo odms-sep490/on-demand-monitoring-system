@@ -2,6 +2,13 @@ package com.ondemandmonitoring.notification.dto;
 
 public enum NotificationType {
     ORDER_CREATED,
+    ORDER_UNDER_REVIEW,
+    ORDER_NEEDS_INFO,
+    ORDER_APPROVED,
+    ORDER_REJECTED,
+    ORDER_IN_PROGRESS,
+    ORDER_COMPLETED,
+    ORDER_CANCELLED,
     MISSION_ASSIGNED,
     MISSION_COMPLETED,
     MISSION_REVIEW_REQUIRED,

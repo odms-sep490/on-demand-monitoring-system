@@ -11,6 +11,7 @@ import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.notification.dto.NotificationType;
 import com.ondemandmonitoring.order.domain.Order;
+import com.ondemandmonitoring.order.enums.OrderStatus;
 import com.ondemandmonitoring.order.repository.OrderRepository;
 import com.ondemandmonitoring.role.domain.Role;
 import com.ondemandmonitoring.role.enumeration.RoleCode;
@@ -68,6 +69,44 @@ class NotificationFeedServiceTest {
         assertEquals(2, response.items().size());
         assertEquals(NotificationType.MISSION_REVIEW_REQUIRED, response.items().get(0).type());
         assertEquals(NotificationType.MISSION_WARNING, response.items().get(1).type());
+    }
+
+    @Test
+    void customerFeedShowsTheLatestOrderApprovalStatus() {
+        when(currentUser.getCurrentUser()).thenReturn(user("customer-1", RoleCode.CUSTOMER));
+        Order order = new Order();
+        order.setId("order-1");
+        order.setOrderCode("ORD-1");
+        order.setOrderStatus(OrderStatus.APPROVED);
+        order.setCreatedAt(Instant.parse("2026-11-12T09:00:00Z"));
+        order.setUpdatedAt(Instant.parse("2026-11-12T10:00:00Z"));
+        order.setReviewAt(Instant.parse("2026-11-12T09:59:00Z"));
+        when(orders.findByCustomer_IdOrderByCreatedAtDesc(eq("customer-1"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(order)));
+        when(missions.findByOrder_Customer_IdAndStatusIn(eq("customer-1"), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        var response = service.listForCurrentUser(30);
+
+        assertEquals(1, response.items().size());
+        assertEquals(NotificationType.ORDER_APPROVED, response.items().get(0).type());
+        assertEquals("order-1", response.items().get(0).entityId());
+        assertEquals(Instant.parse("2026-11-12T09:59:00Z"), response.items().get(0).createdAt());
+    }
+
+    @Test
+    void adminReceivesTheManagerOperationalFeed() {
+        when(currentUser.getCurrentUser()).thenReturn(user("admin-1", RoleCode.ADMIN));
+        when(orders.findByOrderStatusInOrderByCreatedAtDesc(any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+        when(missions.findByStatusInOrderByUpdatedAtDesc(any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        var response = service.listForCurrentUser(30);
+
+        assertEquals(0, response.items().size());
+        verify(orders).findByOrderStatusInOrderByCreatedAtDesc(any(), any(Pageable.class));
+        verify(missions).findByStatusInOrderByUpdatedAtDesc(any(), any(Pageable.class));
     }
 
     private static User user(String id, RoleCode code) {

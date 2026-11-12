@@ -53,7 +53,9 @@ public class NotificationFeedService {
             case CUSTOMER -> customerItems(user.getId(), limit);
             case MANAGER -> managerItems(limit);
             case STAFF -> staffItems(user.getId(), limit);
-            case ADMIN -> List.of();
+            // Admins can also work in the manager portal and need the same
+            // operational alerts there.
+            case ADMIN -> managerItems(limit);
         };
         items.sort(Comparator.comparing(NotificationItemResponse::createdAt,
                 Comparator.nullsLast(Comparator.naturalOrder())).reversed());
@@ -63,7 +65,7 @@ public class NotificationFeedService {
     private List<NotificationItemResponse> customerItems(String customerId, int limit) {
         List<NotificationItemResponse> items = new ArrayList<>();
         orders.findByCustomer_IdOrderByCreatedAtDesc(customerId, PageRequest.of(0, limit))
-                .forEach(order -> items.add(orderCreated(order)));
+                .forEach(order -> items.add(orderStatusChanged(order)));
         missions.findByOrder_Customer_IdAndStatusIn(
                         customerId, List.of(MissionStatus.COMPLETED), PageRequest.of(0, limit))
                 .forEach(mission -> items.add(missionItem(mission, NotificationType.MISSION_COMPLETED,
@@ -76,7 +78,7 @@ public class NotificationFeedService {
         orders.findByOrderStatusInOrderByCreatedAtDesc(
                         List.of(OrderStatus.PENDING, OrderStatus.UNDER_REVIEW, OrderStatus.NEEDS_INFO),
                         PageRequest.of(0, limit))
-                .forEach(order -> items.add(orderCreated(order)));
+                .forEach(order -> items.add(orderStatusChanged(order)));
 
         missions.findByStatusInOrderByUpdatedAtDesc(
                         List.of(MissionStatus.AWAITING_REVIEW, MissionStatus.PENDING_REVIEW,
@@ -109,16 +111,28 @@ public class NotificationFeedService {
                 .toList();
     }
 
-    private NotificationItemResponse orderCreated(Order order) {
+    private NotificationItemResponse orderStatusChanged(Order order) {
         String reference = order.getOrderCode() == null || order.getOrderCode().isBlank()
                 ? order.getId() : order.getOrderCode();
+        NotificationType type = switch (order.getOrderStatus()) {
+            case PENDING -> NotificationType.ORDER_CREATED;
+            case UNDER_REVIEW -> NotificationType.ORDER_UNDER_REVIEW;
+            case NEEDS_INFO -> NotificationType.ORDER_NEEDS_INFO;
+            case APPROVED -> NotificationType.ORDER_APPROVED;
+            case REJECTED -> NotificationType.ORDER_REJECTED;
+            case IN_PROGRESS -> NotificationType.ORDER_IN_PROGRESS;
+            case COMPLETED -> NotificationType.ORDER_COMPLETED;
+            case CANCELLED -> NotificationType.ORDER_CANCELLED;
+        };
+        Instant timestamp = order.getOrderStatus() == OrderStatus.PENDING
+                ? order.getCreatedAt() : eventAt(order);
         return new NotificationItemResponse(
-                "order:" + order.getId() + ":created",
-                NotificationType.ORDER_CREATED,
+                "order:" + order.getId() + ":" + type.name().toLowerCase(),
+                type,
                 order.getId(),
                 null,
                 reference,
-                order.getCreatedAt());
+                timestamp);
     }
 
     private NotificationItemResponse missionItem(
@@ -140,6 +154,15 @@ public class NotificationFeedService {
 
     private Instant eventAt(Mission mission) {
         return mission.getUpdatedAt() != null ? mission.getUpdatedAt() : mission.getCreatedAt();
+    }
+
+    private Instant eventAt(Order order) {
+        if ((order.getOrderStatus() == OrderStatus.APPROVED
+                || order.getOrderStatus() == OrderStatus.REJECTED)
+                && order.getReviewAt() != null) {
+            return order.getReviewAt();
+        }
+        return order.getUpdatedAt() != null ? order.getUpdatedAt() : order.getCreatedAt();
     }
 
     private Comparator<NotificationItemResponse> byTimeDescending() {

@@ -176,6 +176,29 @@ class PhotoCommandHttpTest(unittest.TestCase):
         self.assertEqual(body["code"], "CAMERA_CAPTURE_FAILED")
         self.assertNotIn("private path", json.dumps(body))
 
+    def test_local_thumbnail_endpoint_serves_jpeg_without_touching_flight_commands(self):
+        with tempfile.TemporaryDirectory() as directory:
+            poster = Path(directory) / "poster.jpg"
+            poster.write_bytes(b"\xff\xd8\xffthumbnail")
+            self.library.thumbnail_path.return_value = poster
+            url = self.url.replace("/api/control/command", "/api/media/local/video/thumbnail")
+            with urlopen(url, timeout=3) as response:
+                self.assertEqual(response.status, 200)
+                self.assertEqual(response.headers["Content-Type"], "image/jpeg")
+                self.assertEqual(response.read(), poster.read_bytes())
+            self.library.thumbnail_path.assert_called_once_with("video")
+            self.camera.capture_photo.assert_not_called()
+            self.assertTrue(self.api.commands.empty())
+
+    def test_local_thumbnail_endpoint_returns_safe_failure(self):
+        url = self.url.replace("/api/control/command", "/api/media/local/video/thumbnail")
+        for failure, expected in [(KeyError("video"), 404), (subprocess.TimeoutExpired("ffmpeg", 8), 422)]:
+            self.library.thumbnail_path.side_effect = failure
+            with self.assertRaises(HTTPError) as raised:
+                urlopen(url, timeout=3)
+            self.assertEqual(raised.exception.code, expected)
+            self.assertNotIn("ffmpeg", json.dumps(json.load(raised.exception)))
+
     def test_unbound_mission_is_still_rejected_before_capture(self):
         self.library.mission_id = None
         status, body = self.command()

@@ -1582,6 +1582,25 @@ class FlightControlApi:
                     )
                     self._write_json(200, {"media": owner.media_library.list_items(mission_keys or None) if owner.media_library else []})
                     return
+                if parsed_path.path.startswith("/api/media/local/") and parsed_path.path.endswith("/thumbnail"):
+                    local_id = parsed_path.path.split("/")[4]
+                    try:
+                        if owner.media_library is None:
+                            raise KeyError(local_id)
+                        source = owner.media_library.thumbnail_path(local_id)
+                        content = source.read_bytes()
+                        self.send_response(200)
+                        self._cors()
+                        self.send_header("Content-Type", "image/jpeg")
+                        self.send_header("Content-Length", str(len(content)))
+                        self.send_header("Cache-Control", "private, max-age=300")
+                        self.end_headers()
+                        self.wfile.write(content)
+                    except (KeyError, FileNotFoundError):
+                        self._write_json(404, {"error": "Local video not found"})
+                    except (ValueError, OSError, subprocess.SubprocessError):
+                        self._write_json(422, {"error": "Local video thumbnail is unavailable"})
+                    return
                 if parsed_path.path.startswith("/api/media/local/") and parsed_path.path.endswith("/preview"):
                     local_id = parsed_path.path.split("/")[4]
                     try:

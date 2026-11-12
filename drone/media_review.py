@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import Lock, RLock
+from threading import BoundedSemaphore, Lock, RLock
 from urllib.parse import urlparse
 import hashlib
 import json
@@ -23,6 +23,8 @@ class LocalMediaLibrary:
         self.device_id = device_id
         self.lock = RLock()
         self.transfer_locks: dict[str, Lock] = {}
+        self.thumbnail_locks: dict[str, Lock] = {}
+        self.thumbnail_workers = BoundedSemaphore(2)
         self.root.mkdir(parents=True, exist_ok=True)
         self.manifest = self.root / "media-index.json"
         self.items = self._load()
@@ -185,13 +187,60 @@ class LocalMediaLibrary:
                 raise KeyError(local_id)
             return self.items[local_id].copy()
 
+    def thumbnail_path(self, local_id: str) -> Path:
+        """Generate a bounded JPEG poster on demand, without changing video bytes."""
+        with self.lock:
+            self.get(local_id)
+            thumbnail_lock = self.thumbnail_locks.setdefault(local_id, Lock())
+        if not thumbnail_lock.acquire(timeout=2):
+            raise ValueError("Video thumbnail is being generated")
+        try:
+            item = self.get(local_id)
+            if item["mediaType"] != "VIDEO":
+                raise ValueError("Only videos have a generated thumbnail")
+            source = Path(item["localPath"])
+            source_stat = source.stat()
+            directory = self.root / ".thumbnails"
+            directory.mkdir(exist_ok=True)
+            poster = directory / (hashlib.sha256(local_id.encode()).hexdigest() + ".jpg")
+            if poster.is_file() and poster.stat().st_size > 0 and poster.stat().st_mtime_ns >= source_stat.st_mtime_ns:
+                return poster
+            temporary = directory / (uuid.uuid4().hex + ".jpg")
+            try:
+                if not self.thumbnail_workers.acquire(timeout=2):
+                    raise ValueError("Video thumbnail workers are busy")
+                try:
+                    subprocess.run(
+                        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+                         "-threads", "1", "-i", str(source), "-frames:v", "1", "-vf",
+                         "scale=480:320:force_original_aspect_ratio=decrease", "-threads", "1",
+                         "-q:v", "3", str(temporary)],
+                        check=True, capture_output=True, timeout=8,
+                    )
+                finally:
+                    self.thumbnail_workers.release()
+                with temporary.open("rb") as generated:
+                    if generated.read(3) != b"\xff\xd8\xff":
+                        raise ValueError("Video thumbnail is not a JPEG")
+                os.replace(temporary, poster)
+                return poster
+            finally:
+                temporary.unlink(missing_ok=True)
+        finally:
+            thumbnail_lock.release()
+
     def discard(self, local_id: str) -> None:
         with self.lock:
             transfer_lock = self.transfer_locks.setdefault(local_id, Lock())
         if not transfer_lock.acquire(blocking=False):
             raise ValueError("Media cannot be discarded during upload")
         try:
-            self._discard(local_id)
+            with self.lock:
+                thumbnail_lock = self.thumbnail_locks.setdefault(local_id, Lock())
+            with thumbnail_lock:
+                self._discard(local_id)
+                poster = self.root / ".thumbnails" / (hashlib.sha256(local_id.encode()).hexdigest() + ".jpg")
+                poster.unlink(missing_ok=True)
         finally:
             transfer_lock.release()
 

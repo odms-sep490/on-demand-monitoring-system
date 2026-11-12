@@ -65,6 +65,76 @@ class LocalMediaLibraryTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Unsupported media source"):
                 library.capture_image(b"\xff\xd8\xffbad", "FAKE_SOURCE")
 
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg is required")
+    def test_video_thumbnail_is_cached_without_changing_capture_and_removed_with_local_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            original = root / "capture.mp4"
+            subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+                            "-i", "testsrc=size=640x360:rate=5", "-t", "0.4", "-c:v", "libx264",
+                            "-pix_fmt", "yuv420p", str(original)], check=True)
+            library = LocalMediaLibrary(root, "mission-1", "device")
+            item = library.register_video(original)
+            checksum = library._sha256(original)
+            with patch("media_review.subprocess.run", wraps=subprocess.run) as generate:
+                poster = library.thumbnail_path(item["localMediaId"])
+                self.assertEqual(poster.read_bytes()[:3], b"\xff\xd8\xff")
+                self.assertEqual(poster, library.thumbnail_path(item["localMediaId"]))
+                self.assertEqual(generate.call_count, 1)
+            self.assertEqual(library._sha256(original), checksum)
+            self.assertEqual(library.get(item["localMediaId"])["checksumSha256"], checksum)
+            restarted = LocalMediaLibrary(root, "mission-1", "device")
+            with patch("media_review.subprocess.run", side_effect=AssertionError("cached thumbnail should be reused")):
+                self.assertEqual(restarted.thumbnail_path(item["localMediaId"]), poster)
+            library.discard(item["localMediaId"])
+            self.assertFalse(poster.exists())
+
+    def test_concurrent_thumbnail_requests_generate_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            video = root / "capture.mp4"
+            video.write_bytes(b"video")
+            library = LocalMediaLibrary(root, "mission", "device")
+            library._register("video", video, "VIDEO", "video/mp4")
+            started, release = Event(), Event()
+
+            def generate(command, **_kwargs):
+                started.set()
+                self.assertTrue(release.wait(2))
+                Path(command[-1]).write_bytes(b"\xff\xd8\xffposter")
+
+            with patch("media_review.subprocess.run", side_effect=generate) as process:
+                with ThreadPoolExecutor(max_workers=2) as workers:
+                    first = workers.submit(library.thumbnail_path, "video")
+                    self.assertTrue(started.wait(2))
+                    second = workers.submit(library.thumbnail_path, "video")
+                    release.set()
+                    self.assertEqual(first.result(3), second.result(3))
+                self.assertEqual(process.call_count, 1)
+
+    def test_thumbnail_generation_failure_preserves_video_and_removes_temporary_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            video = root / "capture.mp4"
+            video.write_bytes(b"invalid video")
+            library = LocalMediaLibrary(root, "mission", "device")
+            item = library._register("video", video, "VIDEO", "video/mp4")
+            with patch("media_review.subprocess.run", side_effect=subprocess.TimeoutExpired("ffmpeg", 8)):
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    library.thumbnail_path(item["localMediaId"])
+            self.assertTrue(video.is_file())
+            self.assertEqual(list((root / ".thumbnails").iterdir()), [])
+            self.assertEqual(library.get("video")["status"], "REVIEW_PENDING")
+
+    def test_thumbnail_rejects_unknown_ids_and_images(self):
+        with tempfile.TemporaryDirectory() as directory:
+            library = LocalMediaLibrary(Path(directory), "mission", "device")
+            image = library.capture_image(b"\xff\xd8\xffjpeg")
+            with self.assertRaises(KeyError):
+                library.thumbnail_path("unknown")
+            with self.assertRaises(ValueError):
+                library.thumbnail_path(image["localMediaId"])
+
     def test_capture_requires_bound_mission(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

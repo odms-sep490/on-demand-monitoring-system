@@ -14,9 +14,9 @@ import java.util.Map;
  */
 public interface IPaymentService {
     PaymentResponse createDeposit(String invoiceId, String clientIp);
+    PaymentResponse createMissionPayment(String milestoneId, String clientIp);
+    PaymentResponse completeTestMissionPayment(String milestoneId);
     PaymentResponse completeTestDeposit(String invoiceId);
-    PaymentResponse completeTestFinal(String invoiceId);
-    PaymentResponse createFinal(String invoiceId, String clientIp);
     PaymentResponse get(String paymentId);
     PaymentResponse getByReference(String transactionReference);
     PaymentResponse refreshByReference(String transactionReference, String requestIp);

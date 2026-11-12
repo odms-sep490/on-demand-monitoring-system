@@ -8,5 +8,6 @@ public enum MediaStatus {
     MANUAL_UPLOAD_REQUIRED,
     PENDING_MANAGER_APPROVAL,
     AVAILABLE,
-    REJECTED
+    REJECTED,
+    REMOVED
 }

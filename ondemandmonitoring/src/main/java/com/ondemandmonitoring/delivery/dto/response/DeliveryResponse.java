@@ -14,4 +14,4 @@ public record DeliveryResponse(
         InvoiceStatus invoiceStatus, BigDecimal totalAmount, BigDecimal paidAmount, BigDecimal remainingAmount,
         String deliveryNotes, Instant previewReleasedAt, Instant customerAcceptedAt,
         Instant revisionRequestedAt, String revisionReason, int revisionCount,
-        Instant finalPaymentConfirmedAt, Instant originalsReleasedAt, List<DeliveryAssetResponse> assets) {}
+        Instant originalsReleasedAt, List<DeliveryAssetResponse> assets) {}

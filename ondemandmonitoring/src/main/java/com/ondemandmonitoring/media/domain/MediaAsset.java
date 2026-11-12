@@ -132,30 +132,85 @@ public class MediaAsset extends BaseEntity {
     @Column(name = "preview_selected", nullable = false)
     boolean previewSelected;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "derivative_status", nullable = false, length = 24)
-    MediaDerivativeStatus derivativeStatus = MediaDerivativeStatus.PENDING;
+    @OneToOne(mappedBy = "media", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Setter(AccessLevel.NONE)
+    MediaCaptureMetadata captureMetadata;
 
-    @Column(name = "thumbnail_key", length = 1000)
-    String thumbnailKey;
+    @OneToOne(mappedBy = "media", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Setter(AccessLevel.NONE)
+    MediaDerivative derivative = new MediaDerivative(this);
 
-    @Column(name = "preview_key", length = 1000)
-    String previewKey;
+    public String getCaptureTimeSource() { return captureMetadata == null ? null : captureMetadata.getCaptureTimeSource(); }
 
-    @Column(name = "thumbnail_size_bytes")
-    Long thumbnailSizeBytes;
+    public void setCaptureTimeSource(String value) { ensureMediaCaptureMetadata().setCaptureTimeSource(value); }
 
-    @Column(name = "preview_size_bytes")
-    Long previewSizeBytes;
+    public String getCaptureTimeZone() { return captureMetadata == null ? null : captureMetadata.getCaptureTimeZone(); }
 
-    @Column(name = "derivative_attempt_count", nullable = false)
-    int derivativeAttemptCount;
+    public void setCaptureTimeZone(String value) { ensureMediaCaptureMetadata().setCaptureTimeZone(value); }
 
-    @Column(name = "derivative_processed_at")
-    Instant derivativeProcessedAt;
+    public Instant getMetadataCapturedAt() { return captureMetadata == null ? null : captureMetadata.getMetadataCapturedAt(); }
 
-    @Column(name = "derivative_error_code", length = 80)
-    String derivativeErrorCode;
+    public void setMetadataCapturedAt(Instant value) { ensureMediaCaptureMetadata().setMetadataCapturedAt(value); }
+
+    public String getMetadataTimeZone() { return captureMetadata == null ? null : captureMetadata.getMetadataTimeZone(); }
+
+    public void setMetadataTimeZone(String value) { ensureMediaCaptureMetadata().setMetadataTimeZone(value); }
+
+    public String getCaptureTimeConfirmedBy() { return captureMetadata == null ? null : captureMetadata.getCaptureTimeConfirmedBy(); }
+
+    public void setCaptureTimeConfirmedBy(String value) { ensureMediaCaptureMetadata().setCaptureTimeConfirmedBy(value); }
+
+    public Instant getCaptureTimeConfirmedAt() { return captureMetadata == null ? null : captureMetadata.getCaptureTimeConfirmedAt(); }
+
+    public void setCaptureTimeConfirmedAt(Instant value) { ensureMediaCaptureMetadata().setCaptureTimeConfirmedAt(value); }
+
+    public String getCaptureTimeConfirmationReason() { return captureMetadata == null ? null : captureMetadata.getCaptureTimeConfirmationReason(); }
+
+    public void setCaptureTimeConfirmationReason(String value) { ensureMediaCaptureMetadata().setCaptureTimeConfirmationReason(value); }
+
+    private MediaCaptureMetadata ensureMediaCaptureMetadata() {
+        if (captureMetadata == null) captureMetadata = new MediaCaptureMetadata(this);
+        return captureMetadata;
+    }
+
+    public MediaDerivativeStatus getDerivativeStatus() { return derivative == null ? MediaDerivativeStatus.PENDING : derivative.getDerivativeStatus(); }
+
+    public void setDerivativeStatus(MediaDerivativeStatus value) { ensureMediaDerivative().setDerivativeStatus(value); }
+
+    public String getThumbnailKey() { return derivative == null ? null : derivative.getThumbnailKey(); }
+
+    public void setThumbnailKey(String value) { ensureMediaDerivative().setThumbnailKey(value); }
+
+    public String getPreviewKey() { return derivative == null ? null : derivative.getPreviewKey(); }
+
+    public void setPreviewKey(String value) { ensureMediaDerivative().setPreviewKey(value); }
+
+    public Long getThumbnailSizeBytes() { return derivative == null ? null : derivative.getThumbnailSizeBytes(); }
+
+    public void setThumbnailSizeBytes(Long value) { ensureMediaDerivative().setThumbnailSizeBytes(value); }
+
+    public Long getPreviewSizeBytes() { return derivative == null ? null : derivative.getPreviewSizeBytes(); }
+
+    public void setPreviewSizeBytes(Long value) { ensureMediaDerivative().setPreviewSizeBytes(value); }
+
+    public int getDerivativeAttemptCount() { return derivative == null ? 0 : derivative.getDerivativeAttemptCount(); }
+
+    public void setDerivativeAttemptCount(int value) { ensureMediaDerivative().setDerivativeAttemptCount(value); }
+
+    public Instant getDerivativeProcessedAt() { return derivative == null ? null : derivative.getDerivativeProcessedAt(); }
+
+    public void setDerivativeProcessedAt(Instant value) { ensureMediaDerivative().setDerivativeProcessedAt(value); }
+
+    public String getDerivativeErrorCode() { return derivative == null ? null : derivative.getDerivativeErrorCode(); }
+
+    public void setDerivativeErrorCode(String value) { ensureMediaDerivative().setDerivativeErrorCode(value); }
+
+    private MediaDerivative ensureMediaDerivative() {
+        if (derivative == null) derivative = new MediaDerivative(this);
+        return derivative;
+    }
 
     public String getMissionId() {
         if (mission != null) {

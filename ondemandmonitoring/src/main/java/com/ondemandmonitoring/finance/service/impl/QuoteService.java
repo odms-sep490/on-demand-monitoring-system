@@ -30,6 +30,7 @@ import com.ondemandmonitoring.order.repository.OrderChecklistItemRepository;
 import com.ondemandmonitoring.order.repository.OrderRepository;
 import com.ondemandmonitoring.review.service.IOrderReadinessService;
 import com.ondemandmonitoring.user.domain.User;
+import java.util.stream.Collectors;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import com.ondemandmonitoring.pricing.domain.PricingPolicy;
 import com.ondemandmonitoring.pricing.domain.ChecklistPricingAudit;
@@ -62,8 +63,6 @@ public class QuoteService implements IQuoteService {
     private final AuthenticatedUserResolver currentUser;
     private final PaymentProperties paymentProperties;
     private final CommercialExpirationSettingsService expirationSettings;
-    private final FinalPaymentDeadlineService finalPaymentDeadlines;
-    private final IMissionPaymentEligibilityService paymentEligibility;
     private final IOrderReadinessService readiness;
     private final PricingEngine pricingEngine;
     private final PricingPolicyRepository pricingPolicies;
@@ -545,9 +544,7 @@ public class QuoteService implements IQuoteService {
     }
 
     private InvoiceResponse invoiceResponse(Invoice invoice) {
-        var finalPaymentExpiresAt = finalPaymentDeadlines.assignIfEligible(invoice);
-        boolean deadlineOpen = finalPaymentExpiresAt != null && Instant.now(clock).isBefore(finalPaymentExpiresAt);
-        return FinanceMapper.invoice(invoice, deadlineOpen && paymentEligibility.isFinalPaymentEligible(invoice));
+        return FinanceMapper.invoice(invoice);
     }
 
     /**
@@ -669,7 +666,7 @@ public class QuoteService implements IQuoteService {
             List<OrderChecklistItem> checklistRows, Map<String, BigDecimal> systemChecklistPrices) {
         List<QuoteItem> lines = new ArrayList<>();
         Map<String, OrderChecklistItem> itemsById = checklistRows.stream()
-                .collect(java.util.stream.Collectors.toMap(OrderChecklistItem::getId, item -> item));
+                .collect(Collectors.toMap(OrderChecklistItem::getId, item -> item));
         for (PricingBreakdownItem item : calculation.items()) {
             QuoteItem line = line(QuoteItemType.valueOf(item.category().name()), item.description(), item.unitPrice(),
                     itemsById.get(item.orderChecklistItemId()), lines.size());

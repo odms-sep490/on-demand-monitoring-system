@@ -3,7 +3,7 @@ package com.ondemandmonitoring.finance.service.impl;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.finance.dto.PaymentResponse;
-import com.ondemandmonitoring.finance.enums.PaymentType;
+import com.ondemandmonitoring.finance.enums.PaymentStatus;
 import com.ondemandmonitoring.finance.enums.PaymentWebhookResult;
 import com.ondemandmonitoring.finance.gateway.*;
 import java.util.List;
@@ -31,24 +31,38 @@ public class PaymentService implements IPaymentService {
     private final PaymentStatusGateway statusGateway;
     private final Environment environment;
 
-    public PaymentResponse createDeposit(String invoiceId, String clientIp) { return create(invoiceId, PaymentType.DEPOSIT, clientIp); }
-    public PaymentResponse completeTestDeposit(String invoiceId) {
-        return completeTestPayment(invoiceId, PaymentType.DEPOSIT);
+    public PaymentResponse createDeposit(String invoiceId, String clientIp) {
+        return createPrepared(persistence.prepareDeposit(invoiceId), clientIp);
     }
-    public PaymentResponse completeTestFinal(String invoiceId) {
-        return completeTestPayment(invoiceId, PaymentType.FINAL_PAYMENT);
+    public PaymentResponse createMissionPayment(String milestoneId, String clientIp) {
+        PreparedPayment prepared = persistence.prepareMissionPayment(milestoneId);
+        return createPrepared(prepared, clientIp);
     }
-    private PaymentResponse completeTestPayment(String invoiceId, PaymentType type) {
-        if (!environment.acceptsProfiles(Profiles.of("!prod"))) {
-            throw new ApiException(ErrorCode.INVALID_REQUEST, "Test payment is disabled in production");
-        }
-        PreparedPayment prepared = persistence.prepare(invoiceId, type);
+    public PaymentResponse completeTestMissionPayment(String milestoneId) {
+        requireTestPaymentsEnabled();
+        PreparedPayment prepared = persistence.prepareMissionPayment(milestoneId);
         webhookProcessor.process(new VerifiedWebhook(
                 prepared.transactionReference(), prepared.amount(), "VND",
                 "TEST-" + prepared.transactionReference(), null, "00", "00", true));
         return persistence.getByReference(prepared.transactionReference());
     }
-    public PaymentResponse createFinal(String invoiceId, String clientIp) { return create(invoiceId, PaymentType.FINAL_PAYMENT, clientIp); }
+    public PaymentResponse completeTestDeposit(String invoiceId) {
+        requireTestPaymentsEnabled();
+        PreparedPayment prepared = persistence.prepareDeposit(invoiceId);
+        webhookProcessor.process(new VerifiedWebhook(
+                prepared.transactionReference(), prepared.amount(), "VND",
+                "TEST-" + prepared.transactionReference(), null, "00", "00", true));
+        return persistence.getByReference(prepared.transactionReference());
+    }
+
+    private void requireTestPaymentsEnabled() {
+        boolean enabled = environment.getProperty(
+                "omss.payment.test-payments-enabled", Boolean.class, false);
+        if (!enabled || environment.acceptsProfiles(Profiles.of("prod"))) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "Test payment is disabled; enable it only in a non-production sandbox environment");
+        }
+    }
     public PaymentResponse get(String paymentId) { return persistence.get(paymentId); }
     public PaymentResponse getByReference(String transactionReference) {
         return persistence.getByReference(transactionReference);
@@ -71,8 +85,8 @@ public class PaymentService implements IPaymentService {
     private PaymentResponse reconcile(String transactionReference, String requestIp, boolean staff) {
         PaymentResponse current = staff ? persistence.getByReferenceForStaff(transactionReference)
                 : persistence.getByReference(transactionReference);
-        if (current.status() != com.ondemandmonitoring.finance.enums.PaymentStatus.PENDING
-                && current.status() != com.ondemandmonitoring.finance.enums.PaymentStatus.PROCESSING) {
+        if (current.status() != PaymentStatus.PENDING
+                && current.status() != PaymentStatus.PROCESSING) {
             return current;
         }
         PaymentReconciliationContext context = staff ? persistence.reconciliationContextForStaff(transactionReference)
@@ -125,8 +139,7 @@ public class PaymentService implements IPaymentService {
         return verified;
     }
 
-    private PaymentResponse create(String invoiceId, PaymentType type, String clientIp) {
-        PreparedPayment prepared = persistence.prepare(invoiceId, type);
+    private PaymentResponse createPrepared(PreparedPayment prepared, String clientIp) {
         if (prepared.existing()) return prepared.response();
         try {
             PaymentLinkResult link = gateway.createPaymentLink(

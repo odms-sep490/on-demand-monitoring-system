@@ -20,6 +20,9 @@ public class Payment extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "invoice_id", nullable = false)
     private Invoice invoice;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "mission_payment_milestone_id")
+    private MissionPaymentMilestone missionPaymentMilestone;
     @Column(name = "payment_code", nullable = false)
     private Long paymentCode;
     @Enumerated(EnumType.STRING)

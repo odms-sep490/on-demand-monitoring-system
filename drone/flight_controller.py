@@ -32,6 +32,7 @@ from video.video_recorder import RecordingResult, VideoRecorder
 from battery_simulator import BatterySimulator, battery_state, preflight_battery_check
 from media_uploader import BackendUrlResolver
 from media_review import LocalMediaLibrary
+from fresh_frame_capture import FreshFrameCapture
 from devicecheck_media_probe import verify_media_storage_probe
 from thermal_camera_gateway import ThermalCameraGateway
 
@@ -777,6 +778,7 @@ class CameraGateway:
         video_recorder: VideoRecorder | None = None,
         media_library: LocalMediaLibrary | None = None,
     ) -> None:
+        self.photo_capture = FreshFrameCapture()
         self.latest_frames: dict[str, GzImage] = {}
         self.latest_frame_time_s: dict[str, float] = {}
         self.latest_frame_versions: dict[str, int] = {}
@@ -844,6 +846,10 @@ class CameraGateway:
         self._subscribe_mode(normalized)
 
     def _latest_jpeg(self, *, preview: bool = False) -> bytes | None:
+        snapshot = self._jpeg_snapshot(preview=preview)
+        return snapshot[2] if snapshot is not None else None
+
+    def _jpeg_snapshot(self, *, preview: bool = False) -> tuple[str, int, bytes] | None:
         with self.lock:
             mode = self.current_mode
             frame = self.latest_frames.get(mode)
@@ -854,7 +860,7 @@ class CameraGateway:
             cache_key = (mode, "preview" if preview else "capture")
             cached = self.latest_jpegs.get(cache_key)
             if cached is not None and cached[0] == version:
-                return cached[1]
+                return mode, version, cached[1]
 
         if frame is None:
             return None
@@ -887,20 +893,32 @@ class CameraGateway:
         with self.lock:
             if self.latest_frame_versions.get(mode) == version:
                 self.latest_jpegs[cache_key] = (version, jpeg)
-        return jpeg
+        return mode, version, jpeg
+
+    def capture_photo(self) -> dict:
+        if self.media_library is None:
+            raise ValueError("Local media library unavailable")
+        library = self.media_library
+        with library.lock:
+            scope = (library.mission_id, library.device_id)
+
+        def save(jpeg: bytes) -> dict:
+            # A session can be rebound while waiting for a sensor frame.
+            with library.lock:
+                if scope != (library.mission_id, library.device_id):
+                    raise ValueError("Capture session changed. Please try again.")
+                return library.capture_image(jpeg)
+
+        item = self.photo_capture.capture(self._jpeg_snapshot, save)
+        print(f"[CAMERA] Captured for operator review id={item['localMediaId']}", flush=True)
+        return item
 
     async def capture_for_review(self) -> None:
         print("[CAMERA] Drone camera capture requested")
-        jpeg = await asyncio.to_thread(self._latest_jpeg)
-        if jpeg is None:
-            print("[CAMERA] No camera frame available")
-            return
-
-        if self.media_library is None:
-            print("[CAMERA] Local media library unavailable")
-            return
-        item = await asyncio.to_thread(self.media_library.capture_image, jpeg)
-        print(f"[CAMERA] Captured for operator review id={item['localMediaId']}", flush=True)
+        try:
+            await asyncio.to_thread(self.capture_photo)
+        except TimeoutError as exc:
+            print(f"[CAMERA] Photo not captured: {exc}", flush=True)
 
     async def retain_recorded_video(self, recording: RecordingResult) -> None:
         if self.media_library is None:
@@ -1564,6 +1582,25 @@ class FlightControlApi:
                     )
                     self._write_json(200, {"media": owner.media_library.list_items(mission_keys or None) if owner.media_library else []})
                     return
+                if parsed_path.path.startswith("/api/media/local/") and parsed_path.path.endswith("/thumbnail"):
+                    local_id = parsed_path.path.split("/")[4]
+                    try:
+                        if owner.media_library is None:
+                            raise KeyError(local_id)
+                        source = owner.media_library.thumbnail_path(local_id)
+                        content = source.read_bytes()
+                        self.send_response(200)
+                        self._cors()
+                        self.send_header("Content-Type", "image/jpeg")
+                        self.send_header("Content-Length", str(len(content)))
+                        self.send_header("Cache-Control", "private, max-age=300")
+                        self.end_headers()
+                        self.wfile.write(content)
+                    except (KeyError, FileNotFoundError):
+                        self._write_json(404, {"error": "Local video not found"})
+                    except (ValueError, OSError, subprocess.SubprocessError):
+                        self._write_json(422, {"error": "Local video thumbnail is unavailable"})
+                    return
                 if parsed_path.path.startswith("/api/media/local/") and parsed_path.path.endswith("/preview"):
                     local_id = parsed_path.path.split("/")[4]
                     try:
@@ -1803,6 +1840,23 @@ class FlightControlApi:
                     owner.media_library is None or not owner.media_library.mission_id
                 ):
                     self._write_json(409, {"ok": False, "error": "Bind an assigned mission before capturing media"})
+                    return
+                if command == "photo":
+                    # Wait on the HTTP worker, not the flight-control event loop.
+                    # The caller gets a saved capture or a concrete failure, not
+                    # a queue acknowledgement presented as a successful photo.
+                    try:
+                        item = owner.camera.capture_photo()
+                    except TimeoutError:
+                        self._write_json(409, {"ok": False, "code": "CAMERA_FRAME_TIMEOUT",
+                                               "error": "Camera has not provided a new frame. Please try again."})
+                        return
+                    except (ValueError, OSError):
+                        self._write_json(503, {"ok": False, "code": "CAMERA_CAPTURE_FAILED",
+                                               "error": "Unable to save the camera photo. Please try again."})
+                        return
+                    self._write_json(201, {"ok": True, "command": command,
+                                           "localMediaId": item["localMediaId"]})
                     return
                 if command == "return_to_base":
                     owner.commands.put({"type": "return_to_base"})

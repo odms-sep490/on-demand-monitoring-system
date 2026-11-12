@@ -1,6 +1,8 @@
 package com.ondemandmonitoring.finance.config;
 
+import java.util.Locale;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 @ConfigurationProperties(prefix = "vnpay")
 public record VnPayProperties(
@@ -17,8 +19,10 @@ public record VnPayProperties(
         String locale,
         int expireMinutes,
         int queryConnectTimeoutMs,
-        int queryReadTimeoutMs) {
+        int queryReadTimeoutMs,
+        String mode) {
 
+    @ConstructorBinding
     public VnPayProperties {
         version = isBlank(version) ? "2.1.0" : version;
         command = isBlank(command) ? "pay" : command;
@@ -27,6 +31,15 @@ public record VnPayProperties(
         if (expireMinutes <= 0 || expireMinutes > 60) expireMinutes = 15;
         if (queryConnectTimeoutMs <= 0) queryConnectTimeoutMs = 3000;
         if (queryReadTimeoutMs <= 0) queryReadTimeoutMs = 5000;
+        mode = isBlank(mode) ? "SANDBOX" : mode.trim().toUpperCase(Locale.ROOT);
+    }
+
+    public VnPayProperties(String tmnCode, String hashSecret, String paymentUrl, String queryUrl,
+            String returnUrl, String ipnUrl, String frontendResultUrl, String version, String command,
+            String orderType, String locale, int expireMinutes, int queryConnectTimeoutMs,
+            int queryReadTimeoutMs) {
+        this(tmnCode, hashSecret, paymentUrl, queryUrl, returnUrl, ipnUrl, frontendResultUrl, version,
+                command, orderType, locale, expireMinutes, queryConnectTimeoutMs, queryReadTimeoutMs, "SANDBOX");
     }
 
     public boolean configured() {

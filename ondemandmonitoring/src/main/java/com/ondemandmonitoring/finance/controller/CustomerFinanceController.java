@@ -39,19 +39,19 @@ public class CustomerFinanceController {
         return ApiResponse.ok("Deposit payment link ready", paymentService.createDeposit(invoiceId, request.getRemoteAddr()));
     }
 
+    @PostMapping("/mission-payment-milestones/{milestoneId}/payments")
+    public ApiResponse<PaymentResponse> missionPayment(@PathVariable String milestoneId, HttpServletRequest request) {
+        return ApiResponse.ok("Mission payment link ready", paymentService.createMissionPayment(milestoneId, request.getRemoteAddr()));
+    }
+
+    @PostMapping("/mission-payment-milestones/{milestoneId}/payments/test")
+    public ApiResponse<PaymentResponse> testMissionPayment(@PathVariable String milestoneId) {
+        return ApiResponse.ok("Test Mission payment completed", paymentService.completeTestMissionPayment(milestoneId));
+    }
+
     @PostMapping("/invoices/{invoiceId}/payments/test-deposit")
     public ApiResponse<PaymentResponse> testDeposit(@PathVariable String invoiceId) {
         return ApiResponse.ok("Test deposit completed", paymentService.completeTestDeposit(invoiceId));
-    }
-
-    @PostMapping("/invoices/{invoiceId}/payments/final")
-    public ApiResponse<PaymentResponse> finalPayment(@PathVariable String invoiceId, HttpServletRequest request) {
-        return ApiResponse.ok("Final payment link ready", paymentService.createFinal(invoiceId, request.getRemoteAddr()));
-    }
-
-    @PostMapping("/invoices/{invoiceId}/payments/test-final")
-    public ApiResponse<PaymentResponse> testFinal(@PathVariable String invoiceId) {
-        return ApiResponse.ok("Test final payment completed", paymentService.completeTestFinal(invoiceId));
     }
 
     @GetMapping("/payments/{paymentId}")

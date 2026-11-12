@@ -206,7 +206,7 @@ class MissionChecklistCutoverPostgresTest extends ChecklistPostgresTest {
                 com.ondemandmonitoring.user.service.AuthenticatedUserResolver user,MissionResultRepository results,IMissionChecklistExecutionService checklist,
                 MissionStaffAssignmentRepository staff, MissionDeviceAssignmentRepository devices) {
             return new ExecutionPlanServiceImpl(orders,missions,items,a,materializer,scope,user,new ExecutionPlanCoverageService(),
-                    staff, devices, org.mockito.Mockito.mock(com.ondemandmonitoring.finance.service.IFinalPaymentNotificationService.class));
+                    staff, devices, org.mockito.Mockito.mock(com.ondemandmonitoring.finance.service.IMissionExecutionActivationService.class));
         }
     }
 }

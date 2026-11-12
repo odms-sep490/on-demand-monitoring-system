@@ -16,6 +16,7 @@ import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import com.ondemandmonitoring.checklist.dto.request.ChecklistReorderRequest;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 @org.springframework.stereotype.Service
@@ -32,13 +33,13 @@ public class ServiceChecklistServiceImpl implements IServiceChecklistService {
     private com.ondemandmonitoring.checklist.service.ChecklistAuditService audit;
 
     /** Optional collaborator: the change history. */
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     public void setAudit(com.ondemandmonitoring.checklist.service.ChecklistAuditService audit) {
         this.audit = audit;
     }
 
     /** Optional collaborator: keeps the stored service default price current. */
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     public void setDefaultPrices(com.ondemandmonitoring.pricing.service.ServiceDefaultPriceService defaultPrices) {
         this.defaultPrices = defaultPrices;
     }

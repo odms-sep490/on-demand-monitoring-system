@@ -52,6 +52,22 @@ public class PrepareMediaUploadRequest {
     @Pattern(regexp = "DRONE_CAMERA|SATELLITE_SNAPSHOT|MANUAL_UPLOAD")
     String sourceType;
 
+    @Pattern(regexp = "METADATA|STAFF_CONFIRMED")
+    String captureTimeSource;
+
+    @Size(max = 40)
+    String captureTimeZone;
+
+    @Size(max = 500)
+    String captureTimeConfirmationReason;
+
+    public PrepareMediaUploadRequest(String deviceId, String localMediaId, String mediaType,
+            String fileName, String contentType, Long fileSize, String checksumSha256,
+            Instant capturedAt, String sourceType) {
+        this(deviceId, localMediaId, mediaType, fileName, contentType, fileSize, checksumSha256,
+                capturedAt, sourceType, null, null, null);
+    }
+
     public PrepareMediaUploadRequest(String deviceId, String localMediaId, String mediaType,
             String fileName, String contentType, Long fileSize, String checksumSha256, Instant capturedAt) {
         this(deviceId, localMediaId, mediaType, fileName, contentType, fileSize, checksumSha256, capturedAt, null);

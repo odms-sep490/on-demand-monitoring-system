@@ -49,7 +49,8 @@ public class MissionMediaAccessServiceImpl implements IMissionMediaAccessService
         }
         return new MissionMediaContext(mission.getId(),
                 authorization.canUploadMissionMedia(mission.getId()), mission.getStatus(),
-                mission.getScheduledStartAt(), mission.getScheduledEndAt());
+                mission.getScheduledStartAt(), mission.getScheduledEndAt(),
+                mission.getActualStartAt(), mission.getActualEndAt());
     }
 
     @Override

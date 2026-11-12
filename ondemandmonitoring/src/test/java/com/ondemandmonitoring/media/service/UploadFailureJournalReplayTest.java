@@ -15,6 +15,7 @@ import com.ondemandmonitoring.media.policy.MediaUploadPolicy;
 import com.ondemandmonitoring.media.repository.*;
 import com.ondemandmonitoring.media.service.impl.ManualUploadTaskServiceImpl;
 import com.ondemandmonitoring.media.service.impl.UploadFailureEventServiceImpl;
+import com.ondemandmonitoring.media.service.IMediaValidationService;
 import com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard;
 import java.time.Instant;
 import java.util.*;
@@ -44,6 +45,7 @@ class UploadFailureJournalReplayTest {
     private final ManualUploadTaskRepository manualTasks = mock(ManualUploadTaskRepository.class);
     private final IMediaObjectStorage storage = mock(IMediaObjectStorage.class);
     private final IMissionMediaEvidenceGuard missionLock = mock(IMissionMediaEvidenceGuard.class);
+    private final IMediaValidationService validation = mock(IMediaValidationService.class);
 
     private final ManualUploadTaskServiceImpl manualTaskService = new ManualUploadTaskServiceImpl(manualTasks);
     private final MediaUploadPolicy policy = new MediaUploadPolicy();
@@ -63,7 +65,7 @@ class UploadFailureJournalReplayTest {
         storedTask = null;
 
         service = new UploadFailureEventServiceImpl(events, attempts, media, policy, storage,
-                manualTaskService, missionLock);
+                manualTaskService, missionLock, validation, mock(org.springframework.transaction.PlatformTransactionManager.class));
 
         captured = new MediaAsset();
         captured.setId(MEDIA_ID);
@@ -81,6 +83,7 @@ class UploadFailureJournalReplayTest {
         captured.setMediaStatus(MediaStatus.UPLOAD_PENDING);
 
         when(media.findById(MEDIA_ID)).thenReturn(Optional.of(captured));
+        when(media.findByIdForUpdate(MEDIA_ID)).thenReturn(Optional.of(captured));
         when(media.save(any(MediaAsset.class))).thenAnswer(c -> c.getArgument(0));
 
         // Ledger: unique on eventKey, emulating PostgreSQL's uk_media_upload_failure_event.
@@ -104,10 +107,16 @@ class UploadFailureJournalReplayTest {
             String attemptId = c.getArgument(0);
             return attemptRows.stream().filter(a -> attemptId.equals(a.getId())).findFirst();
         });
+        when(attempts.findByIdAndMediaIdForUpdate(any(), eq(MEDIA_ID))).thenAnswer(c -> {
+            String id = c.getArgument(0);
+            return attemptRows.stream().filter(a -> id.equals(a.getId())).findFirst();
+        });
         when(attempts.countByMediaIdAndManualAttemptFalseAndStatus(eq(MEDIA_ID), eq(UploadAttemptStatus.FAILED)))
                 .thenAnswer(c -> attemptRows.stream()
                         .filter(a -> !a.isManualAttempt() && a.getStatus() == UploadAttemptStatus.FAILED)
                         .count());
+        when(attempts.findFirstByMediaIdOrderByAttemptNumberDesc(MEDIA_ID)).thenAnswer(c ->
+                attemptRows.stream().max(java.util.Comparator.comparingInt(MediaUploadAttempt::getAttemptNumber)));
         when(attempts.save(any(MediaUploadAttempt.class))).thenAnswer(c -> c.getArgument(0));
 
         when(manualTasks.findByMediaId(MEDIA_ID)).thenAnswer(c -> Optional.ofNullable(storedTask));

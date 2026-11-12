@@ -16,8 +16,10 @@ import com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemReposito
 import com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService;
 import com.ondemandmonitoring.finance.domain.Invoice;
 import com.ondemandmonitoring.finance.enums.InvoiceStatus;
+import com.ondemandmonitoring.finance.enums.DepositStatus;
 import com.ondemandmonitoring.finance.enums.QuoteStatus;
 import com.ondemandmonitoring.finance.repository.InvoiceRepository;
+import com.ondemandmonitoring.finance.service.impl.MissionPaymentMilestoneService;
 import com.ondemandmonitoring.media.domain.MediaAsset;
 import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
@@ -55,17 +57,18 @@ import org.springframework.transaction.annotation.Transactional;
  * Transactional implementation of the order delivery state machine.
  *
  * <p>The service is the single authority for advancing delivery state. It also
- * prevents original media from being exposed before final payment and customer
+ * prevents original media from being exposed before the Mission payment allocation and customer
  * acceptance, and retains explicit release for legacy recovery.</p>
  */
 @Service
-@RequiredArgsConstructor(onConstructor_ = @org.springframework.beans.factory.annotation.Autowired)
+@RequiredArgsConstructor(onConstructor_ = @Autowired)
 public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     private final OrderDeliveryRepository deliveries;
     private final OrderRepository orders;
     private final MissionRepository missions;
     private final MissionResultRepository missionResults;
     private final InvoiceRepository invoices;
+    private final MissionPaymentMilestoneService paymentMilestones;
     private final MediaAssetRepository media;
     private final MediaDerivativeService derivatives;
     private final IResultRetentionAccessService retentionAccess;
@@ -144,6 +147,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         if (delivery != null && (delivery.getStatus() == DeliveryStatus.CUSTOMER_REVIEW
                 || delivery.getStatus() == DeliveryStatus.READY_FOR_DELIVERY
                 || delivery.getStatus() == DeliveryStatus.DELIVERED
+                || delivery.getStatus() == DeliveryStatus.AWAITING_MISSION_PAYMENT
                 || delivery.getStatus() == DeliveryStatus.FINAL_PAYMENT_PENDING)) return false;
         if (revisionCase == null && delivery != null && delivery.getCurrentReviewRoundId() != null) return false;
         var items = scopedChecklistItems(orderId, missionId);
@@ -514,13 +518,17 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         Invoice invoice = invoice(orderId);
         if (delivery.getCustomerAcceptedAt() != null
                 && round.getStatus() == com.ondemandmonitoring.delivery.enums.ResultReviewRoundStatus.ACCEPTED
-                && (delivery.getStatus() == DeliveryStatus.FINAL_PAYMENT_PENDING
+                && (delivery.getStatus() == DeliveryStatus.AWAITING_MISSION_PAYMENT
+                    || delivery.getStatus() == DeliveryStatus.FINAL_PAYMENT_PENDING
                     || delivery.getStatus() == DeliveryStatus.READY_FOR_DELIVERY
                     || delivery.getStatus() == DeliveryStatus.READY_FOR_MANAGER_REVIEW
                     || delivery.getStatus() == DeliveryStatus.DELIVERED)) {
-            if (delivery.getStatus() == DeliveryStatus.FINAL_PAYMENT_PENDING && isInvoiceFullyPaid(invoice))
+            if ((delivery.getStatus() == DeliveryStatus.AWAITING_MISSION_PAYMENT
+                    || delivery.getStatus() == DeliveryStatus.FINAL_PAYMENT_PENDING)
+                    && isHandoverPaymentReady(orderId, missionId, invoice))
                 delivery.setStatus(DeliveryStatus.READY_FOR_DELIVERY);
-            if (delivery.getStatus() == DeliveryStatus.READY_FOR_DELIVERY && isInvoiceFullyPaid(invoice))
+            if (delivery.getStatus() == DeliveryStatus.READY_FOR_DELIVERY
+                    && isHandoverPaymentReady(orderId, missionId, invoice))
                 return releaseOriginals(orderId, missionId);
             return response(delivery, effective, List.of(), false);
         }
@@ -538,7 +546,8 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         // delivery to Manager until every case item has reached a terminal decision.
         delivery.setStatus(activeRevisionCase != null && !caseResolved && hasBlockingCase(orderId, missionId)
                 ? DeliveryStatus.READY_FOR_MANAGER_REVIEW
-                : isInvoiceFullyPaid(invoice) ? DeliveryStatus.READY_FOR_DELIVERY : DeliveryStatus.FINAL_PAYMENT_PENDING);
+                : isHandoverPaymentReady(orderId, missionId, invoice)
+                    ? DeliveryStatus.READY_FOR_DELIVERY : DeliveryStatus.AWAITING_MISSION_PAYMENT);
         if (delivery.getStatus() == DeliveryStatus.READY_FOR_DELIVERY) return releaseOriginals(orderId, missionId);
         if (delivery.getStatus() == DeliveryStatus.READY_FOR_MANAGER_REVIEW) publishInspectedResults(orderId);
         return response(delivery, effective, List.of(), false);
@@ -552,7 +561,8 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
             if (scoped.getMissionId() != null && hasCustomerAcceptedCurrentReview(scoped)
                     && !hasBlockingCase(orderId, scoped.getMissionId()) && scoped.getStatus() != DeliveryStatus.DELIVERED) {
                 var lockedScope = deliveries.findScopedForUpdate(orderId, scoped.getMissionId()).orElseThrow();
-                lockedScope.setStatus(isInvoiceFullyPaid(invoice(orderId)) ? DeliveryStatus.READY_FOR_DELIVERY : DeliveryStatus.FINAL_PAYMENT_PENDING);
+                lockedScope.setStatus(isHandoverPaymentReady(orderId, scoped.getMissionId(), invoice(orderId))
+                        ? DeliveryStatus.READY_FOR_DELIVERY : DeliveryStatus.AWAITING_MISSION_PAYMENT);
                 if (lockedScope.getStatus() == DeliveryStatus.READY_FOR_DELIVERY) releaseOriginals(orderId, scoped.getMissionId());
             }
         }
@@ -569,9 +579,9 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
             return;
 
         Invoice invoice = invoice(orderId);
-        delivery.setStatus(isInvoiceFullyPaid(invoice)
+        delivery.setStatus(isHandoverPaymentReady(orderId, null, invoice)
                 ? DeliveryStatus.READY_FOR_DELIVERY
-                : DeliveryStatus.FINAL_PAYMENT_PENDING);
+                : DeliveryStatus.AWAITING_MISSION_PAYMENT);
         if (delivery.getStatus() == DeliveryStatus.READY_FOR_DELIVERY) releaseOriginals(orderId);
     }
 
@@ -613,7 +623,9 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     public DeliveryResponse releaseOriginals(String orderId, String missionId) {
         List<Mission> effective = missionId == null ? completedMissions(orderId) : scopedMissions(orderId, missionId);
         Invoice invoice = invoice(orderId);
-        if (!isInvoiceFullyPaid(invoice)) throw new ApiException(ErrorCode.FINAL_PAYMENT_REQUIRED);
+        if (!isHandoverPaymentReady(orderId, missionId, invoice))
+            throw new ApiException(ErrorCode.MISSION_PAYMENT_REQUIRED,
+                    missionId == null ? null : "Deposit and an agreed Mission payment allocation are required before handover");
         OrderDelivery delivery = scopedDelivery(orderId, missionId, true).orElseThrow(() -> new ApiException(ErrorCode.DELIVERY_NOT_READY));
         if (!hasCustomerAcceptedCurrentReview(delivery)
                 || hasBlockingCase(orderId, missionId))
@@ -623,7 +635,8 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         }
         // Legacy deliveries accepted before the assignment-first payment gate
         // can proceed after an external reconciliation updates the invoice.
-        if (delivery.getStatus() == DeliveryStatus.FINAL_PAYMENT_PENDING
+        if ((delivery.getStatus() == DeliveryStatus.AWAITING_MISSION_PAYMENT
+                || delivery.getStatus() == DeliveryStatus.FINAL_PAYMENT_PENDING)
                 && delivery.getCustomerAcceptedAt() != null) {
             delivery.setStatus(DeliveryStatus.READY_FOR_DELIVERY);
         }
@@ -634,6 +647,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         delivery.setStatus(DeliveryStatus.DELIVERED);
         delivery.setOriginalsReleasedAt(handedOverAt);
         delivery.setOriginalsReleasedBy(currentUser.getCurrentUser());
+        if (missionId != null) paymentMilestones.markHandedOver(orderId, missionId, handedOverAt);
         Order order = delivery.getOrder();
         if (order.getResultExpiresAt() == null && (missionId == null || allMissionResultsAccepted(orderId))) {
             order.setResultExpiresAt(handedOverAt.plus(order.getDataRetentionDays(), java.time.temporal.ChronoUnit.DAYS));
@@ -703,9 +717,10 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         assertOwnerOrManager(orderId);
         if (missionId == null) requireOriginalAccess(orderId);
         else {
-            if (!isInvoiceFullyPaid(invoice(orderId))) throw new ApiException(ErrorCode.FINAL_PAYMENT_REQUIRED);
             var selected = scopedDelivery(orderId, missionId, false).orElseThrow(() -> new ApiException(ErrorCode.DELIVERABLE_NOT_RELEASED));
-            if (!hasCustomerAcceptedCurrentReview(selected) || hasBlockingCase(orderId, missionId)) throw new ApiException(ErrorCode.DELIVERABLE_NOT_RELEASED);
+            if (selected.getStatus() != DeliveryStatus.DELIVERED
+                    || !hasCustomerAcceptedCurrentReview(selected) || hasBlockingCase(orderId, missionId))
+                throw new ApiException(ErrorCode.DELIVERABLE_NOT_RELEASED);
         }
         OrderDelivery delivery = scopedDelivery(orderId, missionId, false).orElseThrow();
         List<Mission> effective = scopedMissions(orderId, missionId);
@@ -718,7 +733,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         if (isManager()) return;
         assertOwner(orderId);
         Invoice invoice = invoice(orderId);
-        if (!isInvoiceFullyPaid(invoice)) throw new ApiException(ErrorCode.FINAL_PAYMENT_REQUIRED);
+        if (!isInvoiceFullyPaid(invoice)) throw new ApiException(ErrorCode.INVOICE_NOT_PAID);
         OrderDelivery delivery = deliveries.findByOrderId(orderId).orElseThrow(() -> new ApiException(ErrorCode.DELIVERABLE_NOT_RELEASED));
         if (delivery.getStatus() != DeliveryStatus.DELIVERED || !hasCustomerAcceptedCurrentReview(delivery)
                 || revisionCases.findByOrderIdAndActiveTrue(orderId).isPresent())
@@ -731,9 +746,10 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         if (missionIds == null || missionIds.isEmpty()) return List.of();
         return missionIds.stream().filter(id -> missions.findByIdWithOrder(id).map(mission -> {
             String orderId = mission.getOrder().getId();
-            if (!mission.getOrder().getCustomer().getId().equals(currentUser.getCurrentUserId()) || !isInvoiceFullyPaid(invoice(orderId))) return false;
+            if (!mission.getOrder().getCustomer().getId().equals(currentUser.getCurrentUserId())) return false;
             return deliveries.findByOrderIdIn(List.of(orderId)).stream()
-                    .anyMatch(d -> hasCustomerAcceptedCurrentReview(d) && !hasBlockingCase(orderId, d.getMissionId())
+                    .anyMatch(d -> mission.getId().equals(d.getMissionId()) && d.getStatus() == DeliveryStatus.DELIVERED
+                            && hasCustomerAcceptedCurrentReview(d) && !hasBlockingCase(orderId, d.getMissionId())
                             && scopedMissions(orderId, d.getMissionId()).stream().anyMatch(m -> m.getId().equals(id)));
         }).orElse(false)).toList();
     }
@@ -741,10 +757,10 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     @Override @Transactional(readOnly = true)
     public void requireOriginalAccessForMedia(String orderId, String mediaId) {
         assertOwner(orderId);
-        if (!isInvoiceFullyPaid(invoice(orderId))) throw new ApiException(ErrorCode.FINAL_PAYMENT_REQUIRED);
         boolean permitted = deliveries.findCurrentForMedia(mediaId).stream()
                 .filter(d -> orderId.equals(d.getOrder().getId()))
-                .anyMatch(d -> hasCustomerAcceptedCurrentReview(d) && !hasBlockingCase(orderId, d.getMissionId()));
+                .anyMatch(d -> d.getStatus() == DeliveryStatus.DELIVERED
+                        && hasCustomerAcceptedCurrentReview(d) && !hasBlockingCase(orderId, d.getMissionId()));
         if (!permitted) {
             var legacy = deliveries.findByOrderId(orderId).orElse(null);
             permitted = legacy != null && legacy.getCurrentReviewRoundId() == null
@@ -977,6 +993,13 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         return invoice.getStatus() == InvoiceStatus.PAID && invoice.getRemainingAmount() != null
                 && invoice.getRemainingAmount().signum() == 0;
     }
+
+    private boolean isHandoverPaymentReady(String orderId, String missionId, Invoice invoice) {
+        if (missionId == null) return isInvoiceFullyPaid(invoice);
+        return invoice != null && invoice.effectiveDepositStatus()
+                == DepositStatus.DEPOSIT_PAID
+                && paymentMilestones.isConfiguredForHandover(orderId, missionId);
+    }
     private void assertOwner(String orderId) {
         Order order = orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
         if (!order.getCustomer().getId().equals(currentUser.getCurrentUserId())) throw new ApiException(ErrorCode.ACCESS_DENIED);
@@ -1005,7 +1028,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         return new DeliveryResponse(d.getOrder().getId(), d.getStatus(), executionStatus(effective), d.getOrder().getOrderStatus(),
                 invoice.getStatus(), invoice.getTotalAmount(), invoice.getPaidAmount(), invoice.getRemainingAmount(),
                 d.getDeliveryNotes(), d.getPreviewReleasedAt(), d.getCustomerAcceptedAt(), d.getRevisionRequestedAt(),
-                d.getRevisionReason(), d.getRevisionCount(), d.getFinalPaymentConfirmedAt(), d.getOriginalsReleasedAt(), mapped);
+                d.getRevisionReason(), d.getRevisionCount(), d.getOriginalsReleasedAt(), mapped);
     }
     private Optional<OrderDelivery> scopedDelivery(String orderId, String missionId, boolean lock) {
         if (missionId == null) return lock ? deliveries.findByOrderIdForUpdate(orderId) : deliveries.findByOrderId(orderId);

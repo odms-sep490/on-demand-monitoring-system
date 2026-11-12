@@ -11,6 +11,7 @@ import com.ondemandmonitoring.delivery.service.impl.*;
 import com.ondemandmonitoring.finance.domain.Invoice;
 import com.ondemandmonitoring.finance.enums.InvoiceStatus;
 import com.ondemandmonitoring.finance.repository.InvoiceRepository;
+import com.ondemandmonitoring.finance.service.impl.MissionPaymentMilestoneService;
 import com.ondemandmonitoring.media.domain.MediaAsset;
 import com.ondemandmonitoring.media.enums.*;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
@@ -50,7 +51,7 @@ class InspectorPublicationTest {
     final ResultRevisionCaseRepository cases = mock(ResultRevisionCaseRepository.class);
     final ResultRevisionCaseItemRepository caseItems = mock(ResultRevisionCaseItemRepository.class);
     final DeliveryWorkflowServiceImpl service = new DeliveryWorkflowServiceImpl(deliveries, orders, missions,
-            results, invoices, media, mock(MediaDerivativeService.class), mock(IResultRetentionAccessService.class),
+            results, invoices, mock(MissionPaymentMilestoneService.class), media, mock(MediaDerivativeService.class), mock(IResultRetentionAccessService.class),
             mock(AuthenticatedUserResolver.class), completion, publisher, rounds, roundEvidence, roundItems,
             evidence, items, new ChecklistEvidencePolicy(), cases, caseItems);
     final Order order = new Order();

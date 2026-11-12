@@ -58,7 +58,7 @@ class ResultReviewLifecycleTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = DeliveryStatus.class, names = {"READY_FOR_DELIVERY", "DELIVERED", "FINAL_PAYMENT_PENDING"})
+    @EnumSource(value = DeliveryStatus.class, names = {"READY_FOR_DELIVERY", "DELIVERED", "AWAITING_MISSION_PAYMENT"})
     void acceptedDeliveryCannotCreateAnotherRevisionCase(DeliveryStatus status) {
         delivery.setStatus(status);
         assertClosedToRevisions();

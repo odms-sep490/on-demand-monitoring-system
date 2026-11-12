@@ -29,8 +29,8 @@ public class CommercialExpirationSettings {
     @Column(name = "deposit_payment_timeout_hours", nullable = false)
     private int depositPaymentTimeoutHours = 24;
 
-    @Column(name = "final_payment_timeout_hours", nullable = false)
-    private int finalPaymentTimeoutHours = 24;
+    @Column(name = "mission_payment_timeout_hours", nullable = false)
+    private int missionPaymentTimeoutHours = 24;
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.EPOCH;

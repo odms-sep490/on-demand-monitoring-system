@@ -29,6 +29,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.ArrayList;
 import lombok.AccessLevel;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -51,7 +52,7 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
     IMissionChecklistExecutionService checklistExecutionService;
     AuthenticatedUserResolver currentUser;
     IMissionAuthorizationService authorization;
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     @lombok.experimental.NonFinal
     IDeliveryWorkflowService deliveryWorkflow;
 

@@ -19,6 +19,7 @@ import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import java.time.Instant;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,7 +41,7 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
     private final MediaDerivativeService derivatives;
     private final com.ondemandmonitoring.order.repository.OrderRepository orders;
     private final com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository publishedEvidence;
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     private com.ondemandmonitoring.media.service.IMediaOrphanCleanupService orphanCleanup;
 
     /** Replace this execution's customer selection; unselected attachments remain staff reserve evidence. */

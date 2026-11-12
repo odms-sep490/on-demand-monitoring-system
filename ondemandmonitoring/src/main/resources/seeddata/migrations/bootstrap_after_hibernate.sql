@@ -47,21 +47,11 @@ LOCK TABLE public.orders, public.order_execution_plans, public.order_flight_comp
     public.resource_time_locks, public.mission_device_assignments IN ACCESS EXCLUSIVE MODE;
 
 -- These columns need no migration DDL in current JPA. Still reject incomplete
--- prerequisites: failure-request and safe-stop/release audit are operational state.
+-- prerequisites: failure-request and release audit are operational state.
 DO $$ DECLARE entry record; BEGIN
     FOR entry IN SELECT * FROM (VALUES
         ('missions','failure_requested_at','timestamp with time zone'),
         ('missions','failure_reason','character varying(1000)'),
-        ('missions','safe_stop_status','character varying(40)'),
-        ('missions','safe_stop_requested_at','timestamp with time zone'),
-        ('missions','safe_stop_requested_by','character varying(255)'),
-        ('missions','safe_stop_reason','character varying(1000)'),
-        ('missions','safe_stop_requires_landing','boolean'),
-        ('missions','safe_stop_confirmed_at','timestamp with time zone'),
-        ('missions','safe_stop_confirmed_by','character varying(255)'),
-        ('missions','safe_stop_confirmation','character varying(1000)'),
-        ('missions','safe_stop_cleaned_at','timestamp with time zone'),
-        ('missions','safe_stop_failure_reason','character varying(1000)'),
         ('resource_time_locks','resource_type','character varying(20)'),
         ('resource_time_locks','released_at','timestamp with time zone'),
         ('resource_time_locks','release_reason','character varying(500)'),
@@ -648,21 +638,33 @@ CREATE INDEX IF NOT EXISTS ix_review_evidence_source
 CREATE INDEX IF NOT EXISTS ix_review_evidence_replaced
     ON result_review_round_evidence(supersedes_round_evidence_id) WHERE supersedes_round_evidence_id IS NOT NULL;
 
-ALTER TABLE public.drone_media
-    ADD COLUMN IF NOT EXISTS derivative_status varchar(24) NOT NULL DEFAULT 'PENDING',
-    ADD COLUMN IF NOT EXISTS thumbnail_key varchar(1000),
-    ADD COLUMN IF NOT EXISTS preview_key varchar(1000),
-    ADD COLUMN IF NOT EXISTS thumbnail_size_bytes bigint,
-    ADD COLUMN IF NOT EXISTS preview_size_bytes bigint,
-    ADD COLUMN IF NOT EXISTS derivative_attempt_count integer NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS derivative_processed_at timestamptz,
-    ADD COLUMN IF NOT EXISTS derivative_error_code varchar(80);
+-- Media details: tables, columns and shared PK/FK are created by current JPA.
+-- Bootstrap supplies checks absent from mapping and the PostgreSQL partial queue index.
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.media_capture_metadata'::regclass AND conname='ck_media_capture_time_source') THEN
+        ALTER TABLE public.media_capture_metadata ADD CONSTRAINT ck_media_capture_time_source
+            CHECK (capture_time_source IN ('METADATA', 'STAFF_CONFIRMED'));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.media_derivatives'::regclass AND conname='ck_media_derivative_state') THEN
+        ALTER TABLE public.media_derivatives ADD CONSTRAINT ck_media_derivative_state
+            CHECK (derivative_status IN ('PENDING','PROCESSING','READY','FAILED','UNSUPPORTED')
+                AND derivative_attempt_count >= 0 AND (thumbnail_size_bytes IS NULL OR thumbnail_size_bytes >= 0)
+                AND (preview_size_bytes IS NULL OR preview_size_bytes >= 0));
+    END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS ix_drone_media_derivative_queue_v3 ON public.drone_media(created_at,id)
+    WHERE storage_provider='S3' AND storage_status='AVAILABLE' AND media_type IN ('IMAGE','VIDEO');
 
-DROP INDEX IF EXISTS public.ix_drone_media_derivative_queue;
-CREATE INDEX IF NOT EXISTS ix_drone_media_derivative_queue_v2
-    ON public.drone_media (created_at, id)
-    WHERE storage_provider = 'S3' AND storage_status = 'AVAILABLE'
-      AND media_type IN ('IMAGE', 'VIDEO') AND derivative_status IN ('PENDING', 'FAILED', 'PROCESSING');
+-- Upload channel: columns/index are created by current JPA; retain the named policy check.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+        WHERE conrelid='public.media_upload_attempts'::regclass AND conname='ck_media_upload_channel') THEN
+        ALTER TABLE public.media_upload_attempts ADD CONSTRAINT ck_media_upload_channel
+            CHECK (upload_channel IN ('FLIGHT_CONTROLLER', 'STAFF_FILE'));
+    END IF;
+END $$;
+
 
 -- Independent delivery/review state per original Mission. NULL retains historical order-level deliveries.
 ALTER TABLE order_deliveries ADD COLUMN IF NOT EXISTS mission_id varchar(255);

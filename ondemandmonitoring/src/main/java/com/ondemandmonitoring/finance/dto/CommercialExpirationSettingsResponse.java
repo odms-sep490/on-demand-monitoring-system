@@ -6,9 +6,10 @@ import java.time.Instant;
 public record CommercialExpirationSettingsResponse(
         int quotationAcceptanceTimeoutHours,
         int depositPaymentTimeoutHours,
-        int finalPaymentTimeoutHours,
+        int missionPaymentTimeoutHours,
         String updatedBy,
         Instant updatedAt) {
+
     public CommercialExpirationSettingsResponse(int quotationAcceptanceTimeoutHours,
             int depositPaymentTimeoutHours, String updatedBy, Instant updatedAt) {
         this(quotationAcceptanceTimeoutHours, depositPaymentTimeoutHours, 24, updatedBy, updatedAt);
@@ -22,7 +23,7 @@ public record CommercialExpirationSettingsResponse(
         return Duration.ofHours(depositPaymentTimeoutHours);
     }
 
-    public Duration finalPaymentTimeout() {
-        return Duration.ofHours(finalPaymentTimeoutHours);
+    public Duration missionPaymentTimeout() {
+        return Duration.ofHours(missionPaymentTimeoutHours);
     }
 }

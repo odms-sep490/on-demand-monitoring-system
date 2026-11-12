@@ -13,9 +13,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Publishes a lightweight refresh signal after a successful authenticated API
- * mutation. The signal contains no order, mission, or user data; each client
- * reloads the feed scoped to its own account and role.
+ * Publishes a lightweight refresh signal after a successful API mutation or
+ * VNPAY IPN callback. The signal contains no order, mission, or user data; each
+ * client reloads the feed scoped to its own account and role.
  */
 @Component
 public class NotificationRefreshFilter extends OncePerRequestFilter {
@@ -36,7 +36,7 @@ public class NotificationRefreshFilter extends OncePerRequestFilter {
             FilterChain filterChain) throws ServletException, IOException {
         filterChain.doFilter(request, response);
 
-        if (!isSuccessfulMutation(request, response)) {
+        if (!shouldPublishRefresh(request, response)) {
             return;
         }
 
@@ -50,14 +50,14 @@ public class NotificationRefreshFilter extends OncePerRequestFilter {
         }
     }
 
-    private boolean isSuccessfulMutation(HttpServletRequest request, HttpServletResponse response) {
+    private boolean shouldPublishRefresh(HttpServletRequest request, HttpServletResponse response) {
         String method = request.getMethod();
-        if (!("POST".equals(method) || "PUT".equals(method)
-                || "PATCH".equals(method) || "DELETE".equals(method))) {
-            return false;
-        }
-
         String path = request.getRequestURI();
+        boolean mutation = "POST".equals(method) || "PUT".equals(method)
+                || "PATCH".equals(method) || "DELETE".equals(method);
+        boolean paymentCallback = "GET".equals(method)
+                && "/api/payments/vnpay/ipn".equals(path);
+        if (!mutation && !paymentCallback) return false;
         if (path == null || !path.startsWith("/api/")) {
             return false;
         }

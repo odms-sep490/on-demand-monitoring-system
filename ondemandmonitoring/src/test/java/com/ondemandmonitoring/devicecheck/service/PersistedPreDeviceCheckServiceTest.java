@@ -28,7 +28,6 @@ class PersistedPreDeviceCheckServiceTest {
 
     @Mock PersistedPreDeviceCheckRepository runRepository;
     @Mock MissionRepository missionRepository;
-    @Mock com.ondemandmonitoring.mission.repository.DeviceConnectionRepository connectionRepository;
     @Mock com.ondemandmonitoring.device.repository.DeviceTelemetryRepository telemetryRepository;
     @Mock com.ondemandmonitoring.user.service.AuthenticatedUserResolver authenticatedUserResolver;
     @Mock com.ondemandmonitoring.weather.repository.MissionWeatherCheckRepository weatherCheckRepository;
@@ -97,7 +96,7 @@ class PersistedPreDeviceCheckServiceTest {
     private static Mission mission(String id) {
         Mission mission = new Mission();
         mission.setId(id);
-        mission.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.CONNECTED);
+        mission.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.PENDING_CONFIRMATION);
         return mission;
     }
 

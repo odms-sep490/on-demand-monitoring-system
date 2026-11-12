@@ -24,12 +24,14 @@ public class AdminAuditLogController {
     @GetMapping
     public ApiResponse<AuditLogPageResponse> list(
             @RequestParam(required = false) String actorId,
+            @RequestParam(required = false) String actorQuery,
             @RequestParam(required = false) AuditAction action,
             @RequestParam(required = false) String entityType,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer limit) {
-        return ApiResponse.ok(auditLog.search(new AuditLogFilter(actorId, action, entityType, from, to), page, limit));
+        return ApiResponse.ok(auditLog.search(
+                new AuditLogFilter(actorId, actorQuery, action, entityType, from, to), page, limit));
     }
 }

@@ -50,7 +50,7 @@ public class AdminAuditLog {
     @Column(name = "entity_type", nullable = false, length = 80, updatable = false)
     private String entityType;
 
-    @Column(name = "entity_id", nullable = false, length = 255, updatable = false)
+    @Column(name = "entity_id", nullable = false, length = 255)
     private String entityId;
 
     @Column(name = "ip", length = 64, updatable = false)
@@ -64,6 +64,6 @@ public class AdminAuditLog {
     private Map<String, Object> before;
 
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "after_json", columnDefinition = "jsonb", updatable = false)
+    @Column(name = "after_json", columnDefinition = "jsonb")
     private Map<String, Object> after;
 }

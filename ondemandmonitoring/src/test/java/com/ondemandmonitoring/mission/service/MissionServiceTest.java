@@ -12,7 +12,6 @@ import com.ondemandmonitoring.devicecheck.repository.PersistedPostDeviceCheckRep
 import com.ondemandmonitoring.devicecheck.repository.PersistedPreDeviceCheckRepository;
 import com.ondemandmonitoring.devicecheck.service.IPreDeviceCheckCompletionService;
 import com.ondemandmonitoring.devicecheck.service.IPersistedPostDeviceCheckService;
-import com.ondemandmonitoring.mission.domain.DeviceConnection;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
 import com.ondemandmonitoring.mission.domain.MissionStaffAssignment;
@@ -28,13 +27,11 @@ import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
 import com.ondemandmonitoring.mission.enums.MissionDeviceAssignmentStatus;
 import com.ondemandmonitoring.mission.mapper.MissionMapper;
 import com.ondemandmonitoring.mission.repository.ControlHandoverRepository;
-import com.ondemandmonitoring.mission.repository.DeviceConnectionRepository;
 import com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository;
 import com.ondemandmonitoring.mission.repository.MissionPlanRepository;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.mission.repository.MissionStaffAssignmentRepository;
 import com.ondemandmonitoring.mission.repository.ResourceTimeLockRepository;
-import com.ondemandmonitoring.mission.service.impl.DeviceConnectionService;
 import com.ondemandmonitoring.mission.service.impl.MissionService;
 import com.ondemandmonitoring.order.repository.OrderRepository;
 import com.ondemandmonitoring.finance.repository.InvoiceRepository;
@@ -76,7 +73,6 @@ class MissionServiceTest {
     MissionMapper missionMapper;
 
     MissionPlanRepository missionPlanRepository;
-    DeviceConnectionRepository deviceConnectionRepository;
     ControlHandoverRepository controlHandoverRepository;
     PersistedPostDeviceCheckRepository postDeviceCheckRepository;
     PersistedPreDeviceCheckRepository preDeviceCheckRepository;
@@ -84,7 +80,6 @@ class MissionServiceTest {
     OrderRepository orderRepository;
     InvoiceRepository invoiceRepository;
     IMissionPaymentEligibilityService missionPaymentEligibilityService;
-    IDeviceConnectionService deviceConnectionService;
     IMissionResultService missionResultService;
     IPreDeviceCheckCompletionService preDeviceCheckCompletionService;
     IPersistedPostDeviceCheckService persistedPostDeviceCheckService;
@@ -104,7 +99,6 @@ class MissionServiceTest {
         deviceRepository = mock(DeviceRepository.class);
         missionMapper = mock(MissionMapper.class);
         missionPlanRepository = mock(MissionPlanRepository.class);
-        deviceConnectionRepository = mock(DeviceConnectionRepository.class);
         controlHandoverRepository = mock(ControlHandoverRepository.class);
         postDeviceCheckRepository = mock(PersistedPostDeviceCheckRepository.class);
         preDeviceCheckRepository = mock(PersistedPreDeviceCheckRepository.class);
@@ -123,21 +117,11 @@ class MissionServiceTest {
         preDeviceCheckCompletionService = mock(IPreDeviceCheckCompletionService.class);
         persistedPostDeviceCheckService = mock(IPersistedPostDeviceCheckService.class);
 
-        deviceConnectionService = new DeviceConnectionService(
-                missionRepository,
-                deviceConnectionRepository,
-                missionDeviceAssignmentRepository,
-                missionStaffAssignmentRepository,
-                deviceRepository,
-                missionMapper, com.ondemandmonitoring.mission.service.ScopeTestFixture.validScope(),
-                mock(com.ondemandmonitoring.mission.service.IResourceReservationService.class));
-
         missionService = new MissionService(
                 missionRepository,
                 deviceRepository,
                 missionMapper,
                 missionPlanRepository,
-                deviceConnectionRepository,
                 controlHandoverRepository,
                 postDeviceCheckRepository,
                 maintenanceTicketRepository,
@@ -145,7 +129,6 @@ class MissionServiceTest {
                 null,
                 invoiceRepository,
                 missionPaymentEligibilityService,
-                deviceConnectionService,
                 missionResultService,
                 preDeviceCheckCompletionService,
                 persistedPostDeviceCheckService,
@@ -156,10 +139,16 @@ class MissionServiceTest {
                 missionStaffAssignmentRepository,
                 resourceTimeLockRepository,
                 mock(com.ondemandmonitoring.mission.service.IMissionChecklistExecutionService.class),
+                mock(com.ondemandmonitoring.mission.service.IMissionChecklistMaterializationService.class),
                 mock(com.ondemandmonitoring.mission.service.IMissionChecklistAssignmentService.class),
                 new com.ondemandmonitoring.mission.service.impl.ResourceReservationServiceImpl(
                         mock(org.springframework.jdbc.core.JdbcTemplate.class), resourceTimeLockRepository, userScheduleRepository, authenticatedUserResolver),
-                mock(com.ondemandmonitoring.device.repository.DeviceTelemetryRepository.class));
+                mock(com.ondemandmonitoring.device.repository.DeviceTelemetryRepository.class),
+                mock(com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService.class),
+                mock(com.ondemandmonitoring.mission.service.impl.ChecklistAssignmentStatusSync.class),
+                mock(com.ondemandmonitoring.order.repository.OrderChecklistItemRepository.class),
+                mock(com.ondemandmonitoring.flightpermit.service.IFlightPermitService.class),
+                mock(com.ondemandmonitoring.mission.repository.MissionChecklistExecutionRepository.class));
         ReflectionTestUtils.setField(
                 missionService, "missionWeatherCheckRepository", missionWeatherCheckRepository);
         ReflectionTestUtils.setField(
@@ -197,8 +186,6 @@ class MissionServiceTest {
     @Test
     void missionAndDeviceOperationsRejectOrderIdentityWithoutLookingUpChildren() {
         assertThatThrownBy(() -> missionService.findById("order-1"))
-                .isInstanceOf(com.ondemandmonitoring.common.exception.ApiException.class);
-        assertThatThrownBy(() -> deviceConnectionService.connectGcs("order-1"))
                 .isInstanceOf(com.ondemandmonitoring.common.exception.ApiException.class);
         verify(missionRepository, never()).findAllByOrderIdOrderByScheduledStartAtAscIdAsc(anyString());
         verifyNoInteractions(missionDeviceAssignmentRepository, missionStaffAssignmentRepository);
@@ -319,54 +306,6 @@ class MissionServiceTest {
 
         assertThat(result.getStatus()).isEqualTo(MissionStatus.SCHEDULED);
         assertThat(mission.getActualStartAt()).isNotNull();
-    }
-
-    @Test
-    void deviceOperationUsesExactChildMissionAndDoesNotTouchSibling() {
-        var order = new com.ondemandmonitoring.order.domain.Order(); order.setId("order-1");
-        order.getExecutionPlan().setStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
-        order.getExecutionPlan().setRevision(1);
-        var first = new Mission(); first.setId("m1"); first.setOrder(order);
-        var sibling = new Mission(); sibling.setId("m2"); sibling.setOrder(order);
-        when(missionRepository.findById("m1")).thenReturn(Optional.of(first));
-        assertThat(deviceConnectionService.disconnectGcs("m1", "NORMAL").getId()).isEqualTo("m1");
-        verify(deviceConnectionRepository).findTopByMissionIdAndConnectionStatusOrderByConnectedAtDesc("m1", "CONNECTED");
-        verify(missionRepository, never()).findById("m2");
-        verify(missionRepository, never()).findAllByOrderIdOrderByScheduledStartAtAscIdAsc(anyString());
-        assertThat(sibling.getStatus()).isNull();
-    }
-
-    @Test
-    void telemetryWithExactMissionCannotReuseSiblingSessionOrOrderAlias() {
-        var order = new com.ondemandmonitoring.order.domain.Order(); order.setId("order-1");
-        order.getExecutionPlan().setStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
-        order.getExecutionPlan().setRevision(1);
-        var first = new Mission(); first.setId("m1"); first.setOrder(order);
-        var second = new Mission(); second.setId("m2"); second.setOrder(order);
-        var firstSession = new DeviceConnection(); firstSession.setMission(first);
-        var secondSession = new DeviceConnection(); secondSession.setMission(second);
-        when(missionRepository.findById("m1")).thenReturn(Optional.of(first));
-        when(deviceConnectionRepository.findActiveTelemetryByDeviceIdentifier("device", "CONNECTED"))
-                .thenReturn(List.of(secondSession, firstSession));
-        assertThat(deviceConnectionService.requireActiveTelemetryConnection("device", "m1")).isSameAs(firstSession);
-        assertThatThrownBy(() -> deviceConnectionService.requireActiveTelemetryConnection("device", "order-1"))
-                .isInstanceOf(com.ondemandmonitoring.common.exception.ApiException.class);
-        assertThatThrownBy(() -> deviceConnectionService.requireActiveTelemetryConnection("device"))
-                .isInstanceOf(com.ondemandmonitoring.common.exception.ApiException.class);
-        verifyNoInteractions(missionDeviceAssignmentRepository);
-    }
-
-    @Test
-    void telemetryDoesNotDiscoverAnArbitrarySiblingFromDeviceAssignments() {
-        var first = new Mission(); first.setId("m1");
-        var second = new Mission(); second.setId("m2");
-        var a = new MissionDeviceAssignment(); a.setMission(first);
-        var b = new MissionDeviceAssignment(); b.setMission(second);
-        when(missionDeviceAssignmentRepository.findCurrentByDeviceIdAndMissionStatusIn(eq("device"), any()))
-                .thenReturn(List.of(a, b));
-        assertThatThrownBy(() -> deviceConnectionService.requireActiveTelemetryConnection("device", null))
-                .isInstanceOf(com.ondemandmonitoring.common.exception.ApiException.class);
-        verify(deviceConnectionRepository, never()).save(any());
     }
 
     @Test
@@ -613,151 +552,6 @@ class MissionServiceTest {
             assertThatThrownBy(() -> missionService.rejectMission("m-2", "op-01", "Trùng lịch"))
                     .isInstanceOf(ApiException.class)
                     .hasMessageContaining("waiting for crew confirmation");
-        }
-    }
-
-    // =========================================================================
-    // F3.2 – GCS Connect & Digital Pre-flight Gate
-    // =========================================================================
-    @Nested
-    @DisplayName("F3.2 - GCS Connect & Pre-flight Gate")
-    class F3_2_GcsConnectAndPreflightGate {
-
-        @Test
-        @DisplayName("1. connectGcs success from SCHEDULED status")
-        void connectGcs_success_fromScheduled() {
-            Mission mission = buildMission("m-gcs", MissionStatus.SCHEDULED);
-            Device device = buildDevice("DEV-01", DeviceStatus.AVAILABLE);
-            MissionDeviceAssignment mda = new MissionDeviceAssignment();
-            mda.setDevice(device);
-            mda.setIsCurrent(true);
-
-            User staff = new User();
-            staff.setId("staff-01");
-            MissionStaffAssignment msa = new MissionStaffAssignment();
-            msa.setStaff(staff);
-            msa.setIsCurrent(true);
-            msa.setAssignedRole(MissionStaffRole.OPERATOR);
-            msa.setResponseStatus(MissionStaffAssignmentStatus.ACCEPTED);
-
-            when(missionRepository.findById("m-gcs")).thenReturn(Optional.of(mission));
-            when(missionDeviceAssignmentRepository.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc("m-gcs"))
-                    .thenReturn(List.of(mda));
-            when(missionStaffAssignmentRepository.findAllByMissionIdAndIsCurrentTrue("m-gcs"))
-                    .thenReturn(List.of(msa));
-            when(deviceConnectionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-            when(missionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-            when(deviceRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            MissionResponse result = missionService.connectGcs("m-gcs");
-
-            assertThat(result.getStatus()).isEqualTo(MissionStatus.CONNECTED);
-            assertThat(device.getStatus()).isEqualTo(DeviceStatus.PREFLIGHT);
-        }
-
-        @Test
-        @DisplayName("2. connectGcs success from CONNECTED status")
-        void connectGcs_success_fromConnected() {
-            Mission mission = buildMission("m-gcs2", MissionStatus.CONNECTED);
-            Device device = buildDevice("DEV-02", DeviceStatus.PREFLIGHT);
-            MissionDeviceAssignment deviceAssignment = new MissionDeviceAssignment();
-            deviceAssignment.setDevice(device);
-            deviceAssignment.setIsCurrent(true);
-            when(missionDeviceAssignmentRepository.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc("m-gcs2"))
-                    .thenReturn(List.of(deviceAssignment));
-            when(missionStaffAssignmentRepository.findAllByMissionIdAndIsCurrentTrue("m-gcs2"))
-                    .thenReturn(List.of(staffAssignment(mission, "staff-01", MissionStaffRole.OPERATOR, "ACCEPTED")));
-            when(deviceConnectionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-            when(missionRepository.findById("m-gcs2")).thenReturn(Optional.of(mission));
-            when(missionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            MissionResponse result = missionService.connectGcs("m-gcs2");
-
-            assertThat(result.getStatus()).isEqualTo(MissionStatus.CONNECTED);
-        }
-
-        @Test
-        @DisplayName("3. connectGcs throws exception when status is invalid (e.g. IN_FLIGHT)")
-        void connectGcs_invalidStatus_throws() {
-            Mission mission = buildMission("m-gcs3", MissionStatus.IN_FLIGHT);
-            when(missionRepository.findById("m-gcs3")).thenReturn(Optional.of(mission));
-
-            assertThatThrownBy(() -> missionService.connectGcs("m-gcs3"))
-                    .isInstanceOf(ApiException.class)
-                    .hasMessageContaining("SCHEDULED state");
-        }
-
-        @Test
-        @DisplayName("3b. disconnectGcs updates active GCS session status to DISCONNECTED")
-        void disconnectGcs_success_updatesSessionToDisconnected() {
-            Mission mission = buildMission("m-disc", MissionStatus.CONNECTED);
-            DeviceConnection session = new DeviceConnection();
-            session.setConnectionStatus("CONNECTED");
-            session.setTelemetryActive(true);
-
-            when(missionRepository.findById("m-disc")).thenReturn(Optional.of(mission));
-            when(deviceConnectionRepository.findTopByMissionIdAndConnectionStatusOrderByConnectedAtDesc("m-disc",
-                    "CONNECTED"))
-                    .thenReturn(Optional.of(session));
-            when(deviceConnectionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            MissionResponse response = missionService.disconnectGcs("m-disc", "OPERATOR_EXIT");
-
-            assertThat(response).isNotNull();
-            assertThat(session.getConnectionStatus()).isEqualTo("DISCONNECTED");
-            assertThat(session.getTelemetryActive()).isFalse();
-            assertThat(session.getDisconnectReason()).isEqualTo("OPERATOR_EXIT");
-        }
-
-        @Test
-        @DisplayName("3c. handleGcsSessionLost updates GCS session status to LOST and triggers RTL (RETURNING)")
-        void handleGcsSessionLost_updatesSessionToLost_andTriggersRTL() {
-            Mission mission = buildMission("m-lost", MissionStatus.IN_FLIGHT);
-            Device device = buildDevice("DEV-01", DeviceStatus.ACTIVE_MISSION);
-            MissionDeviceAssignment mda = new MissionDeviceAssignment();
-            mda.setDevice(device);
-            mda.setIsCurrent(true);
-            when(missionDeviceAssignmentRepository.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc("m-lost"))
-                    .thenReturn(List.of(mda));
-
-            DeviceConnection session = new DeviceConnection();
-            session.setConnectionStatus("CONNECTED");
-            session.setTelemetryActive(true);
-
-            when(missionRepository.findById("m-lost")).thenReturn(Optional.of(mission));
-            when(deviceConnectionRepository.findTopByMissionIdAndConnectionStatusOrderByConnectedAtDesc("m-lost",
-                    "CONNECTED"))
-                    .thenReturn(Optional.of(session));
-            when(deviceConnectionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-            when(missionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-            when(deviceRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            MissionResponse response = missionService.handleGcsSessionLost("m-lost", "SIGNAL_LOSS");
-
-            assertThat(response).isNotNull();
-            assertThat(session.getConnectionStatus()).isEqualTo("LOST");
-            assertThat(session.getTelemetryActive()).isFalse();
-            assertThat(session.getDisconnectReason()).isEqualTo("SIGNAL_LOSS");
-            assertThat(mission.getStatus()).isEqualTo(MissionStatus.RETURNING);
-            assertThat(device.getStatus()).isEqualTo(DeviceStatus.RETURNING);
-        }
-
-        @Test
-        void telemetryReadinessUsesCurrentMissionDevice() {
-            Mission mission = buildMission("m-ready", MissionStatus.CONNECTED);
-            Device device = buildDevice("DEV-01", DeviceStatus.PREFLIGHT);
-            device.setDeviceCode("DEV-01");
-            MissionDeviceAssignment assignment = new MissionDeviceAssignment();
-            assignment.setDevice(device);
-
-            when(missionRepository.findById("m-ready")).thenReturn(Optional.of(mission));
-            when(missionDeviceAssignmentRepository.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc("m-ready"))
-                    .thenReturn(List.of(assignment));
-
-            var readiness = missionService.getTelemetryReadiness("m-ready");
-
-            assertThat(readiness.deviceId()).isEqualTo(device.getId());
-            assertThat(readiness.ready()).isFalse();
         }
     }
 

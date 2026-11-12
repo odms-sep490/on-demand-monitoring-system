@@ -1,8 +1,15 @@
 package com.ondemandmonitoring.notification.service;
 
+import com.ondemandmonitoring.finance.domain.Payment;
+import com.ondemandmonitoring.finance.enums.PaymentStatus;
+import com.ondemandmonitoring.finance.enums.PaymentType;
+import com.ondemandmonitoring.finance.repository.PaymentRepository;
 import com.ondemandmonitoring.mission.domain.Mission;
+import com.ondemandmonitoring.mission.domain.MissionStaffAssignment;
+import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
+import com.ondemandmonitoring.mission.repository.MissionStaffAssignmentRepository;
 import com.ondemandmonitoring.notification.dto.NotificationFeedResponse;
 import com.ondemandmonitoring.notification.dto.NotificationItemResponse;
 import com.ondemandmonitoring.notification.dto.NotificationType;
@@ -14,7 +21,9 @@ import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,28 +44,34 @@ public class NotificationFeedService {
     private final AuthenticatedUserResolver currentUser;
     private final OrderRepository orders;
     private final MissionRepository missions;
+    private final PaymentRepository payments;
+    private final MissionStaffAssignmentRepository staffAssignments;
 
     public NotificationFeedService(
             AuthenticatedUserResolver currentUser,
             OrderRepository orders,
-            MissionRepository missions) {
+            MissionRepository missions,
+            PaymentRepository payments,
+            MissionStaffAssignmentRepository staffAssignments) {
         this.currentUser = currentUser;
         this.orders = orders;
         this.missions = missions;
+        this.payments = payments;
+        this.staffAssignments = staffAssignments;
     }
 
     @Transactional(readOnly = true)
     public NotificationFeedResponse listForCurrentUser(int requestedLimit) {
         User user = currentUser.getCurrentUser();
         int limit = Math.max(1, Math.min(requestedLimit, MAX_LIMIT));
-        List<NotificationItemResponse> items = switch (user.getRole().getCode()) {
+        List<NotificationItemResponse> items = new ArrayList<>(switch (user.getRole().getCode()) {
             case CUSTOMER -> customerItems(user.getId(), limit);
             case MANAGER -> managerItems(limit);
             case STAFF -> staffItems(user.getId(), limit);
             // Admins can also work in the manager portal and need the same
             // operational alerts there.
             case ADMIN -> managerItems(limit);
-        };
+        });
         items.sort(Comparator.comparing(NotificationItemResponse::createdAt,
                 Comparator.nullsLast(Comparator.naturalOrder())).reversed());
         return new NotificationFeedResponse(List.copyOf(items));
@@ -80,6 +95,37 @@ public class NotificationFeedService {
                         PageRequest.of(0, limit))
                 .forEach(order -> items.add(orderStatusChanged(order)));
 
+        payments.findRecentByStatusAndPaymentType(
+                        PaymentStatus.SUCCESS, PaymentType.DEPOSIT, PageRequest.of(0, limit))
+                .forEach(payment -> items.add(depositPaid(payment)));
+
+        Set<String> acceptedEvents = new HashSet<>();
+        staffAssignments.findByResponseStatusAndIsCurrentTrueAndReleasedAtIsNullOrderByRespondedAtDesc(
+                        MissionStaffAssignmentStatus.ACCEPTED, PageRequest.of(0, limit))
+                .forEach(assignment -> {
+                    Mission mission = assignment.getMission();
+                    Instant acceptedAt = assignment.getRespondedAt() != null
+                            ? assignment.getRespondedAt()
+                            : assignment.getUpdatedAt() != null
+                                    ? assignment.getUpdatedAt() : assignment.getCreatedAt();
+                    String staffId = assignment.getStaff().getId();
+                    String eventId = "mission-staff-accepted:" + mission.getId()
+                            + ":" + staffId + ":" + acceptedAt;
+                    // One staff response can accept several role rows at the same time.
+                    if (!acceptedEvents.add(eventId)) return;
+
+                    String reference = mission.getMissionCode() == null || mission.getMissionCode().isBlank()
+                            ? mission.getId() : mission.getMissionCode();
+                    items.add(new NotificationItemResponse(
+                            eventId,
+                            NotificationType.MISSION_STAFF_ACCEPTED,
+                            mission.getId(),
+                            mission.getOrder().getId(),
+                            reference,
+                            acceptedAt,
+                            assignment.getStaff().getFullName()));
+                });
+
         missions.findByStatusInOrderByUpdatedAtDesc(
                         List.of(MissionStatus.AWAITING_REVIEW, MissionStatus.PENDING_REVIEW,
                                 MissionStatus.FAILED), PageRequest.of(0, limit))
@@ -90,6 +136,22 @@ public class NotificationFeedService {
                     items.add(missionItem(mission, type, eventAt(mission)));
                 });
         return items.stream().sorted(byTimeDescending()).limit(limit).toList();
+    }
+
+    private NotificationItemResponse depositPaid(Payment payment) {
+        Order order = payment.getInvoice().getOrder();
+        String reference = order.getOrderCode() == null || order.getOrderCode().isBlank()
+                ? order.getId() : order.getOrderCode();
+        Instant timestamp = payment.getPaidAt() != null
+                ? payment.getPaidAt()
+                : payment.getUpdatedAt() != null ? payment.getUpdatedAt() : payment.getCreatedAt();
+        return new NotificationItemResponse(
+                "payment:" + payment.getId() + ":order_deposit_paid",
+                NotificationType.ORDER_DEPOSIT_PAID,
+                order.getId(),
+                payment.getInvoice().getId(),
+                reference,
+                timestamp);
     }
 
     private List<NotificationItemResponse> staffItems(String staffId, int limit) {

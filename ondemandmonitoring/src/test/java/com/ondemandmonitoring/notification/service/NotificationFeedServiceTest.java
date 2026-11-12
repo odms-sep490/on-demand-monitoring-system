@@ -9,6 +9,8 @@ import static org.mockito.Mockito.when;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
+import com.ondemandmonitoring.finance.repository.PaymentRepository;
+import com.ondemandmonitoring.mission.repository.MissionStaffAssignmentRepository;
 import com.ondemandmonitoring.notification.dto.NotificationType;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.enums.OrderStatus;
@@ -36,6 +38,10 @@ class NotificationFeedServiceTest {
     private OrderRepository orders;
     @Mock
     private MissionRepository missions;
+    @Mock
+    private PaymentRepository payments;
+    @Mock
+    private MissionStaffAssignmentRepository staffAssignments;
     @InjectMocks
     private NotificationFeedService service;
 

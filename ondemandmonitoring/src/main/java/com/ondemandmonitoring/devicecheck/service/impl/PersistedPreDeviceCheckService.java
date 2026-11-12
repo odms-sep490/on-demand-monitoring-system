@@ -16,9 +16,7 @@ import com.ondemandmonitoring.device.domain.Device;
 import com.ondemandmonitoring.device.domain.DeviceTelemetry;
 import com.ondemandmonitoring.device.enums.DeviceStatus;
 import com.ondemandmonitoring.device.repository.DeviceTelemetryRepository;
-import com.ondemandmonitoring.mission.domain.DeviceConnection;
 import com.ondemandmonitoring.mission.enums.FlightPermitStatus;
-import com.ondemandmonitoring.mission.repository.DeviceConnectionRepository;
 import com.ondemandmonitoring.order.enums.OrderStatus;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import com.ondemandmonitoring.weather.domain.MissionWeatherCheck;
@@ -103,7 +101,6 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
     private final PersistedPreDeviceCheckRepository runRepository;
     private final MissionRepository missionRepository;
     private final MissionDeviceAssignmentRepository missionDeviceAssignmentRepository;
-    private final DeviceConnectionRepository connectionRepository;
     private final DeviceTelemetryRepository telemetryRepository;
     private final AuthenticatedUserResolver authenticatedUserResolver;
     private final MissionWeatherCheckRepository weatherCheckRepository;
@@ -132,11 +129,6 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                 .findFirst()
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND,
                         "Mission has no current main device assignment."));
-        DeviceConnection connection = connectionRepository
-                .findTopByMissionIdAndConnectionStatusOrderByConnectedAtDesc(missionId, "CONNECTED")
-                .filter(candidate -> candidate.getDeviceAssignment() != null
-                        && assignment.getId().equals(candidate.getDeviceAssignment().getId()))
-                .orElse(null);
         if (assignment.getStatus() != MissionDeviceAssignmentStatus.CONNECTED
                 && assignment.getStatus() != MissionDeviceAssignmentStatus.ASSIGNED
                 && assignment.getStatus() != MissionDeviceAssignmentStatus.CONNECTION_LOST
@@ -155,12 +147,8 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                         && run.getStartedAt() != null
                         && run.getStartedAt().isAfter(
                                 Instant.now().minusSeconds(START_IDEMPOTENCY_WINDOW_SECONDS))
-                        && (run.getMissionDeviceAssignment() != null
-                                ? assignment.getId().equals(run.getMissionDeviceAssignment().getId())
-                                : run.getDeviceConnection() != null
-                                        && run.getDeviceConnection().getDeviceAssignment() != null
-                                        && assignment.getId().equals(
-                                                run.getDeviceConnection().getDeviceAssignment().getId())))
+                        && run.getMissionDeviceAssignment() != null
+                        && assignment.getId().equals(run.getMissionDeviceAssignment().getId()))
                 .orElse(null);
         if (activeRun != null) {
             return PersistedPreDeviceCheckResponse.from(activeRun);
@@ -174,7 +162,6 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
         run.setFailedChecks(0);
         run.setStartedAt(Instant.now());
 
-        run.setDeviceConnection(connection);
         run.setMissionDeviceAssignment(assignment);
 
         for (PreDeviceCheckType definition : CHECKS) {
@@ -187,7 +174,7 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
             item.setCategory(definition.category());
             item.setRequired(definition.required());
             item.setSource(definition.source());
-            evaluateAvailableEvidence(item, definition, mission, connection);
+            evaluateAvailableEvidence(item, definition, mission, assignment);
             run.getItems().add(item);
         }
 
@@ -236,7 +223,7 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                             .ifPresent(item -> {
                                 item.setCheckedAt(Instant.now());
                                 evaluateAvailableEvidence(item, PreDeviceCheckType.AIRSPACE_PERMISSION,
-                                        mission, run.getDeviceConnection());
+                                        mission, run.getMissionDeviceAssignment());
                                 refreshRunStatus(run);
                                 runRepository.save(run);
                             });
@@ -296,9 +283,8 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                         "Submit the measured battery level for automatic threshold evaluation");
             }
             double percent = parseBatteryPercent(request.getMeasuredValue());
-            Device batteryDevice = run.getMissionDeviceAssignment() != null
-                    ? run.getMissionDeviceAssignment().getDevice()
-                    : run.getDeviceConnection() == null ? null : run.getDeviceConnection().getDevice();
+            Device batteryDevice = run.getMissionDeviceAssignment() == null
+                    ? null : run.getMissionDeviceAssignment().getDevice();
             evaluateManualBattery(item, batteryDevice, percent);
             item.setCheckedAt(Instant.now());
             item.setCheckedBy(authenticatedUserResolver.getCurrentUserId());
@@ -375,14 +361,9 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
             throw new ApiException(ErrorCode.INVALID_REQUEST,
                     "Battery level must be entered manually for this preflight check");
         }
-        DeviceConnection connection = run.getDeviceConnection();
-        if (connection == null) {
-            connection = connectionRepository.findTopByMissionIdAndConnectionStatusOrderByConnectedAtDesc(
-                    run.getMission().getId(), "CONNECTED").orElse(null);
-            run.setDeviceConnection(connection);
-        }
-        DeviceTelemetry telemetry = connection == null ? null : telemetryRepository
-                .findTopByDeviceConnectionIdOrderByRecordedAtDesc(connection.getId()).orElse(null);
+        MissionDeviceAssignment assignment = run.getMissionDeviceAssignment();
+        DeviceTelemetry telemetry = assignment == null ? null : telemetryRepository
+                .findTopByMissionDeviceAssignmentIdOrderByRecordedAtDesc(assignment.getId()).orElse(null);
         clearEvidence(item);
         Instant now = Instant.now();
         if (telemetry != null && telemetry.getRecordedAt() != null
@@ -394,7 +375,7 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                     ? telemetry.getRecordedAt().toString()
                     : telemetry.getBatteryPercent() + "%");
         } else {
-            evaluateBattery(item, connection == null ? null : connection.getDevice(), telemetry);
+            evaluateBattery(item, assignment == null ? null : assignment.getDevice(), telemetry);
         }
         item.setCheckedAt(now);
         refreshRunStatus(run);
@@ -420,9 +401,6 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
         if (run.getStatus() != PreDeviceCheckStatus.CHECKING) run.setCompletedAt(Instant.now());
 
         MissionDeviceAssignment assignment = run.getMissionDeviceAssignment();
-        if (assignment == null && run.getDeviceConnection() != null) {
-            assignment = run.getDeviceConnection().getDeviceAssignment();
-        }
         if (assignment != null && assignment.getDeviceRole() == DeviceRole.MAIN) {
             if (run.getStatus() == PreDeviceCheckStatus.CHECKING) {
                 assignment.setStatus(MissionDeviceAssignmentStatus.PREFLIGHT_CHECKING);
@@ -441,7 +419,7 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
     }
 
     private void evaluateAvailableEvidence(PersistedPreDeviceCheckItem item, PreDeviceCheckType definition,
-                                           Mission mission, DeviceConnection connection) {
+                                           Mission mission, MissionDeviceAssignment assignment) {
         if (definition.source() == PreflightCheckSource.MANUAL) {
             item.setStatus(PreDeviceItemStatus.PENDING);
             item.setMessage("Chờ người vận hành xác nhận");
@@ -449,14 +427,14 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
         }
         Instant now = Instant.now();
         item.setCheckedAt(now);
-        Device device = connection == null ? null : connection.getDevice();
-        DeviceTelemetry telemetry = connection == null ? null : telemetryRepository
-                .findTopByDeviceConnectionIdOrderByRecordedAtDesc(connection.getId()).orElse(null);
+        Device device = assignment == null ? null : assignment.getDevice();
+        DeviceTelemetry telemetry = assignment == null ? null : telemetryRepository
+                .findTopByMissionDeviceAssignmentIdOrderByRecordedAtDesc(assignment.getId()).orElse(null);
 
         switch (definition) {
             case AIRCRAFT_CONNECTION, MONITORING_CONNECTION -> {
-                if (connection == null || !Boolean.TRUE.equals(connection.getTelemetryActive())) {
-                    fail(item, "Không có kết nối giám sát đang hoạt động", "CONNECTION_UNAVAILABLE");
+                if (assignment == null) {
+                    fail(item, "Nhiệm vụ chưa được phân công thiết bị", "DEVICE_ASSIGNMENT_MISSING");
                 } else if (telemetry == null) {
                     unknown(item, "Chưa nhận được dữ liệu telemetry", "TELEMETRY_MISSING");
                 } else if (telemetry.getRecordedAt().isBefore(now.minusSeconds(10))) {

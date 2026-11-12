@@ -8,8 +8,9 @@ import com.ondemandmonitoring.device.repository.DeviceTelemetryRepository;
 import com.ondemandmonitoring.device.service.IDeviceTelemetryService;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
-import com.ondemandmonitoring.mission.domain.DeviceConnection;
-import com.ondemandmonitoring.mission.service.IDeviceConnectionService;
+import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
+import com.ondemandmonitoring.mission.enums.DeviceRole;
+import com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
@@ -23,7 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class DeviceTelemetryServiceImpl implements IDeviceTelemetryService {
 
-    IDeviceConnectionService deviceConnectionService;
+    MissionDeviceAssignmentRepository missionDeviceAssignmentRepository;
     DeviceTelemetryRepository telemetryRepository;
     DeviceRepository deviceRepository;
 
@@ -39,10 +40,14 @@ public class DeviceTelemetryServiceImpl implements IDeviceTelemetryService {
     @Override
     @Transactional
     public void record(String deviceId, TelemetryRequest request) {
-        DeviceConnection connection = deviceConnectionService.requireActiveTelemetryConnection(
-                deviceId,
-                request.getMissionId());
-        Device device = connection.getDevice();
+        MissionDeviceAssignment assignment = missionDeviceAssignmentRepository
+                .findByMissionIdAndDeviceIdAndIsCurrentTrue(request.getMissionId(), deviceId)
+                .filter(candidate -> candidate.getReleasedAt() == null)
+                .filter(candidate -> candidate.getDeviceRole() == DeviceRole.MAIN)
+                .orElseThrow(() -> new ApiException(
+                        ErrorCode.RESOURCE_NOT_FOUND,
+                        "No current main device assignment exists for mission telemetry"));
+        Device device = assignment.getDevice();
 
         if ((request.getLatitude() == null) != (request.getLongitude() == null)
                 || (request.getLatitude() != null
@@ -52,7 +57,7 @@ public class DeviceTelemetryServiceImpl implements IDeviceTelemetryService {
         }
 
         DeviceTelemetry telemetry = new DeviceTelemetry();
-        telemetry.setDeviceConnection(connection);
+        telemetry.setMissionDeviceAssignment(assignment);
         telemetry.setBatteryPercent(request.getBatteryPercent());
         telemetry.setSimX(request.getSimX());
         telemetry.setSimY(request.getSimY());

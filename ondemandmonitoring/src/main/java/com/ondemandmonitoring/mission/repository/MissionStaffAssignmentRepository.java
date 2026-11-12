@@ -1,7 +1,10 @@
 package com.ondemandmonitoring.mission.repository;
 
 import com.ondemandmonitoring.mission.domain.MissionStaffAssignment;
+import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
 import com.ondemandmonitoring.mission.enums.MissionStaffRole;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -36,6 +39,10 @@ public interface MissionStaffAssignmentRepository extends JpaRepository<MissionS
     Optional<MissionStaffAssignment> findFirstByMissionIdOrderByAssignedAtDesc(String missionId);
 
     List<MissionStaffAssignment> findByMissionId(String missionId);
+
+    @EntityGraph(attributePaths = {"mission", "mission.order", "staff"})
+    List<MissionStaffAssignment> findByResponseStatusAndIsCurrentTrueAndReleasedAtIsNullOrderByRespondedAtDesc(
+            MissionStaffAssignmentStatus responseStatus, Pageable pageable);
 
     @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "staff")
     List<MissionStaffAssignment> findAllByMissionIdInAndIsCurrentTrue(List<String> missionIds);

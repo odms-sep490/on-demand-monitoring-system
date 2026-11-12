@@ -8,5 +8,16 @@ public record NotificationItemResponse(
         String entityId,
         String relatedEntityId,
         String reference,
-        Instant createdAt) {
+        Instant createdAt,
+        String actorName) {
+
+    public NotificationItemResponse(
+            String id,
+            NotificationType type,
+            String entityId,
+            String relatedEntityId,
+            String reference,
+            Instant createdAt) {
+        this(id, type, entityId, relatedEntityId, reference, createdAt, null);
+    }
 }

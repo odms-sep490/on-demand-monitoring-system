@@ -5,6 +5,8 @@ import com.ondemandmonitoring.mission.domain.*;
 import com.ondemandmonitoring.mission.enums.LockStatus;
 import com.ondemandmonitoring.mission.repository.ResourceTimeLockRepository;
 import com.ondemandmonitoring.mission.service.IResourceReservationService;
+import com.ondemandmonitoring.userschedule.enums.UserScheduleStatus;
+import com.ondemandmonitoring.userschedule.enums.UserScheduleType;
 import com.ondemandmonitoring.userschedule.repository.UserScheduleRepository;
 import java.time.Instant;
 import java.util.*;
@@ -46,6 +48,9 @@ public class ResourceReservationServiceImpl implements IResourceReservationServi
     @Override public void reserveAll(Mission mission, Map<String, Boolean> requested) {
         var sorted = new TreeMap<>(requested);
         sorted.keySet().forEach(id -> validate(id, mission.getId(), mission.getScheduledStartAt(), mission.getScheduledEndAt()));
+        sorted.forEach((id, staff) -> {
+            if (Boolean.TRUE.equals(staff)) ensureStaffNotBusy(id, mission.getScheduledStartAt(), mission.getScheduledEndAt());
+        });
         try {
             sorted.forEach((id, staff) -> {
                 if (locks.findAllByResourceIdAndMissionId(id, mission.getId()).stream().noneMatch(l -> l.getReleasedAt() == null))
@@ -63,10 +68,19 @@ public class ResourceReservationServiceImpl implements IResourceReservationServi
         if (locks.existsActiveOverlap(id, missionId, start, end)) throw new ApiException(ErrorCode.RESOURCE_TIME_CONFLICT);
     }
 
+    /** Staff can only hold a mission slot they have not self-declared busy (LEAVE) for. */
+    private void ensureStaffNotBusy(String staffId, Instant start, Instant end) {
+        boolean busy = !schedules.findByStaffIdInAndScheduleTypeAndStatusNotInAndStartTimeLessThanAndEndTimeGreaterThan(
+                List.of(staffId), UserScheduleType.LEAVE,
+                Set.of(UserScheduleStatus.CANCELLED, UserScheduleStatus.COMPLETED), end, start).isEmpty();
+        if (busy) throw new ApiException(ErrorCode.STAFF_BUSY_IN_SLOT);
+    }
+
     @Override
     public void revalidateSchedule(Mission mission, Instant start, Instant end) {
         var active = locks.findByMissionId(mission.getId()).stream().filter(l -> l.getReleasedAt() == null).toList();
         for (var lock : active) validate(lock.getResourceId(), mission.getId(), start, end);
+        for (var lock : active) if ("STAFF".equals(lock.getResourceType())) ensureStaffNotBusy(lock.getResourceId(), start, end);
         for (var lock : active) { lock.setStartTime(start); lock.setEndTime(end); }
         try { locks.saveAllAndFlush(active); }
         catch (org.springframework.dao.DataIntegrityViolationException conflict) { throw new ApiException(ErrorCode.RESOURCE_TIME_CONFLICT); }

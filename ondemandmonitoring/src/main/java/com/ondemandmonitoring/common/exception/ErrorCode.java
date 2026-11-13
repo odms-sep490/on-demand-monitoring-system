@@ -42,6 +42,16 @@ public enum ErrorCode {
     INTERNAL_SERVER_ERROR("Lỗi hệ thống", HttpStatus.INTERNAL_SERVER_ERROR),
 
     /**
+     * Operator busy schedule Error Code
+     */
+    BUSY_SCHEDULE_NOT_FOUND("Không tìm thấy lịch bận", HttpStatus.NOT_FOUND),
+    BUSY_SCHEDULE_WEEKLY_LIMIT_EXCEEDED("Chỉ được đăng ký tối đa 4 buổi bận mỗi tuần (Thứ 2 - Chủ nhật)", HttpStatus.CONFLICT),
+    BUSY_SCHEDULE_DUPLICATE("Buổi này đã được đăng ký bận", HttpStatus.CONFLICT),
+    BUSY_SCHEDULE_MISSION_CONFLICT("Buổi này trùng với nhiệm vụ đã được phân công", HttpStatus.CONFLICT),
+    STAFF_BUSY_IN_SLOT("Nhân viên đã đăng ký bận trong khung giờ này", HttpStatus.CONFLICT),
+    BUSY_SCHEDULE_PAST_DATE("Không thể đăng ký hoặc thay đổi lịch bận trong quá khứ", HttpStatus.BAD_REQUEST),
+
+    /**
      * Mission Error Code
      *
      */

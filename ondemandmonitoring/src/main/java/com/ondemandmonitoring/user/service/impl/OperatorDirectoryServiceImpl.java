@@ -11,7 +11,11 @@ import com.ondemandmonitoring.user.dto.response.AvailableOperatorResponse;
 import com.ondemandmonitoring.user.repository.UserRepository;
 import com.ondemandmonitoring.user.service.IOperatorDirectoryService;
 import com.ondemandmonitoring.userschedule.repository.UserScheduleRepository;
+import com.ondemandmonitoring.userschedule.enums.UserScheduleStatus;
+import com.ondemandmonitoring.userschedule.enums.UserScheduleType;
+import java.util.HashSet;
 import java.util.List;
+import java.util.stream.Collectors;
 import java.util.Set;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -54,9 +58,25 @@ public class OperatorDirectoryServiceImpl implements IOperatorDirectoryService {
         var ids = users.stream().map(User::getId).toList();
         Set<String> conflicts = mission == null ? Set.of() : resourceTimeLockRepository.findConflictingResourceIds(
                 ids, mission.getId(), mission.getScheduledStartAt(), mission.getScheduledEndAt());
+        if (mission != null) {
+            // Operator self-declared busy sessions also make them unavailable for the mission window.
+            Set<String> busy = userScheduleRepository
+                    .findByStaffIdInAndScheduleTypeAndStatusNotInAndStartTimeLessThanAndEndTimeGreaterThan(
+                            ids, UserScheduleType.LEAVE,
+                            Set.of(UserScheduleStatus.CANCELLED, UserScheduleStatus.COMPLETED),
+                            mission.getScheduledEndAt(), mission.getScheduledStartAt())
+                    .stream().map(schedule -> schedule.getStaff().getId())
+                    .collect(Collectors.toSet());
+            if (!busy.isEmpty()) {
+                Set<String> merged = new HashSet<>(conflicts);
+                merged.addAll(busy);
+                conflicts = merged;
+            }
+        }
         Mission targetMission = mission;
+        Set<String> unavailable = conflicts;
         return users.stream()
-                .filter(user -> targetMission == null || !conflicts.contains(user.getId()))
+                .filter(user -> targetMission == null || !unavailable.contains(user.getId()))
                 .map(user -> AvailableOperatorResponse.builder()
                         .id(user.getId())
                         .fullName(user.getFullName())

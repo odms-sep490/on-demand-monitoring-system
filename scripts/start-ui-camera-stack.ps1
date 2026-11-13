@@ -352,14 +352,14 @@ $autoPlanSlowdownRadius = if ($RealFlight) { "35" } else { "80" }
 $autoPlanAltitudeTolerance = if ($RealFlight) { "4" } else { "2" }
 $autoPlanVerticalMaxSpeed = if ($RealFlight) { "0.5" } else { "10" }
 $autoPlanVerticalGain = if ($RealFlight) { "0.08" } else { "2" }
-$autoPlanSmoothing = "0.35"
+$autoPlanSmoothing = if ($RealFlight) { "0.35" } else { "1" }
 $autoPlanAltitudeRamp = if ($RealFlight) { "1" } else { "80" }
-$autoPlanHorizontalAccel = "2.5"
+$autoPlanHorizontalAccel = if ($RealFlight) { "2.5" } else { "12" }
 $autoPlanVerticalAccel = if ($RealFlight) { "2" } else { "6" }
 $demoLandSpeed = if ($RealFlight) { "0.7" } else { "3" }
 $autoPlanMediaSettle = if ($RealFlight) { "1.4" } else { "0.6" }
-# Realtime simulation keeps control and camera timing consistent across machines.
-$px4SimSpeedFactor = "1"
+# Run the Gazebo demo faster than wall-clock time; real-flight profiles stay at realtime.
+$px4SimSpeedFactor = if ($RealFlight) { "1" } else { "10" }
 $downTopic = "/world/forest_monitoring_compact/model/x500_mono_cam_down_0/link/camera_link/sensor/camera_down/image"
 $frontTopic = "/world/forest_monitoring_compact/model/x500_mono_cam_down_0/link/camera_link/sensor/camera_front/image"
 

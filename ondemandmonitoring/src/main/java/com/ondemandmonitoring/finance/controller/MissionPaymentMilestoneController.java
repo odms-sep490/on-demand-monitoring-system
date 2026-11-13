@@ -1,18 +1,17 @@
 package com.ondemandmonitoring.finance.controller;
 
 import com.ondemandmonitoring.common.api.ApiResponse;
-import com.ondemandmonitoring.finance.dto.ConfigureMissionPaymentAllocationsRequest;
 import com.ondemandmonitoring.finance.dto.MissionPaymentAllocationResponse;
 import com.ondemandmonitoring.finance.service.impl.MissionPaymentMilestoneService;
 import com.ondemandmonitoring.finance.service.IMissionExecutionActivationService;
-import jakarta.validation.Valid;
+import com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -22,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class MissionPaymentMilestoneController {
     private final MissionPaymentMilestoneService milestones;
     private final IMissionExecutionActivationService activation;
+    private final IDeliveryWorkflowService delivery;
 
     @GetMapping("/manager/orders/{orderId}/mission-payment-milestones")
     @PreAuthorize("hasRole('MANAGER')")
@@ -32,12 +32,16 @@ public class MissionPaymentMilestoneController {
 
     @PutMapping("/manager/orders/{orderId}/mission-payment-milestones")
     @PreAuthorize("hasRole('MANAGER')")
-    public ResponseEntity<ApiResponse<MissionPaymentAllocationResponse>> configure(
-            @PathVariable String orderId,
-            @Valid @RequestBody ConfigureMissionPaymentAllocationsRequest request) {
-        var response = milestones.configure(orderId, request);
-        activation.activateIfEligible(orderId);
-        return ResponseEntity.ok(ApiResponse.ok("Mission payment allocations saved", response));
+    public ResponseEntity<ApiResponse<MissionPaymentAllocationResponse>> calculateFromChecklistPricesLegacyRoute(
+            @PathVariable String orderId) {
+        return calculateFromChecklistPrices(orderId);
+    }
+
+    @PostMapping("/manager/orders/{orderId}/mission-payment-milestones/auto-calculate")
+    @PreAuthorize("hasRole('MANAGER')")
+    public ResponseEntity<ApiResponse<MissionPaymentAllocationResponse>> calculateFromChecklistPrices(
+            @PathVariable String orderId) {
+        return calculateAndRefreshWorkflow(orderId);
     }
 
     @GetMapping("/orders/{orderId}/mission-payment-milestones")
@@ -45,5 +49,12 @@ public class MissionPaymentMilestoneController {
     public ResponseEntity<ApiResponse<MissionPaymentAllocationResponse>> getForCustomer(
             @PathVariable String orderId) {
         return ResponseEntity.ok(ApiResponse.ok("Mission payment milestones loaded", milestones.getForCustomer(orderId)));
+    }
+
+    private ResponseEntity<ApiResponse<MissionPaymentAllocationResponse>> calculateAndRefreshWorkflow(String orderId) {
+        var response = milestones.calculateFromChecklistPrices(orderId);
+        delivery.completeAcceptedRevisionCase(orderId);
+        activation.activateIfEligible(orderId);
+        return ResponseEntity.ok(ApiResponse.ok("Mission payment allocations calculated from checklist prices", response));
     }
 }

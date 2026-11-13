@@ -28,7 +28,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -53,6 +55,8 @@ public class MissionPaymentMilestoneService {
     private final OrderRepository orders;
     private final AuthenticatedUserResolver currentUser;
     private final CommercialExpirationSettingsService expirationSettings;
+
+    private record AllocationRemainder(String missionId, BigDecimal remainder, int missionOrder) {}
 
     @PreAuthorize("hasRole('MANAGER')")
     @Transactional
@@ -139,6 +143,142 @@ public class MissionPaymentMilestoneService {
         }
         milestones.saveAllAndFlush(saved);
         return response(invoice, saved, target);
+    }
+
+    /** Derives each Mission's payable balance from the accepted quote and its assigned checklist items. */
+    @PreAuthorize("hasRole('MANAGER')")
+    @Transactional
+    public MissionPaymentAllocationResponse calculateFromChecklistPrices(String orderId) {
+        var order = orders.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found"));
+        if (order.getOrderStatus() != OrderStatus.APPROVED && order.getOrderStatus() != OrderStatus.IN_PROGRESS
+                && order.getOrderStatus() != OrderStatus.COMPLETED) {
+            throw invalid("Mission payment allocations can only be calculated for an active Order");
+        }
+
+        Invoice invoice = invoices.findByOrderId(orderId)
+                .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
+        invoice = invoices.findByIdForUpdate(invoice.getId())
+                .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
+        if (invoice.getStatus() == InvoiceStatus.CANCELLED || invoice.getStatus() == InvoiceStatus.REFUNDED
+                || invoice.getStatus() == InvoiceStatus.OVERDUE) {
+            throw invalid("Mission payment allocation is unavailable for this Invoice");
+        }
+        if (invoice.getTotalAmount() == null || invoice.getDepositAmount() == null
+                || invoice.getDepositAmount().signum() < 0
+                || invoice.getTotalAmount().compareTo(invoice.getDepositAmount()) < 0) {
+            throw invalid("Invoice amounts are not valid for Mission payment allocation");
+        }
+        BigDecimal target = allocationTarget(invoice);
+        if (target.signum() <= 0) {
+            throw invalid("The Invoice has no balance remaining after the Deposit");
+        }
+
+        List<Mission> billableMissions = billableMissions(orderId);
+        if (billableMissions.isEmpty()) throw invalid("The Order has no billable original Missions");
+        Set<String> billableMissionIds = billableMissions.stream()
+                .map(Mission::getId).collect(Collectors.toSet());
+
+        if (milestones.countPricedChecklistItemsWithoutBillableMission(
+                invoice.getQuote().getId(), orderId, billableMissionIds) > 0) {
+            throw invalid("Assign every priced checklist to one original Mission before calculating payments");
+        }
+
+        Map<String, BigDecimal> grossByMissionId = new LinkedHashMap<>();
+        billableMissions.forEach(mission -> grossByMissionId.put(mission.getId(), BigDecimal.ZERO));
+        milestones.sumChecklistPricesByMission(invoice.getQuote().getId(), orderId, billableMissionIds)
+                .forEach(row -> grossByMissionId.put(row.getMissionId(), row.getGrossAmount()));
+        if (grossByMissionId.values().stream().anyMatch(amount -> amount.signum() <= 0)) {
+            throw invalid("Every billable Mission needs a positive price from its assigned checklists");
+        }
+
+        Map<String, BigDecimal> calculatedAmounts = distributeRemainingBalance(target, grossByMissionId);
+        List<MissionPaymentMilestone> existing = milestones.findAllByInvoiceIdForDisplay(invoice.getId());
+        Map<String, MissionPaymentMilestone> existingByMissionId = existing.stream()
+                .collect(Collectors.toMap(item -> item.getMission().getId(), item -> item));
+        Map<String, MissionPaymentMilestone> payableExistingByMissionId = existingByMissionId.entrySet().stream()
+                .filter(entry -> entry.getValue().getStatus() != MissionPaymentMilestoneStatus.CANCELLED)
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        boolean paymentStarted = invoice.getPaidAmount().compareTo(invoice.getDepositAmount()) > 0
+                || existing.stream().anyMatch(milestone -> milestone.getHandedOverAt() != null
+                || (milestone.getStatus() != MissionPaymentMilestoneStatus.NOT_YET_DUE
+                    && milestone.getStatus() != MissionPaymentMilestoneStatus.CANCELLED)
+                || payments.existsByMissionPaymentMilestoneId(milestone.getId()));
+        boolean alreadyMatches = payableExistingByMissionId.keySet().equals(calculatedAmounts.keySet())
+                && calculatedAmounts.entrySet().stream().allMatch(entry -> {
+                    MissionPaymentMilestone milestone = payableExistingByMissionId.get(entry.getKey());
+                    return milestone != null && milestone.getAmount().compareTo(entry.getValue()) == 0;
+                });
+        if (paymentStarted) {
+            if (!alreadyMatches) {
+                throw invalid("Mission prices cannot be recalculated after handover or a post-Deposit payment");
+            }
+            return response(invoice, existing, target);
+        }
+        if (order.getOrderStatus() == OrderStatus.COMPLETED) {
+            throw invalid("Completed Orders cannot receive new Mission payment milestones");
+        }
+        if (alreadyMatches) return response(invoice, existing, target);
+
+        User manager = currentUser.getCurrentUser();
+        Instant calculatedAt = Instant.now();
+        List<MissionPaymentMilestone> saved = new ArrayList<>();
+        for (Mission mission : billableMissions) {
+            MissionPaymentMilestone milestone = existingByMissionId.get(mission.getId());
+            if (milestone == null) {
+                milestone = new MissionPaymentMilestone();
+                milestone.setMission(mission);
+                milestone.setInvoice(invoice);
+                milestone.setCurrency("VND");
+                milestone.setStatus(MissionPaymentMilestoneStatus.NOT_YET_DUE);
+            }
+            if (milestone.getStatus() == MissionPaymentMilestoneStatus.CANCELLED) {
+                milestone.setStatus(MissionPaymentMilestoneStatus.NOT_YET_DUE);
+                milestone.setHandedOverAt(null);
+                milestone.setPaymentExpiresAt(null);
+            }
+            milestone.setAmount(calculatedAmounts.get(mission.getId()));
+            milestone.setPricedBy(manager);
+            milestone.setPricedAt(calculatedAt);
+            saved.add(milestone);
+        }
+        milestones.saveAllAndFlush(saved);
+        return response(invoice, saved, target);
+    }
+
+    private Map<String, BigDecimal> distributeRemainingBalance(
+            BigDecimal target, Map<String, BigDecimal> grossByMissionId) {
+        // The approved quote is the gross source. The remainder after the deposit is split
+        // proportionally, which also distributes any order-level adjustment without charging
+        // it twice or leaving part of the invoice unallocated.
+        BigDecimal grossTotal = grossByMissionId.values().stream()
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (grossTotal.signum() <= 0) {
+            throw invalid("The accepted quote does not contain positive checklist prices for the planned Missions");
+        }
+
+        Map<String, BigDecimal> allocated = new LinkedHashMap<>();
+        List<AllocationRemainder> remainders = new ArrayList<>();
+        BigDecimal allocatedTotal = BigDecimal.ZERO;
+        int missionOrder = 0;
+        for (var entry : grossByMissionId.entrySet()) {
+            BigDecimal[] quotientAndRemainder = target.multiply(entry.getValue()).divideAndRemainder(grossTotal);
+            allocated.put(entry.getKey(), quotientAndRemainder[0]);
+            allocatedTotal = allocatedTotal.add(quotientAndRemainder[0]);
+            remainders.add(new AllocationRemainder(entry.getKey(), quotientAndRemainder[1], missionOrder++));
+        }
+
+        int remainingVnd = target.subtract(allocatedTotal).intValueExact();
+        remainders.sort(Comparator.comparing(AllocationRemainder::remainder).reversed()
+                .thenComparingInt(AllocationRemainder::missionOrder));
+        for (int index = 0; index < remainingVnd; index++) {
+            AllocationRemainder remainder = remainders.get(index);
+            allocated.computeIfPresent(remainder.missionId(), (ignored, amount) -> amount.add(BigDecimal.ONE));
+        }
+        if (allocated.values().stream().anyMatch(amount -> amount.signum() <= 0)) {
+            throw invalid("The post-Deposit balance is too small to create a positive payment for every Mission");
+        }
+        return allocated;
     }
 
     @PreAuthorize("hasRole('MANAGER')")
@@ -243,11 +383,13 @@ public class MissionPaymentMilestoneService {
                         milestone.getHandedOverAt(), milestone.getPaymentExpiresAt(),
                         payments.findAllByMissionPaymentMilestoneIdOrderByCreatedAtDesc(
                                 milestone.getId()).stream().map(FinanceMapper::payment).toList())).toList();
-        BigDecimal allocated = rows.stream().map(MissionPaymentMilestone::getAmount)
+        List<MissionPaymentMilestone> billableRows = rows.stream()
+                .filter(milestone -> milestone.getStatus() != MissionPaymentMilestoneStatus.CANCELLED).toList();
+        BigDecimal allocated = billableRows.stream().map(MissionPaymentMilestone::getAmount)
                 .filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
         Set<String> expected = billableMissions(invoice.getOrder().getId()).stream()
                 .map(Mission::getId).collect(Collectors.toSet());
-        Set<String> actual = rows.stream().map(item -> item.getMission().getId()).collect(Collectors.toSet());
+        Set<String> actual = billableRows.stream().map(item -> item.getMission().getId()).collect(Collectors.toSet());
         boolean complete = !rows.isEmpty() && actual.equals(expected) && allocated.compareTo(target) == 0;
         return new MissionPaymentAllocationResponse(invoice.getId(), target, allocated, complete, mapped);
     }

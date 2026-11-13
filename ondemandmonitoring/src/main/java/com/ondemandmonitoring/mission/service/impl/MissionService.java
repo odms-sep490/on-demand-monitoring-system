@@ -157,8 +157,7 @@ public class MissionService implements IMissionService {
     public MissionResponse rescheduleMission(String missionId, MissionScheduleUpdateRequest request) {
         Mission mission = missionRepository.findByIdWithOrder(missionId)
                 .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
-        if (!Set.of(MissionStatus.PLANNING, MissionStatus.PENDING_PAYMENT,
-                MissionStatus.PENDING_CONFIRMATION, MissionStatus.READY)
+        if (!Set.of(MissionStatus.PLANNING, MissionStatus.PENDING_CONFIRMATION, MissionStatus.READY)
                 .contains(mission.getStatus())) {
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
                     "Only a mission that has not entered preflight can be rescheduled");
@@ -431,9 +430,13 @@ public class MissionService implements IMissionService {
             throw new ApiException(ErrorCode.INVALID_REQUEST,
                     "Finalize the rework plan before proceeding to flight permits");
         requireOpenOrder(order);
-        if (mission.getStatus() == MissionStatus.PENDING_PAYMENT) {
+        if (mission.getStatus() == MissionStatus.PENDING_CONFIRMATION) {
             return missionMapper.toResponse(mission);
         }
+        var invoice = invoiceRepository.findByOrderId(order.getId())
+                .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
+        if (!missionPaymentEligibilityService.isDepositSatisfied(invoice))
+            throw new ApiException(ErrorCode.INVOICE_NOT_PAID, "Deposit must be paid before confirming mission planning");
         requireRevisionAvailable(order);
         requirePlanningReady(mission);
         var selected = missionChecklistAssignmentRepository.findByMissionIdAndRemovedAtIsNullOrderByDisplayOrderAscIdAsc(missionId);
@@ -444,7 +447,7 @@ public class MissionService implements IMissionService {
         if (!calculated.coverageReady() || calculated.repeated() > 0)
             throw new ApiException(ErrorCode.CHECKLIST_COVERAGE_INCOMPLETE);
         checklistMaterializationService.materialize(mission);
-        mission.setStatus(MissionStatus.PENDING_PAYMENT);
+        mission.setStatus(MissionStatus.PENDING_CONFIRMATION);
         activateAssignedResources(missionId);
         order.getExecutionPlan().setRevision(order.getExecutionPlan().getRevision() + 1);
         orderRepository.saveAndFlush(order);
@@ -558,25 +561,15 @@ public class MissionService implements IMissionService {
                 .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
         if (!missionPaymentEligibilityService.isMissionExecutionEligible(invoice)) {
             throw new ApiException(ErrorCode.INVOICE_NOT_PAID,
-                    "The Deposit and agreed Mission payment allocations must be ready before Mission activation");
+                    "Deposit, finalized plan, and assigned resources must be ready before Mission activation");
         }
-        Set<MissionStatus> alreadyActivatedOrTerminal = Set.of(
-                MissionStatus.PENDING_CONFIRMATION, MissionStatus.READY, MissionStatus.IN_PROGRESS,
-                MissionStatus.AWAITING_REVIEW, MissionStatus.PENDING_REVIEW,
-                MissionStatus.COMPLETED, MissionStatus.FAILED, MissionStatus.CANCELLED);
         // Rework missions are created only after the original Order has been fully paid.
-        // A retried original-payment callback must never try to activate them through the
-        // original PENDING_PAYMENT transition.
+        // A retried original-payment callback must never activate them as original missions.
         List<Mission> originalMissions = missions.stream()
                 .filter(mission -> mission.getPurpose() != MissionPurpose.REWORK)
                 .toList();
         originalMissions.stream()
-                .filter(mission -> mission.getStatus() != MissionStatus.PENDING_PAYMENT)
-                .filter(mission -> !alreadyActivatedOrTerminal.contains(mission.getStatus()))
-                .findFirst()
-                .ifPresent(mission -> requireStatus(mission, MissionStatus.PENDING_PAYMENT));
-        originalMissions.stream()
-                .filter(mission -> mission.getStatus() == MissionStatus.PENDING_PAYMENT)
+                .filter(mission -> mission.getStatus() == MissionStatus.PLANNING)
                 .forEach(mission -> mission.setStatus(MissionStatus.PENDING_CONFIRMATION));
         return missionRepository.saveAllAndFlush(originalMissions).stream()
                 .map(missionMapper::toResponse)
@@ -991,24 +984,21 @@ public class MissionService implements IMissionService {
             return missionMapper.toResponse(missionRepository.save(mission));
         }
 
-        if (role == DeviceRole.MAIN) {
-            List<MissionDeviceAssignment> currentMainAssignments = !planFinalized
-                    ? missionDeviceAssignmentRepository.findByMissionId(resolvedMissionId).stream()
-                        .filter(a -> a.getReleasedAt() == null && a.getDeviceRole() == DeviceRole.MAIN).toList()
-                    : missionDeviceAssignmentRepository.findAllByMissionIdAndDeviceRoleAndIsCurrentTrueOrderByCreatedAtDesc(
-                            resolvedMissionId, DeviceRole.MAIN);
-            for (MissionDeviceAssignment assignment : currentMainAssignments) {
-                if (planFinalized) {
-                    assignment.setIsCurrent(false);
-                    assignment.setReleasedAt(now);
-                    assignment.setReleaseReason("Replaced by device assignment " + deviceId);
-                }
+        if (replacingFailedMainDevice) {
+            List<MissionDeviceAssignment> failedMainAssignments = missionDeviceAssignmentRepository
+                    .findAllByMissionIdAndDeviceRoleAndIsCurrentTrueOrderByCreatedAtDesc(
+                            resolvedMissionId, DeviceRole.MAIN)
+                    .stream()
+                    .filter(assignment -> assignment.getReleasedAt() == null
+                            && assignment.getStatus() == MissionDeviceAssignmentStatus.FAILED)
+                    .toList();
+            for (MissionDeviceAssignment assignment : failedMainAssignments) {
+                assignment.setIsCurrent(false);
+                assignment.setReleasedAt(now);
+                assignment.setReleaseReason("Replaced by device assignment " + deviceId);
                 resources.releaseResource(resolvedMissionId, assignment.getDevice().getId(), "DEVICE_REPLACED");
             }
-            if (!currentMainAssignments.isEmpty() && !planFinalized) {
-                missionDeviceAssignmentRepository.deleteAll(currentMainAssignments);
-                missionDeviceAssignmentRepository.flush();
-            }
+            missionDeviceAssignmentRepository.saveAll(failedMainAssignments);
         }
 
         MissionDeviceAssignment newAssignment = MissionDeviceAssignment.builder()
@@ -1816,16 +1806,21 @@ public class MissionService implements IMissionService {
     }
 
     private void requireFreshPreflightAuthorization(String missionId) {
-        var run = preDeviceCheckRepository.findFirstByMissionIdOrderByCreatedAtDesc(missionId)
-                .orElseThrow(() -> new ApiException(ErrorCode.INVALID_REQUEST,
-                        "Không tìm thấy phiên kiểm tra trước chuyến bay."));
-        boolean blocked = run.getItems().stream().anyMatch(item ->
-                !"weather_conditions".equals(item.getCheckType())
-                        && Boolean.TRUE.equals(item.getRequired())
-                        && item.getStatus() != PreDeviceItemStatus.PASSED);
-        if (blocked) {
-            throw new ApiException(ErrorCode.INVALID_REQUEST,
-                    "Kiểm tra trước chuyến bay chưa đạt đầy đủ. Vui lòng kiểm tra lại.");
+        var assignments = missionDeviceAssignmentRepository.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc(missionId)
+                .stream().filter(a -> a.getReleasedAt() == null && a.getDevice() != null).toList();
+        var runs = preDeviceCheckRepository.findByMissionIdOrderByCreatedAtDesc(missionId);
+        for (var assignment : assignments) {
+            var run = runs.stream().filter(r -> r.getMissionDeviceAssignment() != null
+                    && assignment.getId().equals(r.getMissionDeviceAssignment().getId())).findFirst()
+                    .orElseThrow(() -> new ApiException(ErrorCode.INVALID_REQUEST,
+                            "Every assigned drone must complete preflight before handover."));
+            boolean blocked = run.getItems().stream().anyMatch(item ->
+                    !"weather_conditions".equals(item.getCheckType()) && Boolean.TRUE.equals(item.getRequired())
+                            && item.getStatus() != PreDeviceItemStatus.PASSED);
+            if (blocked || run.getStatus() == com.ondemandmonitoring.devicecheck.enums.PreDeviceCheckStatus.CANCELLED) {
+                throw new ApiException(ErrorCode.INVALID_REQUEST,
+                        "Every assigned drone must pass preflight before handover.");
+            }
         }
     }
 
@@ -2051,6 +2046,16 @@ public class MissionService implements IMissionService {
     public MissionResponse recordPostFlightInspection(String missionId, DeviceStatus newDeviceStatus,
             String notes, Map<String, InspectionResult> results,
             PostFlightStatusRequest.TelemetrySnapshot telemetrySnapshot) {
+        return recordPostFlightInspection(missionId, null, newDeviceStatus, notes, results, telemetrySnapshot);
+    }
+
+    @Override
+    @Transactional
+    @PreAuthorize("@missionAuthorizationService.canMaintainDevice(#missionId)")
+    public MissionResponse recordPostFlightInspection(String missionId, String deviceId, DeviceStatus newDeviceStatus,
+            String notes, Map<String, InspectionResult> results, PostFlightStatusRequest.TelemetrySnapshot telemetrySnapshot) {
+        missionRepository.findByIdForUpdate(missionId)
+                .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
         Set<String> required = Set.of("a1", "a2", "p1", "p2", "e1", "e2", "e3", "e4", "d1");
         if (results == null || !results.keySet().equals(required)
                 || results.values().stream().anyMatch(value -> value == null)) {
@@ -2063,9 +2068,10 @@ public class MissionService implements IMissionService {
                     "Device status does not match the submitted inspection results");
         }
         Mission mission = getRuntimeMissionOrThrow(missionId);
-        MissionDeviceAssignment assignment = getCurrentMainDeviceAssignment(mission.getId());
+        MissionDeviceAssignment assignment = resolvePostflightAssignment(mission.getId(), deviceId);
         var savedPostflight = postDeviceCheckRepository
-                .findFirstByMissionIdOrderByCreatedAtDesc(mission.getId());
+                .findByMissionIdOrderByCreatedAtDesc(mission.getId()).stream()
+                .filter(r -> r.getMissionDeviceAssignment() != null && assignment.getId().equals(r.getMissionDeviceAssignment().getId())).findFirst();
         boolean savedPostflightComplete = savedPostflight
                 .map(run -> run.getStatus() == DeviceCheckStatus.PASSED
                         || run.getStatus() == DeviceCheckStatus.FAILED)
@@ -2078,7 +2084,8 @@ public class MissionService implements IMissionService {
                 && savedPostflightComplete) {
             return missionMapper.toResponse(mission);
         }
-        if (assignment.getStatus() != MissionDeviceAssignmentStatus.POSTFLIGHT_CHECKING
+        if (getCurrentMainDeviceAssignment(mission.getId()).getStatus() != MissionDeviceAssignmentStatus.POSTFLIGHT_CHECKING
+                && getCurrentMainDeviceAssignment(mission.getId()).getStatus() != MissionDeviceAssignmentStatus.COMPLETED
                 && !recoveringMissingPostflight) {
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
                     "Device must be in postflight inspection before recording results");
@@ -2094,7 +2101,7 @@ public class MissionService implements IMissionService {
                 auditNotes,
                 results,
                 telemetrySnapshot,
-                !recoveringMissingPostflight);
+                !recoveringMissingPostflight, deviceId);
     }
 
     private MissionResponse savePostFlightStatus(String missionId, DeviceStatus newDeviceStatus,
@@ -2112,8 +2119,15 @@ public class MissionService implements IMissionService {
             String notes, Map<String, InspectionResult> results,
             PostFlightStatusRequest.TelemetrySnapshot telemetrySnapshot,
             boolean createMaintenanceTicket) {
+        return savePostFlightStatus(missionId, newDeviceStatus, notes, results, telemetrySnapshot, createMaintenanceTicket, null);
+    }
+
+    private MissionResponse savePostFlightStatus(String missionId, DeviceStatus newDeviceStatus, String notes,
+            Map<String, InspectionResult> results, PostFlightStatusRequest.TelemetrySnapshot telemetrySnapshot,
+            boolean createMaintenanceTicket, String deviceId) {
         Mission mission = getRuntimeMissionOrThrow(missionId);
-        Device device = getCurrentDevice(mission.getId());
+        MissionDeviceAssignment selectedAssignment = resolvePostflightAssignment(mission.getId(), deviceId);
+        Device device = selectedAssignment.getDevice();
         if (device == null) {
             throw new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Mission " + missionId + " has no assigned device");
         }
@@ -2137,16 +2151,20 @@ public class MissionService implements IMissionService {
                     device.getDeviceCode());
         }
 
-        persistedPostDeviceCheckService.recordInspection(mission.getId(), results, telemetrySnapshot);
-        MissionDeviceAssignment deviceAssignment = getCurrentMainDeviceAssignment(mission.getId());
-        if (deviceAssignment.getStatus() == MissionDeviceAssignmentStatus.POSTFLIGHT_CHECKING) {
+        persistedPostDeviceCheckService.recordInspection(mission.getId(), device.getId(), results, telemetrySnapshot);
+        MissionDeviceAssignment deviceAssignment = selectedAssignment;
+        if (deviceAssignment.getStatus() != MissionDeviceAssignmentStatus.COMPLETED) {
             deviceAssignment.setStatus(MissionDeviceAssignmentStatus.COMPLETED);
         }
         // Postflight closes device operations. Keep the Mission IN_PROGRESS through inspector
         // acceptance; submission to the Manager changes it to AWAITING_REVIEW.
-        if (mission.getActualEndAt() == null) mission.setActualEndAt(Instant.now());
-        // End physical reservations while retaining final crew context for reporting.
-        releaseOperationalReservations(mission);
+        boolean allInspected = missionDeviceAssignmentRepository.findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc(mission.getId()).stream()
+                .filter(a -> a.getReleasedAt() == null && a.getDevice() != null)
+                .allMatch(a -> a.getStatus() == MissionDeviceAssignmentStatus.COMPLETED);
+        if (allInspected) {
+            if (mission.getActualEndAt() == null) mission.setActualEndAt(Instant.now());
+            releaseOperationalReservations(mission);
+        }
 
         if (notes != null && !notes.isBlank()) {
             log.info("Mission {} post-flight notes: {}", missionId, notes);
@@ -2155,6 +2173,13 @@ public class MissionService implements IMissionService {
                 newDeviceStatus);
         Mission saved = missionRepository.save(mission);
         return missionMapper.toResponse(saved);
+    }
+
+    private MissionDeviceAssignment resolvePostflightAssignment(String missionId, String deviceId) {
+        if (deviceId == null) return getCurrentMainDeviceAssignment(missionId);
+        return missionDeviceAssignmentRepository.findByMissionIdAndDeviceIdAndIsCurrentTrue(missionId, deviceId)
+                .filter(a -> a.getReleasedAt() == null && a.getDevice() != null)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Drone is not assigned to this mission"));
     }
 
     private String generateMissionCode() {

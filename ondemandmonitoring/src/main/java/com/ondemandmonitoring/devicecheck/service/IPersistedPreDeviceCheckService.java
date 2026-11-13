@@ -7,6 +7,8 @@ import java.util.List;
 
 public interface IPersistedPreDeviceCheckService {
     PersistedPreDeviceCheckResponse start(String missionId);
+    PersistedPreDeviceCheckResponse start(String missionId, String deviceId);
+    PersistedPreDeviceCheckResponse current(String missionId, String deviceId);
     List<PersistedPreDeviceCheckResponse> history(String missionId);
     PersistedPreDeviceCheckResponse current(String missionId);
     void refreshFlightPermitCheck(String missionId);

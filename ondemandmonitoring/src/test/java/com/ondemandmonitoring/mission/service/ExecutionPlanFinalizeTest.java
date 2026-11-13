@@ -6,7 +6,9 @@ import com.ondemandmonitoring.mission.dto.request.ExecutionPlanFinalizeRequest;
 import com.ondemandmonitoring.mission.enums.*;
 import com.ondemandmonitoring.mission.repository.*;
 import com.ondemandmonitoring.mission.service.impl.*;
-import com.ondemandmonitoring.finance.service.IMissionExecutionActivationService;
+import com.ondemandmonitoring.finance.repository.InvoiceRepository;
+import com.ondemandmonitoring.finance.domain.Invoice;
+import com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.domain.OrderChecklistItem;
 import com.ondemandmonitoring.order.enums.*;
@@ -27,11 +29,12 @@ class ExecutionPlanFinalizeTest {
     MissionStaffAssignmentRepository staff = mock(MissionStaffAssignmentRepository.class);
     MissionDeviceAssignmentRepository devices = mock(MissionDeviceAssignmentRepository.class);
     IMissionChecklistMaterializationService materializer = mock(IMissionChecklistMaterializationService.class);
-    IMissionExecutionActivationService missionActivation = mock(IMissionExecutionActivationService.class);
+    InvoiceRepository invoices = mock(InvoiceRepository.class);
+    IMissionPaymentEligibilityService paymentEligibility = mock(IMissionPaymentEligibilityService.class);
     AuthenticatedUserResolver actor = mock(AuthenticatedUserResolver.class);
     ExecutionPlanServiceImpl service = new ExecutionPlanServiceImpl(orders, missions, items, assignments,
             materializer, mock(IMissionChecklistScopeService.class), actor, new ExecutionPlanCoverageService(),
-            staff, devices, missionActivation);
+            staff, devices, invoices, paymentEligibility);
     Order order;
     Mission first, second;
     List<MissionChecklistAssignment> selection;
@@ -41,6 +44,9 @@ class ExecutionPlanFinalizeTest {
         first = mission("a"); second = mission("b");
         selection = List.of(assignment(first, "i1"), assignment(second, "i2"));
         when(orders.findByIdForUpdate("o")).thenReturn(Optional.of(order));
+        when(orders.findById("o")).thenReturn(Optional.of(order));
+        when(invoices.findByOrderId("o")).thenReturn(Optional.of(new Invoice()));
+        when(paymentEligibility.isDepositSatisfied(any())).thenReturn(true);
         when(missions.findIdsByOrderIdOrderById("o")).thenReturn(List.of("b", "a"));
         when(missions.findById("a")).thenReturn(Optional.of(first));
         when(missions.findById("b")).thenReturn(Optional.of(second));
@@ -81,15 +87,14 @@ class ExecutionPlanFinalizeTest {
         assertEquals(ExecutionPlanStatus.FINALIZED, order.getExecutionPlan().getStatus());
         assertEquals(4, order.getExecutionPlan().getRevision());
         assertEquals("manager", order.getExecutionPlan().getFinalizedBy()); assertNotNull(order.getExecutionPlan().getFinalizedAt());
-        assertEquals(MissionStatus.PENDING_PAYMENT, first.getStatus());
-        assertEquals(MissionStatus.PENDING_PAYMENT, second.getStatus());
-        verify(missionActivation).activateIfEligible("o");
+        assertEquals(MissionStatus.PENDING_CONFIRMATION, first.getStatus());
+        assertEquals(MissionStatus.PENDING_CONFIRMATION, second.getStatus());
     }
 
     @Test void missingCrewOnAnyMissionPreventsEveryMaterialization() {
         when(staff.findByMissionId("b")).thenReturn(List.of());
         error(ErrorCode.INVALID_REQUEST, this::finalizePlan);
-        verifyNoInteractions(materializer, missionActivation); assertEquals(ExecutionPlanStatus.DRAFT, order.getExecutionPlan().getStatus());
+        verifyNoInteractions(materializer); assertEquals(ExecutionPlanStatus.DRAFT, order.getExecutionPlan().getStatus());
     }
 
     @Test void supportDeviceDoesNotSatisfyMainRequirement() {

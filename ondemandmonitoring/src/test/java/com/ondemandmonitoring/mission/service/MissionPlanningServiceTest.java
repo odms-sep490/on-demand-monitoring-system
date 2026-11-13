@@ -6,6 +6,9 @@ import com.ondemandmonitoring.mission.enums.*;
 import com.ondemandmonitoring.mission.mapper.MissionMapper;
 import com.ondemandmonitoring.mission.repository.*;
 import com.ondemandmonitoring.mission.service.impl.*;
+import com.ondemandmonitoring.finance.domain.Invoice;
+import com.ondemandmonitoring.finance.repository.InvoiceRepository;
+import com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.domain.OrderChecklistItem;
 import com.ondemandmonitoring.order.enums.*;
@@ -31,6 +34,8 @@ class MissionPlanningServiceTest {
     @org.mockito.Mock IResourceReservationService resources;
     @org.mockito.Mock IMissionChecklistMaterializationService materializer;
     @org.mockito.Mock MissionMapper mapper;
+    @org.mockito.Mock InvoiceRepository invoices;
+    @org.mockito.Mock IMissionPaymentEligibilityService paymentEligibility;
     @org.mockito.InjectMocks MissionService service;
     AutoCloseable mocks;
     Order order;
@@ -61,6 +66,8 @@ class MissionPlanningServiceTest {
         when(missions.findOrderIdByMissionId("m")).thenReturn(Optional.of("o"));
         when(orders.findById("o")).thenReturn(Optional.of(order));
         when(orders.findByIdForUpdate("o")).thenReturn(Optional.of(order));
+        when(invoices.findByOrderId("o")).thenReturn(Optional.of(new Invoice()));
+        when(paymentEligibility.isDepositSatisfied(any())).thenReturn(true);
         when(missions.findById("m")).thenReturn(Optional.of(mission));
         when(missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc("o")).thenReturn(List.of(mission));
         when(assignments.findByMissionIdAndRemovedAtIsNullOrderByDisplayOrderAscIdAsc("m")).thenReturn(List.of(assignment));
@@ -79,7 +86,7 @@ class MissionPlanningServiceTest {
         when(missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc("o")).thenReturn(List.of(mission, sibling));
         service.confirmMissionPlanning("m");
         verify(materializer).materialize(mission);
-        assertEquals(MissionStatus.PENDING_PAYMENT, mission.getStatus());
+        assertEquals(MissionStatus.PENDING_CONFIRMATION, mission.getStatus());
         assertEquals(MissionStatus.IN_FLIGHT, sibling.getStatus());
         assertEquals(ExecutionPlanStatus.FINALIZED, order.getExecutionPlan().getStatus());
         assertEquals(6, order.getExecutionPlan().getRevision());

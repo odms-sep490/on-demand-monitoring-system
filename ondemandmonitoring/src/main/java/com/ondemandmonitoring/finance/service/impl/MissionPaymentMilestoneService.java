@@ -129,7 +129,7 @@ public class MissionPaymentMilestoneService {
                 milestone.setStatus(MissionPaymentMilestoneStatus.NOT_YET_DUE);
             }
             if (mission.getStatus() != MissionStatus.PLANNING
-                    && mission.getStatus() != MissionStatus.PENDING_PAYMENT) {
+                    && mission.getStatus() != MissionStatus.PENDING_CONFIRMATION) {
                 throw invalid("Mission prices cannot be changed after execution begins");
             }
             milestone.setAmount(requested.get(mission.getId()).setScale(0, RoundingMode.UNNECESSARY));

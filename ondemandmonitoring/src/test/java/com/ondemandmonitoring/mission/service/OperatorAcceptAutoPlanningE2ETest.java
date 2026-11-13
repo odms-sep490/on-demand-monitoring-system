@@ -186,8 +186,6 @@ class OperatorAcceptAutoPlanningE2ETest {
         checklistAssignmentService.replace(created.getId(), new ChecklistAssignmentSelectionRequest(
                 order.getExecutionPlan().getRevision(),
                 java.util.List.of(new ChecklistAssignmentSelectionRequest.Item(checklistItem.getId()))));
-        executionPlanService.finalizePlan(order.getId(), new ExecutionPlanFinalizeRequest(
-                order.getExecutionPlan().getRevision(), true));
 
         AssignDeviceRequest deviceRequest = new AssignDeviceRequest();
         deviceRequest.setDeviceId(device.getId());
@@ -200,10 +198,13 @@ class OperatorAcceptAutoPlanningE2ETest {
             staffRequest.setAssignedRole(role.name());
             staffAssigned = missionService.assignStaff(staffAssigned.getId(), staffRequest);
         }
-
         assertThat(staffAssigned.getStatus()).isEqualTo(MissionStatus.PLANNING);
-        MissionResponse awaitingPayment = missionService.getByIdResponse(created.getId());
-        assertThat(awaitingPayment.getStatus()).isEqualTo(MissionStatus.PENDING_PAYMENT);
+
+        executionPlanService.finalizePlan(order.getId(), new ExecutionPlanFinalizeRequest(
+                order.getExecutionPlan().getRevision(), true));
+
+        MissionResponse awaitingConfirmation = missionService.getByIdResponse(created.getId());
+        assertThat(awaitingConfirmation.getStatus()).isEqualTo(MissionStatus.PENDING_CONFIRMATION);
         MissionResponse confirmed = missionService.transitionToPendingConfirmation(order.getId()).stream()
                 .filter(mission -> mission.getId().equals(created.getId()))
                 .findFirst()

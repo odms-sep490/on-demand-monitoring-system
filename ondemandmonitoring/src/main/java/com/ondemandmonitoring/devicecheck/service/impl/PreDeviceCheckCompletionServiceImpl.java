@@ -49,7 +49,9 @@ public class PreDeviceCheckCompletionServiceImpl implements IPreDeviceCheckCompl
                         ErrorCode.MISSION_NOT_FOUND,
                         "Mission not found: " + missionId));
         com.ondemandmonitoring.mission.service.impl.MissionRuntimeGate.requireOperationalCommandsAllowed(mission);
-        MissionDeviceAssignment assignment = getCurrentMainAssignment(mission.getId());
+        MissionDeviceAssignment assignment = missionDeviceAssignmentRepository
+                .findByMissionIdAndDeviceIdAndIsCurrentTrue(mission.getId(), deviceId)
+                .filter(a -> a.getReleasedAt() == null).orElse(null);
         Device assignedDevice = assignment == null ? null : assignment.getDevice();
         if (assignedDevice == null || assignedDevice.getId() == null) {
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Mission has no assigned deviceId");
@@ -70,7 +72,7 @@ public class PreDeviceCheckCompletionServiceImpl implements IPreDeviceCheckCompl
                     "Mission chưa có Operator nhận nhiệm vụ để hoàn tất kiểm tra trước chuyến bay.");
         }
 
-        PersistedPreDeviceCheck persistedPreDeviceCheck = requirePassedPersistedPreDevice(mission.getId());
+        PersistedPreDeviceCheck persistedPreDeviceCheck = requirePassedPersistedPreDevice(mission.getId(), assignment.getId());
         if (assignment.getStatus() != MissionDeviceAssignmentStatus.PREFLIGHT_CHECKING
                 && assignment.getStatus() != MissionDeviceAssignmentStatus.READY_TO_FLY) {
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
@@ -86,9 +88,11 @@ public class PreDeviceCheckCompletionServiceImpl implements IPreDeviceCheckCompl
         return preDeviceCheckCompletionMapper.toResponse(mission, assignedDevice, persistedPreDeviceCheck, weatherCheck);
     }
 
-    private PersistedPreDeviceCheck requirePassedPersistedPreDevice(String missionId) {
+    private PersistedPreDeviceCheck requirePassedPersistedPreDevice(String missionId, String assignmentId) {
         PersistedPreDeviceCheck run = preDeviceCheckRepository
-                .findFirstByMissionIdOrderByCreatedAtDesc(missionId)
+                .findByMissionIdOrderByCreatedAtDesc(missionId).stream()
+                .filter(candidate -> candidate.getMissionDeviceAssignment() != null && assignmentId.equals(candidate.getMissionDeviceAssignment().getId()))
+                .findFirst()
                 .orElseThrow(() -> new ApiException(
                         ErrorCode.INVALID_REQUEST,
                         "No persisted pre-device run found. Run the real pre-device checklist first."));

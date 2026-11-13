@@ -2,12 +2,9 @@ package com.ondemandmonitoring.finance.service.impl;
 
 import com.ondemandmonitoring.device.enums.DeviceStatus;
 import com.ondemandmonitoring.finance.domain.Invoice;
-import com.ondemandmonitoring.finance.domain.MissionPaymentMilestone;
 import com.ondemandmonitoring.finance.enums.DepositStatus;
 import com.ondemandmonitoring.finance.enums.InvoiceStatus;
-import com.ondemandmonitoring.finance.enums.MissionPaymentMilestoneStatus;
 import com.ondemandmonitoring.finance.enums.QuoteStatus;
-import com.ondemandmonitoring.finance.repository.MissionPaymentMilestoneRepository;
 import com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
@@ -25,7 +22,6 @@ import com.ondemandmonitoring.mission.repository.ResourceTimeLockRepository;
 import com.ondemandmonitoring.mission.service.impl.ExecutionPlanCoverageService;
 import com.ondemandmonitoring.order.enums.ExecutionPlanStatus;
 import com.ondemandmonitoring.order.enums.OrderStatus;
-import java.math.BigDecimal;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
@@ -41,7 +37,6 @@ public class MissionPaymentEligibilityService implements IMissionPaymentEligibil
             MissionStaffRole.PILOT, MissionStaffRole.OPERATOR,
             MissionStaffRole.MAINTAINER, MissionStaffRole.INSPECTOR);
 
-    private final MissionPaymentMilestoneRepository milestones;
     private final MissionRepository missions;
     private final MissionStaffAssignmentRepository staffAssignments;
     private final MissionDeviceAssignmentRepository deviceAssignments;
@@ -71,25 +66,11 @@ public class MissionPaymentEligibilityService implements IMissionPaymentEligibil
                 .filter(mission -> mission.getPurpose() != MissionPurpose.REWORK)
                 .toList();
         if (required.isEmpty()) return false;
-        List<MissionPaymentMilestone> allocated =
-                milestones.findAllByInvoiceIdForDisplay(invoice.getId());
-        Set<String> requiredMissionIds = required.stream().map(Mission::getId).collect(Collectors.toSet());
-        Set<String> allocatedMissionIds = allocated.stream()
-                .map(milestone -> milestone.getMission().getId()).collect(Collectors.toSet());
-        if (invoice.getTotalAmount() == null || invoice.getDepositAmount() == null) return false;
-        BigDecimal target = invoice.getTotalAmount().subtract(invoice.getDepositAmount());
-        if (target.signum() < 0 || allocated.size() != required.size()
-                || !allocatedMissionIds.equals(requiredMissionIds)
-                || milestones.sumAmountByInvoiceIdAndStatusIn(invoice.getId(),
-                        List.of(MissionPaymentMilestoneStatus.NOT_YET_DUE, MissionPaymentMilestoneStatus.UNPAID,
-                                MissionPaymentMilestoneStatus.PENDING, MissionPaymentMilestoneStatus.PAID,
-                                MissionPaymentMilestoneStatus.EXPIRED))
-                        .compareTo(target) != 0) return false;
         Set<MissionStatus> alreadyActivated = EnumSet.of(MissionStatus.PENDING_CONFIRMATION, MissionStatus.READY,
                 MissionStatus.IN_PROGRESS, MissionStatus.AWAITING_REVIEW, MissionStatus.PENDING_REVIEW,
                 MissionStatus.COMPLETED, MissionStatus.FAILED);
         return required.stream().allMatch(mission ->
-                mission.getStatus() == MissionStatus.PENDING_PAYMENT
+                mission.getStatus() == MissionStatus.PLANNING
                         ? isResourceAssignmentReady(mission)
                         : alreadyActivated.contains(mission.getStatus()));
     }

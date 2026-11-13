@@ -422,11 +422,7 @@ public class OrderService implements IOrderService {
         return toResponse(orderRepository.findById(orderId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId)));
     }
-    private OrderCreateResponse unusedGetOrderById(String orderId) {
-        Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
-                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
-        return toResponse(order);
-    }
+
 
     @Override
     @Transactional
@@ -694,9 +690,6 @@ public class OrderService implements IOrderService {
         return toResponses(orders);
     }
 
-    private Order findOrderByIdForWrite(String id) {
-        return orderRepository.findByIdForUpdate(id).or(() -> orderRepository.findById(id)).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + id));
-    }
 
     private OrderCreateResponse toResponse(Order order) {
         var response = toResponses(List.of(order)).getFirst();
@@ -704,9 +697,6 @@ public class OrderService implements IOrderService {
         return response;
     }
 
-    private OrderCreateResponse toResponseUnused(Order order) {
-        return toResponses(List.of(order)).getFirst();
-    }
 
     private List<OrderCreateResponse> toResponses(List<Order> orders) {
         var snapshots = checklistSnapshots.getByOrders(orders.stream().map(Order::getId).toList());

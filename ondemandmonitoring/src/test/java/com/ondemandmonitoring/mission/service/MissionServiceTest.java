@@ -192,11 +192,13 @@ class MissionServiceTest {
     }
 
     @Test
-    void paymentConfirmationOpensResourceConfirmationForEveryMissionOfOrder() {
-        Mission first = buildMission("payment-ready-1", MissionStatus.PENDING_PAYMENT);
-        Mission second = buildMission("payment-ready-2", MissionStatus.PENDING_PAYMENT);
+    void depositConfirmationOpensResourceConfirmationForEveryMissionOfOrder() {
+        Mission first = buildMission("deposit-ready-1", MissionStatus.PLANNING);
+        Mission second = buildMission("deposit-ready-2", MissionStatus.PLANNING);
         second.setOrder(first.getOrder());
         String orderId = first.getOrder().getId();
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(first.getOrder()));
+        when(invoiceRepository.findByOrderId(orderId)).thenReturn(Optional.of(new com.ondemandmonitoring.finance.domain.Invoice()));
         when(missionRepository.findAllByOrderIdForUpdateOrderById(orderId)).thenReturn(List.of(first, second));
         when(missionRepository.saveAllAndFlush(anyList())).thenAnswer(call -> call.getArgument(0));
         when(missionPaymentEligibilityService.isMissionExecutionEligible(any())).thenReturn(true);
@@ -209,29 +211,31 @@ class MissionServiceTest {
     }
 
     @Test
-    void paymentConfirmationDoesNotPartiallyUpdateOrderWhenOneMissionHasInvalidStatus() {
-        Mission first = buildMission("payment-atomic-1", MissionStatus.PENDING_PAYMENT);
+    void activationDoesNotRegressMissionsThatAreAlreadyReady() {
+        Mission first = buildMission("payment-atomic-1", MissionStatus.PLANNING);
         Mission second = buildMission("payment-atomic-2", MissionStatus.READY);
         second.setOrder(first.getOrder());
         String orderId = first.getOrder().getId();
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(first.getOrder()));
+        when(invoiceRepository.findByOrderId(orderId)).thenReturn(Optional.of(new com.ondemandmonitoring.finance.domain.Invoice()));
         when(missionRepository.findAllByOrderIdForUpdateOrderById(orderId)).thenReturn(List.of(first, second));
         when(missionPaymentEligibilityService.isMissionExecutionEligible(any())).thenReturn(true);
 
-        assertThatThrownBy(() -> missionService.transitionToPendingConfirmation(orderId))
-                .isInstanceOf(ApiException.class)
-                .extracting("errorCode").isEqualTo(ErrorCode.MISSION_STATUS_INVALID);
+        missionService.transitionToPendingConfirmation(orderId);
 
-        assertThat(first.getStatus()).isEqualTo(MissionStatus.PENDING_PAYMENT);
+        assertThat(first.getStatus()).isEqualTo(MissionStatus.PENDING_CONFIRMATION);
         assertThat(second.getStatus()).isEqualTo(MissionStatus.READY);
-        verify(missionRepository, never()).saveAllAndFlush(anyList());
+        verify(missionRepository).saveAllAndFlush(List.of(first, second));
     }
 
     @Test
-    void paymentConfirmationOpensConfirmationWhileResourceAssignmentsAreStillBeingPrepared() {
-        Mission first = buildMission("payment-assignment-1", MissionStatus.PENDING_PAYMENT);
-        Mission second = buildMission("payment-assignment-2", MissionStatus.PENDING_PAYMENT);
+    void transitionUsesCentralEligibilityPolicyForPlanningMissions() {
+        Mission first = buildMission("payment-assignment-1", MissionStatus.PLANNING);
+        Mission second = buildMission("payment-assignment-2", MissionStatus.PLANNING);
         second.setOrder(first.getOrder());
         String orderId = first.getOrder().getId();
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(first.getOrder()));
+        when(invoiceRepository.findByOrderId(orderId)).thenReturn(Optional.of(new com.ondemandmonitoring.finance.domain.Invoice()));
         when(missionRepository.findAllByOrderIdForUpdateOrderById(orderId)).thenReturn(List.of(first, second));
         when(missionRepository.saveAllAndFlush(anyList())).thenAnswer(call -> call.getArgument(0));
         when(missionPaymentEligibilityService.isMissionExecutionEligible(any())).thenReturn(true);
@@ -245,13 +249,15 @@ class MissionServiceTest {
     }
 
     @Test
-    void paymentConfirmationRetryLeavesAdvancedAndCancelledMissionsUntouched() {
+    void activationRetryLeavesAdvancedAndCancelledMissionsUntouched() {
         Mission confirming = buildMission("payment-retry-confirming", MissionStatus.PENDING_CONFIRMATION);
         Mission completed = buildMission("payment-retry-completed", MissionStatus.COMPLETED);
         Mission cancelled = buildMission("payment-retry-cancelled", MissionStatus.CANCELLED);
         completed.setOrder(confirming.getOrder());
         cancelled.setOrder(confirming.getOrder());
         String orderId = confirming.getOrder().getId();
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(confirming.getOrder()));
+        when(invoiceRepository.findByOrderId(orderId)).thenReturn(Optional.of(new com.ondemandmonitoring.finance.domain.Invoice()));
         when(missionRepository.findAllByOrderIdForUpdateOrderById(orderId))
                 .thenReturn(List.of(confirming, completed, cancelled));
         when(missionRepository.saveAllAndFlush(anyList())).thenAnswer(call -> call.getArgument(0));

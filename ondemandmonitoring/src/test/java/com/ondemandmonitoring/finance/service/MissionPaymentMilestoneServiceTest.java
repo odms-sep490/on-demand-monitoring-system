@@ -109,7 +109,7 @@ class MissionPaymentMilestoneServiceTest {
     private Mission mission(String id, String code) {
         Mission mission = new Mission();
         mission.setId(id); mission.setMissionCode(code); mission.setOrder(order);
-        mission.setStatus(MissionStatus.PENDING_PAYMENT); mission.setScopeLabel(code);
+        mission.setStatus(MissionStatus.PENDING_CONFIRMATION); mission.setScopeLabel(code);
         return mission;
     }
 

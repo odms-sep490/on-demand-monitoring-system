@@ -93,6 +93,34 @@ class PersistedPreDeviceCheckServiceTest {
         assertThat(response.getItems().getFirst().getMessage()).isNull();
     }
 
+    @Test
+    void readsPreflightForReleasedDeviceWithoutMixingOtherDeviceResults() {
+        Mission mission = mission("mission-1");
+        mission.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.COMPLETED);
+        var device = new com.ondemandmonitoring.device.domain.Device();
+        device.setId("device-1");
+        var assignment = new com.ondemandmonitoring.mission.domain.MissionDeviceAssignment();
+        assignment.setId("assignment-1");
+        assignment.setDevice(device);
+        assignment.setIsCurrent(false);
+        assignment.setReleasedAt(Instant.now());
+        var run = checkingRun("run-1", mission, Instant.now());
+        run.setMissionDeviceAssignment(assignment);
+        var otherDevice = new com.ondemandmonitoring.device.domain.Device();
+        otherDevice.setId("device-2");
+        var otherAssignment = new com.ondemandmonitoring.mission.domain.MissionDeviceAssignment();
+        otherAssignment.setDevice(otherDevice);
+        var otherRun = checkingRun("run-2", mission, Instant.now());
+        otherRun.setMissionDeviceAssignment(otherAssignment);
+        when(missionRepository.existsById("mission-1")).thenReturn(true);
+        when(runRepository.findByMissionIdOrderByCreatedAtDesc("mission-1"))
+                .thenReturn(java.util.List.of(otherRun, run));
+        var response = service.current("mission-1", "device-1");
+        assertThat(response.getId()).isEqualTo("run-1");
+        assertThat(response.getDeviceId()).isEqualTo("device-1");
+        assertThat(service.current("mission-1", "device-without-check")).isNull();
+    }
+
     private static Mission mission(String id) {
         Mission mission = new Mission();
         mission.setId(id);

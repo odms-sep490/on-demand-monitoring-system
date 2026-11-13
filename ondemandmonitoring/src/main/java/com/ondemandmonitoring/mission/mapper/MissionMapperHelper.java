@@ -185,8 +185,12 @@ public class MissionMapperHelper {
         var assignments = mission.getStatus() == com.ondemandmonitoring.mission.enums.MissionStatus.PLANNING
                 ? allAssignments
                 : allAssignments.stream()
-                        .filter(assignment -> Boolean.TRUE.equals(assignment.getIsCurrent())
+                        .filter(assignment -> (Boolean.TRUE.equals(assignment.getIsCurrent())
                                 && assignment.getReleasedAt() == null)
+                                || (mission.getStatus() == com.ondemandmonitoring.mission.enums.MissionStatus.COMPLETED
+                                    && "MISSION_COMPLETE".equals(assignment.getReleaseReason()))
+                                || (mission.getStatus() == com.ondemandmonitoring.mission.enums.MissionStatus.FAILED
+                                    && "MISSION_FAILED".equals(assignment.getReleaseReason())))
                         .sorted(Comparator.comparing(MissionDeviceAssignment::getCreatedAt,
                                 Comparator.nullsLast(Comparator.reverseOrder())))
                         .toList();

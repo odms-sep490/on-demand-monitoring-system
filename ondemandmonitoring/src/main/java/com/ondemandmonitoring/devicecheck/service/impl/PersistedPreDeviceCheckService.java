@@ -218,11 +218,11 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
     public PersistedPreDeviceCheckResponse current(String missionId, String deviceId) {
         if (deviceId == null) return current(missionId);
         ensureMission(missionId);
-        var assignment = missionDeviceAssignmentRepository.findByMissionIdAndDeviceIdAndIsCurrentTrue(missionId, deviceId)
-                .filter(a -> a.getReleasedAt() == null).orElse(null);
-        if (assignment == null) return null;
+        // Historical results remain readable after the assignment is released.
         return runRepository.findByMissionIdOrderByCreatedAtDesc(missionId).stream()
-                .filter(run -> run.getMissionDeviceAssignment() != null && assignment.getId().equals(run.getMissionDeviceAssignment().getId()))
+                .filter(run -> run.getMissionDeviceAssignment() != null
+                        && run.getMissionDeviceAssignment().getDevice() != null
+                        && deviceId.equals(run.getMissionDeviceAssignment().getDevice().getId()))
                 .findFirst().map(PersistedPreDeviceCheckResponse::from).orElse(null);
     }
 

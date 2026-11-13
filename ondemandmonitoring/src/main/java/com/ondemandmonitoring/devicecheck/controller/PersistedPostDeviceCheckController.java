@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
 
 @RestController
 @RequiredArgsConstructor
@@ -42,8 +43,8 @@ public class PersistedPostDeviceCheckController {
     @GetMapping("/api/missions/{missionId}/post-device-checks/current")
     @PreAuthorize("@missionAuthorizationService.canViewMission(#missionId)")
     public ApiResponse<PersistedPostDeviceCheckResponse> current(
-            @PathVariable String missionId) {
-        return ApiResponse.ok(service.current(missionId));
+            @PathVariable String missionId, @RequestParam(required = false) String deviceId) {
+        return ApiResponse.ok(service.current(missionId, deviceId));
     }
 
     @GetMapping("/api/post-device-checks/{id}")

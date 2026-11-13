@@ -8,7 +8,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** Recovers mission activation when payment settlement committed but activation could not complete. */
+/** Recovers confirmation when a paid deposit and finalized plan were not activated successfully. */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -20,24 +20,24 @@ public class MissionExecutionActivationRecoveryJob {
 
     @Scheduled(fixedDelayString = "${omss.payment.mission-activation-recovery-delay-ms:60000}")
     public void recoverPendingMissionActivations() {
-        recoverMilestoneActivations();
+        recoverPendingConfirmations();
     }
 
-    private void recoverMilestoneActivations() {
+    private void recoverPendingConfirmations() {
         String cursor = "";
         while (true) {
-            var payableMilestoneOrders = invoices.findOrderIdsAwaitingMissionActivationAfter(
+            var eligibleOrders = invoices.findOrderIdsAwaitingMissionActivationAfter(
                     cursor, PageRequest.of(0, BATCH_SIZE));
-            if (payableMilestoneOrders.isEmpty()) return;
-            for (String orderId : payableMilestoneOrders) {
+            if (eligibleOrders.isEmpty()) return;
+            for (String orderId : eligibleOrders) {
                 try {
                     activation.activateIfEligible(orderId);
                 } catch (RuntimeException exception) {
                     log.warn("Mission activation remains pending for Order {} and will be retried", orderId, exception);
                 }
             }
-            cursor = payableMilestoneOrders.get(payableMilestoneOrders.size() - 1);
-            if (payableMilestoneOrders.size() < BATCH_SIZE) return;
+            cursor = eligibleOrders.get(eligibleOrders.size() - 1);
+            if (eligibleOrders.size() < BATCH_SIZE) return;
         }
     }
 

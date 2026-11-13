@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
 
 @RestController
 @RequiredArgsConstructor
@@ -26,10 +27,10 @@ public class PersistedPreDeviceCheckController {
     @PostMapping("/api/missions/{missionId}/pre-device-checks")
     @PreAuthorize("@missionAuthorizationService.canOperatePayload(#missionId)")
     public ResponseEntity<ApiResponse<PersistedPreDeviceCheckResponse>> start(
-            @PathVariable String missionId) {
+            @PathVariable String missionId, @RequestParam(required = false) String deviceId) {
         return ResponseEntity
                 .status(HttpStatus.CREATED)
-                .body(ApiResponse.created(service.start(missionId)));
+                .body(ApiResponse.created(service.start(missionId, deviceId)));
     }
 
     @GetMapping("/api/missions/{missionId}/pre-device-checks")
@@ -42,8 +43,8 @@ public class PersistedPreDeviceCheckController {
     @GetMapping("/api/missions/{missionId}/pre-device-checks/current")
     @PreAuthorize("@missionAuthorizationService.canViewMission(#missionId)")
     public ApiResponse<PersistedPreDeviceCheckResponse> current(
-            @PathVariable String missionId) {
-        return ApiResponse.ok(service.current(missionId));
+            @PathVariable String missionId, @RequestParam(required = false) String deviceId) {
+        return ApiResponse.ok(service.current(missionId, deviceId));
     }
 
     @GetMapping("/api/pre-device-checks/{id}")

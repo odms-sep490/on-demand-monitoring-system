@@ -111,6 +111,18 @@ public class PersistedPostDeviceCheckService implements IPersistedPostDeviceChec
 
     @Transactional(readOnly = true)
     @Override
+    @PreAuthorize("@missionAuthorizationService.canViewMission(#missionId)")
+    public PersistedPostDeviceCheckResponse current(String missionId, String deviceId) {
+        if (deviceId == null) return current(missionId);
+        ensureMission(missionId);
+        return runRepository.findByMissionIdOrderByCreatedAtDesc(missionId).stream()
+                .filter(r -> r.getMissionDeviceAssignment() != null && r.getMissionDeviceAssignment().getDevice() != null
+                        && deviceId.equals(r.getMissionDeviceAssignment().getDevice().getId()))
+                .findFirst().map(PersistedPostDeviceCheckResponse::from).orElse(null);
+    }
+
+    @Transactional(readOnly = true)
+    @Override
     @PreAuthorize("@deviceCheckAuthorizationService.canViewPostCheck(#id)")
     public PersistedPostDeviceCheckResponse get(String id) {
         return PersistedPostDeviceCheckResponse.from(runRepository.findById(id)
@@ -173,6 +185,14 @@ public class PersistedPostDeviceCheckService implements IPersistedPostDeviceChec
     @PreAuthorize("@missionAuthorizationService.canMaintainDevice(#missionId)")
     public void recordInspection(String missionId, Map<String, InspectionResult> results,
             PostFlightStatusRequest.TelemetrySnapshot telemetrySnapshot) {
+        recordInspection(missionId, null, results, telemetrySnapshot);
+    }
+
+    @Transactional
+    @Override
+    @PreAuthorize("@missionAuthorizationService.canMaintainDevice(#missionId)")
+    public void recordInspection(String missionId, String deviceId, Map<String, InspectionResult> results,
+            PostFlightStatusRequest.TelemetrySnapshot telemetrySnapshot) {
         if (results == null || results.isEmpty()) {
             return;
         }
@@ -181,14 +201,13 @@ public class PersistedPostDeviceCheckService implements IPersistedPostDeviceChec
                         ErrorCode.MISSION_NOT_FOUND,
                         "Mission not found: " + missionId));
         MissionDeviceAssignment mainAssignment = missionDeviceAssignmentRepository
-                .findAllByMissionIdAndDeviceRoleAndIsCurrentTrueOrderByCreatedAtDesc(missionId, DeviceRole.MAIN)
-                .stream()
+                .findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc(missionId).stream()
+                .filter(a -> a.getReleasedAt() == null && a.getDevice() != null)
+                .filter(a -> deviceId == null ? a.getDeviceRole() == DeviceRole.MAIN : deviceId.equals(a.getDevice().getId()))
+                .findFirst().orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Drone is not assigned to this mission"));
+        PersistedPostDeviceCheck run = runRepository.findByMissionIdOrderByCreatedAtDesc(missionId).stream()
+                .filter(candidate -> candidate.getMissionDeviceAssignment() != null && mainAssignment.getId().equals(candidate.getMissionDeviceAssignment().getId()))
                 .findFirst()
-                .orElseThrow(() -> new ApiException(
-                        ErrorCode.RESOURCE_NOT_FOUND,
-                        "No current main device assignment found for mission: " + missionId));
-        PersistedPostDeviceCheck run = runRepository
-                .findFirstByMissionIdOrderByCreatedAtDesc(missionId)
                 .orElseGet(() -> {
                     PersistedPostDeviceCheck created = new PersistedPostDeviceCheck();
                     created.setMission(mission);

@@ -9,7 +9,8 @@ import com.ondemandmonitoring.mission.service.*;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.enums.*;
 import com.ondemandmonitoring.order.repository.*;
-import com.ondemandmonitoring.finance.service.IMissionExecutionActivationService;
+import com.ondemandmonitoring.finance.repository.InvoiceRepository;
+import com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService;
 import java.time.*;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
@@ -31,7 +32,8 @@ public class ExecutionPlanServiceImpl implements IExecutionPlanService {
     private final ExecutionPlanCoverageService coverage;
     private final MissionStaffAssignmentRepository staff;
     private final MissionDeviceAssignmentRepository devices;
-    private final IMissionExecutionActivationService missionActivation;
+    private final InvoiceRepository invoices;
+    private final IMissionPaymentEligibilityService paymentEligibility;
 
     @Override
     @Transactional(readOnly = true)
@@ -45,6 +47,10 @@ public class ExecutionPlanServiceImpl implements IExecutionPlanService {
     public ExecutionPlanResponse finalizePlan(String orderId, ExecutionPlanFinalizeRequest request) {
         if (request == null || request.expectedPlanRevision() == null || request.expectedPlanRevision() < 0) throw new ApiException(ErrorCode.INVALID_REQUEST);
         var order = orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        var invoice = invoices.findByOrderId(orderId)
+                .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
+        if (!paymentEligibility.isDepositSatisfied(invoice))
+            throw new ApiException(ErrorCode.INVOICE_NOT_PAID, "Deposit must be paid before finalizing the execution plan");
         if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.DRAFT)
             throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_DRAFT);
         if (order.getOrderStatus() != OrderStatus.APPROVED && order.getOrderStatus() != OrderStatus.IN_PROGRESS)
@@ -69,7 +75,7 @@ public class ExecutionPlanServiceImpl implements IExecutionPlanService {
         // Runtime consumes executions; create them only after all planning validation passes.
         effective.forEach(materialization::materialize);
         effective.forEach(m -> {
-            m.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.PENDING_PAYMENT);
+            m.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.PENDING_CONFIRMATION);
             staff.findByMissionId(m.getId()).stream().filter(a -> a.getReleasedAt() == null).forEach(a -> {
                 a.setResponseStatus(com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus.PENDING);
                 a.setIsCurrent(true);
@@ -85,7 +91,6 @@ public class ExecutionPlanServiceImpl implements IExecutionPlanService {
         order.getExecutionPlan().setFinalizedBy(currentUser.getCurrentUserId());
         missions.saveAllAndFlush(effective);
         orders.saveAndFlush(order);
-        missionActivation.activateIfEligible(orderId);
         return response(order, children);
     }
 

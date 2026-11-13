@@ -13,6 +13,9 @@ public interface IPersistedPostDeviceCheckService {
     PersistedPostDeviceCheckResponse current(String missionId);
     PersistedPostDeviceCheckResponse get(String id);
     PersistedPostDeviceCheckResponse update(String id, String type, DeviceCheckItemUpdateRequest request);
+    void recordInspection(String missionId, String deviceId, Map<String, InspectionResult> results,
+            PostFlightStatusRequest.TelemetrySnapshot telemetrySnapshot);
+    PersistedPostDeviceCheckResponse current(String missionId, String deviceId);
     void recordInspection(String missionId, Map<String, InspectionResult> results,
             PostFlightStatusRequest.TelemetrySnapshot telemetrySnapshot);
 }

@@ -20,7 +20,8 @@ public interface InvoiceRepository extends JpaRepository<Invoice, String> {
 
     @Query("select distinct i.order.id from Invoice i where i.order.id > :afterOrderId "
             + "and i.depositStatus = 'DEPOSIT_PAID' and i.status not in ('CANCELLED', 'REFUNDED', 'OVERDUE') "
-            + "and exists (select m.id from Mission m where m.order = i.order and m.status = 'PENDING_PAYMENT') "
+            + "and i.order.executionPlan.status = 'FINALIZED' "
+            + "and exists (select m.id from Mission m where m.order = i.order and m.status = 'PLANNING' and m.purpose = 'ORIGINAL') "
             + "order by i.order.id")
     List<String> findOrderIdsAwaitingMissionActivationAfter(@Param("afterOrderId") String afterOrderId,
             Pageable pageable);

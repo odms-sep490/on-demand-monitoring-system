@@ -4,10 +4,7 @@ package com.ondemandmonitoring.mission.enums;
 public enum MissionStatus {
     PLANNING,
 
-    /** Planning is finalized; operational work is blocked until payment is verified. */
-    PENDING_PAYMENT,
-
-    /** Payment was verified; resource checks and crew confirmation are in progress. */
+    /** The plan is finalized; staff confirmation and drone checks are in progress. */
     PENDING_CONFIRMATION,
 
     /** Every required crew member and device resource is ready. */

@@ -517,7 +517,7 @@ public class MissionController {
             @RequestParam String deviceId,
             @Valid @RequestBody PostFlightStatusRequest request) {
         MissionResponse response = missionService.recordPostFlightInspection(
-                id,
+                id, deviceId,
                 request.getNewDeviceStatus(),
                 request.getNotes(),
                 request.getInspectionResults(),

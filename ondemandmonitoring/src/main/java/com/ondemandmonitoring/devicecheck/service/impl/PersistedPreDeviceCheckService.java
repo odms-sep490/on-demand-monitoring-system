@@ -108,7 +108,12 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
     @Transactional
     @Override
     @PreAuthorize("@missionAuthorizationService.canOperatePayload(#missionId)")
-    public PersistedPreDeviceCheckResponse start(String missionId) {
+    public PersistedPreDeviceCheckResponse start(String missionId) { return start(missionId, null); }
+
+    @Transactional
+    @Override
+    @PreAuthorize("@missionAuthorizationService.canOperatePayload(#missionId)")
+    public PersistedPreDeviceCheckResponse start(String missionId, String deviceId) {
         Mission mission = missionRepository.findByIdForUpdate(missionId)
                 .orElseThrow(() -> new ApiException(
                         ErrorCode.MISSION_NOT_FOUND,
@@ -120,15 +125,15 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
         }
 
         MissionDeviceAssignment assignment = missionDeviceAssignmentRepository
-                .findAllByMissionIdAndDeviceRoleAndIsCurrentTrueOrderByCreatedAtDesc(
-                        missionId, DeviceRole.MAIN)
+                .findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc(missionId)
                 .stream()
+                .filter(candidate -> deviceId == null ? candidate.getDeviceRole() == DeviceRole.MAIN : candidate.getDevice() != null && deviceId.equals(candidate.getDevice().getId()))
                 .filter(candidate -> candidate.getReleasedAt() == null
                         && candidate.getDevice() != null
                         && Boolean.TRUE.equals(candidate.getIsCurrent()))
                 .findFirst()
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND,
-                        "Mission has no current main device assignment."));
+                        "No current assigned drone matches this preflight request."));
         if (assignment.getStatus() != MissionDeviceAssignmentStatus.CONNECTED
                 && assignment.getStatus() != MissionDeviceAssignmentStatus.ASSIGNED
                 && assignment.getStatus() != MissionDeviceAssignmentStatus.CONNECTION_LOST
@@ -142,7 +147,9 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
         assignment.setCheckupStatus(MissionDeviceCheckStatus.CHECKING);
 
         PersistedPreDeviceCheck activeRun = runRepository
-                .findFirstByMissionIdOrderByCreatedAtDesc(missionId)
+                .findByMissionIdOrderByCreatedAtDesc(missionId).stream()
+                .filter(run -> run.getMissionDeviceAssignment() != null
+                        && assignment.getId().equals(run.getMissionDeviceAssignment().getId())).findFirst()
                 .filter(run -> run.getStatus() == PreDeviceCheckStatus.CHECKING
                         && run.getStartedAt() != null
                         && run.getStartedAt().isAfter(
@@ -203,6 +210,20 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
         return runRepository.findFirstByMissionIdOrderByCreatedAtDesc(missionId)
                 .map(PersistedPreDeviceCheckResponse::from)
                 .orElse(null);
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    @PreAuthorize("@missionAuthorizationService.canViewMission(#missionId)")
+    public PersistedPreDeviceCheckResponse current(String missionId, String deviceId) {
+        if (deviceId == null) return current(missionId);
+        ensureMission(missionId);
+        var assignment = missionDeviceAssignmentRepository.findByMissionIdAndDeviceIdAndIsCurrentTrue(missionId, deviceId)
+                .filter(a -> a.getReleasedAt() == null).orElse(null);
+        if (assignment == null) return null;
+        return runRepository.findByMissionIdOrderByCreatedAtDesc(missionId).stream()
+                .filter(run -> run.getMissionDeviceAssignment() != null && assignment.getId().equals(run.getMissionDeviceAssignment().getId()))
+                .findFirst().map(PersistedPreDeviceCheckResponse::from).orElse(null);
     }
 
     @Transactional
@@ -401,7 +422,7 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
         if (run.getStatus() != PreDeviceCheckStatus.CHECKING) run.setCompletedAt(Instant.now());
 
         MissionDeviceAssignment assignment = run.getMissionDeviceAssignment();
-        if (assignment != null && assignment.getDeviceRole() == DeviceRole.MAIN) {
+        if (assignment != null) {
             if (run.getStatus() == PreDeviceCheckStatus.CHECKING) {
                 assignment.setStatus(MissionDeviceAssignmentStatus.PREFLIGHT_CHECKING);
                 assignment.setCheckupStatus(MissionDeviceCheckStatus.CHECKING);

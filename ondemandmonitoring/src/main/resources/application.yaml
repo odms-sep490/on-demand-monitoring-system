@@ -117,8 +117,8 @@ omss:
     deposit-rate: ${OMSS_PAYMENT_DEPOSIT_RATE:0.30}
     pending-payment-grace: ${OMSS_PENDING_PAYMENT_GRACE:30m}
     expiration-batch-size: ${OMSS_EXPIRATION_BATCH_SIZE:100}
-    # Enable only for a non-production sandbox test environment; production profile/mode rejects it.
-    test-payments-enabled: ${OMSS_PAYMENT_TEST_PAYMENTS_ENABLED:false}
+    # Enable test payments by default outside production; the prod profile/mode rejects them.
+    test-payments-enabled: ${OMSS_PAYMENT_TEST_PAYMENTS_ENABLED:true}
     expiration-job-delay-ms: ${OMSS_EXPIRATION_JOB_DELAY_MS:60000}
 
 odms:

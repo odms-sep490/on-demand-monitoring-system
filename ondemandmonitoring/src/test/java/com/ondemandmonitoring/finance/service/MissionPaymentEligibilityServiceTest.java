@@ -10,9 +10,6 @@ import com.ondemandmonitoring.finance.domain.Invoice;
 import com.ondemandmonitoring.finance.domain.Quote;
 import com.ondemandmonitoring.finance.enums.InvoiceStatus;
 import com.ondemandmonitoring.finance.enums.QuoteStatus;
-import com.ondemandmonitoring.finance.repository.InvoiceRepository;
-import com.ondemandmonitoring.finance.repository.MissionPaymentMilestoneRepository;
-import com.ondemandmonitoring.finance.repository.PaymentRepository;
 import com.ondemandmonitoring.finance.service.impl.MissionPaymentEligibilityService;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.domain.MissionDeviceAssignment;
@@ -35,19 +32,17 @@ import com.ondemandmonitoring.user.domain.User;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class MissionPaymentEligibilityServiceTest {
-    MissionPaymentMilestoneRepository milestones = mock(MissionPaymentMilestoneRepository.class);
     MissionRepository missions = mock(MissionRepository.class);
     MissionStaffAssignmentRepository staff = mock(MissionStaffAssignmentRepository.class);
     MissionDeviceAssignmentRepository devices = mock(MissionDeviceAssignmentRepository.class);
     ResourceTimeLockRepository locks = mock(ResourceTimeLockRepository.class);
     MissionPaymentEligibilityService service = new MissionPaymentEligibilityService(
-            milestones, missions, staff, devices, locks);
+            missions, staff, devices, locks);
     Invoice invoice;
     Mission mission;
     List<MissionStaffAssignment> crew;
@@ -66,7 +61,7 @@ class MissionPaymentEligibilityServiceTest {
         invoice.setStatus(InvoiceStatus.PARTIALLY_PAID);
 
         mission = new Mission(); mission.setId("m1"); mission.setOrder(order);
-        mission.setStatus(MissionStatus.PENDING_PAYMENT);
+        mission.setStatus(MissionStatus.PLANNING);
         mission.setScheduledStartAt(Instant.parse("2026-11-10T02:00:00Z"));
         mission.setScheduledEndAt(Instant.parse("2026-11-10T04:00:00Z"));
         crew = java.util.Arrays.stream(MissionStaffRole.values()).map(role -> {
@@ -93,25 +88,12 @@ class MissionPaymentEligibilityServiceTest {
         assertThat(service.isDepositSatisfied(invoice)).isFalse();
     }
 
-    @Test void missionExecutionEligibilityRequiresExactAllocationAndReadyResources() {
-        var milestone = new com.ondemandmonitoring.finance.domain.MissionPaymentMilestone();
-        milestone.setId("milestone-1");
-        milestone.setInvoice(invoice);
-        milestone.setMission(mission);
-        milestone.setAmount(new BigDecimal("700"));
-        milestone.setCurrency("VND");
-        milestone.setStatus(com.ondemandmonitoring.finance.enums.MissionPaymentMilestoneStatus.NOT_YET_DUE);
-        when(milestones.findAllByInvoiceIdForDisplay("i1")).thenReturn(List.of(milestone));
-        when(milestones.sumAmountByInvoiceIdAndStatusIn(eq("i1"), anyList()))
-                .thenReturn(new BigDecimal("700"));
-
+    @Test void missionExecutionEligibilityRequiresDepositPlanAndReadyResourcesButNotFinalPaymentAllocation() {
         assertThat(service.isMissionExecutionEligible(invoice)).isTrue();
         verify(locks).findConflictingResourceIds(anySet(), eq("m1"), eq(mission.getScheduledStartAt()),
                 eq(mission.getScheduledEndAt()));
-
-        when(milestones.sumAmountByInvoiceIdAndStatusIn(eq("i1"), anyList()))
-                .thenReturn(new BigDecimal("699"));
-        assertThat(service.isMissionExecutionEligible(invoice)).isFalse();
+        mission.setStatus(MissionStatus.PENDING_CONFIRMATION);
+        assertThat(service.isMissionExecutionEligible(invoice)).isTrue();
     }
 
     private ResourceTimeLock lock(String id) {

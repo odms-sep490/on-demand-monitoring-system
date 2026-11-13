@@ -72,7 +72,7 @@ public class ManagerDashboardAnalyticsRepository {
         List<Object[]> values = entityManager.createNativeQuery(
                 """
                 select case
-                    when status in ('CREATED', 'PENDING_PAYMENT',
+                    when status in ('PLANNING', 'CREATED',
                                     'PENDING_CONFIRMATION', 'RESOURCE_ASSIGNING', 'PENDING_APPROVAL') then 'PLANNING'
                     when status = 'READY' then 'READY'
                     when status = 'SCHEDULED' then 'SCHEDULED'

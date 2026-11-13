@@ -231,6 +231,10 @@ public interface IMissionService {
      */
     MissionResponse updatePostFlightStatus(String missionId, DeviceStatus newDeviceStatus, String notes);
 
+    MissionResponse recordPostFlightInspection(String missionId, String deviceId, DeviceStatus newDeviceStatus,
+            String notes, java.util.Map<String, com.ondemandmonitoring.mission.enums.InspectionResult> results,
+            com.ondemandmonitoring.mission.dto.request.PostFlightStatusRequest.TelemetrySnapshot telemetrySnapshot);
+
     MissionResponse recordPostFlightInspection(
             String missionId,
             DeviceStatus newDeviceStatus,

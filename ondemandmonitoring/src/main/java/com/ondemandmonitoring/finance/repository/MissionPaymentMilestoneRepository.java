@@ -14,6 +14,27 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface MissionPaymentMilestoneRepository extends JpaRepository<MissionPaymentMilestone, String> {
+    interface MissionChecklistPriceTotal {
+        String getMissionId();
+        BigDecimal getGrossAmount();
+    }
+
+    @Query("select a.missionId as missionId, sum(qi.amount) as grossAmount "
+            + "from QuoteItem qi, MissionChecklistAssignment a "
+            + "where qi.quote.id = :quoteId and qi.orderChecklistItem is not null "
+            + "and a.orderId = :orderId and a.orderChecklistItemId = qi.orderChecklistItem.id "
+            + "and a.removedAt is null and a.missionId in :missionIds group by a.missionId")
+    List<MissionChecklistPriceTotal> sumChecklistPricesByMission(@Param("quoteId") String quoteId,
+            @Param("orderId") String orderId, @Param("missionIds") Collection<String> missionIds);
+
+    @Query("select count(qi.id) from QuoteItem qi where qi.quote.id = :quoteId "
+            + "and qi.orderChecklistItem is not null and qi.amount <> 0 "
+            + "and not exists (select a.id from MissionChecklistAssignment a "
+            + "where a.orderId = :orderId and a.orderChecklistItemId = qi.orderChecklistItem.id "
+            + "and a.removedAt is null and a.missionId in :missionIds)")
+    long countPricedChecklistItemsWithoutBillableMission(@Param("quoteId") String quoteId,
+            @Param("orderId") String orderId, @Param("missionIds") Collection<String> missionIds);
+
     @Query("select m.id from MissionPaymentMilestone m where m.paymentExpiresAt is not null "
             + "and m.paymentExpiresAt <= :now and m.status in :statuses "
             + "and not exists (select p.id from Payment p where p.missionPaymentMilestone = m "

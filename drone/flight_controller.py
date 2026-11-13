@@ -3954,10 +3954,13 @@ async def main() -> None:
                     auto_plan_media_hold_started_s = None
                     return
 
-                if auto_plan_media_hold_index != auto_plan_index:
+                if auto_plan_media_hold_index != auto_plan_index or auto_plan_media_hold_started_s is None:
+                    if "video_start" in target["mediaActions"] and str(target["reason"]).startswith("CHECKLIST_PHOTO_"):
+                        # Frame the middle of the scaled building from the orbit corner.
+                        corner_distance_m = math.hypot(83.495, 87.5)
+                        pitch = -math.degrees(math.atan2(max(0.0, altitude_m - 27.65), corner_distance_m))
+                        camera_orientation.set_pitch(pitch)
                     auto_plan_media_hold_index = auto_plan_index
-                    auto_plan_media_hold_started_s = now_s
-                elif auto_plan_media_hold_started_s is None:
                     auto_plan_media_hold_started_s = now_s
                 if now_s - auto_plan_media_hold_started_s < AUTO_PLAN_MEDIA_SETTLE_S:
                     return
@@ -4032,7 +4035,17 @@ async def main() -> None:
             down_m_s = 0.0
 
         target_yaw_deg = target.get("yawDeg")
-        if target_yaw_deg is not None and not target.get("mediaActions"):
+        photo_points = [
+            point for point in auto_plan_points
+            if str(point.get("reason", "")).startswith("CHECKLIST_PHOTO_")
+        ]
+        if len(photo_points) == 4 and str(target.get("reason", "")).startswith("CHECKLIST_"):
+            center_x = sum(point["simX"] for point in photo_points) / 4
+            center_y = sum(point["simY"] for point in photo_points) / 4
+            current_yaw_deg = math.degrees(
+                math.atan2(center_x - sim_x_m, center_y - sim_y_m)
+            ) % 360.0
+        elif target_yaw_deg is not None and not target.get("mediaActions"):
             current_yaw_deg = float(target_yaw_deg) % 360.0
         elif horizontal_distance > 0.001:
             current_yaw_deg = (math.degrees(math.atan2(east_m_s, north_m_s)) + 360.0) % 360.0

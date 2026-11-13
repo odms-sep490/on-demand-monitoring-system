@@ -3,8 +3,19 @@
   <model name="compact_highrise">
     <static>true</static>
     <link name="link">
+      <!-- Enlarged landmark for the construction monitoring demo. -->
+      <pose>227.875 -30.60644 1.15 0 0 0</pose>
+      <collision name="building_collision">
+        <pose>0 4.2 28 0 0 0</pose>
+        <geometry><box><size>151 159 56</size></box></geometry>
+      </collision>
       <visual name="visual">
-        <geometry><mesh><uri>model://compact_highrise/meshes/compact_highrise.glb</uri></mesh></geometry>
+        <geometry><mesh><uri>model://compact_highrise/meshes/student_culture_house.obj</uri><scale>1.75 1.75 1.75</scale></mesh></geometry>
+      </visual>
+    </link>
+    <link name="surroundings">
+      <visual name="original_site_props">
+        <geometry><mesh><uri>model://compact_highrise/meshes/compact_highrise_clean.glb</uri></mesh></geometry>
       </visual>
     </link>
   </model>

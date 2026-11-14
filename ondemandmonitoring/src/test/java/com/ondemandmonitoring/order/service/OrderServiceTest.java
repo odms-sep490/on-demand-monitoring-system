@@ -478,7 +478,6 @@ class OrderServiceTest {
         assertEquals(List.of(com.ondemandmonitoring.order.enums.OrderDeliveryMethod.DOWNLOAD), response.getDeliveryMethods());
         assertEquals(90, response.getDataRetentionDays());
         assertNotNull(response.getTermsAcceptedAt());
-        assertEquals("2026-10", response.getTermsVersion());
     }
 
     @Test

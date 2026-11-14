@@ -32,10 +32,16 @@ public class ManagerReadinessController {
     public ApiResponse<OrderReadinessResponse> answer(@PathVariable String orderId,
                                                        @PathVariable String code,
                                                        @Valid @RequestBody ManualCriterionRequest request) {
-        if(code.startsWith("CUSTOM_")) return ApiResponse.ok(customReadiness.answerCustom(orderId,code,request));
+        if (code.startsWith("CUSTOM_")) {
+            return ApiResponse.ok("Review criterion saved", customReadiness.answerCustom(orderId, code, request));
+        }
         ReviewCriterionCode builtIn;
-        try { builtIn = ReviewCriterionCode.valueOf(code); }
-        catch (IllegalArgumentException invalid) { throw new com.ondemandmonitoring.common.exception.ApiException(com.ondemandmonitoring.common.exception.ErrorCode.RESOURCE_NOT_FOUND, "Criterion not found"); }
+        try {
+            builtIn = ReviewCriterionCode.valueOf(code);
+        } catch (IllegalArgumentException invalid) {
+            throw new com.ondemandmonitoring.common.exception.ApiException(
+                    com.ondemandmonitoring.common.exception.ErrorCode.RESOURCE_NOT_FOUND, "Criterion not found");
+        }
         return ApiResponse.ok("Review criterion saved", readiness.answer(orderId, builtIn, request));
     }
 }

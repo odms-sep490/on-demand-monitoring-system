@@ -363,7 +363,6 @@ public class OrderService implements IOrderService {
         order.setDeliveryMethods(distinctOrDefault(request.getDeliveryMethods(), OrderDeliveryMethod.DOWNLOAD));
         order.setDataRetentionDays(retentionDays);
         order.setTermsAcceptedAt(java.time.Instant.now());
-        order.setTermsVersion(TERMS_VERSION);
         order.setOrderCode(generateUniqueOrderCode());
         order.setReviewBy(null);
         order.setReviewAt(null);
@@ -822,7 +821,6 @@ public class OrderService implements IOrderService {
     }
 
     /** Version recorded with the customer's acceptance of the terms and security commitment. */
-    static final String TERMS_VERSION = "2026-10";
     static final java.util.List<Integer> ALLOWED_RETENTION_DAYS = java.util.List.of(30, 90, 180, 365);
 
     /** Keeps the customer's order of choice, drops duplicates, falls back to one default. */

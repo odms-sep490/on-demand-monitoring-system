@@ -99,6 +99,25 @@ public class OrderService implements IOrderService {
 
     @Override
     @Transactional
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public OrderCreateResponse cancelBeforeReview(String orderId) {
+        Order order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
+        User customer = authenticatedUserResolver.getCurrentUser();
+        if (order.getCustomer() == null || !order.getCustomer().getId().equals(customer.getId())) {
+            throw new ApiException(ErrorCode.ACCESS_DENIED, "This order does not belong to the current customer");
+        }
+        if (order.getOrderStatus() != OrderStatus.PENDING) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "Chỉ có thể hủy đơn trước khi quản lý bắt đầu duyệt.");
+        }
+        order.setOrderStatus(OrderStatus.CANCELLED);
+        order.setCancelledAt(Instant.now());
+        return toResponse(orderRepository.save(order));
+    }
+
+    @Override
+    @Transactional
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public OrderCreateResponse approveOrder(String orderId) {
         Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
@@ -363,7 +382,6 @@ public class OrderService implements IOrderService {
         order.setDeliveryMethods(distinctOrDefault(request.getDeliveryMethods(), OrderDeliveryMethod.DOWNLOAD));
         order.setDataRetentionDays(retentionDays);
         order.setTermsAcceptedAt(java.time.Instant.now());
-        order.setTermsVersion(TERMS_VERSION);
         order.setOrderCode(generateUniqueOrderCode());
         order.setReviewBy(null);
         order.setReviewAt(null);
@@ -822,7 +840,6 @@ public class OrderService implements IOrderService {
     }
 
     /** Version recorded with the customer's acceptance of the terms and security commitment. */
-    static final String TERMS_VERSION = "2026-10";
     static final java.util.List<Integer> ALLOWED_RETENTION_DAYS = java.util.List.of(30, 90, 180, 365);
 
     /** Keeps the customer's order of choice, drops duplicates, falls back to one default. */

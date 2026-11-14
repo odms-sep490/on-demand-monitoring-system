@@ -530,10 +530,10 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
     private void evaluateManualBattery(PersistedPreDeviceCheckItem item, Device device, double percent) {
         item.setMeasuredValue(percent + "%");
         double threshold = batteryThreshold(device);
-        if (percent >= threshold) {
-            pass(item, "Mức pin nhập tay đáp ứng ngưỡng của thiết bị", item.getMeasuredValue());
+        if (percent > 90 && percent >= threshold) {
+            pass(item, "Mức pin trên 90% và đáp ứng ngưỡng của thiết bị", item.getMeasuredValue());
         } else {
-            fail(item, "Mức pin nhập tay thấp hơn ngưỡng vận hành", "BATTERY_BELOW_LIMIT");
+            fail(item, "Mức pin phải trên 90% và đáp ứng ngưỡng của thiết bị", "BATTERY_BELOW_LIMIT");
         }
     }
 

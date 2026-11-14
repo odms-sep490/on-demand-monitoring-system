@@ -175,8 +175,6 @@ public class Order extends BaseEntity {
     @Column(name = "terms_accepted_at")
     private Instant termsAcceptedAt;
 
-    @Column(name = "terms_version", length = 20)
-    private String termsVersion;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "order_status", nullable = false)

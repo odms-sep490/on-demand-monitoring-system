@@ -123,26 +123,33 @@ public class OrderReadinessService implements IOrderReadinessService {
             OrderReadinessResponse.Criterion criterion = code.getType() == ReviewCriterionType.AUTO
                     ? automatic(order, code, policy)
                     : manual(code, manual.get(code));
-            criterion = new OrderReadinessResponse.Criterion(code, criterion.type(), definition.title(), definition.description(), definition.required(), criterion.result(), criterion.reason(), criterion.note(), criterion.decidedByName(), criterion.decidedAt());
+            criterion = new OrderReadinessResponse.Criterion(code.name(), criterion.type(), definition.title(),
+                    definition.description(), definition.required(), criterion.result(), criterion.reason(),
+                    criterion.note(), criterion.decidedByName(), criterion.decidedAt());
             criteria.add(criterion);
             if (criterion.required()) {
                 if (criterion.result() == CriterionResult.FAIL) {
-                    blocking.add(code.getTitle() + ": " + describe(criterion));
+                    blocking.add(criterion.title() + ": " + describe(criterion));
                 } else if (criterion.result() == CriterionResult.PENDING) {
-                    blocking.add(code.getTitle() + ": manager chưa xác nhận");
+                    blocking.add(criterion.title() + ": manager chưa xác nhận");
                 }
             }
             if (criterion.result() == CriterionResult.WARN || criterion.result() == CriterionResult.FAIL) {
                 anyConcern = true;
             }
         }
-        for (var d : definitions) {
-            if (!d.code().startsWith("CUSTOM_")) continue;
-            var answer = customAnswers.findByOrderIdAndCode(order.getId(), d.code()).orElse(null);
+        for (var definition : definitions) {
+            if (!definition.code().startsWith("CUSTOM_")) continue;
+            var answer = customAnswers.findByOrderIdAndCode(order.getId(), definition.code()).orElse(null);
             var result = answer == null ? CriterionResult.PENDING : answer.getResult();
-            criteria.add(new OrderReadinessResponse.Criterion(d.code(), ReviewCriterionType.MANUAL, d.title(), d.description(), d.required(), result, null, answer == null ? null : answer.getNote(), answer == null ? null : answer.getActorName(), answer == null ? null : answer.getDecidedAt()));
-            if(d.required() && result != CriterionResult.PASS) blocking.add(d.title()+": chưa đạt");
-            if(result == CriterionResult.FAIL) anyConcern = true;
+            criteria.add(new OrderReadinessResponse.Criterion(definition.code(), ReviewCriterionType.MANUAL,
+                    definition.title(), definition.description(), definition.required(), result, null,
+                    answer == null ? null : answer.getNote(),
+                    answer == null ? null : answer.getActorName(), answer == null ? null : answer.getDecidedAt()));
+            if (definition.required() && result != CriterionResult.PASS) {
+                blocking.add(definition.title() + ": chưa đạt");
+            }
+            if (result == CriterionResult.FAIL) anyConcern = true;
         }
         boolean pendingRequired = criteria.stream()
                 .anyMatch(c -> c.required() && c.result() == CriterionResult.PENDING);
@@ -158,15 +165,32 @@ public class OrderReadinessService implements IOrderReadinessService {
     @Transactional
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public OrderReadinessResponse answerCustom(String orderId, String code, ManualCriterionRequest request) {
+        if (!code.startsWith("CUSTOM_")) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Criterion is not custom");
+        }
         catalog.active(code);
-        if (!code.startsWith("CUSTOM_") || (request.result() != CriterionResult.PASS && request.result() != CriterionResult.FAIL)) throw new ApiException(ErrorCode.INVALID_REQUEST,"Choose PASS or FAIL");
+        if (request.result() != CriterionResult.PASS && request.result() != CriterionResult.FAIL) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Choose PASS or FAIL");
+        }
         String note = trimToNull(request.note());
-        if(request.result() == CriterionResult.FAIL && note == null) throw new ApiException(ErrorCode.INVALID_REQUEST,"A reason is required");
-        var order=orders.findByIdForUpdate(orderId).orElseThrow(()->new ApiException(ErrorCode.RESOURCE_NOT_FOUND,"Order not found"));
-        if(order.getOrderStatus()!=OrderStatus.UNDER_REVIEW) throw new ApiException(ErrorCode.INVALID_REQUEST,"Order is no longer under review");
-        var row=customAnswers.findByOrderIdAndCode(orderId,code).orElseGet(com.ondemandmonitoring.review.domain.CustomCriterionAnswer::new);
-        row.setOrderId(orderId);row.setCode(code);row.setResult(request.result());row.setNote(note);row.setActorName(currentUser.getCurrentUser().getFullName());row.setDecidedAt(Instant.now());customAnswers.saveAndFlush(row);
-        return build(order,findPolicy(order));
+        if (request.result() == CriterionResult.FAIL && note == null) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "A reason is required");
+        }
+        Order order = orders.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found"));
+        if (order.getOrderStatus() != OrderStatus.UNDER_REVIEW) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Order is no longer under review");
+        }
+        var row = customAnswers.findByOrderIdAndCode(orderId, code)
+                .orElseGet(com.ondemandmonitoring.review.domain.CustomCriterionAnswer::new);
+        row.setOrderId(orderId);
+        row.setCode(code);
+        row.setResult(request.result());
+        row.setNote(note);
+        row.setActorName(currentUser.getCurrentUser().getFullName());
+        row.setDecidedAt(Instant.now());
+        customAnswers.saveAndFlush(row);
+        return build(order, findPolicy(order));
     }
 
     private OrderReadinessResponse.Criterion manual(ReviewCriterionCode code, OrderReviewRecord record) {

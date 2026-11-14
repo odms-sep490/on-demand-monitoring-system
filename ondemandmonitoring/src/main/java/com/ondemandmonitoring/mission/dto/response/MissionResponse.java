@@ -117,6 +117,9 @@ public class MissionResponse {
 
     List<MissionStaffAssignmentResponse> staffAssignments;
 
+    @lombok.Setter
+    boolean declinedAssignmentHistory;
+
     List<MissionDeviceAssignmentResponse> deviceAssignments;
 
     MissionPlanResponse plan;

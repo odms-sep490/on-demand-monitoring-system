@@ -42,6 +42,8 @@ class NotificationFeedServiceTest {
     private PaymentRepository payments;
     @Mock
     private MissionStaffAssignmentRepository staffAssignments;
+    @Mock
+    private com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository deviceAssignments;
     @InjectMocks
     private NotificationFeedService service;
 

@@ -16,6 +16,7 @@ public interface IOrderService {
     OrderCreateResponse createOrder(OrderCreateRequest request);
 
     OrderCreateResponse startReview(String orderId);
+    OrderCreateResponse cancelBeforeReview(String orderId);
 
     OrderCreateResponse approveOrder(String orderId);
 

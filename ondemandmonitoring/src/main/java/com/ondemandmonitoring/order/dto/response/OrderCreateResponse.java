@@ -87,7 +87,6 @@ public class OrderCreateResponse {
     Integer dataRetentionDays;
     Instant resultExpiresAt;
     Instant termsAcceptedAt;
-    String termsVersion;
 
     // Status & Review Info
     OrderStatus orderStatus;

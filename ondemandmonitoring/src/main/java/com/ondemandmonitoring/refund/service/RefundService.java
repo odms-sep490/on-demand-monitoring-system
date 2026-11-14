@@ -80,6 +80,7 @@ public class RefundService {
     private final AuthenticatedUserResolver currentUser;
     private final IMediaObjectStorage storage;
     private final ApplicationEventPublisher events;
+    private final com.ondemandmonitoring.contract.repository.ContractCancellationRepository contractCancellations;
 
     @Value("${app.refund.receipt-max-image-bytes:5242880}")
     private long maxReceiptBytes = 5 * 1024 * 1024;
@@ -114,12 +115,13 @@ public class RefundService {
                 .toList();
         BigDecimal paidDepositTotal = successfulDeposits.stream()
                 .map(Payment::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
-        if (successfulDeposits.isEmpty() || paidDepositTotal.compareTo(invoice.getDepositAmount()) < 0) {
+        boolean contractCancellation = isContractSystemCancellation(order);
+        if (successfulDeposits.isEmpty() || (!contractCancellation && paidDepositTotal.compareTo(invoice.getDepositAmount()) < 0)) {
             throw invalid("A fully paid, verified Deposit is required before requesting a refund");
         }
-        // Deposit is a single invoice milestone. In the rare case of a duplicate or
-        // overpayment, refund only the amount due on the invoice, never the excess.
-        BigDecimal refundable = invoice.getDepositAmount();
+        // Preserve the permit workflow's invoice cap. A system contract cancellation
+        // returns all verified deposits, including partial payments and excess receipts.
+        BigDecimal refundable = contractCancellation ? paidDepositTotal : invoice.getDepositAmount();
 
         User manager = currentUser.getCurrentUser();
         Refund refund = new Refund();
@@ -402,8 +404,22 @@ public class RefundService {
                 storage.presignedUrlExpiresSeconds());
     }
 
+    private boolean isContractSystemCancellation(Order order) {
+        return order != null && order.getOrderStatus() == OrderStatus.CANCELLED
+                && order.getCancellationReason() == OrderCancellationReason.CONTRACT_SYSTEM_RESPONSIBILITY
+                && contractCancellations.findByOrderId(order.getId()).filter(c ->
+                    c.getResponsibility() == com.ondemandmonitoring.contract.enums.CancellationResponsibility.SYSTEM
+                    && c.getStatus() == com.ondemandmonitoring.contract.enums.ContractCancellationStatus.REFUND_REQUESTED
+                    && c.getContract().getStatus() == com.ondemandmonitoring.contract.enums.ContractStatus.CANCELLED).isPresent();
+    }
+
     private void ensureEligibleOrder(Order order) {
         OrderStatus status = order.getOrderStatus();
+        if (isContractSystemCancellation(order)) {
+            if (!missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc(order.getId()).isEmpty())
+                throw invalid("Contract cancellation refunds are only available before Mission planning");
+            return;
+        }
         boolean permitCancelled = status == OrderStatus.CANCELLED
                 && order.getCancellationReason() == OrderCancellationReason.PERMIT_REJECTED;
         if (status != OrderStatus.APPROVED && !permitCancelled) {
@@ -482,7 +498,7 @@ public class RefundService {
         if (eligibleDepositTotal.signum() <= 0 || invoiceDeposit == null || invoiceDeposit.signum() <= 0) {
             throw invalid("Refund no longer has an eligible paid Deposit");
         }
-        BigDecimal allowedAmount = eligibleDepositTotal.min(invoiceDeposit);
+        BigDecimal allowedAmount = isContractSystemCancellation(refund.getOrder()) ? eligibleDepositTotal : eligibleDepositTotal.min(invoiceDeposit);
         BigDecimal requestedAmount = wholeVnd(refund.getRefundableAmount());
         if (requestedAmount.compareTo(allowedAmount) != 0) {
             throw invalid("Refund amount no longer matches the eligible successful Deposit payments");

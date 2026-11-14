@@ -31,6 +31,7 @@ import org.junit.jupiter.api.*;
 import org.mapstruct.factory.Mappers;
 
 class OrderContractServiceTest {
+  com.ondemandmonitoring.finance.repository.QuoteRepository quotes = mock(com.ondemandmonitoring.finance.repository.QuoteRepository.class);
   OrderRepository orders = mock(OrderRepository.class);
   InvoiceRepository invoices = mock(InvoiceRepository.class);
   OrderContractRepository contracts = mock(OrderContractRepository.class);
@@ -49,7 +50,7 @@ class OrderContractServiceTest {
           storage,
           Mappers.getMapper(OrderContractMapper.class),
           expiration,
-          Clock.fixed(now, ZoneOffset.UTC));
+          Clock.fixed(now, ZoneOffset.UTC), quotes);
   Order order;
   Invoice invoice;
   OrderContract contract;
@@ -105,6 +106,7 @@ class OrderContractServiceTest {
     contract.setId("contract");
     contract.setVersion(1L);
     contract.setInvoice(invoice);
+    contract.setQuote(quote);
     contract.setQuoteVersion(2);
     contract.setContractNumber("CTR-01");
     contract.setStatus(ContractStatus.AWAITING_SIGNATURE);
@@ -115,6 +117,11 @@ class OrderContractServiceTest {
     when(invoices.findByOrderId("order")).thenReturn(Optional.of(invoice));
     when(invoices.findByIdForUpdate("invoice")).thenReturn(Optional.of(invoice));
     when(contracts.findByInvoiceId("invoice")).thenReturn(Optional.of(contract));
+    when(contracts.findByQuoteId("quote")).thenReturn(Optional.of(contract));
+    when(quotes.findById("quote")).thenReturn(Optional.of(quote));
+    when(quotes.findByIdForUpdate("quote")).thenReturn(Optional.of(quote));
+    when(quotes.findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc(eq("order"), any())).thenReturn(Optional.of(quote));
+    when(invoices.findByQuoteId("quote")).thenReturn(Optional.of(invoice));
     when(submissions.findAllByContractIdOrderBySubmissionNumberDesc("contract"))
         .thenAnswer(
             call ->
@@ -157,14 +164,16 @@ class OrderContractServiceTest {
   void issuePinsAcceptedQuoteAndDoesNotStartDepositDeadline() {
     actor(manager);
     when(contracts.findByInvoiceId("invoice")).thenReturn(Optional.empty());
+    when(contracts.findByQuoteId("quote")).thenReturn(Optional.empty());
     ContractResponse result = service.issue("order", "quote", "CTR-2026", ContractTestFiles.pdf());
     assertThat(result.quoteId()).isEqualTo("quote");
     assertThat(result.quoteVersion()).isEqualTo(2);
     assertThat(result.status()).isEqualTo(ContractStatus.AWAITING_SIGNATURE);
     assertThat(invoice.getDepositExpiresAt()).isNull();
-    var lockOrder = inOrder(orders, invoices, contracts, storage);
+    var lockOrder = inOrder(orders, quotes, invoices, contracts, storage);
     lockOrder.verify(orders).findByIdForUpdate("order");
-    lockOrder.verify(invoices).findByOrderId("order");
+    lockOrder.verify(quotes).findByIdForUpdate("quote");
+    lockOrder.verify(invoices).findByQuoteId("quote");
     lockOrder.verify(invoices).findByIdForUpdate("invoice");
   }
 
@@ -199,24 +208,62 @@ class OrderContractServiceTest {
   }
 
   @Test
-  void newSubmissionIsPendingAndCannotOpenDeposit() {
+  void newSubmissionOpensPaymentButDoesNotConfirmInspectionOrExecution() {
     ContractResponse result = service.submit("order", 1, ContractTestFiles.pdf());
     assertThat(result.status()).isEqualTo(ContractStatus.PENDING_VERIFICATION);
     assertThat(result.submissions()).hasSize(1);
     assertThat(result.submissions().getFirst().submittedBy()).isEqualTo("customer");
     assertThat(invoice.isContractReady()).isFalse();
     assertThat(invoice.getContractConfirmedAt()).isNull();
-    assertThat(invoice.getDepositExpiresAt()).isNull();
+    assertThat(invoice.isContractPaymentReady()).isTrue();
+    assertThat(invoice.getContractSubmittedAt()).isEqualTo(now);
+    assertThat(invoice.getDepositExpiresAt()).isEqualTo(now.plus(Duration.ofHours(12)));
   }
 
   @Test
-  void aPendingSubmissionCannotBeOverwritten() {
-    submit();
-    assertThatThrownBy(
-            () -> service.submit("order", contract.getVersion(), ContractTestFiles.pdf()))
-        .isInstanceOf(ApiException.class);
-    assertThat(history).hasSize(1);
-    verify(storage, times(1)).store(any(), any());
+  void customerReplacesPendingCopyAndQueuesOnlyTheSupersededFile() {
+    submit(); var first=history.getFirst(); var deadline=invoice.getDepositExpiresAt();
+    long version=contract.getVersion();
+    invoice.setPaidAmount(new BigDecimal("300"));invoice.setStatus(InvoiceStatus.PARTIALLY_PAID);
+    service.submit("order",version,ContractTestFiles.pdf());
+    assertThat(history).hasSize(2);
+    assertThat(first.getStatus()).isEqualTo(ContractSubmissionStatus.SUPERSEDED);
+    assertThat(first.getReviewedAt()).isNull();assertThat(first.getReviewedBy()).isNull();
+    assertThat(first.getSupersededAt()).isEqualTo(now);
+    assertThat(first.getSupersededBy()).isEqualTo("customer");
+    assertThat(first.getCleanupNextAttemptAt()).isEqualTo(now);
+    assertThat(first.getDocumentDeletedAt()).isNull();
+    assertThat(history.getLast().getStatus()).isEqualTo(ContractSubmissionStatus.PENDING);
+    assertThat(contract.getSubmissionRevision()).isEqualTo(2);
+    assertThat(invoice.getPaidAmount()).isEqualByComparingTo("300");
+    assertThat(invoice.getDepositExpiresAt()).isEqualTo(deadline);
+    actor(manager);
+    assertThatThrownBy(()->service.confirm("order",new ContractReviewRequest(version,first.getId(),null))).isInstanceOf(ApiException.class);
+  }
+
+  @Test
+  void staleReplacementAndConfirmedContractCannotUploadANewCopy() {
+    submit();long stale=contract.getVersion();submit();
+    assertThatThrownBy(()->service.submit("order",stale,ContractTestFiles.pdf())).isInstanceOf(ApiException.class);
+    contract.setStatus(ContractStatus.CONFIRMED);
+    assertThatThrownBy(()->service.submit("order",contract.getVersion(),ContractTestFiles.pdf())).isInstanceOf(ApiException.class);
+    verify(storage,times(2)).store(any(),any());
+  }
+
+  @Test
+  void replacedCopyIsNotDownloadableEvenBeforeTheCleanupJobRuns() {
+    submit();String first=history.getFirst().getId();submit();
+    assertThatThrownBy(()->service.download("order",first)).isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.CONTRACT_SUBMISSION_REPLACED);
+    verify(storage,never()).download(any());
+  }
+
+  @Test
+  void failedReplacementDoesNotSupersedeOrQueueThePreviousCopy() {
+    submit();var first=history.getFirst();
+    when(storage.store(eq("order"),any())).thenThrow(new ApiException(ErrorCode.CONTRACT_STORAGE_UNAVAILABLE));
+    assertThatThrownBy(()->submit()).isInstanceOf(ApiException.class);
+    assertThat(first.getStatus()).isEqualTo(ContractSubmissionStatus.PENDING);
+    assertThat(first.getCleanupNextAttemptAt()).isNull();assertThat(history).hasSize(1);
   }
 
   @Test
@@ -227,6 +274,9 @@ class OrderContractServiceTest {
         .isEqualTo(ErrorCode.CONTRACT_VERSION_CONFLICT);
     actor(manager);
     when(contracts.findByInvoiceId("invoice")).thenReturn(Optional.empty());
+    when(contracts.findByQuoteId("quote")).thenReturn(Optional.empty());
+    Quote oldQuote = new Quote(); oldQuote.setId("old-quote"); oldQuote.setOrder(order); oldQuote.setStatus(QuoteStatus.APPROVED); oldQuote.setQuoteVersion(1);
+    when(quotes.findByIdForUpdate("old-quote")).thenReturn(Optional.of(oldQuote));
     assertThatThrownBy(() -> service.issue("order", "old-quote", "CTR-01", ContractTestFiles.pdf()))
         .isInstanceOf(ApiException.class);
     verify(storage, never()).store(any(), any());
@@ -322,7 +372,66 @@ class OrderContractServiceTest {
   void legacyInvoicesRemainExplicitlyOutsideThisNewGate() {
     invoice.setContractRequired(false);
     when(contracts.findByInvoiceId("invoice")).thenReturn(Optional.empty());
+    when(contracts.findByQuoteId("quote")).thenReturn(Optional.empty());
     assertThat(service.get("order").status()).isEqualTo(ContractStatus.NOT_REQUIRED);
     assertThat(invoice.isContractReady()).isTrue();
   }
+  @Test void managerPreparesDraftContractBeforeAnyInvoiceExists() {
+    actor(manager);
+    Quote quote = invoice.getQuote(); quote.setStatus(QuoteStatus.DRAFT);
+    order.setOrderStatus(OrderStatus.UNDER_REVIEW);
+    when(invoices.findByQuoteId("quote")).thenReturn(Optional.empty());
+    when(contracts.findByQuoteId("quote")).thenReturn(Optional.empty());
+    var result = service.prepare("order", "quote", 0, "CTR-PREPARED", ContractTestFiles.pdf());
+    assertThat(result.invoiceId()).isNull();
+    assertThat(result.quoteId()).isEqualTo("quote");
+    verify(contracts).saveAndFlush(argThat(c -> c.getQuote() == quote && c.getInvoice() == null));
+    verify(invoices, never()).save(any());
+    verify(invoices, never()).saveAndFlush(any());
+  }
+
+  @Test void customerReadsApprovedQuoteContractBeforeAcceptingButCannotSubmit() {
+    invoice.getQuote().setStatus(QuoteStatus.APPROVED);
+    when(invoices.findByQuoteId("quote")).thenReturn(Optional.empty());
+    when(invoices.findByOrderId("order")).thenReturn(Optional.empty());
+    assertThat(service.getForQuote("order", "quote").document()).isNotNull();
+    assertThatThrownBy(() -> service.submit("order", 1, ContractTestFiles.pdf())).isInstanceOf(ApiException.class);
+    verify(storage, never()).store(any(), any());
+  }
+
+  @Test void customerCannotReadAnUnsentDraftContract() {
+    invoice.getQuote().setStatus(QuoteStatus.DRAFT);
+    assertThatThrownBy(() -> service.getForQuote("order", "quote")).isInstanceOf(ApiException.class)
+      .extracting("errorCode").isEqualTo(ErrorCode.ACCESS_DENIED);
+  }
+
+  @Test void stalePricingRevisionCannotAttachAnOutdatedPdf() {
+    actor(manager); invoice.getQuote().setStatus(QuoteStatus.DRAFT); invoice.getQuote().setPricingRevision(2);
+    when(contracts.findByQuoteId("quote")).thenReturn(Optional.empty());
+    assertThatThrownBy(() -> service.prepare("order", "quote", 1, "CTR-STALE", ContractTestFiles.pdf()))
+      .isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.CONTRACT_VERSION_CONFLICT);
+    verify(storage,never()).store(any(),any());
+  }
+
+  @Test void generatesAnInternalReferenceWhenManagerUploadsOnlyThePdf() {
+    actor(manager);
+    when(contracts.findByQuoteId("quote")).thenReturn(Optional.empty());
+    var result=service.issue("order","quote",null,ContractTestFiles.pdf());
+    assertThat(result.contractNumber()).matches("CTR-[0-9A-F-]{36}");
+    verify(contracts).saveAndFlush(argThat(c -> result.contractNumber().equals(c.getContractNumber())));
+  }
+
+  @Test void paidDepositDoesNotPreventSignedFileCorrectionOrVerification() {
+    submit();
+    invoice.setPaidAmount(new BigDecimal("300")); invoice.setStatus(InvoiceStatus.PARTIALLY_PAID);
+    var deadline=invoice.getDepositExpiresAt();
+    actor(manager);
+    service.requestChanges("order",new ContractReviewRequest(contract.getVersion(),"s1","Missing a signed page"));
+    actor(owner); service.submit("order",contract.getVersion(),ContractTestFiles.pdf());
+    actor(manager); service.confirm("order",new ContractReviewRequest(contract.getVersion(),"s2",null));
+    assertThat(invoice.getPaidAmount()).isEqualByComparingTo("300");
+    assertThat(invoice.getContractConfirmedAt()).isNotNull();
+    assertThat(invoice.getDepositExpiresAt()).isEqualTo(deadline);
+  }
+
 }

@@ -20,8 +20,8 @@ public class OrderContractController {
   private final IOrderContractService contracts;
 
   @GetMapping
-  public ApiResponse<ContractResponse> get(@PathVariable String orderId) {
-    return ApiResponse.ok(contracts.get(orderId));
+  public ApiResponse<ContractResponse> get(@PathVariable String orderId, @RequestParam(required = false) String quoteId) {
+    return ApiResponse.ok(quoteId == null ? contracts.get(orderId) : contracts.getForQuote(orderId, quoteId));
   }
 
   @PostMapping(value = "/issue", consumes = "multipart/form-data")
@@ -29,9 +29,10 @@ public class OrderContractController {
   public ApiResponse<ContractResponse> issue(
       @PathVariable String orderId,
       @RequestParam @NotBlank String quoteId,
-      @RequestParam @NotBlank @Size(max = 80) String contractNumber,
+      @RequestParam(required = false) @Size(max = 80) String contractNumber,
+      @RequestParam(required = false) @PositiveOrZero Long expectedPricingRevision,
       @RequestPart("file") MultipartFile file) {
-    return ApiResponse.ok(contracts.issue(orderId, quoteId, contractNumber, file));
+    return ApiResponse.ok(expectedPricingRevision == null ? contracts.issue(orderId, quoteId, contractNumber, file) : contracts.prepare(orderId, quoteId, expectedPricingRevision, contractNumber, file));
   }
 
   @PostMapping(value = "/submissions", consumes = "multipart/form-data")
@@ -59,7 +60,8 @@ public class OrderContractController {
 
   @PostMapping("/download")
   public ApiResponse<ContractDownloadResponse> download(
-      @PathVariable String orderId, @RequestParam(required = false) String submissionId) {
-    return ApiResponse.ok(contracts.download(orderId, submissionId));
+      @PathVariable String orderId, @RequestParam(required = false) String submissionId,
+      @RequestParam(required = false) String quoteId) {
+    return ApiResponse.ok(quoteId == null ? contracts.download(orderId, submissionId) : contracts.downloadForQuote(orderId, quoteId, submissionId));
   }
 }

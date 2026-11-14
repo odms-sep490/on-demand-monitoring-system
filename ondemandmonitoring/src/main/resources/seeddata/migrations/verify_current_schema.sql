@@ -237,14 +237,30 @@ DO $$ DECLARE e record; actual text; keys text[]; predicate text; meta record; B
         RAISE EXCEPTION 'Media detail invariant violated: every media asset must own a derivative row';
     END IF;
     -- Contract tables and ordinary constraints are created by Hibernate, not a separate migration.
-    IF to_regclass('public.order_contracts') IS NULL OR to_regclass('public.contract_submissions') IS NULL THEN
+    IF to_regclass('public.order_contracts') IS NULL OR to_regclass('public.contract_submissions') IS NULL OR to_regclass('public.contract_cancellations') IS NULL THEN
         RAISE EXCEPTION 'Order contract schema missing';
     END IF;
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='invoices'
         AND column_name='contract_required' AND data_type='boolean' AND is_nullable='NO')
         OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='invoices'
-        AND column_name='contract_confirmed_at' AND data_type='timestamp with time zone') THEN
+        AND column_name='contract_confirmed_at' AND data_type='timestamp with time zone')
+        OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='invoices'
+        AND column_name='contract_submitted_at' AND data_type='timestamp with time zone') THEN
         RAISE EXCEPTION 'Invoice contract gate schema missing';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='order_contracts'
+        AND column_name='quote_id' AND is_nullable='NO') OR NOT EXISTS
+        (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='order_contracts'
+        AND column_name='invoice_id' AND is_nullable='YES') THEN
+        RAISE EXCEPTION 'Contract must bind a quote before invoice creation';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='order_contracts'
+        AND column_name='submission_revision' AND is_nullable='NO') OR NOT EXISTS
+        (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='contract_submissions'
+        AND column_name='cleanup_attempts' AND is_nullable='NO') OR NOT EXISTS
+        (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='contract_submissions'
+        AND column_name='document_deleted_at') THEN
+        RAISE EXCEPTION 'Signed contract replacement/cleanup schema missing';
     END IF;
     -- Hibernate may generate the OneToOne unique constraint name; verify its actual column.
     IF NOT EXISTS (SELECT 1 FROM pg_constraint c JOIN pg_attribute a ON a.attrelid=c.conrelid
@@ -252,7 +268,19 @@ DO $$ DECLARE e record; actual text; keys text[]; predicate text; meta record; B
         AND c.contype='u' AND c.conkey=ARRAY[a.attnum]::smallint[] AND c.convalidated) THEN
         RAISE EXCEPTION 'Contract invoice uniqueness missing';
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint c JOIN pg_attribute a ON a.attrelid=c.conrelid
+        AND a.attname='quote_id' WHERE c.conrelid='public.order_contracts'::regclass
+        AND c.contype='u' AND c.conkey=ARRAY[a.attnum]::smallint[] AND c.convalidated) THEN
+        RAISE EXCEPTION 'Contract quote uniqueness missing';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint c JOIN pg_attribute a ON a.attrelid=c.conrelid
+        AND a.attname='order_id' WHERE c.conrelid='public.contract_cancellations'::regclass
+        AND c.contype='u' AND c.conkey=ARRAY[a.attnum]::smallint[] AND c.convalidated) THEN
+        RAISE EXCEPTION 'Contract cancellation Order uniqueness missing';
+    END IF;
     FOR e IN SELECT * FROM (VALUES
+        ('contract_cancellations','uk_contract_cancellation_request','u'),
+        ('contract_cancellations','ck_contract_cancellation_state','c'),
         ('order_contracts','uk_contract_number','u'),
         ('order_contracts','ck_order_contract_state','c'),
         ('contract_submissions','uk_contract_submission_number','u'),

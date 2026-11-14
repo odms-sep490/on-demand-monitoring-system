@@ -15,7 +15,7 @@ public record OrderReadinessResponse(
         ReadinessRecommendation recommendation) {
 
     public record Criterion(
-            ReviewCriterionCode code,
+            String code,
             ReviewCriterionType type,
             String title,
             String description,
@@ -26,5 +26,10 @@ public record OrderReadinessResponse(
             /** Manager remark (MANUAL criteria). */
             String note,
             String decidedByName,
-            Instant decidedAt) {}
+            Instant decidedAt) {
+        public Criterion(ReviewCriterionCode code, ReviewCriterionType type, String title, String description,
+                boolean required, CriterionResult result, String reason, String note, String decidedByName, Instant decidedAt) {
+            this(code.name(), type, title, description, required, result, reason, note, decidedByName, decidedAt);
+        }
+    }
 }

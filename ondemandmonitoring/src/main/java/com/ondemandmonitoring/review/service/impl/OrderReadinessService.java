@@ -36,6 +36,8 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class OrderReadinessService implements IOrderReadinessService {
 
+    private final com.ondemandmonitoring.review.service.CriterionCatalogService catalog;
+    private final com.ondemandmonitoring.review.repository.CustomCriterionAnswerRepository customAnswers;
     private final OrderRepository orders;
     private final OrderChecklistItemRepository checklistItems;
     private final OrderReviewRecordRepository records;
@@ -55,7 +57,7 @@ public class OrderReadinessService implements IOrderReadinessService {
     @Transactional
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public OrderReadinessResponse answer(String orderId, ReviewCriterionCode code, ManualCriterionRequest request) {
-        if (!code.isActive()) {
+        if (!code.isActive() || catalog.list().stream().noneMatch(d -> d.active() && d.code().equals(code.name()))) {
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Criterion is no longer used: " + code);
         }
         if (code.getType() != ReviewCriterionType.MANUAL) {
@@ -114,11 +116,14 @@ public class OrderReadinessService implements IOrderReadinessService {
         List<OrderReadinessResponse.Criterion> criteria = new ArrayList<>();
         List<String> blocking = new ArrayList<>();
         boolean anyConcern = false;
+        var definitions = catalog.list().stream().filter(d -> d.active()).toList();
         for (ReviewCriterionCode code : ReviewCriterionCode.values()) {
-            if (!code.isActive()) continue;
+            var definition = definitions.stream().filter(d -> d.code().equals(code.name())).findFirst().orElse(null);
+            if (!code.isActive() || definition == null) continue;
             OrderReadinessResponse.Criterion criterion = code.getType() == ReviewCriterionType.AUTO
                     ? automatic(order, code, policy)
                     : manual(code, manual.get(code));
+            criterion = new OrderReadinessResponse.Criterion(code, criterion.type(), definition.title(), definition.description(), definition.required(), criterion.result(), criterion.reason(), criterion.note(), criterion.decidedByName(), criterion.decidedAt());
             criteria.add(criterion);
             if (criterion.required()) {
                 if (criterion.result() == CriterionResult.FAIL) {
@@ -131,6 +136,14 @@ public class OrderReadinessService implements IOrderReadinessService {
                 anyConcern = true;
             }
         }
+        for (var d : definitions) {
+            if (!d.code().startsWith("CUSTOM_")) continue;
+            var answer = customAnswers.findByOrderIdAndCode(order.getId(), d.code()).orElse(null);
+            var result = answer == null ? CriterionResult.PENDING : answer.getResult();
+            criteria.add(new OrderReadinessResponse.Criterion(d.code(), ReviewCriterionType.MANUAL, d.title(), d.description(), d.required(), result, null, answer == null ? null : answer.getNote(), answer == null ? null : answer.getActorName(), answer == null ? null : answer.getDecidedAt()));
+            if(d.required() && result != CriterionResult.PASS) blocking.add(d.title()+": chưa đạt");
+            if(result == CriterionResult.FAIL) anyConcern = true;
+        }
         boolean pendingRequired = criteria.stream()
                 .anyMatch(c -> c.required() && c.result() == CriterionResult.PENDING);
         boolean failedRequired = criteria.stream()
@@ -140,6 +153,20 @@ public class OrderReadinessService implements IOrderReadinessService {
                 : anyConcern ? ReadinessRecommendation.APPROVE_WITH_NOTES
                 : ReadinessRecommendation.APPROVE;
         return new OrderReadinessResponse(order.getId(), criteria, blocking.isEmpty(), blocking, recommendation);
+    }
+
+    @Transactional
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public OrderReadinessResponse answerCustom(String orderId, String code, ManualCriterionRequest request) {
+        catalog.active(code);
+        if (!code.startsWith("CUSTOM_") || (request.result() != CriterionResult.PASS && request.result() != CriterionResult.FAIL)) throw new ApiException(ErrorCode.INVALID_REQUEST,"Choose PASS or FAIL");
+        String note = trimToNull(request.note());
+        if(request.result() == CriterionResult.FAIL && note == null) throw new ApiException(ErrorCode.INVALID_REQUEST,"A reason is required");
+        var order=orders.findByIdForUpdate(orderId).orElseThrow(()->new ApiException(ErrorCode.RESOURCE_NOT_FOUND,"Order not found"));
+        if(order.getOrderStatus()!=OrderStatus.UNDER_REVIEW) throw new ApiException(ErrorCode.INVALID_REQUEST,"Order is no longer under review");
+        var row=customAnswers.findByOrderIdAndCode(orderId,code).orElseGet(com.ondemandmonitoring.review.domain.CustomCriterionAnswer::new);
+        row.setOrderId(orderId);row.setCode(code);row.setResult(request.result());row.setNote(note);row.setActorName(currentUser.getCurrentUser().getFullName());row.setDecidedAt(Instant.now());customAnswers.saveAndFlush(row);
+        return build(order,findPolicy(order));
     }
 
     private OrderReadinessResponse.Criterion manual(ReviewCriterionCode code, OrderReviewRecord record) {
@@ -219,10 +246,10 @@ public class OrderReadinessService implements IOrderReadinessService {
         Instant now = Instant.now();
         for (OrderReadinessResponse.Criterion criterion : readiness.criteria()) {
             if (criterion.type() != ReviewCriterionType.AUTO) continue;
-            OrderReviewRecord record = records.findByOrderIdAndCode(order.getId(), criterion.code()).orElseGet(() -> {
+            OrderReviewRecord record = records.findByOrderIdAndCode(order.getId(), ReviewCriterionCode.valueOf(criterion.code())).orElseGet(() -> {
                 OrderReviewRecord created = new OrderReviewRecord();
                 created.setOrder(order);
-                created.setCode(criterion.code());
+                created.setCode(ReviewCriterionCode.valueOf(criterion.code()));
                 return created;
             });
             record.setType(ReviewCriterionType.AUTO);

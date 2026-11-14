@@ -47,7 +47,11 @@ class OrderReadinessServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new OrderReadinessService(orders, items, records, users, regionPolicies);
+        var catalogRepository = mock(com.ondemandmonitoring.review.repository.ReviewCriterionDefinitionRepository.class);
+        when(catalogRepository.findAll()).thenReturn(List.of());
+        var catalog = new com.ondemandmonitoring.review.service.CriterionCatalogService(catalogRepository);
+        var customAnswers = mock(com.ondemandmonitoring.review.repository.CustomCriterionAnswerRepository.class);
+        service = new OrderReadinessService(catalog, customAnswers, orders, items, records, users, regionPolicies);
         order = new Order();
         order.setId("o1");
         order.setOrderStatus(OrderStatus.PENDING);
@@ -93,7 +97,7 @@ class OrderReadinessServiceTest {
         assertThat(result.recommendation()).isEqualTo(ReadinessRecommendation.COMPLETE_REVIEW);
         assertThat(result.blockingReasons()).anyMatch(reason -> reason.contains("Quyền truy cập hiện trường"));
         assertThat(result.criteria()).noneMatch(
-                criterion -> criterion.code() == ReviewCriterionCode.AIRSPACE_PERMIT);
+                criterion -> criterion.code().equals(ReviewCriterionCode.AIRSPACE_PERMIT.name()));
         assertThat(find(result, ReviewCriterionCode.SERVICE_AREA).result()).isEqualTo(CriterionResult.PASS);
     }
 
@@ -178,7 +182,7 @@ class OrderReadinessServiceTest {
                 item(ChecklistReviewStatus.INCLUDED), item(ChecklistReviewStatus.PENDING)));
         var result = service.evaluate("o1");
         assertThat(result.criteria()).noneMatch(
-                criterion -> criterion.code() == ReviewCriterionCode.CHECKLIST_REVIEWED);
+                criterion -> criterion.code().equals(ReviewCriterionCode.CHECKLIST_REVIEWED.name()));
     }
 
     @Test
@@ -189,7 +193,7 @@ class OrderReadinessServiceTest {
         var result = service.evaluate("o1");
 
         assertThat(result.criteria()).noneMatch(
-                criterion -> criterion.code() == ReviewCriterionCode.FLIGHT_SCALE);
+                criterion -> criterion.code().equals(ReviewCriterionCode.FLIGHT_SCALE.name()));
     }
 
     @Test
@@ -226,7 +230,7 @@ class OrderReadinessServiceTest {
     }
 
     private static OrderReadinessResponse.Criterion find(OrderReadinessResponse response, ReviewCriterionCode code) {
-        return response.criteria().stream().filter(c -> c.code() == code).findFirst().orElseThrow();
+        return response.criteria().stream().filter(c -> c.code().equals(code.name())).findFirst().orElseThrow();
     }
 
     private static OrderChecklistItem item(ChecklistReviewStatus status) {

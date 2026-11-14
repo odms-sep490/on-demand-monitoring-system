@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class ManagerReadinessController {
     private final IOrderReadinessService readiness;
+    private final com.ondemandmonitoring.review.service.impl.OrderReadinessService customReadiness;
 
     @GetMapping
     public ApiResponse<OrderReadinessResponse> get(@PathVariable String orderId) {
@@ -29,8 +30,12 @@ public class ManagerReadinessController {
 
     @PutMapping("/{code}")
     public ApiResponse<OrderReadinessResponse> answer(@PathVariable String orderId,
-                                                       @PathVariable ReviewCriterionCode code,
+                                                       @PathVariable String code,
                                                        @Valid @RequestBody ManualCriterionRequest request) {
-        return ApiResponse.ok("Review criterion saved", readiness.answer(orderId, code, request));
+        if(code.startsWith("CUSTOM_")) return ApiResponse.ok(customReadiness.answerCustom(orderId,code,request));
+        ReviewCriterionCode builtIn;
+        try { builtIn = ReviewCriterionCode.valueOf(code); }
+        catch (IllegalArgumentException invalid) { throw new com.ondemandmonitoring.common.exception.ApiException(com.ondemandmonitoring.common.exception.ErrorCode.RESOURCE_NOT_FOUND, "Criterion not found"); }
+        return ApiResponse.ok("Review criterion saved", readiness.answer(orderId, builtIn, request));
     }
 }

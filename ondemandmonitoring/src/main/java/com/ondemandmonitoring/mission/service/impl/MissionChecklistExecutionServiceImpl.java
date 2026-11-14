@@ -29,6 +29,8 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class MissionChecklistExecutionServiceImpl implements IMissionChecklistExecutionService {
     private final MissionRepository missions;
+    @org.springframework.beans.factory.annotation.Autowired private com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionMutationGuard inspectionMutation;
+    @org.springframework.beans.factory.annotation.Autowired private com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionPolicy inspectionCorrections;
     private final com.ondemandmonitoring.mission.service.IMissionChecklistScopeService scope;
     private final MissionChecklistExecutionRepository executions;
     private final MissionResultRepository results;
@@ -73,13 +75,19 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
         var actual = executions.findOrderedByMissionId(missionId);
         var guidance = new MissionChecklistGuidanceContext(acceptedGuidance.findForOrder(mission.getOrder().getId()));
         boolean customerSelectionEditable = authorization.canSelectCustomerEvidence(missionId);
+        var delegated = inspectionCorrections.delegatedExecutions(missionId);
         var rows = actual.stream().map(e -> {
             var response = evidenceService.enrich(mapper.toResponse(e, guidance), e, links);
-            response.setCustomerSelectionEditable(customerSelectionEditable);
+            response.setCustomerSelectionEditable(customerSelectionEditable && !delegated.containsKey(e.getId()));
+            var replacement=delegated.get(e.getId());
+            if(replacement!=null) {
+                response.setFulfilledByMissionId(replacement.getMissionId());response.setFulfilledByMissionCode(replacement.getMission().getMissionCode());
+                response.setEvidenceReady(true);response.setEvidenceRequirementSatisfied(true);response.setReadyForFinalApproval(true);response.setBlockingReasons(List.of());
+            }
             return response;
         }).toList();
         boolean operational = scope.isMaterialized(mission) && operationalReady(mission, actual, links);
-        boolean finalReady = operational && actual.stream().allMatch(e -> evidenceService.readyForInspectorApproval(e, links));
+        boolean finalReady = operational && !inspectionCorrections.hasOpen(missionId) && actual.stream().allMatch(e -> delegated.containsKey(e.getId()) || evidenceService.readyForInspectorApproval(e, links));
         var blockers = new java.util.LinkedHashSet<String>();
         rows.forEach(r -> blockers.addAll(r.getBlockingReasons()));
         if (!operational && blockers.isEmpty()) blockers.add(MissionRuntimeGate.isStructurallyFinalized(mission)
@@ -113,6 +121,7 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
         // the expected-version check observe the latest committed execution state.
         MissionChecklistExecution execution = executions.findByIdForUpdate(executionId)
                 .orElseThrow(() -> new ApiException(ErrorCode.CHECKLIST_EXECUTION_NOT_FOUND));
+        inspectionMutation.requireEditable(missionId,executionId);
         if (!missionId.equals(execution.getMissionId()))
             throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_PARENT_MISMATCH);
         scope.requireMaterialized(mission);
@@ -223,7 +232,8 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
 
     private boolean operationalReady(Mission mission, List<MissionChecklistExecution> actual,
             List<com.ondemandmonitoring.mission.domain.MissionChecklistEvidence> links) {
-        return !actual.isEmpty() && actual.stream().allMatch(execution ->
+        var delegated=inspectionCorrections.delegatedExecutions(mission.getId());
+        return !actual.isEmpty() && actual.stream().allMatch(execution -> delegated.containsKey(execution.getId()) ||
                 mission.getOrder().getId().equals(execution.getOrderId())
                 && execution.getExecutionStatus().isTerminal()
                 && execution.getOrderChecklistItem() != null
@@ -246,8 +256,9 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
         if (!scope.isMaterialized(mission)) return false;
         var actual = executions.findOrderedByMissionId(mission.getId());
         var links = evidenceService.active(mission.getId());
-        return operationalReady(mission, actual, links)
-                && actual.stream().allMatch(e -> evidenceService.readyForInspectorApproval(e, links));
+        var delegated=inspectionCorrections.delegatedExecutions(mission.getId());
+        return !inspectionCorrections.hasOpen(mission.getId()) && operationalReady(mission, actual, links)
+                && actual.stream().allMatch(e -> delegated.containsKey(e.getId()) || evidenceService.readyForInspectorApproval(e, links));
     }
 
     @Override
@@ -258,8 +269,10 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
         var links = evidenceService.active(mission.getId());
         if (!operationalReady(mission, actual, links))
             throw new ApiException(ErrorCode.CHECKLIST_NOT_READY, readinessMessage(mission, false));
+        inspectionCorrections.requireResolved(mission.getId());
+        var delegated=inspectionCorrections.delegatedExecutions(mission.getId());
         for (var execution : actual) {
-            if (evidenceService.readyForInspectorApproval(execution, links)) continue;
+            if (delegated.containsKey(execution.getId()) || evidenceService.readyForInspectorApproval(execution, links)) continue;
             String reason;
             if (execution.getExecutionStatus() != ChecklistExecutionStatus.COMPLETED)
                 reason = "EXECUTION_NOT_COMPLETED";

@@ -87,6 +87,9 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     private com.ondemandmonitoring.support.service.impl.SupportTicketService supportTickets;
     @Autowired @NonFinal private DeliveryMissionScope missionScope;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionPolicy inspectionCorrections;
+
     @Override
     @Transactional
     public void markProcessing(String orderId) {
@@ -185,6 +188,15 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                 if (revisionCase != null && (!reworkByItem.containsKey(itemId)
                         || !ReworkDeliveryEvidencePolicy.allows(reworkByItem.get(itemId), mission.getId()))) continue;
                 selected.computeIfAbsent(itemId, ignored -> new ArrayList<>()).add(link);
+            }
+        }
+        if(revisionCase==null) {
+            for(var original:originals) {
+                inspectionCorrections.requireResolved(original.getId());
+                var delegated=inspectionCorrections.delegatedExecutions(original.getId());
+                for(var replacement:delegated.values())selected.put(replacement.getOrderChecklistItemId(),new ArrayList<>());
+                for(var link:inspectionCorrections.selectedSupplementalEvidence(original.getId()))
+                    selected.computeIfAbsent(link.getMissionChecklistExecution().getOrderChecklistItemId(),ignored->new ArrayList<>()).add(link);
             }
         }
         String baseRoundId = delivery == null ? null : delivery.getCurrentReviewRoundId();

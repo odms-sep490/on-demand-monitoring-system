@@ -10,6 +10,15 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public enum ErrorCode {
+    INSPECTION_CORRECTION_PENDING("Complete inspection corrections before publishing the result", HttpStatus.CONFLICT),
+    INSPECTION_CORRECTION_STATE_CONFLICT("Inspection correction state changed", HttpStatus.CONFLICT),
+    CONTRACT_NOT_FOUND("Contract not found", HttpStatus.NOT_FOUND),
+    CONTRACT_STATE_CONFLICT("Contract action is not allowed in the current state", HttpStatus.CONFLICT),
+    CONTRACT_VERSION_CONFLICT("Contract was changed; refresh before continuing", HttpStatus.CONFLICT),
+    CONTRACT_NOT_CONFIRMED("The signed contract must be confirmed before paying the deposit", HttpStatus.CONFLICT),
+    CONTRACT_FILE_INVALID("Upload a valid, unencrypted PDF of at most 10 MB and 500 pages", HttpStatus.BAD_REQUEST),
+    CONTRACT_STORAGE_UNAVAILABLE("Contract document is not available in private storage", HttpStatus.SERVICE_UNAVAILABLE),
+
 
     INVALID_REQUEST("Yêu cầu không hợp lệ", HttpStatus.BAD_REQUEST),
     VALIDATION_ERROR("Dữ liệu không hợp lệ", HttpStatus.BAD_REQUEST),

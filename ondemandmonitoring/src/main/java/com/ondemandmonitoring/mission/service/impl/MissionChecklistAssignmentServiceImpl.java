@@ -28,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class MissionChecklistAssignmentServiceImpl implements IMissionChecklistAssignmentService {
     private final OrderRepository orders;
     private final MissionRepository missions;
+    @org.springframework.beans.factory.annotation.Autowired private com.ondemandmonitoring.mission.inspection.repository.InspectionCorrectionItemRepository inspectionItems;
     private final OrderChecklistItemRepository items;
     private final MissionChecklistAssignmentRepository assignments;
     private final MissionChecklistExecutionRepository executions;
@@ -74,7 +75,14 @@ public class MissionChecklistAssignmentServiceImpl implements IMissionChecklistA
         var guidance = new MissionChecklistGuidanceContext(acceptedGuidance.findForOrder(orderId));
         selected.values().forEach(guidance::resolve);
         boolean rework = mission.getPurpose() == com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK;
-        if (rework) {
+        if (rework && mission.getInspectionCorrection()!=null) {
+            var correction=mission.getInspectionCorrection();
+            var allowed=inspectionItems.findItems(correction.getId()).stream().map(i->i.getExecution().getOrderChecklistItemId()).collect(java.util.stream.Collectors.toSet());
+            if(correction.getStatus()!=com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionStatus.OPEN
+                    || correction.getSupplementalMission()==null || !missionId.equals(correction.getSupplementalMission().getId())
+                    || !orderId.equals(correction.getMission().getOrder().getId()) || !allowed.equals(selected.keySet()))
+                throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_INTEGRITY_INVALID);
+        } else if (rework) {
             if (mission.getResultRevisionCaseId() == null) throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_INTEGRITY_INVALID);
             var caseItemsForMission = revisionCaseItems.findByResultRevisionCaseIdAndOrderChecklistItemIdInOrderByCreatedAtAsc(
                     mission.getResultRevisionCaseId(), selected.keySet());

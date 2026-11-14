@@ -16,6 +16,7 @@ import java.time.Instant;
 
 @Getter
 @Setter
+@org.hibernate.annotations.Check(name="ck_mission_internal_correction_origin", constraints="inspection_correction_id is null or (mission_purpose = 'REWORK' and result_revision_case_id is null)")
 @Entity
 @Table(name = "missions", uniqueConstraints = {
         @UniqueConstraint(name = "uk_mission_id_order", columnNames = {"id", "order_id"})},
@@ -58,6 +59,11 @@ public class Mission extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "mission_purpose", nullable = false, length = 20)
     MissionPurpose purpose = MissionPurpose.ORIGINAL;
+
+    /** Internal pre-publication remediation; never a customer revision case. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "inspection_correction_id")
+    com.ondemandmonitoring.mission.inspection.domain.InspectionCorrection inspectionCorrection;
 
     @Column(name = "result_revision_case_id", length = 255)
     String resultRevisionCaseId;

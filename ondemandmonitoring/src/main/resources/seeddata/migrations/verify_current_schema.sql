@@ -236,6 +236,44 @@ DO $$ DECLARE e record; actual text; keys text[]; predicate text; meta record; B
     IF EXISTS (SELECT 1 FROM drone_media m LEFT JOIN media_derivatives d ON d.media_id=m.id WHERE d.media_id IS NULL) THEN
         RAISE EXCEPTION 'Media detail invariant violated: every media asset must own a derivative row';
     END IF;
+    -- Contract tables and ordinary constraints are created by Hibernate, not a separate migration.
+    IF to_regclass('public.order_contracts') IS NULL OR to_regclass('public.contract_submissions') IS NULL THEN
+        RAISE EXCEPTION 'Order contract schema missing';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='invoices'
+        AND column_name='contract_required' AND data_type='boolean' AND is_nullable='NO')
+        OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='invoices'
+        AND column_name='contract_confirmed_at' AND data_type='timestamp with time zone') THEN
+        RAISE EXCEPTION 'Invoice contract gate schema missing';
+    END IF;
+    -- Hibernate may generate the OneToOne unique constraint name; verify its actual column.
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint c JOIN pg_attribute a ON a.attrelid=c.conrelid
+        AND a.attname='invoice_id' WHERE c.conrelid='public.order_contracts'::regclass
+        AND c.contype='u' AND c.conkey=ARRAY[a.attnum]::smallint[] AND c.convalidated) THEN
+        RAISE EXCEPTION 'Contract invoice uniqueness missing';
+    END IF;
+    FOR e IN SELECT * FROM (VALUES
+        ('order_contracts','uk_contract_number','u'),
+        ('order_contracts','ck_order_contract_state','c'),
+        ('contract_submissions','uk_contract_submission_number','u'),
+        ('contract_submissions','ck_contract_submission_state','c')
+    ) AS required(table_name,constraint_name,constraint_type) LOOP
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=to_regclass('public.'||e.table_name)
+            AND conname=e.constraint_name AND contype::text=e.constraint_type AND convalidated) THEN
+            RAISE EXCEPTION 'Contract constraint missing: %.%',e.table_name,e.constraint_name;
+        END IF;
+    END LOOP;
+    IF to_regclass('public.mission_inspection_corrections') IS NULL
+       OR to_regclass('public.mission_inspection_correction_items') IS NULL
+       OR to_regclass('public.mission_inspection_correction_events') IS NULL THEN
+        RAISE EXCEPTION 'Inspection correction schema missing';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.mission_inspection_corrections'::regclass
+        AND conname='uk_inspection_correction_active' AND contype='u' AND convalidated)
+       OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.mission_inspection_corrections'::regclass
+        AND conname='ck_inspection_correction_state' AND contype='c' AND convalidated) THEN
+        RAISE EXCEPTION 'Inspection correction active-request invariant missing';
+    END IF;
     RAISE NOTICE 'Current Order/Mission schema verification PASS';
 END $$;
 SELECT extname,extversion FROM pg_extension WHERE extname IN ('postgis','vector','btree_gist') ORDER BY extname;

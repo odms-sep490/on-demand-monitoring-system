@@ -10,6 +10,8 @@ import lombok.Data;
 @Data
 public class ChecklistExecutionResponse {
     private String id;
+    private String fulfilledByMissionId;
+    private String fulfilledByMissionCode;
     private String orderChecklistItemId;
     private String content;
     private String description;

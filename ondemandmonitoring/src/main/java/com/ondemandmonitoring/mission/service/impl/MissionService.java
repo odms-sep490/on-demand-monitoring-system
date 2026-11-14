@@ -1454,7 +1454,12 @@ public class MissionService implements IMissionService {
         if (!rework && order.getOrderStatus() != OrderStatus.APPROVED && order.getOrderStatus() != OrderStatus.IN_PROGRESS)
             throw new ApiException(ErrorCode.INVALID_REQUEST);
         if (request == null) throw new ApiException(ErrorCode.INVALID_REQUEST);
-        if (rework) {
+        if (rework && mission.getInspectionCorrection()!=null) {
+            var correction=mission.getInspectionCorrection();
+            if(correction.getStatus()!=com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionStatus.OPEN
+                    || correction.getSupplementalMission()==null || !missionId.equals(correction.getSupplementalMission().getId())
+                    || request.getChecklistIds()!=null)throw new ApiException(ErrorCode.INVALID_REQUEST);
+        } else if (rework) {
             if (mission.getResultRevisionCaseId() == null)
                 throw new ApiException(ErrorCode.INVALID_DELIVERY_STATE);
             var revisionCase = resultRevisionCases.findById(mission.getResultRevisionCaseId())

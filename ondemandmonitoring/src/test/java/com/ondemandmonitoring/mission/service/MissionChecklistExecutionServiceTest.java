@@ -35,6 +35,8 @@ class MissionChecklistExecutionServiceTest {
     Mission mission; Order order; OrderChecklistItem item; MissionChecklistExecution execution;
 
     @BeforeEach void prepare() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"inspectionCorrections",mock(com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionPolicy.class));
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"inspectionMutation",mock(com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionMutationGuard.class));
         order = new Order(); order.setId("o");
         // Operational execution requires a finalized plan as well as valid assignment/execution rows.
         order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED);

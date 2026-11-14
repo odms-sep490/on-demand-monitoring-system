@@ -13,4 +13,5 @@ public interface OrderContractRepository extends JpaRepository<OrderContract, St
 
   boolean existsByContractNumber(String contractNumber);
 
+  boolean existsByDocumentBucketAndDocumentKey(String bucket, String key);
 }

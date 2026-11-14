@@ -63,6 +63,7 @@ class OrderContractPostgresTest {
   @Autowired EntityManagerFactory emf;
   @Autowired IOrderContractService contracts;
   @Autowired IContractCancellationService cancellations;
+  @Autowired ContractSubmissionCleanupService cleanup;
   @Autowired IMediaObjectStorage contextObjects;
   @Autowired AuthenticatedUserResolver users;
   String orderId, invoiceId;
@@ -426,13 +427,72 @@ class OrderContractPostgresTest {
     assertThat(jdbc.queryForObject("select count(*) from contract_submissions",Integer.class)).isEqualTo(2);
   }
 
+  @Test
+  void replacementCommitsBeforeCleanupAndStaleManagerReviewCannotConfirmOldFile() {
+    var issued=issue(); actor(customer);
+    var first=contracts.submit(orderId,issued.version(),ContractTestFiles.pdf());
+    paidDeposit();actor(customer);
+    var replacement=contracts.submit(orderId,first.version(),ContractTestFiles.pdf());
+    assertThat(replacement.version()).isGreaterThan(first.version());
+    assertThat(OBJECTS).hasSize(3);
+    String oldId=first.submissions().getFirst().id();
+    assertThat(jdbc.queryForObject("select status from contract_submissions where id=?",String.class,oldId)).isEqualTo("SUPERSEDED");
+    assertThat(jdbc.queryForObject("select reviewed_at is null and superseded_by=? and document_deleted_at is null from contract_submissions where id=?",Boolean.class,customer.getId(),oldId)).isTrue();
+    assertThatThrownBy(()->contracts.download(orderId,oldId)).isInstanceOf(ApiException.class);
+    assertThat(cleanup.cleanup()).isEqualTo(1);assertThat(cleanup.cleanup()).isZero();
+    assertThat(OBJECTS).hasSize(2);
+    assertThat(jdbc.queryForObject("select document_deleted_at is not null from contract_submissions where id=?",Boolean.class,oldId)).isTrue();
+    actor(manager);
+    assertThatThrownBy(()->contracts.confirm(orderId,new ContractReviewRequest(first.version(),oldId,null))).isInstanceOf(ApiException.class);
+    assertThat(contracts.confirm(orderId,new ContractReviewRequest(replacement.version(),replacement.submissions().getFirst().id(),null)).status()).isEqualTo(ContractStatus.CONFIRMED);
+    assertThat(jdbc.queryForObject("select paid_amount from invoices where id=?",BigDecimal.class,invoiceId)).isEqualByComparingTo("120");
+  }
 
+  @Test
+  void rolledBackReplacementNeverQueuesOrDeletesTheOriginalPendingFile() {
+    var issued=issue();actor(customer);
+    var first=contracts.submit(orderId,issued.version(),ContractTestFiles.pdf());
+    var pool=Executors.newSingleThreadExecutor();
+    try {
+      assertThatThrownBy(()->tx.executeWithoutResult(status->{
+        contracts.submit(orderId,first.version(),ContractTestFiles.pdf());
+        try { assertThat(pool.submit(()->cleanup.cleanup()).get(10,TimeUnit.SECONDS)).isZero(); }
+        catch(Exception failure){throw new IllegalStateException(failure);}
+        throw new IllegalStateException("Force replacement rollback");
+      })).isInstanceOf(IllegalStateException.class);
+    } finally {pool.shutdownNow();}
+    assertThat(OBJECTS).hasSize(2);assertThat(cleanup.cleanup()).isZero();
+    assertThat(jdbc.queryForObject("select count(*) from contract_submissions",Integer.class)).isEqualTo(1);
+    assertThat(contracts.get(orderId).version()).isEqualTo(first.version());
+    assertThat(contracts.get(orderId).submissions().getFirst().status()).isEqualTo(ContractSubmissionStatus.PENDING);
+  }
 
+  @Test
+  void concurrentReplacementsCannotBothUseTheSamePendingVersion() throws Exception {
+    var issued=issue();actor(customer);var first=contracts.submit(orderId,issued.version(),ContractTestFiles.pdf());
+    var pool=Executors.newFixedThreadPool(2);var start=new CountDownLatch(1);
+    try {
+      List<Future<Boolean>> results=new ArrayList<>();
+      for(int i=0;i<2;i++)results.add(pool.submit(()->{start.await();try{contracts.submit(orderId,first.version(),ContractTestFiles.pdf());return true;}catch(ApiException conflict){return false;}}));
+      start.countDown();int success=0;for(var result:results)if(result.get(30,TimeUnit.SECONDS))success++;
+      assertThat(success).isEqualTo(1);
+      assertThat(jdbc.queryForObject("select count(*) from contract_submissions where status='PENDING'",Integer.class)).isEqualTo(1);
+      assertThat(jdbc.queryForObject("select count(*) from contract_submissions where status='SUPERSEDED'",Integer.class)).isEqualTo(1);
+      assertThat(OBJECTS).hasSize(3);
+    }finally{pool.shutdownNow();}
+  }
 
-
-
-
-
+  @Test
+  void concurrentCleanupWorkersDeleteTheOldObjectOnlyOnce() throws Exception {
+    var issued=issue();actor(customer);var first=contracts.submit(orderId,issued.version(),ContractTestFiles.pdf());
+    contracts.submit(orderId,first.version(),ContractTestFiles.pdf());
+    var pool=Executors.newFixedThreadPool(2);var start=new CountDownLatch(1);
+    try{
+      var a=pool.submit(()->{start.await();return cleanup.cleanup();});var b=pool.submit(()->{start.await();return cleanup.cleanup();});
+      start.countDown();assertThat(a.get(30,TimeUnit.SECONDS)+b.get(30,TimeUnit.SECONDS)).isEqualTo(1);
+      assertThat(OBJECTS).hasSize(2);
+    }finally{pool.shutdownNow();}
+  }
 
   @Configuration
   @EnableTransactionManagement
@@ -527,10 +587,13 @@ class OrderContractPostgresTest {
               })
           .when(storage)
           .deleteQuietly(anyString(), anyString());
+      doAnswer(call->{OBJECTS.remove(call.getArgument(1));return null;}).when(storage).delete(anyString(),anyString());
       return storage;
     }
 
-
+    @Bean ContractSubmissionCleanupService cleanup(ContractSubmissionRepository submissions,OrderContractRepository contracts,IMediaObjectStorage storage,PlatformTransactionManager transactions) {
+      return new ContractSubmissionCleanupService(submissions,contracts,storage,transactions,Clock.fixed(NOW.plusSeconds(120),ZoneOffset.UTC));
+    }
 
     @Bean
     ContractDocumentStorage documentStorage(IMediaObjectStorage storage) {

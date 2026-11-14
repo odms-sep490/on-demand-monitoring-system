@@ -126,9 +126,15 @@ public class OrderContractServiceImpl implements IOrderContractService {
     requireEditableInvoice(invoice);
     requireVersion(contract, expectedVersion);
     if (contract.getStatus() != ContractStatus.AWAITING_SIGNATURE
-        && contract.getStatus() != ContractStatus.CHANGES_REQUESTED) throw conflict();
+        && contract.getStatus() != ContractStatus.CHANGES_REQUESTED
+        && contract.getStatus() != ContractStatus.PENDING_VERIFICATION) throw conflict();
     var pdf = ContractPdfValidator.validate(file);
     List<ContractSubmission> history = history(contract);
+    ContractSubmission previous = null;
+    if (contract.getStatus() == ContractStatus.PENDING_VERIFICATION) {
+      if (history.isEmpty() || history.getFirst().getStatus() != ContractSubmissionStatus.PENDING) throw conflict();
+      previous = history.getFirst();
+    }
     ContractSubmission submission = new ContractSubmission();
     submission.setContract(contract);
     submission.setSubmissionNumber(
@@ -138,7 +144,15 @@ public class OrderContractServiceImpl implements IOrderContractService {
     submission.setSubmittedAt(Instant.now(clock));
     submission.setDocument(storage.store(orderId, pdf));
     submissions.saveAndFlush(submission);
+    if (previous != null) {
+      previous.setStatus(ContractSubmissionStatus.SUPERSEDED);
+      previous.setSupersededAt(Instant.now(clock));
+      previous.setSupersededBy(users.getCurrentUserId());
+      previous.setCleanupNextAttemptAt(Instant.now(clock));
+      submissions.saveAndFlush(previous);
+    }
     contract.setStatus(ContractStatus.PENDING_VERIFICATION);
+    contract.setSubmissionRevision(Math.incrementExact(contract.getSubmissionRevision()));
     if (invoice.getContractSubmittedAt() == null) {
       invoice.setContractSubmittedAt(Instant.now(clock));
       if (invoice.getDepositExpiresAt() == null)
@@ -227,6 +241,8 @@ public class OrderContractServiceImpl implements IOrderContractService {
     if (submissionId != null) {
       var submission = history(contract).stream().filter(s -> s.getId().equals(submissionId)).findFirst()
           .orElseThrow(() -> new ApiException(ErrorCode.CONTRACT_NOT_FOUND));
+      if (submission.getStatus() == ContractSubmissionStatus.SUPERSEDED || submission.getDocumentDeletedAt() != null)
+        throw new ApiException(ErrorCode.CONTRACT_SUBMISSION_REPLACED);
       document = submission.getDocument();
     }
     return new ContractDownloadResponse(storage.download(document),

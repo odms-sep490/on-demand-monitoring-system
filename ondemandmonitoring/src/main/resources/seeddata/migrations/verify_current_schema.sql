@@ -254,6 +254,14 @@ DO $$ DECLARE e record; actual text; keys text[]; predicate text; meta record; B
         AND column_name='invoice_id' AND is_nullable='YES') THEN
         RAISE EXCEPTION 'Contract must bind a quote before invoice creation';
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='order_contracts'
+        AND column_name='submission_revision' AND is_nullable='NO') OR NOT EXISTS
+        (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='contract_submissions'
+        AND column_name='cleanup_attempts' AND is_nullable='NO') OR NOT EXISTS
+        (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='contract_submissions'
+        AND column_name='document_deleted_at') THEN
+        RAISE EXCEPTION 'Signed contract replacement/cleanup schema missing';
+    END IF;
     -- Hibernate may generate the OneToOne unique constraint name; verify its actual column.
     IF NOT EXISTS (SELECT 1 FROM pg_constraint c JOIN pg_attribute a ON a.attrelid=c.conrelid
         AND a.attname='invoice_id' WHERE c.conrelid='public.order_contracts'::regclass

@@ -45,6 +45,10 @@ public class OrderContract extends BaseEntity {
   @Column(nullable = false, length = 30)
   private ContractStatus status;
 
+  // Changes on every signed upload, including PENDING -> PENDING replacement, so @Version advances.
+  @Column(name="submission_revision",nullable=false,columnDefinition="bigint default 0")
+  private long submissionRevision;
+
   @Embedded private ContractDocument document;
 
   @Column(name = "issued_by", nullable = false, updatable = false)

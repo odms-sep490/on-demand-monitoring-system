@@ -220,22 +220,50 @@ class OrderContractServiceTest {
     assertThat(invoice.getDepositExpiresAt()).isEqualTo(now.plus(Duration.ofHours(12)));
   }
 
-
-
-
-
-
-
-
+  @Test
+  void customerReplacesPendingCopyAndQueuesOnlyTheSupersededFile() {
+    submit(); var first=history.getFirst(); var deadline=invoice.getDepositExpiresAt();
+    long version=contract.getVersion();
+    invoice.setPaidAmount(new BigDecimal("300"));invoice.setStatus(InvoiceStatus.PARTIALLY_PAID);
+    service.submit("order",version,ContractTestFiles.pdf());
+    assertThat(history).hasSize(2);
+    assertThat(first.getStatus()).isEqualTo(ContractSubmissionStatus.SUPERSEDED);
+    assertThat(first.getReviewedAt()).isNull();assertThat(first.getReviewedBy()).isNull();
+    assertThat(first.getSupersededAt()).isEqualTo(now);
+    assertThat(first.getSupersededBy()).isEqualTo("customer");
+    assertThat(first.getCleanupNextAttemptAt()).isEqualTo(now);
+    assertThat(first.getDocumentDeletedAt()).isNull();
+    assertThat(history.getLast().getStatus()).isEqualTo(ContractSubmissionStatus.PENDING);
+    assertThat(contract.getSubmissionRevision()).isEqualTo(2);
+    assertThat(invoice.getPaidAmount()).isEqualByComparingTo("300");
+    assertThat(invoice.getDepositExpiresAt()).isEqualTo(deadline);
+    actor(manager);
+    assertThatThrownBy(()->service.confirm("order",new ContractReviewRequest(version,first.getId(),null))).isInstanceOf(ApiException.class);
+  }
 
   @Test
-  void aPendingSubmissionCannotBeOverwritten() {
-    submit();
-    assertThatThrownBy(
-            () -> service.submit("order", contract.getVersion(), ContractTestFiles.pdf()))
-        .isInstanceOf(ApiException.class);
-    assertThat(history).hasSize(1);
-    verify(storage, times(1)).store(any(), any());
+  void staleReplacementAndConfirmedContractCannotUploadANewCopy() {
+    submit();long stale=contract.getVersion();submit();
+    assertThatThrownBy(()->service.submit("order",stale,ContractTestFiles.pdf())).isInstanceOf(ApiException.class);
+    contract.setStatus(ContractStatus.CONFIRMED);
+    assertThatThrownBy(()->service.submit("order",contract.getVersion(),ContractTestFiles.pdf())).isInstanceOf(ApiException.class);
+    verify(storage,times(2)).store(any(),any());
+  }
+
+  @Test
+  void replacedCopyIsNotDownloadableEvenBeforeTheCleanupJobRuns() {
+    submit();String first=history.getFirst().getId();submit();
+    assertThatThrownBy(()->service.download("order",first)).isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.CONTRACT_SUBMISSION_REPLACED);
+    verify(storage,never()).download(any());
+  }
+
+  @Test
+  void failedReplacementDoesNotSupersedeOrQueueThePreviousCopy() {
+    submit();var first=history.getFirst();
+    when(storage.store(eq("order"),any())).thenThrow(new ApiException(ErrorCode.CONTRACT_STORAGE_UNAVAILABLE));
+    assertThatThrownBy(()->submit()).isInstanceOf(ApiException.class);
+    assertThat(first.getStatus()).isEqualTo(ContractSubmissionStatus.PENDING);
+    assertThat(first.getCleanupNextAttemptAt()).isNull();assertThat(history).hasSize(1);
   }
 
   @Test

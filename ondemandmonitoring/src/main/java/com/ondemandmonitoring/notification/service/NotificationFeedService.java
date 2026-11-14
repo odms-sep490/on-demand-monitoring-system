@@ -68,9 +68,9 @@ public class NotificationFeedService {
             case CUSTOMER -> customerItems(user.getId(), limit);
             case MANAGER -> managerItems(limit);
             case STAFF -> staffItems(user.getId(), limit);
-            // Admins can also work in the manager portal and need the same
-            // operational alerts there.
-            case ADMIN -> managerItems(limit);
+            // New order alerts are reserved for managers.
+            case ADMIN -> managerItems(limit).stream()
+                    .filter(item -> item.type() != NotificationType.ORDER_CREATED).toList();
         });
         items.sort(Comparator.comparing(NotificationItemResponse::createdAt,
                 Comparator.nullsLast(Comparator.naturalOrder())).reversed());
@@ -80,6 +80,8 @@ public class NotificationFeedService {
     private List<NotificationItemResponse> customerItems(String customerId, int limit) {
         List<NotificationItemResponse> items = new ArrayList<>();
         orders.findByCustomer_IdOrderByCreatedAtDesc(customerId, PageRequest.of(0, limit))
+                .stream()
+                .filter(order -> order.getOrderStatus() != OrderStatus.PENDING)
                 .forEach(order -> items.add(orderStatusChanged(order)));
         missions.findByOrder_Customer_IdAndStatusIn(
                         customerId, List.of(MissionStatus.COMPLETED), PageRequest.of(0, limit))

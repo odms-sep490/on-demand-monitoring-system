@@ -56,7 +56,8 @@ class MissionReworkPlanFinalizeTest {
         ReflectionTestUtils.setField(service, "missionDeviceAssignmentRepository", devices);
         ReflectionTestUtils.setField(service, "invoiceRepository", invoices);
         ReflectionTestUtils.setField(service, "missionPaymentEligibilityService", payments);
-        ReflectionTestUtils.setField(service, "checklistMaterializationService", materialization);
+        ReflectionTestUtils.setField(service, "missionPlanningActivationService",
+                new MissionPlanningActivationService(materialization, crew, devices));
         ReflectionTestUtils.setField(service, "missionMapper", mock(MissionMapper.class));
         order.setId("order"); order.setOrderStatus(OrderStatus.COMPLETED);
         order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED); order.getExecutionPlan().setRevision(7);

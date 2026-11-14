@@ -522,7 +522,8 @@ public class QuoteService implements IQuoteService {
         invoice.setStatus(InvoiceStatus.ISSUED);
         invoice.setDepositStatus(DepositStatus.WAITING_DEPOSIT);
         invoice.setIssuedAt(now);
-        invoice.setDepositExpiresAt(now.plus(expirationSettings.current().depositPaymentTimeout()));
+        invoice.setContractRequired(true);
+        invoice.setDepositExpiresAt(null);
         Invoice saved = invoices.save(invoice);
         return invoiceResponse(saved);
     }

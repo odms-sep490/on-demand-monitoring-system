@@ -10,6 +10,8 @@ import org.mapstruct.Mapping;
 @Mapper(componentModel = "spring", uses = {MissionMapperHelper.class, MissionPlanMapper.class})
 public interface MissionMapper {
 
+    @Mapping(source = "inspectionCorrection.id", target = "inspectionCorrectionId")
+    @Mapping(source = "inspectionCorrection.mission.id", target = "inspectionSourceMissionId")
     @Mapping(source = "order.id", target = "orderId")
     @Mapping(source = "replacesMissionId", target = "replacesMissionId")
     @Mapping(source = "order.orderCode", target = "orderCode")

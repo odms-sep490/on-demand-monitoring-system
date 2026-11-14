@@ -70,7 +70,8 @@ public final class FinanceMapper {
                 invoice.getPaidAmount(), invoice.getRemainingAmount(), invoice.getStatus(),
                 invoice.effectiveDepositStatus(), invoice.getIssuedAt(),
                 invoice.getDepositExpiresAt(),
-                invoice.getOrder().getCancellationReason() == null ? null : invoice.getOrder().getCancellationReason().name());
+                invoice.getOrder().getCancellationReason() == null ? null : invoice.getOrder().getCancellationReason().name(),
+                invoice.isContractRequired(), invoice.getContractConfirmedAt());
     }
 
     public static PaymentResponse payment(Payment payment) {

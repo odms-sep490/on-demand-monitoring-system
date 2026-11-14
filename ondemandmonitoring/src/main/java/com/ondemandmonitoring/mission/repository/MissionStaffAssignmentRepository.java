@@ -16,6 +16,12 @@ public interface MissionStaffAssignmentRepository extends JpaRepository<MissionS
 
     boolean existsByMissionIdAndStaffId(String missionId, String staffId);
 
+    boolean existsByMissionIdAndStaffIdAndIsCurrentTrueAndReleasedAtIsNull(
+            String missionId, String staffId);
+
+    boolean existsByMissionIdAndStaffIdAndResponseStatus(
+            String missionId, String staffId, MissionStaffAssignmentStatus responseStatus);
+
     Optional<MissionStaffAssignment> findByMissionIdAndIsCurrentTrue(String missionId);
 
     @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "staff")

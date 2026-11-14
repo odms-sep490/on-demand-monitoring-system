@@ -198,7 +198,8 @@ public class MissionMapperHelper {
                 .sorted(Comparator.comparing(MissionDeviceAssignment::getDeviceRole,
                         Comparator.nullsLast(Comparator.naturalOrder())))
                 .map(assignment -> missionDeviceAssignmentMapper.toResponse(assignment).toBuilder()
-                        .replacementCompleted(completedReplacementIds.contains(assignment.getId()))
+                        .replacementCompleted(assignment.getReplacementRequestedAt() == null
+                                && completedReplacementIds.contains(assignment.getId()))
                         .build())
                 .toList();
     }

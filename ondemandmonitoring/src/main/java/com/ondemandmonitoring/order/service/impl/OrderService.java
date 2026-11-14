@@ -99,6 +99,25 @@ public class OrderService implements IOrderService {
 
     @Override
     @Transactional
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public OrderCreateResponse cancelBeforeReview(String orderId) {
+        Order order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
+        User customer = authenticatedUserResolver.getCurrentUser();
+        if (order.getCustomer() == null || !order.getCustomer().getId().equals(customer.getId())) {
+            throw new ApiException(ErrorCode.ACCESS_DENIED, "This order does not belong to the current customer");
+        }
+        if (order.getOrderStatus() != OrderStatus.PENDING) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "Chỉ có thể hủy đơn trước khi quản lý bắt đầu duyệt.");
+        }
+        order.setOrderStatus(OrderStatus.CANCELLED);
+        order.setCancelledAt(Instant.now());
+        return toResponse(orderRepository.save(order));
+    }
+
+    @Override
+    @Transactional
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public OrderCreateResponse approveOrder(String orderId) {
         Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))

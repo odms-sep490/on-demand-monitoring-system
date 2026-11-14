@@ -85,6 +85,40 @@ class OrderServiceTest {
         when(authenticatedUserResolver.getCurrentUser()).thenReturn(mockUser);
     }
 
+    @Test
+    void customerCanCancelOwnPendingOrder() {
+        Order order = Order.builder().orderStatus(OrderStatus.PENDING)
+                .customer(authenticatedUserResolver.getCurrentUser()).build();
+        order.setId("cancel-pending");
+        when(orderRepository.findByIdForUpdate(order.getId())).thenReturn(Optional.of(order));
+        when(orderRepository.save(order)).thenReturn(order);
+        assertEquals(OrderStatus.CANCELLED, orderService.cancelBeforeReview(order.getId()).getOrderStatus());
+        assertNotNull(order.getCancelledAt());
+        verify(orderRepository).save(order);
+    }
+
+    @Test
+    void customerCannotCancelAfterManagerStartsReview() {
+        Order order = Order.builder().orderStatus(OrderStatus.UNDER_REVIEW)
+                .customer(authenticatedUserResolver.getCurrentUser()).build();
+        order.setId("cancel-reviewing");
+        when(orderRepository.findByIdForUpdate(order.getId())).thenReturn(Optional.of(order));
+        assertThrows(ApiException.class, () -> orderService.cancelBeforeReview(order.getId()));
+        assertEquals(OrderStatus.UNDER_REVIEW, order.getOrderStatus());
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void customerCannotCancelAnotherCustomersOrder() {
+        User owner = User.builder().fullName("Other customer").build();
+        owner.setId("another-customer");
+        Order order = Order.builder().orderStatus(OrderStatus.PENDING).customer(owner).build();
+        order.setId("cancel-other");
+        when(orderRepository.findByIdForUpdate(order.getId())).thenReturn(Optional.of(order));
+        assertThrows(ApiException.class, () -> orderService.cancelBeforeReview(order.getId()));
+        verify(orderRepository, never()).save(any());
+    }
+
     private Map<String, Object> sampleCoverageAreaMap() {
         return Map.of(
                 "type", "Polygon",

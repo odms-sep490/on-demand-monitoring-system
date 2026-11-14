@@ -248,7 +248,10 @@ public class MissionService implements IMissionService {
     @PreAuthorize("@missionAuthorizationService.canViewMission(#missionId)")
     public MissionResponse getByIdResponse(String missionId) {
         Mission mission = getMissionByIdOrThrow(missionId);
-        return missionMapper.toResponse(mission);
+        User viewer = authenticatedUserResolver.getCurrentUser();
+        return viewer.getRole() != null && viewer.getRole().getCode() == RoleCode.STAFF
+                ? toStaffMissionResponse(mission, viewer.getId())
+                : missionMapper.toResponse(mission);
     }
         @Override
     @Transactional(readOnly = true)
@@ -846,8 +849,18 @@ public class MissionService implements IMissionService {
                 .sorted(java.util.Comparator.comparing(
                         Mission::getScheduledStartAt,
                         java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder())))
-                .map(missionMapper::toResponse)
+                .map(mission -> toStaffMissionResponse(mission, staffId))
                 .toList();
+    }
+
+    private MissionResponse toStaffMissionResponse(Mission mission, String staffId) {
+        MissionResponse response = missionMapper.toResponse(mission);
+        boolean currentlyAssigned = missionStaffAssignmentRepository
+                .existsByMissionIdAndStaffIdAndIsCurrentTrueAndReleasedAtIsNull(mission.getId(), staffId);
+        response.setDeclinedAssignmentHistory(!currentlyAssigned && missionStaffAssignmentRepository
+                .existsByMissionIdAndStaffIdAndResponseStatus(
+                        mission.getId(), staffId, MissionStaffAssignmentStatus.REJECTED));
+        return response;
     }
 
     @Override
@@ -1139,19 +1152,25 @@ public class MissionService implements IMissionService {
                     "A drone replacement can only be requested during preflight");
         }
 
-        MissionDeviceAssignment assignment = missionDeviceAssignmentRepository
-                .findAllByMissionIdAndDeviceRoleAndIsCurrentTrueOrderByCreatedAtDesc(missionId, DeviceRole.MAIN)
+        var currentAssignments = missionDeviceAssignmentRepository
+                .findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc(missionId)
                 .stream()
                 .filter(candidate -> candidate.getReleasedAt() == null)
+                .toList();
+        String assignmentId = request.deviceAssignmentId();
+        if ((assignmentId == null || assignmentId.isBlank()) && currentAssignments.size() != 1) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Select the drone to replace");
+        }
+        MissionDeviceAssignment assignment = currentAssignments.stream()
+                .filter(candidate -> assignmentId == null || assignmentId.isBlank()
+                        || assignmentId.equals(candidate.getId()))
                 .findFirst()
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND,
-                        "Current main device assignment not found"));
-        boolean hasFailedCheckForAssignedDrone = assignment.getDevice() != null
-                && preDeviceCheckRepository.findFirstByMissionIdOrderByCreatedAtDesc(missionId)
-                        .filter(run -> run.getMissionDeviceAssignment() != null
-                                && java.util.Objects.equals(run.getMissionDeviceAssignment().getId(), assignment.getId()))
-                        .map(run -> run.getFailedChecks() != null && run.getFailedChecks() > 0)
-                        .orElse(false);
+                        "Current device assignment not found"));
+        boolean hasFailedCheckForAssignedDrone = preDeviceCheckRepository
+                .findFirstByMissionIdAndMissionDeviceAssignment_IdOrderByCreatedAtDesc(missionId, assignment.getId())
+                .map(run -> run.getFailedChecks() != null && run.getFailedChecks() > 0)
+                .orElse(false);
         if (!hasFailedCheckForAssignedDrone) {
             throw new ApiException(ErrorCode.INVALID_REQUEST,
                     "A drone replacement request requires a failed preflight check");
@@ -1185,12 +1204,11 @@ public class MissionService implements IMissionService {
         MissionDeviceAssignment assignment = missionDeviceAssignmentRepository.findByMissionId(missionId)
                 .stream()
                 .filter(candidate -> assignmentId.equals(candidate.getId())
-                        && candidate.getDeviceRole() == DeviceRole.MAIN
                         && Boolean.TRUE.equals(candidate.getIsCurrent())
                         && candidate.getReleasedAt() == null)
                 .findFirst()
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND,
-                        "Current main device assignment not found"));
+                        "Current device assignment not found"));
         if (assignment.getReplacementRequestedAt() == null) {
             throw new ApiException(ErrorCode.INVALID_REQUEST,
                     "No pending device replacement request exists for this assignment");

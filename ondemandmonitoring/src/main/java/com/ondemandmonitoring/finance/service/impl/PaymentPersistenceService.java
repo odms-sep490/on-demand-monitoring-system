@@ -52,6 +52,7 @@ public class PaymentPersistenceService implements IPaymentPersistenceService {
         if (refundHoldService != null) refundHoldService.requireOrderNotOnRefundHold(orderId);
         Invoice invoice = invoices.findByIdForUpdate(invoiceId).orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
         if (!invoice.getOrder().getCustomer().getId().equals(currentUser.getCurrentUserId())) throw new ApiException(ErrorCode.ACCESS_DENIED);
+        if (!invoice.isContractReady()) throw new ApiException(ErrorCode.CONTRACT_NOT_CONFIRMED);
         if (invoice.getStatus() == InvoiceStatus.PAID || invoice.getRemainingAmount().signum() == 0) {
             throw new ApiException(ErrorCode.INVOICE_ALREADY_PAID);
         }

@@ -399,8 +399,9 @@ class QuoteServiceTest {
         assertThat(result.depositAmount()).isEqualByComparingTo("2550000");
         assertThat(result.remainingAmount()).isEqualByComparingTo("8500000");
         assertThat(quote.getStatus()).isEqualTo(QuoteStatus.ACCEPTED_BY_CUSTOMER);
-        assertThat(result.depositExpiresAt()).isAfter(quote.getAcceptedAt());
-        assertThat(result.depositExpiresAt()).isEqualTo(quote.getAcceptedAt().plus(java.time.Duration.ofHours(12)));
+        assertThat(result.depositExpiresAt()).isNull();
+        assertThat(result.contractRequired()).isTrue();
+        assertThat(result.contractConfirmedAt()).isNull();
         verify(missions, never()).save(any());
         verifyNoInteractions(executions);
     }

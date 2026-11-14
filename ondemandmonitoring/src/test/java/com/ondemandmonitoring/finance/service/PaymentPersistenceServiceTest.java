@@ -131,4 +131,14 @@ class PaymentPersistenceServiceTest {
                 .isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.INVALID_REQUEST);
         verify(payments, never()).saveAndFlush(any());
     }
+
+    @Test void newDepositCannotBypassContractConfirmation() {
+        invoice.setContractRequired(true);
+        when(eligibility.isDepositSatisfied(invoice)).thenReturn(false);
+        assertThatThrownBy(() -> service.prepareDeposit("i1")).isInstanceOf(ApiException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.CONTRACT_NOT_CONFIRMED);
+        verify(payments,never()).saveAndFlush(any());
+        invoice.setContractConfirmedAt(java.time.Instant.now());
+        assertThat(service.prepareDeposit("i1").amount()).isEqualByComparingTo("300");
+    }
 }

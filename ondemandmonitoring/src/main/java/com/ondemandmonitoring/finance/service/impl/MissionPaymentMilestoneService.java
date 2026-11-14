@@ -336,6 +336,15 @@ public class MissionPaymentMilestoneService {
     }
 
     @Transactional(readOnly = true)
+    public boolean isPaidForMission(String orderId, String missionId) {
+        if (orderId == null || missionId == null) return false;
+        return milestones.findByMissionId(missionId)
+                .filter(milestone -> orderId.equals(milestone.getInvoice().getOrder().getId()))
+                .map(milestone -> milestone.getStatus() == MissionPaymentMilestoneStatus.PAID)
+                .orElse(false);
+    }
+
+    @Transactional(readOnly = true)
     public boolean hasCompleteAllocation(Invoice invoice) {
         if (invoice == null || invoice.getTotalAmount() == null || invoice.getDepositAmount() == null) return false;
         BigDecimal target = allocationTarget(invoice);

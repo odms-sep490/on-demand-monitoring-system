@@ -654,7 +654,10 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         }
         if (missionId == null && !completionPolicy.completeIfReady(completionPolicy.lockAggregate(orderId)))
             throw new ApiException(ErrorCode.DELIVERY_NOT_READY);
-        return response(delivery, effective, assets, true);
+        boolean originalsPaid = missionId == null
+                ? isInvoiceFullyPaid(invoice)
+                : paymentMilestones.isPaidForMission(orderId, missionId);
+        return response(delivery, effective, assets, originalsPaid);
     }
 
     @Override @Transactional(readOnly = true)
@@ -725,7 +728,10 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         OrderDelivery delivery = scopedDelivery(orderId, missionId, false).orElseThrow();
         List<Mission> effective = scopedMissions(orderId, missionId);
         List<MediaAsset> assets = currentAssets(delivery, effective);
-        return response(delivery, effective, assets, true);
+        boolean originalsPaid = missionId == null
+                ? isInvoiceFullyPaid(invoice(orderId))
+                : paymentMilestones.isPaidForMission(orderId, missionId);
+        return response(delivery, effective, assets, originalsPaid);
     }
 
     @Override @Transactional(readOnly = true)
@@ -747,6 +753,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         return missionIds.stream().filter(id -> missions.findByIdWithOrder(id).map(mission -> {
             String orderId = mission.getOrder().getId();
             if (!mission.getOrder().getCustomer().getId().equals(currentUser.getCurrentUserId())) return false;
+            if (!paymentMilestones.isPaidForMission(orderId, id)) return false;
             return deliveries.findByOrderIdIn(List.of(orderId)).stream()
                     .anyMatch(d -> mission.getId().equals(d.getMissionId()) && d.getStatus() == DeliveryStatus.DELIVERED
                             && hasCustomerAcceptedCurrentReview(d) && !hasBlockingCase(orderId, d.getMissionId())
@@ -760,12 +767,16 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         boolean permitted = deliveries.findCurrentForMedia(mediaId).stream()
                 .filter(d -> orderId.equals(d.getOrder().getId()))
                 .anyMatch(d -> d.getStatus() == DeliveryStatus.DELIVERED
-                        && hasCustomerAcceptedCurrentReview(d) && !hasBlockingCase(orderId, d.getMissionId()));
+                        && hasCustomerAcceptedCurrentReview(d) && !hasBlockingCase(orderId, d.getMissionId())
+                        && (d.getMissionId() == null
+                                ? isInvoiceFullyPaid(invoice(orderId))
+                                : paymentMilestones.isPaidForMission(orderId, d.getMissionId())));
         if (!permitted) {
             var legacy = deliveries.findByOrderId(orderId).orElse(null);
             permitted = legacy != null && legacy.getCurrentReviewRoundId() == null
                     && legacy.getStatus() == DeliveryStatus.DELIVERED && hasCustomerAcceptedCurrentReview(legacy)
-                    && !hasBlockingCase(orderId, null) && media.findById(mediaId).filter(MediaAsset::isPreviewSelected)
+                    && !hasBlockingCase(orderId, null) && isInvoiceFullyPaid(invoice(orderId))
+                    && media.findById(mediaId).filter(MediaAsset::isPreviewSelected)
                             .filter(a -> orderId.equals(a.getMission().getOrder().getId())).isPresent();
         }
         if (!permitted) throw new ApiException(ErrorCode.DELIVERABLE_NOT_RELEASED);

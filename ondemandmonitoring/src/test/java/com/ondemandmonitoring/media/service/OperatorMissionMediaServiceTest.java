@@ -28,8 +28,9 @@ class OperatorMissionMediaServiceTest {
     final IMediaObjectStorage storage = mock(IMediaObjectStorage.class);
     final MediaDerivativeService derivatives = mock(MediaDerivativeService.class);
     final MediaWorkflowMapper mapper = org.mapstruct.factory.Mappers.getMapper(MediaWorkflowMapper.class);
+    final IResultRetentionAccessService retention = mock(IResultRetentionAccessService.class);
     final IOperatorMissionMediaService service = new OperatorMissionMediaServiceImpl(
-            access, media, attempts, manualTasks, storage, derivatives, mapper);
+            access, media, attempts, manualTasks, storage, derivatives, mapper, retention);
 
     @Test
     void listsOnlyAvailableForAuthorizedCanonicalMissionWithPagination() {
@@ -95,6 +96,62 @@ class OperatorMissionMediaServiceTest {
         assertThat(response.getFailureMessage()).isEqualTo("offline");
         assertThat(response.getDownloadUrl()).isNull();
         verifyNoInteractions(storage, derivatives);
+    }
+
+    @Test void originalInspectionAllowsValidatedPendingMediaForAssignedReviewer() {
+        when(access.authorizeOperator("MS-1")).thenReturn(new MissionMediaContext("mission", false));
+        var asset = asset("mission", MediaStatus.PENDING_MANAGER_APPROVAL);
+        asset.setStorageProvider("S3"); asset.setValidatedAt(java.time.Instant.now());
+        when(media.findById("media")).thenReturn(Optional.of(asset));
+        when(storage.createPresignedGetUrl("bucket", "final/key")).thenReturn("original-url");
+        assertThat(service.createOriginalView("MS-1", "media").viewUrl()).isEqualTo("original-url");
+        var order = inOrder(access, retention, storage);
+        order.verify(access).authorizeOperator("MS-1");
+        order.verify(retention).requireAccessible(asset);
+        order.verify(storage).createPresignedGetUrl("bucket", "final/key");
+    }
+
+    @Test void originalInspectionRejectsOtherMissionRemovedAndUnvalidatedMedia() {
+        when(access.authorizeOperator("mission")).thenReturn(new MissionMediaContext("mission", false));
+        for (var asset : List.of(asset("other", MediaStatus.AVAILABLE),
+                asset("mission", MediaStatus.REMOVED), asset("mission", MediaStatus.VALIDATING))) {
+            asset.setStorageProvider("S3");
+            when(media.findById("media")).thenReturn(Optional.of(asset));
+            assertThatThrownBy(() -> service.createOriginalView("mission", "media")).isInstanceOf(ApiException.class);
+        }
+        verifyNoInteractions(storage);
+    }
+
+    @Test void originalInspectionRejectsUnauthorizedAccess() {
+        when(access.authorizeOperator("mission")).thenThrow(new ApiException(
+                com.ondemandmonitoring.common.exception.ErrorCode.ACCESS_DENIED));
+        assertThatThrownBy(() -> service.createOriginalView("mission", "media")).isInstanceOf(ApiException.class);
+        verifyNoInteractions(media, storage);
+    }
+
+    @Test void originalInspectionRejectsExpiredRetentionBeforeSigning() {
+        when(access.authorizeOperator("mission")).thenReturn(new MissionMediaContext("mission", false));
+        var asset = asset("mission", MediaStatus.AVAILABLE);
+        asset.setStorageProvider("S3"); asset.setValidatedAt(java.time.Instant.now());
+        when(media.findById("media")).thenReturn(Optional.of(asset));
+        doThrow(new ApiException(com.ondemandmonitoring.common.exception.ErrorCode.RESULT_RETENTION_EXPIRED))
+                .when(retention).requireAccessible(asset);
+        assertThatThrownBy(() -> service.createOriginalView("mission", "media")).isInstanceOf(ApiException.class);
+        verifyNoInteractions(storage);
+    }
+
+    @Test void removedValidatedAndDeletedObjectsCannotBeInspected() {
+        when(access.authorizeOperator("mission")).thenReturn(new MissionMediaContext("mission", false));
+        var removed = asset("mission", MediaStatus.REMOVED);
+        removed.setStorageProvider("S3"); removed.setValidatedAt(java.time.Instant.now());
+        var deleted = asset("mission", MediaStatus.AVAILABLE);
+        deleted.setStorageProvider("S3"); deleted.setValidatedAt(java.time.Instant.now());
+        deleted.setStorageStatus(com.ondemandmonitoring.media.enums.MediaStorageStatus.DELETED);
+        for (var asset : List.of(removed, deleted)) {
+            when(media.findById("media")).thenReturn(Optional.of(asset));
+            assertThatThrownBy(() -> service.createOriginalView("mission", "media")).isInstanceOf(ApiException.class);
+        }
+        verifyNoInteractions(storage);
     }
 
     private MediaAsset asset(String missionId, MediaStatus status) {

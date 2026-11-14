@@ -3,6 +3,7 @@ package com.ondemandmonitoring.media.controller;
 import com.ondemandmonitoring.common.api.ApiResponse;
 import com.ondemandmonitoring.common.api.PageResponse;
 import com.ondemandmonitoring.media.dto.response.OperatorMissionMediaResponse;
+import com.ondemandmonitoring.media.dto.response.MediaViewingResponse;
 import com.ondemandmonitoring.media.service.IOperatorMissionMediaService;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -35,6 +36,12 @@ public class OperatorMissionMediaController {
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "50") @Min(1) @Max(100) int size) {
         return ApiResponse.ok(mediaService.listWorkspace(missionId, page, size));
+    }
+
+    @PostMapping("/{mediaId}/original-view")
+    public ApiResponse<MediaViewingResponse> originalView(
+            @PathVariable String missionId, @PathVariable String mediaId) {
+        return ApiResponse.ok(mediaService.createOriginalView(missionId, mediaId));
     }
 
     @GetMapping("/{mediaId}")

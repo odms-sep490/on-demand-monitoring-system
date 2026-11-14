@@ -83,6 +83,7 @@ public enum ErrorCode {
     MEDIA_UPLOAD_FAILED("File upload failed after 3 attempts", HttpStatus.BAD_GATEWAY),
     MEDIA_NOT_FOUND("Media not found", HttpStatus.NOT_FOUND),
     MEDIA_REMOVED("Lần tải trước của tệp này đã được gỡ. Hãy chọn lại tệp để bắt đầu lần tải mới.", HttpStatus.CONFLICT),
+    MEDIA_DERIVATIVE_UNAVAILABLE("Bản xem trước chưa khả dụng. Vui lòng thử lại sau.", HttpStatus.CONFLICT),
     MEDIA_DERIVATIVE_PROCESSING("Bản xem trước đang được xử lý. Vui lòng thử lại sau.", HttpStatus.CONFLICT),
     MEDIA_DUPLICATE_CONTENT("File này đã được tải lên cho Mission. Hãy gắn media đã có thay vì tải lại.", HttpStatus.CONFLICT),
     MEDIA_CAPTURE_TOO_OLD("Thời điểm chụp quá cũ so với thời gian thực hiện Mission.", HttpStatus.BAD_REQUEST),

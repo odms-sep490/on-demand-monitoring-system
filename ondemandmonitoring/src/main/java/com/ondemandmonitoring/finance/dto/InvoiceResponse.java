@@ -10,4 +10,4 @@ public record InvoiceResponse(String id, String invoiceNumber, String orderId, S
                               BigDecimal paidAmount, BigDecimal remainingAmount,
                               InvoiceStatus status, DepositStatus depositStatus, Instant issuedAt,
                               Instant depositExpiresAt,
-                              String orderCancellationReason) {}
+                              String orderCancellationReason, boolean contractRequired, Instant contractConfirmedAt) {}

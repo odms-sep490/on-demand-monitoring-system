@@ -48,6 +48,14 @@ class MissionPaymentEligibilityServiceTest {
     List<MissionStaffAssignment> crew;
     MissionDeviceAssignment mainDevice;
 
+    @Test void zeroDepositStillRequiresConfirmedContract() {
+        invoice.setContractRequired(true);
+        invoice.setDepositAmount(BigDecimal.ZERO);
+        assertThat(service.isDepositSatisfied(invoice)).isFalse();
+        invoice.setContractConfirmedAt(Instant.parse("2026-11-14T00:00:00Z"));
+        assertThat(service.isDepositSatisfied(invoice)).isTrue();
+    }
+
     @BeforeEach void setUp() {
         var order = new Order();
         order.setId("o1");

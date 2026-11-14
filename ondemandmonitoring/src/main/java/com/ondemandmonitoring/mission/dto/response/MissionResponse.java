@@ -22,6 +22,8 @@ public class MissionResponse {
 
     @Schema(description = "Unique identifier of the mission", example = "550e8400-e29b-41d4-a716-446655440000")
     String id;
+    String inspectionCorrectionId;
+    String inspectionSourceMissionId;
 
     @Schema(description = "Unique code of the mission", example = "MS-2026-0001")
     String missionCode;

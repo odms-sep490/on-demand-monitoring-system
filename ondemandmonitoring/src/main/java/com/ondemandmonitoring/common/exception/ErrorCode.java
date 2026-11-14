@@ -10,6 +10,15 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public enum ErrorCode {
+    INSPECTION_CORRECTION_PENDING("Complete inspection corrections before publishing the result", HttpStatus.CONFLICT),
+    INSPECTION_CORRECTION_STATE_CONFLICT("Inspection correction state changed", HttpStatus.CONFLICT),
+    CONTRACT_NOT_FOUND("Contract not found", HttpStatus.NOT_FOUND),
+    CONTRACT_STATE_CONFLICT("Contract action is not allowed in the current state", HttpStatus.CONFLICT),
+    CONTRACT_VERSION_CONFLICT("Contract was changed; refresh before continuing", HttpStatus.CONFLICT),
+    CONTRACT_NOT_CONFIRMED("The signed contract must be confirmed before paying the deposit", HttpStatus.CONFLICT),
+    CONTRACT_FILE_INVALID("Upload a valid, unencrypted PDF of at most 10 MB and 500 pages", HttpStatus.BAD_REQUEST),
+    CONTRACT_STORAGE_UNAVAILABLE("Contract document is not available in private storage", HttpStatus.SERVICE_UNAVAILABLE),
+
 
     INVALID_REQUEST("Yêu cầu không hợp lệ", HttpStatus.BAD_REQUEST),
     VALIDATION_ERROR("Dữ liệu không hợp lệ", HttpStatus.BAD_REQUEST),
@@ -83,6 +92,7 @@ public enum ErrorCode {
     MEDIA_UPLOAD_FAILED("File upload failed after 3 attempts", HttpStatus.BAD_GATEWAY),
     MEDIA_NOT_FOUND("Media not found", HttpStatus.NOT_FOUND),
     MEDIA_REMOVED("Lần tải trước của tệp này đã được gỡ. Hãy chọn lại tệp để bắt đầu lần tải mới.", HttpStatus.CONFLICT),
+    MEDIA_DERIVATIVE_UNAVAILABLE("Bản xem trước chưa khả dụng. Vui lòng thử lại sau.", HttpStatus.CONFLICT),
     MEDIA_DERIVATIVE_PROCESSING("Bản xem trước đang được xử lý. Vui lòng thử lại sau.", HttpStatus.CONFLICT),
     MEDIA_DUPLICATE_CONTENT("File này đã được tải lên cho Mission. Hãy gắn media đã có thay vì tải lại.", HttpStatus.CONFLICT),
     MEDIA_CAPTURE_TOO_OLD("Thời điểm chụp quá cũ so với thời gian thực hiện Mission.", HttpStatus.BAD_REQUEST),

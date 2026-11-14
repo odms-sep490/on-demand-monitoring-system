@@ -15,8 +15,12 @@ public enum ErrorCode {
     CONTRACT_NOT_FOUND("Contract not found", HttpStatus.NOT_FOUND),
     CONTRACT_STATE_CONFLICT("Contract action is not allowed in the current state", HttpStatus.CONFLICT),
     CONTRACT_VERSION_CONFLICT("Contract was changed; refresh before continuing", HttpStatus.CONFLICT),
-    CONTRACT_NOT_CONFIRMED("The signed contract must be confirmed before paying the deposit", HttpStatus.CONFLICT),
+    CONTRACT_NOT_CONFIRMED("Submit the signed contract before paying the deposit", HttpStatus.CONFLICT),
     CONTRACT_FILE_INVALID("Upload a valid, unencrypted PDF of at most 10 MB and 500 pages", HttpStatus.BAD_REQUEST),
+    CONTRACT_CANCELLATION_PENDING_PAYMENT("Reconcile pending payments before cancelling", HttpStatus.CONFLICT),
+    CONTRACT_FINANCIAL_REVIEW_REQUIRED("Payment records require review before this decision", HttpStatus.CONFLICT),
+    CONTRACT_CANCELLATION_MISSION_EXISTS("Use operational cancellation after Mission planning", HttpStatus.CONFLICT),
+    CONTRACT_LIABILITY_BASIS_REQUIRED("Explicit customer liability and a cancellation basis are required", HttpStatus.BAD_REQUEST),
     CONTRACT_STORAGE_UNAVAILABLE("Contract document is not available in private storage", HttpStatus.SERVICE_UNAVAILABLE),
 
 

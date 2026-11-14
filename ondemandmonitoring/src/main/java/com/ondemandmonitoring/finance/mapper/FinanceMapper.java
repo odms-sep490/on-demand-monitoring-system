@@ -71,7 +71,7 @@ public final class FinanceMapper {
                 invoice.effectiveDepositStatus(), invoice.getIssuedAt(),
                 invoice.getDepositExpiresAt(),
                 invoice.getOrder().getCancellationReason() == null ? null : invoice.getOrder().getCancellationReason().name(),
-                invoice.isContractRequired(), invoice.getContractConfirmedAt());
+                invoice.isContractRequired(), invoice.getContractConfirmedAt(), invoice.getContractSubmittedAt());
     }
 
     public static PaymentResponse payment(Payment payment) {

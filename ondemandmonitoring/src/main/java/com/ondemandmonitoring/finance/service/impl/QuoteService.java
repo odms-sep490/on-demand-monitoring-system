@@ -69,6 +69,7 @@ public class QuoteService implements IQuoteService {
     private final ChecklistPricingAuditRepository pricingAudits;
     private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
+    private final com.ondemandmonitoring.contract.service.QuoteContractPolicy quoteContracts;
 
     @Transactional(readOnly = true)
     public PricingReviewResponse getPricingReview(String orderId) {
@@ -317,7 +318,8 @@ public class QuoteService implements IQuoteService {
             throw new ApiException(ErrorCode.STALE_PRICING_REVISION);
         long nextPricingRevision = active.map(Quote::getPricingRevision).orElse(0L) + 1;
         Quote quote;
-        if (active.isPresent() && active.get().getStatus() == QuoteStatus.DRAFT && active.get().getChecklistRevision() == effectiveOrderRev) {
+        if (active.isPresent() && active.get().getStatus() == QuoteStatus.DRAFT && active.get().getChecklistRevision() == effectiveOrderRev
+                && !quoteContracts.hasDocument(active.get().getId())) {
             quote = quotes.findByIdForUpdate(active.get().getId()).orElseThrow();
         } else {
             active.ifPresent(previous -> {
@@ -403,6 +405,7 @@ public class QuoteService implements IQuoteService {
         requireGuidanceSnapshot(order, quote, reviewed);
         // Approval criteria: automatic checks + the manager's own answers.
         readiness.requireApprovable(orderId);
+        quoteContracts.requirePrepared(quote);
         Instant issuedAt = Instant.now(clock);
         User approver = currentUser.getCurrentUser();
         quote.setStatus(QuoteStatus.APPROVED);
@@ -447,6 +450,7 @@ public class QuoteService implements IQuoteService {
         requireGuidanceSnapshot(order, quote, checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId));
         readiness.requireApprovable(orderId);
         quote.setPricingApprovalStatus(PricingApprovalStatus.APPROVED);
+        quoteContracts.requirePrepared(quote);
         Instant issuedAt = reviewedAt;
         quote.setStatus(QuoteStatus.APPROVED); quote.setApprovedBy(approver); quote.setApprovedAt(issuedAt);
         quote.setExpiresAt(issuedAt.plus(expirationSettings.current().quotationAcceptanceTimeout()));
@@ -506,6 +510,7 @@ public class QuoteService implements IQuoteService {
         if (quote.getStatus() != QuoteStatus.APPROVED || order.getOrderStatus() != OrderStatus.APPROVED)
             throw new ApiException(ErrorCode.QUOTE_NOT_APPROVED);
         requireGuidanceSnapshot(order, quote, checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId));
+        quoteContracts.requirePrepared(quote);
         quote.setStatus(QuoteStatus.ACCEPTED_BY_CUSTOMER);
         quote.setAcceptedAt(now);
         // Deposit progress belongs to the invoice. Accepting a quote leaves the order approved;
@@ -524,7 +529,8 @@ public class QuoteService implements IQuoteService {
         invoice.setIssuedAt(now);
         invoice.setContractRequired(true);
         invoice.setDepositExpiresAt(null);
-        Invoice saved = invoices.save(invoice);
+        Invoice saved = invoices.saveAndFlush(invoice);
+        quoteContracts.attachInvoice(saved);
         return invoiceResponse(saved);
     }
 

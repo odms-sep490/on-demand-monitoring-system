@@ -3,6 +3,7 @@ package com.ondemandmonitoring.contract.domain;
 import com.ondemandmonitoring.common.entity.BaseEntity;
 import com.ondemandmonitoring.contract.enums.ContractStatus;
 import com.ondemandmonitoring.finance.domain.Invoice;
+import com.ondemandmonitoring.finance.domain.Quote;
 import jakarta.persistence.*;
 import java.time.Instant;
 import lombok.Getter;
@@ -15,19 +16,24 @@ import lombok.Setter;
     name = "ck_order_contract_state",
     constraints =
         "quote_version > 0 and status in"
-            + " ('AWAITING_SIGNATURE','PENDING_VERIFICATION','CHANGES_REQUESTED','CONFIRMED') and"
+            + " ('AWAITING_SIGNATURE','PENDING_VERIFICATION','CHANGES_REQUESTED','CONFIRMED','CANCELLED') and"
             + " ((status = 'CONFIRMED' and confirmed_at is not null and confirmed_by is not null)"
             + " or (status <> 'CONFIRMED' and confirmed_at is null and confirmed_by is null))")
 @Table(
     name = "order_contracts",
     uniqueConstraints = {
       @UniqueConstraint(name = "uk_contract_invoice", columnNames = "invoice_id"),
+      @UniqueConstraint(name = "uk_contract_quote", columnNames = "quote_id"),
       @UniqueConstraint(name = "uk_contract_number", columnNames = "contract_number")
     })
 public class OrderContract extends BaseEntity {
-  @OneToOne(fetch = FetchType.LAZY, optional = false)
-  @JoinColumn(name = "invoice_id", nullable = false)
+  @OneToOne(fetch = FetchType.LAZY)
+  @JoinColumn(name = "invoice_id")
   private Invoice invoice;
+
+  @OneToOne(fetch = FetchType.LAZY, optional = false)
+  @JoinColumn(name = "quote_id", nullable = false, updatable = false)
+  private Quote quote;
 
   @Column(name = "quote_version", nullable = false, updatable = false)
   private int quoteVersion;

@@ -9,6 +9,8 @@ import com.ondemandmonitoring.contract.repository.*;
 import com.ondemandmonitoring.contract.service.*;
 import com.ondemandmonitoring.contract.validation.ContractPdfValidator;
 import com.ondemandmonitoring.finance.domain.Invoice;
+import com.ondemandmonitoring.finance.domain.Quote;
+import com.ondemandmonitoring.finance.repository.QuoteRepository;
 import com.ondemandmonitoring.finance.enums.*;
 import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.finance.service.impl.CommercialExpirationSettingsService;
@@ -37,6 +39,7 @@ public class OrderContractServiceImpl implements IOrderContractService {
   private final OrderContractMapper mapper;
   private final CommercialExpirationSettingsService expirationSettings;
   private final Clock clock;
+  private final QuoteRepository quotes;
 
   @Override
   @Transactional(readOnly = true)
@@ -44,37 +47,74 @@ public class OrderContractServiceImpl implements IOrderContractService {
     Order order =
         orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
     requireReader(order);
-    Invoice invoice =
-        invoices
-            .findByOrderId(orderId)
-            .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
-    return response(invoice, contracts.findByInvoiceId(invoice.getId()).orElse(null));
+    var invoice = invoices.findByOrderId(orderId).orElse(null);
+    Quote quote = invoice != null ? invoice.getQuote() : currentQuote(orderId);
+    requireQuoteReader(quote);
+    return response(quote, invoice, contracts.findByQuoteId(quote.getId()).orElse(null));
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public ContractResponse getForQuote(String orderId, String quoteId) {
+    Quote quote = quotes.findById(quoteId).orElseThrow(() -> new ApiException(ErrorCode.QUOTE_NOT_FOUND));
+    if (!quote.getOrder().getId().equals(orderId)) throw denied();
+    requireReader(quote.getOrder());
+    requireQuoteReader(quote);
+    var invoice = invoices.findByQuoteId(quoteId).orElse(null);
+    return response(quote, invoice, contracts.findByQuoteId(quoteId).orElse(null));
   }
 
   @Override
   @Transactional
   public ContractResponse issue(String orderId, String quoteId, String number, MultipartFile file) {
+    return issueDocument(orderId, quoteId, null, number, file);
+  }
+
+  @Override
+  @Transactional
+  public ContractResponse prepare(String orderId, String quoteId, long expectedPricingRevision, String number, MultipartFile file) {
+    return issueDocument(orderId, quoteId, expectedPricingRevision, number, file);
+  }
+
+  private ContractResponse issueDocument(String orderId, String quoteId, Long expectedPricingRevision, String number, MultipartFile file) {
     requireManager();
-    Invoice invoice = lockInvoice(orderId);
-    requireEditableInvoice(invoice);
-    if (!invoice.isContractRequired()
-        || !Objects.equals(invoice.getQuote().getId(), quoteId)
-        || contracts.findByInvoiceId(invoice.getId()).isPresent()) throw conflict();
-    String normalized = number == null ? "" : number.trim();
+    Order order = orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+    Quote quote = quotes.findByIdForUpdate(quoteId).orElseThrow(() -> new ApiException(ErrorCode.QUOTE_NOT_FOUND));
+    if (!quote.getOrder().getId().equals(orderId)
+        || !Set.of(QuoteStatus.DRAFT, QuoteStatus.PENDING_REVIEW, QuoteStatus.APPROVED, QuoteStatus.ACCEPTED_BY_CUSTOMER).contains(quote.getStatus())
+        || !Set.of(OrderStatus.PENDING, OrderStatus.UNDER_REVIEW, OrderStatus.APPROVED).contains(order.getOrderStatus())
+        || quote.getChecklistRevision() != (order.getChecklistRevision() == 0 ? 1 : order.getChecklistRevision())
+        || !currentQuote(orderId).getId().equals(quoteId)
+        || contracts.findByQuoteId(quoteId).isPresent()) throw conflict();
+    if (quote.getStatus() != QuoteStatus.ACCEPTED_BY_CUSTOMER
+        && (expectedPricingRevision == null || expectedPricingRevision != quote.getPricingRevision()))
+      throw new ApiException(ErrorCode.CONTRACT_VERSION_CONFLICT);
+    Invoice invoice = invoices.findByQuoteId(quoteId).orElse(null);
+    if (invoice != null) {
+      invoice = invoices.findByIdForUpdate(invoice.getId()).orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
+      requireEditableInvoice(invoice);
+      if (invoice.getPaidAmount().signum() != 0) throw conflict();
+      if (!invoice.isContractRequired()) throw conflict();
+    }
+    // Internal reference only. The legal contract number, if any, stays inside the uploaded PDF.
+    String normalized = number == null || number.isBlank()
+        ? "CTR-" + UUID.randomUUID().toString().toUpperCase(Locale.ROOT)
+        : number.trim();
     if (!normalized.matches("[A-Za-z0-9][A-Za-z0-9/_-]{2,79}"))
       throw new ApiException(ErrorCode.INVALID_REQUEST, "Invalid contract number");
     if (contracts.existsByContractNumber(normalized)) throw conflict();
     var pdf = ContractPdfValidator.validate(file);
     OrderContract contract = new OrderContract();
     contract.setInvoice(invoice);
-    contract.setQuoteVersion(invoice.getQuote().getQuoteVersion());
+    contract.setQuote(quote);
+    contract.setQuoteVersion(quote.getQuoteVersion());
     contract.setContractNumber(normalized);
     contract.setStatus(ContractStatus.AWAITING_SIGNATURE);
     contract.setIssuedBy(users.getCurrentUserId());
     contract.setIssuedAt(Instant.now(clock));
     contract.setDocument(storage.store(orderId, pdf));
     contracts.saveAndFlush(contract);
-    return response(invoice, contract);
+    return response(quote, invoice, contract);
   }
 
   @Override
@@ -99,6 +139,11 @@ public class OrderContractServiceImpl implements IOrderContractService {
     submission.setDocument(storage.store(orderId, pdf));
     submissions.saveAndFlush(submission);
     contract.setStatus(ContractStatus.PENDING_VERIFICATION);
+    if (invoice.getContractSubmittedAt() == null) {
+      invoice.setContractSubmittedAt(Instant.now(clock));
+      if (invoice.getDepositExpiresAt() == null)
+        invoice.setDepositExpiresAt(Instant.now(clock).plus(expirationSettings.current().depositPaymentTimeout()));
+    }
     contracts.saveAndFlush(contract);
     return response(invoice, contract);
   }
@@ -128,7 +173,8 @@ public class OrderContractServiceImpl implements IOrderContractService {
     contract.setConfirmedAt(now);
     contract.setConfirmedBy(users.getCurrentUserId());
     invoice.setContractConfirmedAt(now);
-    invoice.setDepositExpiresAt(now.plus(expirationSettings.current().depositPaymentTimeout()));
+    if (invoice.getDepositExpiresAt() == null)
+      invoice.setDepositExpiresAt(now.plus(expirationSettings.current().depositPaymentTimeout()));
     submissions.saveAndFlush(latest);
     contracts.saveAndFlush(contract);
     return response(invoice, contract);
@@ -164,26 +210,38 @@ public class OrderContractServiceImpl implements IOrderContractService {
   @Override
   @Transactional(readOnly = true)
   public ContractDownloadResponse download(String orderId, String submissionId) {
-    Order order =
-        orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-    requireReader(order);
-    Invoice invoice =
-        invoices
-            .findByOrderId(orderId)
-            .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
-    OrderContract contract = requiredContract(invoice);
-    ContractDocument document =
-        submissionId == null
-            ? contract.getDocument()
-            : history(contract).stream()
-                .filter(s -> s.getId().equals(submissionId))
-                .findFirst()
-                .map(ContractSubmission::getDocument)
-                .orElseThrow(() -> new ApiException(ErrorCode.CONTRACT_NOT_FOUND));
-    return new ContractDownloadResponse(
-        storage.download(document),
-        Instant.now(clock).plusSeconds(storage.expiresInSeconds()),
-        document.getFileName());
+    Invoice invoice = invoices.findByOrderId(orderId).orElse(null);
+    Quote quote = invoice != null ? invoice.getQuote() : currentQuote(orderId);
+    return downloadForQuote(orderId, quote.getId(), submissionId);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public ContractDownloadResponse downloadForQuote(String orderId, String quoteId, String submissionId) {
+    Quote quote = quotes.findById(quoteId).orElseThrow(() -> new ApiException(ErrorCode.QUOTE_NOT_FOUND));
+    if (!quote.getOrder().getId().equals(orderId)) throw denied();
+    requireReader(quote.getOrder());
+    requireQuoteReader(quote);
+    OrderContract contract = contracts.findByQuoteId(quoteId).orElseThrow(() -> new ApiException(ErrorCode.CONTRACT_NOT_FOUND));
+    ContractDocument document = contract.getDocument();
+    if (submissionId != null) {
+      var submission = history(contract).stream().filter(s -> s.getId().equals(submissionId)).findFirst()
+          .orElseThrow(() -> new ApiException(ErrorCode.CONTRACT_NOT_FOUND));
+      document = submission.getDocument();
+    }
+    return new ContractDownloadResponse(storage.download(document),
+        Instant.now(clock).plusSeconds(storage.expiresInSeconds()), document.getFileName());
+  }
+
+  private Quote currentQuote(String orderId) {
+    return quotes.findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc(orderId,
+        List.of(QuoteStatus.DRAFT, QuoteStatus.PENDING_REVIEW, QuoteStatus.APPROVED, QuoteStatus.ACCEPTED_BY_CUSTOMER, QuoteStatus.EXPIRED))
+        .orElseThrow(() -> new ApiException(ErrorCode.QUOTE_NOT_FOUND));
+  }
+
+  private void requireQuoteReader(Quote quote) {
+    if (!manager(users.getCurrentUser()) && !Set.of(QuoteStatus.APPROVED, QuoteStatus.ACCEPTED_BY_CUSTOMER, QuoteStatus.EXPIRED).contains(quote.getStatus()))
+      throw denied();
   }
 
   /** All mutations serialize Order -> Invoice -> Contract/submission, matching deposit creation. */
@@ -206,8 +264,7 @@ public class OrderContractServiceImpl implements IOrderContractService {
 
   private void requireEditableInvoice(Invoice invoice) {
     if (invoice.getOrder().getOrderStatus() != OrderStatus.APPROVED
-        || invoice.getStatus() != InvoiceStatus.ISSUED
-        || invoice.getPaidAmount().signum() != 0
+        || !Set.of(InvoiceStatus.ISSUED, InvoiceStatus.PARTIALLY_PAID, InvoiceStatus.PAID).contains(invoice.getStatus())
         || invoice.getQuote().getStatus() != QuoteStatus.ACCEPTED_BY_CUSTOMER) throw conflict();
   }
 
@@ -257,16 +314,21 @@ public class OrderContractServiceImpl implements IOrderContractService {
   }
 
   private ContractResponse response(Invoice invoice, OrderContract contract) {
+    return response(invoice.getQuote(), invoice, contract);
+  }
+
+  private ContractResponse response(Quote quote, Invoice invoice, OrderContract contract) {
+    boolean required = invoice == null || invoice.isContractRequired();
     if (contract == null)
       return new ContractResponse(
-          invoice.isContractRequired(),
+          required,
           null,
           0,
-          invoice.getId(),
-          invoice.getQuote().getId(),
-          invoice.getQuote().getQuoteVersion(),
+          invoice == null ? null : invoice.getId(),
+          quote.getId(),
+          quote.getQuoteVersion(),
           null,
-          invoice.isContractRequired() ? ContractStatus.NOT_ISSUED : ContractStatus.NOT_REQUIRED,
+          required ? ContractStatus.NOT_ISSUED : ContractStatus.NOT_REQUIRED,
           null,
           null,
           null,
@@ -277,8 +339,8 @@ public class OrderContractServiceImpl implements IOrderContractService {
         true,
         contract.getId(),
         contract.getVersion() == null ? 0 : contract.getVersion(),
-        invoice.getId(),
-        invoice.getQuote().getId(),
+        invoice == null ? null : invoice.getId(),
+        quote.getId(),
         contract.getQuoteVersion(),
         contract.getContractNumber(),
         contract.getStatus(),

@@ -62,6 +62,8 @@ class OrderContractPostgresTest {
   @Autowired PlatformTransactionManager transactions;
   @Autowired EntityManagerFactory emf;
   @Autowired IOrderContractService contracts;
+  @Autowired IContractCancellationService cancellations;
+  @Autowired IMediaObjectStorage contextObjects;
   @Autowired AuthenticatedUserResolver users;
   String orderId, invoiceId;
   User customer, manager;
@@ -299,7 +301,7 @@ class OrderContractPostgresTest {
         .isInstanceOf(IllegalStateException.class);
     assertThat(
             jdbc.queryForObject(
-                "select contract_confirmed_at is null and deposit_expires_at is null from invoices"
+                "select contract_confirmed_at is null and contract_submitted_at is not null and deposit_expires_at = contract_submitted_at + interval '12 hours' from invoices"
                     + " where id=?",
                 Boolean.class,
                 invoiceId))
@@ -308,6 +310,130 @@ class OrderContractPostgresTest {
     assertThat(OBJECTS).hasSize(2);
   }
 
+  @Test
+  void preparesQuoteDocumentBeforeInvoiceAndBindsItOnAcceptance() {
+    String quoteId = tx.execute(status -> {
+      var em = emf.createEntityManager();
+      try { return jdbc.queryForObject("select quote_id from invoices where id=?", String.class, invoiceId); }
+      finally { em.close(); }
+    });
+    jdbc.update("delete from invoices where id=?", invoiceId);
+    jdbc.update("update quotes set status='DRAFT' where id=?", quoteId);
+    actor(manager);
+    var prepared = contracts.prepare(orderId, quoteId, 0, "PREPARED-" + UUID.randomUUID(), ContractTestFiles.pdf());
+    assertThat(prepared.invoiceId()).isNull();
+    assertThat(jdbc.queryForObject("select count(*) from invoices where order_id=?", Integer.class, orderId)).isZero();
+    actor(customer);
+    assertThatThrownBy(() -> contracts.getForQuote(orderId, quoteId)).isInstanceOf(ApiException.class);
+    jdbc.update("update quotes set status='APPROVED' where id=?", quoteId);
+    assertThat(contracts.getForQuote(orderId, quoteId).document()).isNotNull();
+    assertThatThrownBy(() -> contracts.submit(orderId, prepared.version(), ContractTestFiles.pdf())).isInstanceOf(ApiException.class);
+    tx.executeWithoutResult(status -> {
+      var em = org.springframework.orm.jpa.EntityManagerFactoryUtils.getTransactionalEntityManager(emf);
+      var quote = em.find(Quote.class, quoteId);
+      quote.setStatus(QuoteStatus.ACCEPTED_BY_CUSTOMER);
+      Invoice accepted = new Invoice(); accepted.setOrder(quote.getOrder()); accepted.setQuote(quote);
+      accepted.setInvoiceNumber("INV-PREPARED-" + UUID.randomUUID());
+      accepted.setTotalAmount(new BigDecimal("1000")); accepted.setDepositAmount(new BigDecimal("300"));
+      accepted.setRemainingAmount(new BigDecimal("1000")); accepted.setPaidAmount(BigDecimal.ZERO);
+      accepted.setStatus(InvoiceStatus.ISSUED); accepted.setDepositStatus(DepositStatus.WAITING_DEPOSIT);
+      accepted.setIssuedAt(NOW); accepted.setContractRequired(true); em.persist(accepted); em.flush();
+      new QuoteContractPolicy(new org.springframework.data.jpa.repository.support.JpaRepositoryFactory(em).getRepository(OrderContractRepository.class),
+          new ContractDocumentStorage(contextObjects)).attachInvoice(accepted);
+    });
+    var after = contracts.get(orderId);
+    assertThat(after.id()).isEqualTo(prepared.id());
+    assertThat(after.document().sha256()).isEqualTo(prepared.document().sha256());
+    assertThat(after.invoiceId()).isNotNull();
+    assertThat(OBJECTS).hasSize(1);
+  }
+
+  void paidDeposit() {
+    tx.executeWithoutResult(status -> {
+      var em=SharedEntityManagerCreator.createSharedEntityManager(emf);
+      Role role=new Role(); role.setCode(RoleCode.MANAGER); role.setName("Manager"); role.setActive(true); em.persist(role);
+      manager=new User(); manager.setFullName("Cancellation manager"); manager.setEmail("manager@example.test"); manager.setRole(role); em.persist(manager);
+      var invoice=em.find(Invoice.class,invoiceId); invoice.setPaidAmount(BigDecimal.valueOf(120)); invoice.setRemainingAmount(BigDecimal.valueOf(880)); invoice.setStatus(InvoiceStatus.PARTIALLY_PAID);
+      Payment payment=new Payment(); payment.setInvoice(invoice); payment.setPaymentType(PaymentType.DEPOSIT); payment.setProvider(PaymentProvider.VNPAY); payment.setStatus(PaymentStatus.SUCCESS); payment.setAmount(BigDecimal.valueOf(120)); payment.setCurrency("VND"); payment.setPaidAt(NOW); payment.setTransactionReference("123456789012"); payment.setPaymentCode(123456789012L); em.persist(payment);
+    });
+    actor(manager);
+  }
+
+  @Test
+  void contractCancellationPersistsARealRefundAndReplaysWithoutDuplicatingMoney() {
+    var issued=issue(); paidDeposit();
+    var command=new ContractCancellationRequest(UUID.randomUUID(),issued.version(),CancellationResponsibility.SYSTEM,"The service cannot proceed","Recorded agreement and responsibility",false);
+    var first=cancellations.request(orderId,command);
+    var replay=cancellations.request(orderId,command);
+    assertThat(first.refundId()).isNotBlank(); assertThat(replay.id()).isEqualTo(first.id());
+    assertThat(jdbc.queryForObject("select count(*) from deposit_refunds",Integer.class)).isEqualTo(1);
+    assertThat(jdbc.queryForObject("select refundable_amount from deposit_refunds",BigDecimal.class)).isEqualByComparingTo("120");
+    assertThat(jdbc.queryForObject("select status from deposit_refunds",String.class)).isEqualTo("REQUESTED");
+    assertThat(jdbc.queryForObject("select paid_amount from invoices where id=?",BigDecimal.class,invoiceId)).isEqualByComparingTo("120");
+    assertThat(jdbc.queryForObject("select order_status from orders where id=?",String.class,orderId)).isEqualTo("CANCELLED");
+  }
+
+  @Test
+  void aTransactionRollbackDoesNotLeaveARefundOrCancelledContract() {
+    var issued=issue(); paidDeposit();
+    assertThatThrownBy(() -> tx.executeWithoutResult(status -> {
+      cancellations.request(orderId,new ContractCancellationRequest(UUID.randomUUID(),issued.version(),CancellationResponsibility.SYSTEM,"The service cannot proceed","Recorded agreement and responsibility",false));
+      throw new IllegalStateException("Force financial rollback");
+    })).isInstanceOf(IllegalStateException.class);
+    assertThat(jdbc.queryForObject("select count(*) from deposit_refunds",Integer.class)).isZero();
+    assertThat(jdbc.queryForObject("select count(*) from contract_cancellations",Integer.class)).isZero();
+    assertThat(contracts.get(orderId).status()).isEqualTo(ContractStatus.AWAITING_SIGNATURE);
+  }
+
+  @Test
+  void concurrentCancellationCreatesOnlyOneCaseAndOneRefund() throws Exception {
+    var issued=issue(); paidDeposit();
+    var command=new ContractCancellationRequest(UUID.randomUUID(),issued.version(),CancellationResponsibility.SYSTEM,"The service cannot proceed","Recorded agreement and responsibility",false);
+    var pool=Executors.newFixedThreadPool(2); var start=new CountDownLatch(1);
+    try {
+      var first=pool.submit(() -> { start.await(); return cancellations.request(orderId,command); });
+      var second=pool.submit(() -> { start.await(); return cancellations.request(orderId,command); });
+      start.countDown(); assertThat(first.get(30,TimeUnit.SECONDS).id()).isEqualTo(second.get(30,TimeUnit.SECONDS).id());
+      assertThat(jdbc.queryForObject("select count(*) from deposit_refunds",Integer.class)).isEqualTo(1);
+      assertThat(jdbc.queryForObject("select count(*) from contract_cancellations",Integer.class)).isEqualTo(1);
+    } finally {pool.shutdownNow();}
+  }
+
+  @Test
+  void unresolvedCancellationCanBeDecidedLaterWithoutLosingTheOriginalRequest() {
+    var issued=issue(); paidDeposit();
+    var pending=cancellations.request(orderId,new ContractCancellationRequest(UUID.randomUUID(),issued.version(),CancellationResponsibility.UNRESOLVED,"The parties cannot proceed",null,false));
+    assertThat(pending.status()).isEqualTo(ContractCancellationStatus.REVIEW_REQUIRED);
+    assertThat(jdbc.queryForObject("select count(*) from deposit_refunds",Integer.class)).isZero();
+    var decided=cancellations.decide(orderId,new ContractCancellationDecision(pending.version(),CancellationResponsibility.CUSTOMER,"Documented clause and customer responsibility",true));
+    assertThat(decided.status()).isEqualTo(ContractCancellationStatus.DEPOSIT_RETAINED);
+    assertThat(jdbc.queryForObject("select requested_responsibility from contract_cancellations",String.class)).isEqualTo("UNRESOLVED");
+    assertThat(jdbc.queryForObject("select count(*) from deposit_refunds",Integer.class)).isZero();
+    assertThat(jdbc.queryForObject("select paid_amount from invoices where id=?",BigDecimal.class,invoiceId)).isEqualByComparingTo("120");
+    assertThat(jdbc.queryForObject("select status from invoices where id=?",String.class,invoiceId)).isEqualTo("CANCELLED");
+  }
+
+  @Test
+  void paidContractCorrectionKeepsDepositAndFirstSubmissionDeadline() {
+    var issued=issue(); actor(customer);
+    var pending=contracts.submit(orderId,issued.version(),ContractTestFiles.pdf());
+    paidDeposit();
+    var changes=contracts.requestChanges(orderId,new ContractReviewRequest(pending.version(),pending.submissions().getFirst().id(),"Please include all signed pages"));
+    actor(customer); var resubmitted=contracts.submit(orderId,changes.version(),ContractTestFiles.pdf());
+    actor(manager); contracts.confirm(orderId,new ContractReviewRequest(resubmitted.version(),resubmitted.submissions().getFirst().id(),null));
+    assertThat(jdbc.queryForObject("select paid_amount from invoices where id=?",BigDecimal.class,invoiceId)).isEqualByComparingTo("120");
+    assertThat(jdbc.queryForObject("select deposit_expires_at = contract_submitted_at + interval '12 hours' from invoices where id=?",Boolean.class,invoiceId)).isTrue();
+    assertThat(jdbc.queryForObject("select count(*) from contract_submissions",Integer.class)).isEqualTo(2);
+  }
+
+
+
+
+
+
+
+
+
   @Configuration
   @EnableTransactionManagement
   @EnableJpaAuditing
@@ -315,7 +441,8 @@ class OrderContractPostgresTest {
       basePackageClasses = {
         OrderContractRepository.class,
         InvoiceRepository.class,
-        OrderRepository.class
+        OrderRepository.class,
+        com.ondemandmonitoring.refund.repository.RefundRepository.class
       })
   static class Config {
     @Bean
@@ -403,9 +530,31 @@ class OrderContractPostgresTest {
       return storage;
     }
 
+
+
     @Bean
     ContractDocumentStorage documentStorage(IMediaObjectStorage storage) {
       return new ContractDocumentStorage(storage);
+    }
+
+    @Bean
+    com.ondemandmonitoring.refund.service.RefundService refunds(
+        com.ondemandmonitoring.refund.repository.RefundRepository refunds,
+        com.ondemandmonitoring.refund.repository.RefundTransferAttemptRepository attempts,
+        com.ondemandmonitoring.refund.repository.RefundReceiptRepository receipts,
+        OrderRepository orders,InvoiceRepository invoices,com.ondemandmonitoring.finance.repository.PaymentRepository payments,
+        AuthenticatedUserResolver users,IMediaObjectStorage storage,org.springframework.context.ApplicationEventPublisher events,
+        ContractCancellationRepository cancellations) {
+      return new com.ondemandmonitoring.refund.service.RefundService(refunds,attempts,receipts,orders,invoices,payments,
+        mock(com.ondemandmonitoring.finance.service.impl.MissionPaymentMilestoneService.class),mock(com.ondemandmonitoring.mission.repository.MissionRepository.class),users,storage,events,cancellations);
+    }
+
+    @Bean
+    IContractCancellationService cancellations(OrderRepository orders,InvoiceRepository invoices,OrderContractRepository contracts,
+        ContractCancellationRepository cancellations,com.ondemandmonitoring.finance.repository.PaymentRepository payments,
+        com.ondemandmonitoring.refund.service.RefundService refunds,AuthenticatedUserResolver users) {
+      return new com.ondemandmonitoring.contract.service.impl.ContractCancellationServiceImpl(orders,invoices,contracts,cancellations,payments,
+        mock(com.ondemandmonitoring.mission.repository.MissionRepository.class),refunds,users,Clock.fixed(NOW,ZoneOffset.UTC));
     }
 
     @Bean
@@ -417,7 +566,8 @@ class OrderContractPostgresTest {
         AuthenticatedUserResolver users,
         ContractDocumentStorage storage,
         OrderContractMapper mapper,
-        CommercialExpirationSettingsService expiration) {
+        CommercialExpirationSettingsService expiration,
+        com.ondemandmonitoring.finance.repository.QuoteRepository contextQuotes) {
       return new OrderContractServiceImpl(
           orders,
           invoices,
@@ -427,7 +577,8 @@ class OrderContractPostgresTest {
           storage,
           mapper,
           expiration,
-          Clock.fixed(NOW, ZoneOffset.UTC));
+          Clock.fixed(NOW, ZoneOffset.UTC),
+          contextQuotes);
     }
   }
 }

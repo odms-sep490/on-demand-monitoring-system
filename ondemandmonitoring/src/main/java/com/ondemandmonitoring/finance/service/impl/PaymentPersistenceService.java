@@ -48,11 +48,12 @@ public class PaymentPersistenceService implements IPaymentPersistenceService {
         PaymentType type = PaymentType.DEPOSIT;
         String orderId = invoices.findOrderIdById(invoiceId)
                 .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
-        orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        var order = orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        if (order.getOrderStatus() != com.ondemandmonitoring.order.enums.OrderStatus.APPROVED) throw new ApiException(ErrorCode.INVOICE_NOT_PAYABLE);
         if (refundHoldService != null) refundHoldService.requireOrderNotOnRefundHold(orderId);
         Invoice invoice = invoices.findByIdForUpdate(invoiceId).orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
         if (!invoice.getOrder().getCustomer().getId().equals(currentUser.getCurrentUserId())) throw new ApiException(ErrorCode.ACCESS_DENIED);
-        if (!invoice.isContractReady()) throw new ApiException(ErrorCode.CONTRACT_NOT_CONFIRMED);
+        if (!invoice.isContractPaymentReady()) throw new ApiException(ErrorCode.CONTRACT_NOT_CONFIRMED);
         if (invoice.getStatus() == InvoiceStatus.PAID || invoice.getRemainingAmount().signum() == 0) {
             throw new ApiException(ErrorCode.INVOICE_ALREADY_PAID);
         }
@@ -64,7 +65,7 @@ public class PaymentPersistenceService implements IPaymentPersistenceService {
                 && !Instant.now(clock).isBefore(invoice.getDepositExpiresAt())) {
             throw new ApiException(ErrorCode.INVOICE_NOT_PAYABLE, "Deposit payment deadline has expired");
         }
-        if (eligibility.isDepositSatisfied(invoice)) {
+        if (invoice.effectiveDepositStatus() == DepositStatus.DEPOSIT_PAID) {
             throw new ApiException(ErrorCode.DEPOSIT_ALREADY_SATISFIED);
         }
         var active = payments.findFirstByInvoiceIdAndPaymentTypeAndProviderAndStatusInOrderByCreatedAtDesc(

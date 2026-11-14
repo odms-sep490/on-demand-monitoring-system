@@ -49,6 +49,7 @@ class QuoteServiceTest {
     ChecklistPricingAuditRepository pricingAudits = mock(ChecklistPricingAuditRepository.class);
     CommercialExpirationSettingsService expirationSettings = mock(CommercialExpirationSettingsService.class);
     IOrderReadinessService readiness = mock(IOrderReadinessService.class);
+    com.ondemandmonitoring.contract.service.QuoteContractPolicy quoteContracts = mock(com.ondemandmonitoring.contract.service.QuoteContractPolicy.class);
     QuoteService service;
     Order order;
 
@@ -56,10 +57,10 @@ class QuoteServiceTest {
         service = new QuoteService(orders, items, mock(OrderChecklistItemMapper.class), quotes, invoices, missions,
                 executions, users, new PaymentProperties(new BigDecimal("0.30")), expirationSettings,
                 readiness, pricingEngine, pricingPolicies, pricingAudits,
-                mock(org.springframework.context.ApplicationEventPublisher.class), Clock.systemUTC());
+                mock(org.springframework.context.ApplicationEventPublisher.class), Clock.systemUTC(), quoteContracts);
         when(expirationSettings.current()).thenReturn(new com.ondemandmonitoring.finance.dto.CommercialExpirationSettingsResponse(
                 48, 24, 24, "system", java.time.Instant.EPOCH));
-        order = new Order(); order.setId("o1"); order.getFlightAreaReview().setLegalReviewStatus(com.ondemandmonitoring.order.enums.LegalReviewStatus.NOT_REQUIRED); order.setOrderStatus(OrderStatus.PENDING);
+        order = new Order(); order.setId("o1"); var customer = new User(); customer.setId("customer"); order.setCustomer(customer); order.getFlightAreaReview().setLegalReviewStatus(com.ondemandmonitoring.order.enums.LegalReviewStatus.NOT_REQUIRED); order.setOrderStatus(OrderStatus.PENDING);
         var catalog = new com.ondemandmonitoring.service.domain.Service(); catalog.setName("Building inspection");
         order.setService(catalog);
         when(orders.findByIdForUpdate("o1")).thenReturn(Optional.of(order));
@@ -391,11 +392,13 @@ class QuoteServiceTest {
         when(quotes.findByIdForUpdate("q1")).thenReturn(Optional.of(quote));
         when(quotes.findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc("o1", List.of(QuoteStatus.APPROVED)))
                 .thenReturn(Optional.of(quote));
-        when(invoices.save(any())).thenAnswer(call -> call.getArgument(0));
+        when(invoices.saveAndFlush(any())).thenAnswer(call -> call.getArgument(0));
         when(missions.findIdsByOrderIdOrderById("o1")).thenReturn(List.of());
 
         var result = service.accept("o1", "q1");
 
+        verify(quoteContracts).requirePrepared(quote);
+        verify(quoteContracts).attachInvoice(argThat(i -> i.getQuote() == quote));
         assertThat(result.depositAmount()).isEqualByComparingTo("2550000");
         assertThat(result.remainingAmount()).isEqualByComparingTo("8500000");
         assertThat(quote.getStatus()).isEqualTo(QuoteStatus.ACCEPTED_BY_CUSTOMER);
@@ -431,6 +434,42 @@ class QuoteServiceTest {
     private OrderChecklistItem item(String id, ChecklistReviewStatus status) {
         OrderChecklistItem item = new OrderChecklistItem(); item.setId(id); item.setContent(id); item.setReviewStatus(status); return item;
     }
+    @Test void editingAQuoteWithPreparedDocumentCreatesANewVersionAndPreservesTheOriginal() {
+        Quote previous=new Quote();previous.setId("old");previous.setOrder(order);previous.setStatus(QuoteStatus.DRAFT);
+        previous.setQuoteVersion(1);previous.setChecklistRevision(1);previous.setPricingRevision(1);
+        previous.setTotalAmount(new BigDecimal("123"));
+        when(quotes.findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc("o1", List.of(QuoteStatus.DRAFT, QuoteStatus.PENDING_REVIEW, QuoteStatus.APPROVED))).thenReturn(Optional.of(previous));
+        when(quoteContracts.hasDocument("old")).thenReturn(true);
+        when(quotes.countByOrderId("o1")).thenReturn(1);
+        var result=service.saveDraft("o1",request("5000000","0","0",Map.of()));
+        assertThat(previous.getStatus()).isEqualTo(QuoteStatus.SUPERSEDED);
+        assertThat(previous.getTotalAmount()).isEqualByComparingTo("123");
+        assertThat(result.version()).isEqualTo(2);
+        assertThat(result.status()).isEqualTo(QuoteStatus.DRAFT);
+    }
+
+    @Test void customerCannotAcceptQuoteWithoutItsPreparedPdf() {
+        order.setOrderStatus(OrderStatus.APPROVED);
+        when(users.getCurrentUser()).thenReturn(order.getCustomer());
+        Quote quote=new Quote();quote.setId("q1");quote.setOrder(order);quote.setQuoteVersion(1);quote.setStatus(QuoteStatus.APPROVED);
+        when(quotes.findByIdForUpdate("q1")).thenReturn(Optional.of(quote));
+        when(quotes.findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc("o1",List.of(QuoteStatus.APPROVED))).thenReturn(Optional.of(quote));
+        doThrow(new ApiException(ErrorCode.CONTRACT_NOT_FOUND)).when(quoteContracts).requirePrepared(quote);
+        assertThatThrownBy(()->service.accept("o1","q1")).isInstanceOf(ApiException.class)
+          .extracting("errorCode").isEqualTo(ErrorCode.CONTRACT_NOT_FOUND);
+        assertThat(quote.getStatus()).isEqualTo(QuoteStatus.APPROVED);
+        verify(invoices,never()).saveAndFlush(any());
+    }
+
+    @Test void managerCannotSendQuoteWithoutItsPreparedPdf() {
+        Quote quote=new Quote();quote.setId("q1");quote.setOrder(order);quote.setQuoteVersion(1);quote.setChecklistRevision(1);quote.setStatus(QuoteStatus.DRAFT);
+        when(quotes.findByIdForUpdate("q1")).thenReturn(Optional.of(quote));
+        doThrow(new ApiException(ErrorCode.CONTRACT_NOT_FOUND)).when(quoteContracts).requirePrepared(quote);
+        assertThatThrownBy(()->service.approve("o1","q1")).isInstanceOf(ApiException.class)
+          .extracting("errorCode").isEqualTo(ErrorCode.CONTRACT_NOT_FOUND);
+        assertThat(quote.getStatus()).isEqualTo(QuoteStatus.DRAFT);
+    }
+
     private QuoteDraftRequest request(String pack, String discount, String adjustment, Map<String, BigDecimal> prices) {
         return new QuoteDraftRequest(new BigDecimal(pack), new BigDecimal(discount), new BigDecimal(adjustment), null, prices);
     }

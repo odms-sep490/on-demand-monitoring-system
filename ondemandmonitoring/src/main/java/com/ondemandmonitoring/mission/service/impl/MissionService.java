@@ -131,7 +131,7 @@ public class MissionService implements IMissionService {
     ResourceTimeLockRepository resourceTimeLockRepository;
     IMissionChecklistExecutionService checklistExecutionService;
 
-    IMissionChecklistMaterializationService checklistMaterializationService;
+    MissionPlanningActivationService missionPlanningActivationService;
     @Autowired @NonFinal
     IMissionReworkContextSnapshotService reworkContextSnapshots;
     com.ondemandmonitoring.mission.service.IMissionChecklistAssignmentService checklistAssignmentService;
@@ -437,7 +437,6 @@ public class MissionService implements IMissionService {
                 .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
         if (!missionPaymentEligibilityService.isDepositSatisfied(invoice))
             throw new ApiException(ErrorCode.INVOICE_NOT_PAID, "Deposit must be paid before confirming mission planning");
-        requireRevisionAvailable(order);
         requirePlanningReady(mission);
         var selected = missionChecklistAssignmentRepository.findByMissionIdAndRemovedAtIsNullOrderByDisplayOrderAscIdAsc(missionId);
         if (selected.isEmpty()) throw new ApiException(ErrorCode.CHECKLIST_COVERAGE_INCOMPLETE);
@@ -446,12 +445,7 @@ public class MissionService implements IMissionService {
                 missionRepository.findAllByOrderIdOrderByScheduledStartAtAscIdAsc(order.getId()), missionChecklistAssignmentRepository.findActiveByOrderId(order.getId()));
         if (!calculated.coverageReady() || calculated.repeated() > 0)
             throw new ApiException(ErrorCode.CHECKLIST_COVERAGE_INCOMPLETE);
-        checklistMaterializationService.materialize(mission);
-        mission.setStatus(MissionStatus.PENDING_CONFIRMATION);
-        activateAssignedResources(missionId);
-        order.getExecutionPlan().setRevision(order.getExecutionPlan().getRevision() + 1);
-        orderRepository.saveAndFlush(order);
-        return missionMapper.toResponse(missionRepository.saveAndFlush(mission));
+        return finalizePlanningMission(order, mission);
     }
 
     @Override
@@ -523,29 +517,19 @@ public class MissionService implements IMissionService {
             throw new ApiException(ErrorCode.INVALID_REQUEST,
                     "Rework crew, equipment, schedule or resource reservations are no longer valid");
 
-        checklistMaterializationService.materialize(mission);
-        mission.setStatus(MissionStatus.PENDING_CONFIRMATION);
-        activateAssignedResources(mission.getId());
+        return finalizePlanningMission(order, mission);
+    }
+
+    /**
+     * Shared lifecycle transition used by original and rework planning. Case scope,
+     * Order coverage, and their respective authorization checks stay at the callers.
+     */
+    private MissionResponse finalizePlanningMission(Order order, Mission mission) {
+        requireRevisionAvailable(order);
+        missionPlanningActivationService.activate(mission);
         order.getExecutionPlan().setRevision(Math.addExact(order.getExecutionPlan().getRevision(), 1));
         orderRepository.saveAndFlush(order);
         return missionMapper.toResponse(missionRepository.saveAndFlush(mission));
-    }
-
-    private void activateAssignedResources(String missionId) {
-        missionStaffAssignmentRepository.findByMissionId(missionId).forEach(assignment -> {
-            if (assignment.getReleasedAt() == null) {
-                if (assignment.getResponseStatus() == MissionStaffAssignmentStatus.PLANNING)
-                    assignment.setResponseStatus(MissionStaffAssignmentStatus.PENDING);
-                assignment.setIsCurrent(true);
-            }
-        });
-        missionDeviceAssignmentRepository.findByMissionId(missionId).forEach(assignment -> {
-            if (assignment.getReleasedAt() == null) {
-                if (assignment.getCheckupStatus() == MissionDeviceCheckStatus.PLANNING)
-                    assignment.setCheckupStatus(MissionDeviceCheckStatus.PENDING);
-                assignment.setIsCurrent(true);
-            }
-        });
     }
 
     @Override

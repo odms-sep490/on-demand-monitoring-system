@@ -33,7 +33,7 @@ class ExecutionPlanFinalizeTest {
     IMissionPaymentEligibilityService paymentEligibility = mock(IMissionPaymentEligibilityService.class);
     AuthenticatedUserResolver actor = mock(AuthenticatedUserResolver.class);
     ExecutionPlanServiceImpl service = new ExecutionPlanServiceImpl(orders, missions, items, assignments,
-            materializer, mock(IMissionChecklistScopeService.class), actor, new ExecutionPlanCoverageService(),
+            new MissionPlanningActivationService(materializer, staff, devices), mock(IMissionChecklistScopeService.class), actor, new ExecutionPlanCoverageService(),
             staff, devices, invoices, paymentEligibility);
     Order order;
     Mission first, second;

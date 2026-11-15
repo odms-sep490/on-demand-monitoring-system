@@ -56,6 +56,8 @@ public enum ErrorCode {
      *
      */
     MISSION_NOT_FOUND("Mission not found", HttpStatus.NOT_FOUND),
+    MISSION_TEMPLATE_NOT_FOUND("Mission template not found", HttpStatus.NOT_FOUND),
+    MISSION_TEMPLATE_CHECKLIST_OVERLAP("Checklist already belongs to another mission template", HttpStatus.CONFLICT),
     EXECUTION_PLAN_REVISION_CONFLICT("Execution plan changed; refresh and retry", HttpStatus.CONFLICT),
     EXECUTION_PLAN_NOT_DRAFT("Execution plan must be DRAFT", HttpStatus.CONFLICT),
     EXECUTION_PLAN_NOT_FINALIZED("Execution plan must be FINALIZED", HttpStatus.CONFLICT),
@@ -159,6 +161,8 @@ public enum ErrorCode {
     CHECKLIST_NOT_FOUND("Checklist not found", HttpStatus.NOT_FOUND),
     CHECKLIST_ALREADY_EXISTS("Checklist content already exists", HttpStatus.CONFLICT),
     CHECKLIST_INACTIVE("Checklist is inactive", HttpStatus.CONFLICT),
+    CHECKLIST_DEVICE_TYPE_ALREADY_EXISTS("Device type is already associated with this checklist", HttpStatus.CONFLICT),
+    CHECKLIST_DEVICE_TYPE_NOT_FOUND("Checklist device type association not found", HttpStatus.NOT_FOUND),
     SERVICE_CHECKLIST_NOT_FOUND("Service checklist assignment not found", HttpStatus.NOT_FOUND),
     SERVICE_CHECKLIST_ALREADY_EXISTS("Checklist is already assigned to this service", HttpStatus.CONFLICT),
     SERVICE_IMAGE_STORAGE_ERROR("Unable to store service illustration", HttpStatus.BAD_GATEWAY),

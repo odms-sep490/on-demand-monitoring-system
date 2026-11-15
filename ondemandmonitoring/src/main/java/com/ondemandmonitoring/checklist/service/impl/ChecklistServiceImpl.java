@@ -32,6 +32,7 @@ public class ChecklistServiceImpl implements IChecklistService {
     private com.ondemandmonitoring.checklist.service.ChecklistAuditService audit;
     private com.ondemandmonitoring.checklist.repository.ServiceChecklistRepository serviceUsage;
     private com.ondemandmonitoring.order.repository.OrderChecklistItemRepository orderUsage;
+    private com.ondemandmonitoring.checklist.service.IChecklistDeviceRequirementService deviceRequirements;
 
     /** Optional collaborators: change history and the "used by" counts. */
     @Autowired(required = false)
@@ -46,18 +47,31 @@ public class ChecklistServiceImpl implements IChecklistService {
         this.orderUsage = orderUsage;
     }
 
+    @Autowired(required = false)
+    public void setDeviceRequirements(
+            com.ondemandmonitoring.checklist.service.IChecklistDeviceRequirementService deviceRequirements) {
+        this.deviceRequirements = deviceRequirements;
+    }
+
     /** Adds the "used by" counts to a page of responses with two grouped queries. */
     private java.util.List<ChecklistResponse> withUsage(java.util.List<ChecklistResponse> responses) {
-        if (responses.isEmpty() || serviceUsage == null || orderUsage == null) return responses;
+        if (responses.isEmpty()) return responses;
         var ids = responses.stream().map(ChecklistResponse::getId).toList();
-        var services = new java.util.HashMap<String, Long>();
-        serviceUsage.countByChecklistIds(ids).forEach(row -> services.put(row.getChecklistId(), row.getTotal()));
-        var orders = new java.util.HashMap<String, Long>();
-        orderUsage.countBySourceChecklistIds(ids).forEach(row -> orders.put(row.getChecklistId(), row.getTotal()));
-        responses.forEach(response -> {
-            response.setUsedByServiceCount(services.getOrDefault(response.getId(), 0L));
-            response.setUsedByOrderCount(orders.getOrDefault(response.getId(), 0L));
-        });
+        if (serviceUsage != null && orderUsage != null) {
+            var services = new java.util.HashMap<String, Long>();
+            serviceUsage.countByChecklistIds(ids).forEach(row -> services.put(row.getChecklistId(), row.getTotal()));
+            var orders = new java.util.HashMap<String, Long>();
+            orderUsage.countBySourceChecklistIds(ids).forEach(row -> orders.put(row.getChecklistId(), row.getTotal()));
+            responses.forEach(response -> {
+                response.setUsedByServiceCount(services.getOrDefault(response.getId(), 0L));
+                response.setUsedByOrderCount(orders.getOrDefault(response.getId(), 0L));
+            });
+        }
+        if (deviceRequirements != null) {
+            var types = deviceRequirements.findDeviceTypesByChecklistIds(ids);
+            responses.forEach(response -> response.setDeviceTypes(
+                    types.getOrDefault(response.getId(), java.util.List.of())));
+        }
         return responses;
     }
 

@@ -37,4 +37,6 @@ public class ServiceChecklistResponse {
     private int checklistIncludedImageCount;
     private int checklistIncludedVideoCount;
     private String checklistPricingProfile;
+    /** Device types associated with the underlying checklist definition. */
+    private java.util.List<com.ondemandmonitoring.device.dto.response.DeviceTypeResponse> deviceTypes = java.util.List.of();
 }

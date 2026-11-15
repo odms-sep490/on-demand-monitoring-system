@@ -44,6 +44,8 @@ class NotificationFeedServiceTest {
     private MissionStaffAssignmentRepository staffAssignments;
     @Mock
     private com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository deviceAssignments;
+    @Mock
+    private ContractNotificationService contractNotifications;
     @InjectMocks
     private NotificationFeedService service;
 
@@ -65,6 +67,8 @@ class NotificationFeedServiceTest {
     @Test
     void managerFeedMapsAwaitingReviewAndFailureToManagerActionTypes() {
         when(currentUser.getCurrentUser()).thenReturn(user("manager-1", RoleCode.MANAGER));
+        when(orders.findByInformationSubmittedAtIsNotNullOrderByInformationSubmittedAtDesc(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
         Mission review = mission("mission-1", "MS-1", MissionStatus.AWAITING_REVIEW);
         Mission failed = mission("mission-2", "MS-2", MissionStatus.FAILED);
         when(orders.findByOrderStatusInOrderByCreatedAtDesc(any(), any(Pageable.class)))
@@ -105,6 +109,8 @@ class NotificationFeedServiceTest {
     @Test
     void managerFeedIncludesOnlyNewOrdersThatNeedReview() {
         when(currentUser.getCurrentUser()).thenReturn(user("manager-1", RoleCode.MANAGER));
+        when(orders.findByInformationSubmittedAtIsNotNullOrderByInformationSubmittedAtDesc(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
         Order pending = order("order-1", "ORD-1", OrderStatus.PENDING);
         when(orders.findByOrderStatusInOrderByCreatedAtDesc(eq(List.of(OrderStatus.PENDING)), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(pending)));
@@ -148,6 +154,36 @@ class NotificationFeedServiceTest {
         assertEquals(0, response.items().size());
         verify(orders).findByOrderStatusInOrderByCreatedAtDesc(any(), any(Pageable.class));
         verify(missions).findByStatusInOrderByUpdatedAtDesc(any(), any(Pageable.class));
+    }
+
+    @Test
+    void customerResubmissionHasANewIdentityAndRemainsVisibleAfterReviewStarts() {
+        when(currentUser.getCurrentUser()).thenReturn(user("manager-1", RoleCode.MANAGER));
+        Order pending = order("order-1", "ORD-1", OrderStatus.PENDING);
+        Instant firstSubmission = Instant.parse("2026-11-15T01:00:00Z");
+        pending.setInformationSubmittedAt(firstSubmission);
+        when(orders.findByOrderStatusInOrderByCreatedAtDesc(any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(pending)));
+        when(orders.findByInformationSubmittedAtIsNotNullOrderByInformationSubmittedAtDesc(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(pending)));
+        when(missions.findByStatusInOrderByUpdatedAtDesc(any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        var first = service.listForCurrentUser(30).items();
+        assertEquals(1, first.size());
+        assertEquals(NotificationType.ORDER_INFORMATION_SUBMITTED, first.get(0).type());
+        assertEquals(firstSubmission, first.get(0).createdAt());
+        assertEquals("order-1", first.get(0).entityId());
+
+        Instant nextSubmission = firstSubmission.plusSeconds(60);
+        pending.setInformationSubmittedAt(nextSubmission);
+        pending.setOrderStatus(OrderStatus.UNDER_REVIEW);
+        when(orders.findByOrderStatusInOrderByCreatedAtDesc(any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+        var next = service.listForCurrentUser(30).items();
+        assertEquals(1, next.size());
+        assertEquals(nextSubmission, next.get(0).createdAt());
+        org.junit.jupiter.api.Assertions.assertNotEquals(first.get(0).id(), next.get(0).id());
     }
 
     private static User user(String id, RoleCode code) {

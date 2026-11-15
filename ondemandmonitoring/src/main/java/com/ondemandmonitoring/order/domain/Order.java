@@ -194,6 +194,9 @@ public class Order extends BaseEntity {
     @Column(name = "requested_update_scope", length = 40)
     private String requestedUpdateScope;
 
+    @Column(name = "information_submitted_at")
+    private Instant informationSubmittedAt;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "review_by")
     private User reviewBy;

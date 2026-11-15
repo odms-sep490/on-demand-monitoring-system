@@ -19,6 +19,7 @@ public class CriterionCatalogService {
   Map<String,Definition> all = new LinkedHashMap<>();
   for (var code:ReviewCriterionCode.values()) if(code.isActive()) all.put(code.name(),new Definition(code.name(),code.getTitle(),code.getDescription(),code.isRequired(),code.getType(),true));
   for(var row:repository.findAll()) {
+   if (ReviewCriterionCode.REQUESTED_SCOPE_FEASIBLE.name().equals(row.getCode())) continue;
    var previous=all.get(row.getCode());
    all.put(row.getCode(),new Definition(row.getCode(),row.getTitle(),row.getDescription(),row.isRequired(),previous==null?ReviewCriterionType.MANUAL:previous.type(),row.isActive()));
   }

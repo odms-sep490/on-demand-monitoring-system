@@ -350,6 +350,7 @@ public class OrderService implements IOrderService {
 
         // 7. Map and persist order
         Order order = orderMapper.toEntity(request);
+        order.setTitle("");
         order.setCustomer(customer);
         order.setService(service);
         order.setPreferredTime(preferredTime);
@@ -525,6 +526,7 @@ public class OrderService implements IOrderService {
         order.setRejectReason(null);
         order.setRequestedUpdateScope(null);
         order.setReviewAt(null);
+        order.setInformationSubmittedAt(Instant.now());
         reviewRecords.reopenFailed(order, request.information());
         return toResponse(orderRepository.save(order));
     }
@@ -556,6 +558,7 @@ public class OrderService implements IOrderService {
                 || request.recurrenceType() != null || request.recurrenceOccurrences() != null
                 || request.resultFormats() != null || request.permitStatus() != null;
 
+        boolean submittingRequestedInformation = order.getOrderStatus() == OrderStatus.NEEDS_INFO;
         boolean submittingLocationCorrection = order.getOrderStatus() == OrderStatus.NEEDS_INFO
                 && "LOCATION".equals(order.getRequestedUpdateScope());
         if (submittingLocationCorrection) {
@@ -580,7 +583,7 @@ public class OrderService implements IOrderService {
             }
         }
 
-        if (request.title() != null && !request.title().isBlank()) order.setTitle(request.title().strip());
+
         if (request.description() != null) order.setDescription(request.description().strip());
         if (request.address() != null) order.setAddress(request.address().strip());
         if (request.longitude() != null || request.latitude() != null || request.coverageArea() != null) {
@@ -646,7 +649,8 @@ public class OrderService implements IOrderService {
             order.setReviewBy(null);
             order.setReviewAt(null);
         }
-        if (order.getOrderStatus() == OrderStatus.NEEDS_INFO) {
+        if (submittingRequestedInformation) {
+            order.setInformationSubmittedAt(Instant.now());
             order.setOrderStatus(OrderStatus.PENDING);
             order.setRejectReason(null);
             order.setRequestedUpdateScope(null);

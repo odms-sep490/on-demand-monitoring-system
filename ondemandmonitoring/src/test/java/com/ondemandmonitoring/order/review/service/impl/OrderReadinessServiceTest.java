@@ -35,6 +35,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class OrderReadinessServiceTest {
+    com.ondemandmonitoring.review.service.CriterionCatalogService catalog =
+            mock(com.ondemandmonitoring.review.service.CriterionCatalogService.class);
+    com.ondemandmonitoring.review.repository.CustomCriterionAnswerRepository customAnswers =
+            mock(com.ondemandmonitoring.review.repository.CustomCriterionAnswerRepository.class);
     OrderRepository orders = mock(OrderRepository.class);
     OrderChecklistItemRepository items = mock(OrderChecklistItemRepository.class);
     OrderReviewRecordRepository records = mock(OrderReviewRecordRepository.class);
@@ -47,11 +51,12 @@ class OrderReadinessServiceTest {
 
     @BeforeEach
     void setUp() {
-        var catalogRepository = mock(com.ondemandmonitoring.review.repository.ReviewCriterionDefinitionRepository.class);
-        when(catalogRepository.findAll()).thenReturn(List.of());
-        var catalog = new com.ondemandmonitoring.review.service.CriterionCatalogService(catalogRepository);
-        var customAnswers = mock(com.ondemandmonitoring.review.repository.CustomCriterionAnswerRepository.class);
         service = new OrderReadinessService(catalog, customAnswers, orders, items, records, users, regionPolicies);
+        when(catalog.list()).thenReturn(java.util.Arrays.stream(ReviewCriterionCode.values())
+                .filter(ReviewCriterionCode::isActive)
+                .map(code -> new com.ondemandmonitoring.review.service.CriterionCatalogService.Definition(
+                        code.name(), code.getTitle(), code.getDescription(), code.isRequired(), code.getType(), true))
+                .toList());
         order = new Order();
         order.setId("o1");
         order.setOrderStatus(OrderStatus.PENDING);

@@ -63,6 +63,7 @@ class RefundServiceRequestTest {
     @Mock private IMediaObjectStorage storage;
     @Mock private ApplicationEventPublisher events;
 
+    @Mock private com.ondemandmonitoring.contract.repository.ContractCancellationRepository contractCancellations;
     private RefundService service;
     private Order order;
     private Invoice invoice;
@@ -73,7 +74,7 @@ class RefundServiceRequestTest {
     @BeforeEach
     void setUp() {
         service = new RefundService(refunds, attempts, receipts, orders, invoices, payments, missionMilestones,
-                missions, currentUser, storage, events);
+                missions, currentUser, storage, events, contractCancellations);
 
         User customer = new User();
         customer.setId("customer-1");
@@ -176,6 +177,9 @@ class RefundServiceRequestTest {
         Refund refund = new Refund();
         refund.setId("refund-1");
         refund.setStatus(RefundStatus.PROCESSING);
+        refund.setInvoice(invoice); refund.setOrder(order);
+        refund.setDepositPayments(List.of(firstDeposit, secondDeposit));
+        refund.setRefundableAmount(new BigDecimal("100"));
         refund.setRefundableAmount(new BigDecimal("100"));
         RefundTransferAttempt successful = new RefundTransferAttempt();
         successful.setId("attempt-1");
@@ -201,6 +205,9 @@ class RefundServiceRequestTest {
         Refund refund = new Refund();
         refund.setId("refund-1");
         refund.setStatus(RefundStatus.PROCESSING);
+        refund.setInvoice(invoice); refund.setOrder(order);
+        refund.setDepositPayments(List.of(firstDeposit, secondDeposit));
+        refund.setRefundableAmount(new BigDecimal("100"));
         when(refunds.findByIdForUpdate("refund-1")).thenReturn(java.util.Optional.of(refund));
         when(attempts.findByTransactionReference("BANK-001")).thenReturn(java.util.Optional.empty());
         when(attempts.existsByRefundIdAndOutcome("refund-1", TransferOutcome.SUCCESSFUL))
@@ -213,6 +220,63 @@ class RefundServiceRequestTest {
 
         assertThrows(ApiException.class, () -> service.recordTransferAttempt("refund-1", request));
         verify(attempts, never()).saveAndFlush(any(RefundTransferAttempt.class));
+    }
+
+    @Test
+    void systemContractCancellationRefundsAPartialVerifiedDeposit() {
+        systemCancellation();
+        when(payments.findAllByInvoiceIdForUpdate("invoice-1")).thenReturn(List.of(firstDeposit));
+        var response = service.requestDepositRefund("order-1", new RequestDepositRefundRequest("System contract cancellation"));
+        assertEquals(new BigDecimal("70"), response.refundableAmount());
+        assertEquals(RefundStatus.REQUESTED, response.status());
+    }
+
+    @Test
+    void systemContractCancellationReturnsAllDepositsIncludingExcess() {
+        systemCancellation();
+        var response = service.requestDepositRefund("order-1", new RequestDepositRefundRequest("System contract cancellation"));
+        assertEquals(new BigDecimal("120"), response.refundableAmount());
+    }
+
+    @Test
+    void aCancellationReasonAloneCannotCreateAContractRefund() {
+        order.setOrderStatus(OrderStatus.CANCELLED);
+        order.setCancellationReason(com.ondemandmonitoring.order.enums.OrderCancellationReason.CONTRACT_SYSTEM_RESPONSIBILITY);
+        assertThrows(ApiException.class, () -> service.requestDepositRefund("order-1", new RequestDepositRefundRequest("Unverified liability")));
+        verify(refunds, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void customerResponsibilityCannotUseTheSystemRefundBranch() {
+        var cancellation = systemCancellation();
+        cancellation.setResponsibility(com.ondemandmonitoring.contract.enums.CancellationResponsibility.CUSTOMER);
+        assertThrows(ApiException.class, () -> service.requestDepositRefund("order-1", new RequestDepositRefundRequest("Wrong responsibility")));
+        verify(refunds, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void adminProcessingAcceptsTheFullContractRefundWithoutThePermitCap() {
+        systemCancellation();
+        Refund refund = new Refund(); refund.setId("refund-1"); refund.setStatus(RefundStatus.REQUESTED);
+        refund.setOrder(order); refund.setCustomer(order.getCustomer()); refund.setInvoice(invoice); refund.setRequestedBy(manager);
+        refund.setDepositPayments(List.of(firstDeposit, secondDeposit)); refund.setRefundableAmount(new BigDecimal("120"));
+        when(refunds.findByIdForUpdate("refund-1")).thenReturn(java.util.Optional.of(refund));
+        service.startProcessing("refund-1");
+        assertEquals(RefundStatus.PROCESSING, refund.getStatus());
+        assertEquals(new BigDecimal("120"), refund.getRefundableAmount());
+    }
+
+    private com.ondemandmonitoring.contract.domain.ContractCancellation systemCancellation() {
+        order.setOrderStatus(OrderStatus.CANCELLED);
+        order.setCancellationReason(com.ondemandmonitoring.order.enums.OrderCancellationReason.CONTRACT_SYSTEM_RESPONSIBILITY);
+        var contract = new com.ondemandmonitoring.contract.domain.OrderContract();
+        contract.setStatus(com.ondemandmonitoring.contract.enums.ContractStatus.CANCELLED);
+        var cancellation = new com.ondemandmonitoring.contract.domain.ContractCancellation();
+        cancellation.setContract(contract);
+        cancellation.setResponsibility(com.ondemandmonitoring.contract.enums.CancellationResponsibility.SYSTEM);
+        cancellation.setStatus(com.ondemandmonitoring.contract.enums.ContractCancellationStatus.REFUND_REQUESTED);
+        when(contractCancellations.findByOrderId("order-1")).thenReturn(java.util.Optional.of(cancellation));
+        return cancellation;
     }
 
     private Payment successfulDeposit(String id, String amount, String reference) {

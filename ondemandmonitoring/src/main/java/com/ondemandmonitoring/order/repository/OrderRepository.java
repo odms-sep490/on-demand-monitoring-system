@@ -24,6 +24,9 @@ public interface OrderRepository extends JpaRepository<Order, String> {
     @Query("SELECT o FROM Order o WHERE o.id = :id")
     Optional<Order> findByIdForUpdate(@Param("id") String id);
 
+    @EntityGraph(attributePaths = {"customer"})
+    Page<Order> findByInformationSubmittedAtIsNotNullOrderByInformationSubmittedAtDesc(Pageable pageable);
+
     boolean existsByOrderCode(String orderCode);
 
     Optional<Order> findByOrderCode(String orderCode);

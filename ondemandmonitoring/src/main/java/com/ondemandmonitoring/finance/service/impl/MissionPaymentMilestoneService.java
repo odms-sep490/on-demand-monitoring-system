@@ -336,6 +336,15 @@ public class MissionPaymentMilestoneService {
     }
 
     @Transactional(readOnly = true)
+    public boolean isPaidForMission(String orderId, String missionId) {
+        if (orderId == null || missionId == null) return false;
+        return milestones.findByMissionId(missionId)
+                .filter(milestone -> orderId.equals(milestone.getInvoice().getOrder().getId()))
+                .map(milestone -> milestone.getStatus() == MissionPaymentMilestoneStatus.PAID)
+                .orElse(false);
+    }
+
+    @Transactional(readOnly = true)
     public boolean hasCompleteAllocation(Invoice invoice) {
         if (invoice == null || invoice.getTotalAmount() == null || invoice.getDepositAmount() == null) return false;
         BigDecimal target = allocationTarget(invoice);
@@ -367,6 +376,27 @@ public class MissionPaymentMilestoneService {
                 .filter(ExecutionPlanCoverageService::effective)
                 .filter(mission -> mission.getPurpose() != MissionPurpose.REWORK)
                 .toList();
+    }
+
+    /** Read-only explanation of the same proportional allocation used to price milestones. */
+    com.ondemandmonitoring.finance.dto.MissionFinancialSummaryResponse.PriceBreakdown priceBreakdown(
+            Invoice invoice, String missionId) {
+        if (!hasCompleteAllocation(invoice)) return null;
+        List<Mission> billable = billableMissions(invoice.getOrder().getId());
+        Map<String, BigDecimal> gross = new LinkedHashMap<>();
+        billable.forEach(mission -> gross.put(mission.getId(), BigDecimal.ZERO));
+        milestones.sumChecklistPricesByMission(invoice.getQuote().getId(), invoice.getOrder().getId(),
+                new ArrayList<>(gross.keySet())).forEach(row -> gross.put(row.getMissionId(), row.getGrossAmount()));
+        if (!gross.containsKey(missionId) || gross.values().stream().anyMatch(value -> value.signum() <= 0)) return null;
+        Map<String, BigDecimal> expected = distributeRemainingBalance(allocationTarget(invoice), gross);
+        List<MissionPaymentMilestone> rows = milestones.findAllByInvoiceIdForDisplay(invoice.getId());
+        if (rows.stream().anyMatch(row -> row.getStatus() == MissionPaymentMilestoneStatus.CANCELLED
+                || row.getAmount().compareTo(expected.get(row.getMission().getId())) != 0)) return null;
+        BigDecimal total = distributeRemainingBalance(invoice.getTotalAmount(), gross).get(missionId);
+        BigDecimal amount = expected.get(missionId);
+        return new com.ondemandmonitoring.finance.dto.MissionFinancialSummaryResponse.PriceBreakdown(
+                gross.get(missionId), total.subtract(gross.get(missionId)), total,
+                total.subtract(amount), amount);
     }
 
     private BigDecimal allocationTarget(Invoice invoice) {

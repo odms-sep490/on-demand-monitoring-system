@@ -177,14 +177,8 @@ public class CustomerMediaServiceImpl implements ICustomerMediaService {
                     && asset.getDerivativeAttemptCount() <= 1))
             throw new ApiException(ErrorCode.MEDIA_DERIVATIVE_PROCESSING);
 
-        // Original viewing remains the recovery path only when no usable derivative exists.
-        var stored = requireStoredObject(asset);
-        long size = stored != null && stored.contentLength() != null ? stored.contentLength()
-                : asset.getFileSize() == null ? 0L : asset.getFileSize();
-        return new MediaViewingResponse(mediaId,
-                storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key()),
-                Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds()),
-                size);
+        // Recovery renews display derivatives only. Originals use the explicit gated download API.
+        throw new ApiException(ErrorCode.MEDIA_DERIVATIVE_UNAVAILABLE);
     }
 
     private IMediaObjectStorage.StoredObjectInfo inspectDerivative(MediaAsset asset, String key) {

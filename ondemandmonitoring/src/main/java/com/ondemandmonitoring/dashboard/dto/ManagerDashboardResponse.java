@@ -20,7 +20,13 @@ public record ManagerDashboardResponse(
         MissionOverview missionOverview,
         List<ActiveMission> activeMissions,
         List<Activity> recentActivities,
-        Instant generatedAt) {
+        Instant generatedAt,
+        Finance finance) {
+
+    public record Finance(List<CashPoint> cashFlow, List<Transaction> recentTransactions) {}
+    public record CashPoint(LocalDate date, BigDecimal received, BigDecimal refunded) {}
+    public record Transaction(String id, String orderId, String orderCode, String type,
+                              BigDecimal amount, Instant occurredAt) {}
 
     public record Summary(
             long totalOrders,

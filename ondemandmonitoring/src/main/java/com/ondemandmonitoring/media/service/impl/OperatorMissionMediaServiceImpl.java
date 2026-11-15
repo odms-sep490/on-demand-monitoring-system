@@ -8,11 +8,13 @@ import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.enums.MediaUploadChannel;
 import com.ondemandmonitoring.media.enums.MediaStorageStatus;
 import com.ondemandmonitoring.media.dto.response.OperatorMissionMediaResponse;
+import com.ondemandmonitoring.media.dto.response.MediaViewingResponse;
 import com.ondemandmonitoring.media.mapper.MediaWorkflowMapper;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
 import com.ondemandmonitoring.media.repository.MediaUploadAttemptRepository;
 import com.ondemandmonitoring.media.repository.ManualUploadTaskRepository;
 import com.ondemandmonitoring.media.service.IOperatorMissionMediaService;
+import com.ondemandmonitoring.media.service.IResultRetentionAccessService;
 import com.ondemandmonitoring.mission.service.IMissionMediaAccessService;
 import com.ondemandmonitoring.media.service.IMediaObjectStorage;
 import java.time.Instant;
@@ -37,6 +39,7 @@ public class OperatorMissionMediaServiceImpl implements IOperatorMissionMediaSer
     IMediaObjectStorage storage;
     MediaDerivativeService derivatives;
     MediaWorkflowMapper mapper;
+    IResultRetentionAccessService retentionAccess;
 
     @Override
     public PageResponse<OperatorMissionMediaResponse> listAvailable(String missionId, int page, int size) {
@@ -93,6 +96,26 @@ public class OperatorMissionMediaServiceImpl implements IOperatorMissionMediaSer
                 .filter(item -> item.getMediaStatus() == MediaStatus.AVAILABLE)
                 .orElseThrow(() -> new ApiException(ErrorCode.MEDIA_NOT_FOUND));
         return toResponse(asset);
+    }
+
+    @Override
+    public MediaViewingResponse createOriginalView(String missionId, String mediaId) {
+        String canonicalId = missionAccess.authorizeOperator(missionId).getId();
+        MediaAsset asset = media.findById(mediaId)
+                .filter(item -> canonicalId.equals(item.getMissionId()))
+                .filter(item -> item.getStorageStatus() == MediaStorageStatus.AVAILABLE)
+                .filter(item -> item.getValidatedAt() != null)
+                .filter(item -> item.getMediaStatus() != null && java.util.Set.of(MediaStatus.AVAILABLE, MediaStatus.PENDING_MANAGER_APPROVAL,
+                        MediaStatus.REJECTED).contains(item.getMediaStatus()))
+                .filter(item -> "S3".equals(item.getStorageProvider()))
+                .filter(item -> item.getS3Bucket() != null && !item.getS3Bucket().isBlank()
+                        && item.getS3Key() != null && !item.getS3Key().isBlank())
+                .orElseThrow(() -> new ApiException(ErrorCode.MEDIA_NOT_FOUND));
+        retentionAccess.requireAccessible(asset);
+        return new MediaViewingResponse(asset.getId(),
+                storage.createPresignedGetUrl(asset.getS3Bucket(), asset.getS3Key()),
+                Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds()),
+                asset.getFileSize() == null ? 0L : asset.getFileSize());
     }
 
     private OperatorMissionMediaResponse toResponse(MediaAsset asset) {

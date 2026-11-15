@@ -107,25 +107,18 @@ public class MediaDerivativeService {
         return processed;
     }
 
+    /** Display URLs never expose the original; original viewing requires a separate authorized action. */
     public String thumbnailUrl(MediaAsset asset) {
-        if (ready(asset) && hasKey(asset.getThumbnailKey()))
-            return signedUrl(asset.getS3Bucket(), asset.getThumbnailKey());
-        // A video URL cannot be used as an <img> source or video poster.
-        if (!"IMAGE".equals(asset.getType())) return null;
-        if (ready(asset) && hasKey(asset.getPreviewKey()))
-            return signedUrl(asset.getS3Bucket(), asset.getPreviewKey());
-        return originalViewingFallback(asset);
+        if (!ready(asset)) return null;
+        String key = derivativeKeyOrNull(asset, asset.getThumbnailKey());
+        if (key == null && "IMAGE".equals(asset.getType()))
+            key = derivativeKeyOrNull(asset, asset.getPreviewKey());
+        return key == null ? null : signedUrl(asset.getS3Bucket(), key);
     }
 
-    /** Viewing URLs may reference the original after derivative failure; callers must authorize access. */
     public String previewUrl(MediaAsset asset) {
-        if (ready(asset)) {
-            if (hasKey(asset.getPreviewKey())) return signedUrl(asset.getS3Bucket(), asset.getPreviewKey());
-            // For images, the thumbnail is still a usable preview when the larger copy is missing.
-            if ("IMAGE".equals(asset.getType()) && hasKey(asset.getThumbnailKey()))
-                return signedUrl(asset.getS3Bucket(), asset.getThumbnailKey());
-        }
-        return originalViewingFallback(asset);
+        var keys = viewingDerivativeKeys(asset);
+        return keys.isEmpty() ? null : signedUrl(asset.getS3Bucket(), keys.getFirst());
     }
 
     /** Returns generated derivatives in viewing priority order without selecting the original. */
@@ -144,18 +137,6 @@ public class MediaDerivativeService {
 
     private String derivativeKeyOrNull(MediaAsset asset, String key) {
         return hasKey(key) && !key.equals(asset.getS3Key()) ? key : null;
-    }
-
-    private String originalViewingFallback(MediaAsset asset) {
-        var state = asset.getDerivativeStatus();
-        if (asset.getStorageStatus() != MediaStorageStatus.AVAILABLE
-                || !"S3".equals(asset.getStorageProvider())
-                || !("IMAGE".equals(asset.getType()) || "VIDEO".equals(asset.getType()))
-                || !hasKey(asset.getS3Bucket()) || !hasKey(asset.getS3Key())
-                || (state != MediaDerivativeStatus.FAILED && state != MediaDerivativeStatus.UNSUPPORTED
-                    && state != MediaDerivativeStatus.READY
-                    && !(state == MediaDerivativeStatus.PROCESSING && asset.getDerivativeAttemptCount() > 1))) return null;
-        return signedUrl(asset.getS3Bucket(), asset.getS3Key());
     }
 
     private boolean hasKey(String value) {

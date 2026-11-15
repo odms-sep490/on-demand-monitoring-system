@@ -48,6 +48,14 @@ class MissionPaymentEligibilityServiceTest {
     List<MissionStaffAssignment> crew;
     MissionDeviceAssignment mainDevice;
 
+    @Test void zeroDepositStillRequiresConfirmedContract() {
+        invoice.setContractRequired(true);
+        invoice.setDepositAmount(BigDecimal.ZERO);
+        assertThat(service.isDepositSatisfied(invoice)).isFalse();
+        invoice.setContractConfirmedAt(Instant.parse("2026-11-14T00:00:00Z"));
+        assertThat(service.isDepositSatisfied(invoice)).isTrue();
+    }
+
     @BeforeEach void setUp() {
         var order = new Order();
         order.setId("o1");
@@ -93,6 +101,17 @@ class MissionPaymentEligibilityServiceTest {
         verify(locks).findConflictingResourceIds(anySet(), eq("m1"), eq(mission.getScheduledStartAt()),
                 eq(mission.getScheduledEndAt()));
         mission.setStatus(MissionStatus.PENDING_CONFIRMATION);
+        assertThat(service.isMissionExecutionEligible(invoice)).isTrue();
+    }
+
+    @Test void signedAndPaidIsNotEnoughForMissionExecutionWithoutConfirmation() {
+        invoice.setContractRequired(true);
+        invoice.setContractSubmittedAt(Instant.parse("2026-11-14T00:00:00Z"));
+        assertThat(invoice.isContractPaymentReady()).isTrue();
+        assertThat(service.isDepositSatisfied(invoice)).isFalse();
+        assertThat(service.isMissionExecutionEligible(invoice)).isFalse();
+        invoice.setContractConfirmedAt(Instant.parse("2026-11-14T01:00:00Z"));
+        assertThat(service.isDepositSatisfied(invoice)).isTrue();
         assertThat(service.isMissionExecutionEligible(invoice)).isTrue();
     }
 

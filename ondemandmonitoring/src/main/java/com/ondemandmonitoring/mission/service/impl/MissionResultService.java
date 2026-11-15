@@ -55,6 +55,8 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
     @Autowired
     @lombok.experimental.NonFinal
     IDeliveryWorkflowService deliveryWorkflow;
+    @Autowired @lombok.experimental.NonFinal
+    com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionPolicy inspectionCorrections;
 
     @Override
     @Transactional(readOnly = true)
@@ -89,6 +91,7 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
                     "Complete postflight acceptance before confirming the inspection package");
         if (request == null || request.getStatus() == MissionResultStatus.FAILED)
             throw new ApiException(ErrorCode.INVALID_REQUEST);
+        inspectionCorrections.requireResolved(missionId);
         checklistExecutionService.requireReadyForInspectorApproval(mission);
         if (result == null) {
             result = new MissionResult();
@@ -123,7 +126,9 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
 
     @Override
     @Transactional
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    // Retired manager review route. Inspection is confirmed and published through upsert.
+    @Deprecated
+    @PreAuthorize("denyAll()")
     public MissionResultResponse approve(String resultId, MissionResultReviewRequest request) {
         String orderId = missionResultRepository.findOrderIdByResultId(resultId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
@@ -143,6 +148,7 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID);
         MissionRuntimeGate.requireFinalizedStructure(result.getMission());
         checklistExecutionService.requireMaterialized(result.getMission());
+        inspectionCorrections.requireResolved(result.getMission().getId());
         checklistExecutionService.requireReadyForFinalApproval(result.getMission());
         if (result.getMission().getStatus() != MissionStatus.AWAITING_REVIEW
                 && result.getMission().getStatus() != MissionStatus.PENDING_REVIEW
@@ -228,7 +234,9 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
 
     @Override
     @Transactional
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    // Retired manager review route. Inspection is confirmed and published through upsert.
+    @Deprecated
+    @PreAuthorize("denyAll()")
     public MissionResultResponse reject(String resultId, MissionResultReviewRequest request) {
         MissionResult result = requirePendingResult(resultId);
         Instant now = Instant.now();

@@ -38,6 +38,8 @@ public class ManagerMissionResultApprovalController {
         return ApiResponse.ok(missionResultService.listPendingManagerApproval(page, size));
     }
 
+    // Kept as a forbidden compatibility route; only the assigned Inspector confirms results.
+    @PreAuthorize("denyAll()")
     @PostMapping("/{resultId}/approve")
     public ApiResponse<MissionResultResponse> approve(
             @PathVariable String resultId,
@@ -45,6 +47,8 @@ public class ManagerMissionResultApprovalController {
         return ApiResponse.ok("Mission result approved", missionResultService.approve(resultId, request));
     }
 
+    // Kept as a forbidden compatibility route; only the assigned Inspector confirms results.
+    @PreAuthorize("denyAll()")
     @PostMapping("/{resultId}/reject")
     public ApiResponse<MissionResultResponse> reject(
             @PathVariable String resultId,

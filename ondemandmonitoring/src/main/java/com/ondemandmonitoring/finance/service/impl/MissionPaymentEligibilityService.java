@@ -44,7 +44,7 @@ public class MissionPaymentEligibilityService implements IMissionPaymentEligibil
 
     @Override
     public boolean isDepositSatisfied(Invoice invoice) {
-        return invoice != null && invoice.effectiveDepositStatus() == DepositStatus.DEPOSIT_PAID;
+        return invoice != null && invoice.isContractReady() && invoice.effectiveDepositStatus() == DepositStatus.DEPOSIT_PAID;
     }
 
     @Override

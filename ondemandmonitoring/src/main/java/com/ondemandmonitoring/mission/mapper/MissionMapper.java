@@ -10,6 +10,8 @@ import org.mapstruct.Mapping;
 @Mapper(componentModel = "spring", uses = {MissionMapperHelper.class, MissionPlanMapper.class})
 public interface MissionMapper {
 
+    @Mapping(source = "inspectionCorrection.id", target = "inspectionCorrectionId")
+    @Mapping(source = "inspectionCorrection.mission.id", target = "inspectionSourceMissionId")
     @Mapping(source = "order.id", target = "orderId")
     @Mapping(source = "replacesMissionId", target = "replacesMissionId")
     @Mapping(source = "order.orderCode", target = "orderCode")
@@ -56,6 +58,7 @@ public interface MissionMapper {
     @Mapping(source = ".", target = "staffAssignments", qualifiedByName = "missionStaffAssignments")
     @Mapping(source = ".", target = "deviceAssignments", qualifiedByName = "missionDeviceAssignments")
     @Mapping(source = ".", target = "plan", qualifiedByName = "missionPlan")
+    @Mapping(target = "controlHandoverAt", ignore = true)
     MissionResponse toResponse(Mission mission);
 
     @Mapping(target = "estimatedRemainingBatteryPercent", source = ".", qualifiedByName = "planRemainingBattery")

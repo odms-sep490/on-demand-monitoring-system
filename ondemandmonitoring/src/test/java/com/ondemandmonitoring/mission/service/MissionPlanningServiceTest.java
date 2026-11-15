@@ -47,7 +47,8 @@ class MissionPlanningServiceTest {
         org.springframework.test.util.ReflectionTestUtils.setField(service, "missionChecklistAssignmentRepository", assignments);
         org.springframework.test.util.ReflectionTestUtils.setField(service, "missionChecklistExecutionRepository", executions);
         org.springframework.test.util.ReflectionTestUtils.setField(service, "orderChecklistItemRepository", items);
-        org.springframework.test.util.ReflectionTestUtils.setField(service, "checklistMaterializationService", materializer);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "missionPlanningActivationService",
+                new MissionPlanningActivationService(materializer, staff, devices));
         order = new Order(); order.setId("o"); order.setOrderStatus(OrderStatus.APPROVED);
         order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED); order.getExecutionPlan().setRevision(5);
         mission = new Mission(); mission.setId("m"); mission.setOrder(order); mission.setStatus(MissionStatus.PLANNING);

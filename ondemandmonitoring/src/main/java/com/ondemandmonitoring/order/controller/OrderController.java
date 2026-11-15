@@ -100,6 +100,12 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.ok("Resource preview retrieved", null));
     }
 
+    @PostMapping("/{orderId}/cancel")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public ResponseEntity<ApiResponse<OrderCreateResponse>> cancelBeforeReview(@PathVariable String orderId) {
+        return ResponseEntity.ok(ApiResponse.ok("Order cancelled", orderService.cancelBeforeReview(orderId)));
+    }
+
     @Operation(summary = "Start reviewing an order", description = "Locks customer editing while the manager reviews order conditions.")
     @PostMapping("/{orderId}/start-review")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")

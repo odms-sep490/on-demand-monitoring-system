@@ -35,6 +35,8 @@ class MissionChecklistExecutionServiceTest {
     Mission mission; Order order; OrderChecklistItem item; MissionChecklistExecution execution;
 
     @BeforeEach void prepare() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"inspectionCorrections",mock(com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionPolicy.class));
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"inspectionMutation",mock(com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionMutationGuard.class));
         order = new Order(); order.setId("o");
         // Operational execution requires a finalized plan as well as valid assignment/execution rows.
         order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED);
@@ -262,7 +264,7 @@ class MissionChecklistExecutionServiceTest {
         error(ErrorCode.CHECKLIST_NOT_READY, () -> service.requireReadyForSubmission(mission));
         verify(executions, never()).saveAllAndFlush(any());
         when(assignments.findByMissionIdAndRemovedAtIsNullOrderByDisplayOrderAscIdAsc("m")).thenReturn(List.of());
-        assertTrue(service.getByMissionId("m").legacySnapshot()); assertTrue(service.isReadyForSubmission(mission));
+        assertTrue(service.getByMissionId("m").legacySnapshot()); assertFalse(service.isReadyForSubmission(mission));
         order.setChecklistSnapshotAt(java.time.Instant.now()); assertFalse(service.getByMissionId("m").legacySnapshot());
     }
 
@@ -354,11 +356,27 @@ class MissionChecklistExecutionServiceTest {
         assertDoesNotThrow(() -> service.requireReadyForInspectorApproval(mission));
     }
 
-    @Test void checklistResponseExposesSelectionCapabilityOnEachExecution() {
+    @Test void checklistResponseExposesSelectionCapabilityOnlyForCompliantWork() {
         when(auth.canSelectCustomerEvidence("m")).thenReturn(true);
+        assertFalse(service.getByMissionId("m").executions().getFirst().isCustomerSelectionEditable());
+        execution.setAssessmentStatus(ChecklistAssessmentStatus.COMPLIANT);
         assertTrue(service.getByMissionId("m").executions().getFirst().isCustomerSelectionEditable());
+        execution.setAssessmentStatus(ChecklistAssessmentStatus.NON_COMPLIANT);
+        assertFalse(service.getByMissionId("m").executions().getFirst().isCustomerSelectionEditable());
+        execution.setAssessmentStatus(ChecklistAssessmentStatus.COMPLIANT);
         when(auth.canSelectCustomerEvidence("m")).thenReturn(false);
         assertFalse(service.getByMissionId("m").executions().getFirst().isCustomerSelectionEditable());
     }
 
+    @Test void rejectingASelectedChecklistClearsItsCustomerDeliveryChoiceButKeepsEvidence() {
+        var link=new MissionChecklistEvidence();link.setMissionChecklistExecution(execution);
+        link.setSelectedForCustomer(true);link.setSelectedBy("inspector");link.setSelectedAt(java.time.Instant.now());
+        when(evidence.active("m")).thenReturn(List.of(link));
+        var assessment=request(ChecklistExecutionStatus.PENDING);
+        assessment.setAssessmentStatus(ChecklistAssessmentStatus.NON_COMPLIANT);
+        assessment.setAssessmentNote("Wrong camera angle");
+        service.update("m","e",assessment);
+        assertFalse(link.isSelectedForCustomer());assertNull(link.getSelectedBy());assertNull(link.getSelectedAt());
+        assertNull(link.getDetachedAt());
+    }
 }

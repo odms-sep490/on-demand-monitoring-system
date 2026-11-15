@@ -84,13 +84,12 @@ class MediaDerivativeServiceTest {
 
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.EnumSource(value = MediaDerivativeStatus.class, names = {"FAILED", "UNSUPPORTED"})
-    void failedDisplayCopiesUseOriginalViewingUrl(MediaDerivativeStatus state) {
+    void failedDisplayCopiesNeverExposeOriginal(MediaDerivativeStatus state) {
         asset.setStorageProvider("S3");
         asset.setDerivativeStatus(state);
-        when(storage.createPresignedGetUrl("bucket", "original.jpg")).thenReturn("original-view");
-        assertThat(service.thumbnailUrl(asset)).isEqualTo("original-view");
-        assertThat(service.previewUrl(asset)).isEqualTo("original-view");
-        verify(storage, times(1)).createPresignedGetUrl("bucket", "original.jpg");
+        assertThat(service.thumbnailUrl(asset)).isNull();
+        assertThat(service.previewUrl(asset)).isNull();
+        verify(storage, never()).createPresignedGetUrl("bucket", "original.jpg");
     }
 
     @org.junit.jupiter.params.ParameterizedTest
@@ -138,16 +137,15 @@ class MediaDerivativeServiceTest {
         assertThat(service.viewingDerivativeKeys(asset)).containsExactly("preview.mp4");
     }
 
-    @Test void missingReadyThumbnailUsesPreviewAndMissingPreviewUsesOriginal() {
+    @Test void missingReadyThumbnailUsesPreviewButNeverOriginal() {
         asset.setStorageProvider("S3");
         asset.setDerivativeStatus(MediaDerivativeStatus.READY);
         asset.setPreviewKey("preview");
         when(storage.createPresignedGetUrl("bucket", "preview")).thenReturn("preview-url");
-        when(storage.createPresignedGetUrl("bucket", "original.jpg")).thenReturn("original-view");
         assertThat(service.thumbnailUrl(asset)).isEqualTo("preview-url");
         asset.setPreviewKey(null);
-        assertThat(service.thumbnailUrl(asset)).isEqualTo("original-view");
-        assertThat(service.previewUrl(asset)).isEqualTo("original-view");
+        assertThat(service.thumbnailUrl(asset)).isNull();
+        assertThat(service.previewUrl(asset)).isNull();
     }
 
     @Test void imagePreviewFallsBackToAvailableThumbnailBeforeOriginal() {
@@ -160,20 +158,27 @@ class MediaDerivativeServiceTest {
         verify(storage, never()).createPresignedGetUrl("bucket", "original.jpg");
     }
 
-    @Test void videoOriginalIsPlayableButNeverUsedAsAPoster() {
+    @Test void failedVideoDoesNotExposeOriginalAsPreviewOrPoster() {
         asset.setStorageProvider("S3"); asset.setType("VIDEO");
         asset.setDerivativeStatus(MediaDerivativeStatus.FAILED);
-        when(storage.createPresignedGetUrl("bucket", "original.jpg")).thenReturn("original-video");
         assertThat(service.thumbnailUrl(asset)).isNull();
-        assertThat(service.previewUrl(asset)).isEqualTo("original-video");
+        assertThat(service.previewUrl(asset)).isNull();
     }
 
-    @Test void retryDoesNotHideAnAlreadyAvailableOriginalFallback() {
+    @Test void retryDoesNotExposeOriginal() {
         asset.setStorageProvider("S3"); asset.setDerivativeStatus(MediaDerivativeStatus.PROCESSING);
         asset.setDerivativeAttemptCount(2);
-        when(storage.createPresignedGetUrl("bucket", "original.jpg")).thenReturn("original-view");
-        assertThat(service.previewUrl(asset)).isEqualTo("original-view");
-        assertThat(service.thumbnailUrl(asset)).isEqualTo("original-view");
+        assertThat(service.previewUrl(asset)).isNull();
+        assertThat(service.thumbnailUrl(asset)).isNull();
+    }
+
+    @Test void corruptDerivativeKeysCannotExposeOriginalEvenWhenReady() {
+        asset.setDerivativeStatus(MediaDerivativeStatus.READY);
+        asset.setThumbnailKey(asset.getS3Key()); asset.setPreviewKey(asset.getS3Key());
+        assertThat(service.thumbnailUrl(asset)).isNull();
+        assertThat(service.previewUrl(asset)).isNull();
+        assertThat(service.viewingDerivativeKeys(asset)).isEmpty();
+        verifyNoInteractions(storage);
     }
 
     @Test void deletedMediaHasNoOriginalFallback() {

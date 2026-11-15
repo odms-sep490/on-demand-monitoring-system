@@ -19,6 +19,7 @@ import org.springframework.data.repository.query.Param;
 /** Persistence adapter; locks serialize IPN/QueryDR processing for idempotency. */
 public interface PaymentRepository extends JpaRepository<Payment, String> {
     List<Payment> findAllByInvoiceIdOrderByCreatedAtDesc(String invoiceId);
+    List<Payment> findAllByInvoiceIdAndPaymentTypeOrderByCreatedAtDesc(String invoiceId, PaymentType paymentType);
     Optional<Payment> findFirstByInvoiceIdAndPaymentTypeAndProviderAndStatusInOrderByCreatedAtDesc(
             String invoiceId, PaymentType type, PaymentProvider provider, Collection<PaymentStatus> statuses);
     Optional<Payment> findFirstByMissionPaymentMilestoneIdAndProviderAndStatusInOrderByCreatedAtDesc(

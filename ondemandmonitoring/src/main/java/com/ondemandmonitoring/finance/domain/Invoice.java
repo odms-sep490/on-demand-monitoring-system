@@ -47,7 +47,16 @@ public class Invoice extends BaseEntity {
     @Column(name = "issued_at", nullable = false)
     private Instant issuedAt;
 
-    /** Commercial deadline assigned once at quote acceptance; configuration changes never move it. */
+    @Column(name="contract_required", nullable=false, columnDefinition="boolean default false")
+    private boolean contractRequired;
+    @Column(name="contract_confirmed_at")
+    private Instant contractConfirmedAt;
+    @Column(name="contract_submitted_at")
+    private Instant contractSubmittedAt;
+    public boolean isContractPaymentReady() { return !contractRequired || contractSubmittedAt != null || contractConfirmedAt != null; }
+    public boolean isContractReady() { return !contractRequired || contractConfirmedAt != null; }
+
+    /** New invoices start this deadline on the first signed submission. Legacy deadlines stay unchanged. */
     @Column(name = "deposit_expires_at")
     private Instant depositExpiresAt;
 

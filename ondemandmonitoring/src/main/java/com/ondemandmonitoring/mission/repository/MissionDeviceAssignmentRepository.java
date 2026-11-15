@@ -14,6 +14,9 @@ import java.util.Optional;
 
 @Repository
 public interface MissionDeviceAssignmentRepository extends JpaRepository<MissionDeviceAssignment, String> {
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"mission", "mission.order", "device"})
+    List<MissionDeviceAssignment> findByIsCurrentTrueAndReleasedAtIsNullAndReplacementRequestedAtIsNotNullOrderByReplacementRequestedAtDesc(
+            org.springframework.data.domain.Pageable pageable);
 
     @Query("""
             SELECT COUNT(DISTINCT mda.mission.id) FROM MissionDeviceAssignment mda
@@ -22,6 +25,25 @@ public interface MissionDeviceAssignmentRepository extends JpaRepository<Mission
               AND mda.status = :status
             """)
     long countCurrentMainMissionsByStatus(MissionDeviceAssignmentStatus status);
+
+    @Query("""
+            SELECT assignment FROM MissionDeviceAssignment assignment
+            JOIN FETCH assignment.replacementAssignment replacement
+            JOIN FETCH replacement.device
+            JOIN FETCH assignment.mission mission
+            JOIN FETCH mission.order
+            WHERE assignment.releasedAt IS NOT NULL
+              AND EXISTS (
+                  SELECT crew.id FROM MissionStaffAssignment crew
+                  WHERE crew.mission = mission AND crew.staff.id = :staffId
+                    AND crew.isCurrent = true AND crew.releasedAt IS NULL
+                    AND crew.assignedAt <= assignment.releasedAt
+              )
+            ORDER BY assignment.releasedAt DESC, assignment.id DESC
+            """)
+    List<MissionDeviceAssignment> findRecentReplacementsForStaff(
+            @org.springframework.data.repository.query.Param("staffId") String staffId,
+            org.springframework.data.domain.Pageable pageable);
 
     boolean existsByMissionId(String missionId);
 

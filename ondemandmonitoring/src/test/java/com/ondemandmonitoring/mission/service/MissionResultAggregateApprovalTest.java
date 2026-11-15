@@ -31,6 +31,7 @@ class MissionResultAggregateApprovalTest {
     Order order; Mission mission; MissionResult result; IOrderExecutionCompletionPolicy.LockedExecution aggregate;
 
     @BeforeEach void setup() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"inspectionCorrections",mock(com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionPolicy.class));
         order = new Order(); order.setId("o"); order.setOrderStatus(OrderStatus.APPROVED);
         order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED); order.getExecutionPlan().setRevision(4);
         mission = new Mission(); mission.setId("m"); mission.setOrder(order); mission.setStatus(MissionStatus.COMPLETED);

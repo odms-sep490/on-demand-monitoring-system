@@ -33,9 +33,10 @@ class ChecklistEvidenceServiceTest {
     IMediaObjectStorage storage = mock(IMediaObjectStorage.class);
     ChecklistEvidencePolicy policy = new ChecklistEvidencePolicy();
     ChecklistEvidenceServiceImpl service = new ChecklistEvidenceServiceImpl(missions, executions, links, media, results, auth, actor,
-            policy, org.mapstruct.factory.Mappers.getMapper(ChecklistEvidenceMapper.class), storage, mock(com.ondemandmonitoring.order.repository.OrderRepository.class), mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class));
+            policy, org.mapstruct.factory.Mappers.getMapper(ChecklistEvidenceMapper.class), storage, mock(com.ondemandmonitoring.media.service.impl.MediaDerivativeService.class), mock(com.ondemandmonitoring.order.repository.OrderRepository.class), mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class));
     Mission mission; MissionChecklistExecution execution; MediaAsset asset;
     @BeforeEach void setup() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"inspectionMutation",mock(com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionMutationGuard.class));
         var order = new Order(); order.setId("o"); mission = new Mission(); mission.setId("m"); mission.setOrder(order); mission.setStatus(MissionStatus.PENDING_REVIEW);
         order.getExecutionPlan().setStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
         order.getExecutionPlan().setRevision(1);
@@ -217,4 +218,18 @@ class ChecklistEvidenceServiceTest {
         assertFalse(service.ready(execution,List.of(one,two),false));
     }
     @Test void technicalValidationRequiredEvenWhenAvailable() { asset.setMediaStatus(MediaStatus.AVAILABLE); asset.setValidatedAt(null); assertFalse(service.ready(execution,List.of(link()),true)); }
+
+    @Test void nonCompliantAndUnassessedChecklistsCannotSelectCustomerEvidenceViaApi() {
+        var orders=(com.ondemandmonitoring.order.repository.OrderRepository)org.springframework.test.util.ReflectionTestUtils.getField(service,"orders");
+        when(missions.findOrderIdByMissionId("m")).thenReturn(Optional.of("o"));
+        when(orders.findByIdForUpdate("o")).thenReturn(Optional.of(mission.getOrder()));
+        when(executions.findByIdForUpdate("e")).thenReturn(Optional.of(execution));
+        when(auth.canSelectCustomerEvidence("m")).thenReturn(true);
+        for(var status:List.of(ChecklistAssessmentStatus.NON_COMPLIANT,ChecklistAssessmentStatus.NOT_ASSESSED)){
+            execution.setAssessmentStatus(status);
+            var failure=assertThrows(ApiException.class,()->service.selectForCustomer("m","e",new com.ondemandmonitoring.mission.dto.request.ChecklistCustomerSelectionRequest(0L,List.of(),false)));
+            assertEquals(ErrorCode.CHECKLIST_NOT_READY,failure.getErrorCode());
+        }
+        verify(links,never()).saveAllAndFlush(any());
+    }
 }

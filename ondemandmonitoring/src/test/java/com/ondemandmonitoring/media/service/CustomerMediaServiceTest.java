@@ -89,14 +89,13 @@ class CustomerMediaServiceTest {
         return result;
     }
 
-    @Test void publishedFailedImageIsViewableBeforeAcceptanceButDownloadActionRemainsLocked() {
-        var fallback = fallbackService();
-        when(storage.createPresignedGetUrl("bucket", "original")).thenReturn("original-view");
-        var result = fallback.getAvailable("a");
-        assertThat(result.getThumbnailUrl()).isEqualTo("original-view");
-        assertThat(result.getPreviewUrl()).isEqualTo("original-view");
+    @Test void publishedFailedImageDoesNotExposeOriginalThroughDisplayFields() {
+        var result = fallbackService().getAvailable("a");
+        assertThat(result.getThumbnailUrl()).isNull();
+        assertThat(result.getPreviewUrl()).isNull();
         assertThat(result.getDownloadUrl()).isNull();
         assertThat(result.isCanDownloadOriginal()).isFalse();
+        verifyNoInteractions(storage);
     }
 
     @Test void unpublishedFallbackCannotBeSigned() {
@@ -120,16 +119,12 @@ class CustomerMediaServiceTest {
         verifyNoInteractions(storage);
     }
 
-    @Test void refreshesOriginalViewingUrlWithoutUnlockingOfficialDownload() {
+    @Test void failedPreviewRefreshNeverFallsBackToOriginalEvenWhenDownloadCouldBeAuthorized() {
         asset.setStorageProvider("S3");
         asset.setDerivativeStatus(com.ondemandmonitoring.media.enums.MediaDerivativeStatus.FAILED);
-        when(storage.createPresignedGetUrl("bucket", "original")).thenReturn("fresh-view");
-        var result = service.createViewingFallback("a");
-        assertThat(result.viewUrl()).isEqualTo("fresh-view");
-        var ordered = inOrder(retention, storage);
-        ordered.verify(retention).requireAccessible(asset);
-        ordered.verify(storage).inspect("bucket", "original");
-        ordered.verify(storage).createPresignedGetUrl("bucket", "original");
+        assertThatThrownBy(() -> service.createViewingFallback("a"))
+                .isInstanceOf(ApiException.class).hasMessageContaining("Bản xem trước chưa khả dụng");
+        verifyNoInteractions(storage);
         verify(delivery, never()).requireOriginalAccessForMedia(anyString(), anyString());
     }
 
@@ -173,23 +168,15 @@ class CustomerMediaServiceTest {
         verify(storage, never()).createPresignedGetUrl("bucket", "original");
     }
 
-    @Test void viewingRefreshUsesOriginalOnlyWhenNoReadyDerivativeObjectCanBeFound() {
-        asset.setType("IMAGE");
+    @Test void missingReadyDerivativeCannotExposeOriginal() {
         asset.setDerivativeStatus(com.ondemandmonitoring.media.enums.MediaDerivativeStatus.READY);
-        asset.setPreviewKey("derived/missing-preview.jpg");
         when(derivatives.viewingDerivativeKeys(asset)).thenReturn(List.of("derived/missing-preview.jpg"));
         when(storage.inspect("bucket", "derived/missing-preview.jpg")).thenThrow(
                 software.amazon.awssdk.services.s3.model.S3Exception.builder().statusCode(404).build());
-        when(storage.inspect("bucket", "original")).thenReturn(
-                new IMediaObjectStorage.StoredObjectInfo(120_000L, "image/jpeg", Map.of()));
-        when(storage.createPresignedGetUrl("bucket", "original")).thenReturn("original-fallback");
-
-        var result = service.createViewingFallback("a");
-
-        assertThat(result.viewUrl()).isEqualTo("original-fallback");
-        assertThat(result.fileSize()).isEqualTo(120_000L);
-        verify(storage).inspect("bucket", "derived/missing-preview.jpg");
-        verify(storage).inspect("bucket", "original");
+        assertThatThrownBy(() -> service.createViewingFallback("a"))
+                .isInstanceOf(ApiException.class).hasMessageContaining("Bản xem trước chưa khả dụng");
+        verify(storage, never()).inspect("bucket", "original");
+        verify(storage, never()).createPresignedGetUrl(anyString(), anyString());
     }
 
     @Test void viewingRefreshDoesNotExposeOriginalWhileFirstDerivativeAttemptIsPending() {
@@ -240,13 +227,11 @@ class CustomerMediaServiceTest {
         verify(storage, never()).createPresignedDownloadUrl(anyString(), anyString(), anyString());
     }
 
-    @Test void viewingRefreshHandlesLegacyMissingSize() {
+    @Test void legacyMissingSizeDoesNotUnlockOriginalRecovery() {
         asset.setStorageProvider("S3"); asset.setFileSize(null);
         asset.setDerivativeStatus(com.ondemandmonitoring.media.enums.MediaDerivativeStatus.FAILED);
-        assertThat(service.createViewingFallback("a").fileSize()).isZero();
-        when(storage.inspect("bucket", "original")).thenReturn(
-                new IMediaObjectStorage.StoredObjectInfo(40_000_000L, "image/jpeg", java.util.Map.of()));
-        assertThat(service.createViewingFallback("a").fileSize()).isEqualTo(40_000_000L);
+        assertThatThrownBy(() -> service.createViewingFallback("a")).isInstanceOf(ApiException.class);
+        verifyNoInteractions(storage);
     }
 
     @Test void transientDerivativeStorageFailureDoesNotExposeOriginal() {

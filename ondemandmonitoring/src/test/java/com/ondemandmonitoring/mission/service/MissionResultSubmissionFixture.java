@@ -60,6 +60,7 @@ public final class MissionResultSubmissionFixture {
         service = new MissionResultService(results, missions, media, mediaService, mapper,
                 completion, checklist, resolver, authorization);
         org.springframework.test.util.ReflectionTestUtils.setField(service, "deliveryWorkflow", delivery);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "inspectionCorrections", mock(com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionPolicy.class));
     }
 
     public void prepare(Scenario scenario) {

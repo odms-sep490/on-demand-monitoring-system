@@ -202,11 +202,13 @@ class MissionChecklistCutoverPostgresTest extends ChecklistPostgresTest {
         }
         @Bean IExecutionPlanService plan(com.ondemandmonitoring.order.repository.OrderRepository orders,MissionRepository missions,
                 com.ondemandmonitoring.order.repository.OrderChecklistItemRepository items,MissionChecklistAssignmentRepository a,
-                IMissionChecklistMaterializationService materializer,IMissionChecklistScopeService scope,
+                MissionPlanningActivationService activation,IMissionChecklistScopeService scope,
                 com.ondemandmonitoring.user.service.AuthenticatedUserResolver user,MissionResultRepository results,IMissionChecklistExecutionService checklist,
-                MissionStaffAssignmentRepository staff, MissionDeviceAssignmentRepository devices) {
-            return new ExecutionPlanServiceImpl(orders,missions,items,a,materializer,scope,user,new ExecutionPlanCoverageService(),
-                    staff, devices, org.mockito.Mockito.mock(com.ondemandmonitoring.finance.service.IMissionExecutionActivationService.class));
+                MissionStaffAssignmentRepository staff, MissionDeviceAssignmentRepository devices,
+                com.ondemandmonitoring.finance.repository.InvoiceRepository invoices,
+                com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService paymentEligibility) {
+            return new ExecutionPlanServiceImpl(orders,missions,items,a,activation,scope,user,new ExecutionPlanCoverageService(),
+                    staff, devices, invoices, paymentEligibility);
         }
     }
 }

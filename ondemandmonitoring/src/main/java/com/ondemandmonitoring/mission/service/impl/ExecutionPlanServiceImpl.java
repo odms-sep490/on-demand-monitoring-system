@@ -26,7 +26,7 @@ public class ExecutionPlanServiceImpl implements IExecutionPlanService {
     private final MissionRepository missions;
     private final OrderChecklistItemRepository items;
     private final MissionChecklistAssignmentRepository assignments;
-    private final IMissionChecklistMaterializationService materialization;
+    private final MissionPlanningActivationService missionPlanningActivation;
     private final IMissionChecklistScopeService scope;
     private final com.ondemandmonitoring.user.service.AuthenticatedUserResolver currentUser;
     private final ExecutionPlanCoverageService coverage;
@@ -73,18 +73,7 @@ public class ExecutionPlanServiceImpl implements IExecutionPlanService {
                 throw new ApiException(ErrorCode.CHECKLIST_COVERAGE_INCOMPLETE, "Every Mission requires checklist items");
         }
         // Runtime consumes executions; create them only after all planning validation passes.
-        effective.forEach(materialization::materialize);
-        effective.forEach(m -> {
-            m.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.PENDING_CONFIRMATION);
-            staff.findByMissionId(m.getId()).stream().filter(a -> a.getReleasedAt() == null).forEach(a -> {
-                a.setResponseStatus(com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus.PENDING);
-                a.setIsCurrent(true);
-            });
-            devices.findByMissionId(m.getId()).stream().filter(a -> a.getReleasedAt() == null).forEach(a -> {
-                a.setCheckupStatus(com.ondemandmonitoring.mission.enums.MissionDeviceCheckStatus.PENDING);
-                a.setIsCurrent(true);
-            });
-        });
+        effective.forEach(missionPlanningActivation::activate);
         order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED);
         order.getExecutionPlan().setRevision(order.getExecutionPlan().getRevision() + 1);
         order.getExecutionPlan().setFinalizedAt(Instant.now());

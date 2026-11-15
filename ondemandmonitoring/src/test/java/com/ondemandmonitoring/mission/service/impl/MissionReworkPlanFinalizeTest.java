@@ -140,6 +140,7 @@ class MissionReworkPlanFinalizeTest {
     void permitCannotBeApprovedBeforeReworkPlanFinalization() {
         var permits = mock(com.ondemandmonitoring.flightpermit.service.impl.FlightPermitServiceImpl.class, CALLS_REAL_METHODS);
         ReflectionTestUtils.setField(permits, "missionRepository", missions);
+        ReflectionTestUtils.setField(permits, "orderRepository", orders);
         when(missions.findByIdWithOrder("rework")).thenReturn(Optional.of(mission));
         var request = new com.ondemandmonitoring.mission.dto.request.FlightPermitUpdateRequest(
                 FlightPermitStatus.APPROVED, null, null, null, null);

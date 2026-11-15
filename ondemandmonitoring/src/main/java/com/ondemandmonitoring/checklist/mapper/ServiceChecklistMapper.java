@@ -22,6 +22,7 @@ public interface ServiceChecklistMapper {
     @Mapping(target = "checklistIncludedVideoCount", source = "checklist.includedVideoCount")
     @Mapping(target = "checklistPricingProfile", source = "checklist.pricingProfile")
     @Mapping(target = "standardVideoDurationSeconds", source = "checklist.standardVideoDurationSeconds")
+    @Mapping(target = "deviceTypes", ignore = true)
     @Mapping(target = "basePrice", expression = "java(entity.getBasePriceOverride() != null ? entity.getBasePriceOverride() : entity.getChecklist().getBasePrice())")
     @Mapping(target = "includedImageCount", expression = "java(entity.getIncludedImageCountOverride() != null ? entity.getIncludedImageCountOverride() : Integer.valueOf(entity.getChecklist().getIncludedImageCount()))")
     @Mapping(target = "includedVideoCount", expression = "java(entity.getIncludedVideoCountOverride() != null ? entity.getIncludedVideoCountOverride() : Integer.valueOf(entity.getChecklist().getIncludedVideoCount()))")

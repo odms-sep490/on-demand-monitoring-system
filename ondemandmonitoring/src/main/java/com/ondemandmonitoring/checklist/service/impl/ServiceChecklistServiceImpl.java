@@ -31,6 +31,7 @@ public class ServiceChecklistServiceImpl implements IServiceChecklistService {
     private com.ondemandmonitoring.pricing.service.ServiceDefaultPriceService defaultPrices;
 
     private com.ondemandmonitoring.checklist.service.ChecklistAuditService audit;
+    private com.ondemandmonitoring.checklist.service.IChecklistDeviceRequirementService deviceRequirements;
 
     /** Optional collaborator: the change history. */
     @Autowired(required = false)
@@ -42,6 +43,12 @@ public class ServiceChecklistServiceImpl implements IServiceChecklistService {
     @Autowired(required = false)
     public void setDefaultPrices(com.ondemandmonitoring.pricing.service.ServiceDefaultPriceService defaultPrices) {
         this.defaultPrices = defaultPrices;
+    }
+
+    @Autowired(required = false)
+    public void setDeviceRequirements(
+            com.ondemandmonitoring.checklist.service.IChecklistDeviceRequirementService deviceRequirements) {
+        this.deviceRequirements = deviceRequirements;
     }
 
     @Override
@@ -70,7 +77,7 @@ public class ServiceChecklistServiceImpl implements IServiceChecklistService {
         if (audit != null) audit.record(com.ondemandmonitoring.checklist.enums.ChecklistConfigAuditAction.SERVICE_CHECKLIST_ASSIGNED, checklist, service,
                 java.util.Map.of(), audit.snapshot(saved));
         refreshPrice(serviceId);
-        return mapper.toResponse(saved);
+        return withDeviceTypes(mapper.toResponse(saved));
     }
 
     @Override
@@ -83,7 +90,7 @@ public class ServiceChecklistServiceImpl implements IServiceChecklistService {
         rows.add(Math.min(displayOrder, rows.size()), entity);
         normalize(rows);
         service.setChecklistDefaultsInitialized(true);
-        return mapper.toResponse(assignments.saveAndFlush(entity));
+        return withDeviceTypes(mapper.toResponse(assignments.saveAndFlush(entity)));
     }
 
     @Override
@@ -120,7 +127,7 @@ public class ServiceChecklistServiceImpl implements IServiceChecklistService {
         service.setChecklistDefaultsInitialized(true);
         if (audit != null && !before.equals(ordered.stream().map(row -> row.getChecklist().getId()).toList()))
             audit.record(com.ondemandmonitoring.checklist.enums.ChecklistConfigAuditAction.SERVICE_CHECKLIST_REORDERED, null, service);
-        return ordered.stream().map(mapper::toResponse).toList();
+        return withDeviceTypes(ordered.stream().map(mapper::toResponse).toList());
     }
 
     @Override
@@ -139,7 +146,7 @@ public class ServiceChecklistServiceImpl implements IServiceChecklistService {
         if (audit != null) audit.record(com.ondemandmonitoring.checklist.enums.ChecklistConfigAuditAction.SERVICE_CHECKLIST_UPDATED, saved.getChecklist(), service,
                 before, audit.snapshot(saved));
         refreshPrice(serviceId);
-        return mapper.toResponse(saved);
+        return withDeviceTypes(mapper.toResponse(saved));
     }
 
     /**
@@ -181,7 +188,7 @@ public class ServiceChecklistServiceImpl implements IServiceChecklistService {
         if (audit != null) audit.record(com.ondemandmonitoring.checklist.enums.ChecklistConfigAuditAction.SERVICE_CHECKLIST_FORKED, savedCopy, service,
                 java.util.Map.of("checklist", source.getContent()), java.util.Map.of("checklist", savedCopy.getContent()));
         refreshPrice(serviceId);
-        return mapper.toResponse(saved);
+        return withDeviceTypes(mapper.toResponse(saved));
     }
 
     /** "<content> (<service>)", numbered when that name is taken; always within the 500-character limit. */
@@ -232,7 +239,7 @@ public class ServiceChecklistServiceImpl implements IServiceChecklistService {
         List<ServiceChecklist> rows = activeOnly
                 ? assignments.findAllByServiceIdAndChecklistIsActiveTrueOrderByDisplayOrderAscIdAsc(serviceId)
                 : assignments.findAllByServiceIdOrderByDisplayOrderAscIdAsc(serviceId);
-        var responses = rows.stream().map(mapper::toResponse).toList();
+        var responses = withDeviceTypes(rows.stream().map(mapper::toResponse).toList());
         if (!activeOnly && !responses.isEmpty()) {
             // The admin template shows which checklists are shared; customers do not need the figure.
             var counts = new java.util.HashMap<String, Long>();
@@ -247,8 +254,22 @@ public class ServiceChecklistServiceImpl implements IServiceChecklistService {
     @Transactional(readOnly = true)
     public List<ServiceChecklistResponse> getByChecklist(String checklistId) {
         if (!checklists.existsById(checklistId)) throw new ApiException(ErrorCode.CHECKLIST_NOT_FOUND);
-        return assignments.findAllByChecklistIdOrderByServiceNameAscServiceIdAsc(checklistId)
-                .stream().map(mapper::toResponse).toList();
+        return withDeviceTypes(assignments.findAllByChecklistIdOrderByServiceNameAscServiceIdAsc(checklistId)
+                .stream().map(mapper::toResponse).toList());
+    }
+
+    private List<ServiceChecklistResponse> withDeviceTypes(List<ServiceChecklistResponse> responses) {
+        if (responses.isEmpty() || deviceRequirements == null) return responses;
+        var types = deviceRequirements.findDeviceTypesByChecklistIds(
+                responses.stream().map(ServiceChecklistResponse::getChecklistId).distinct().toList());
+        responses.forEach(response -> response.setDeviceTypes(
+                types.getOrDefault(response.getChecklistId(), List.of())));
+        return responses;
+    }
+
+    private ServiceChecklistResponse withDeviceTypes(ServiceChecklistResponse response) {
+        withDeviceTypes(List.of(response));
+        return response;
     }
 
     private ServiceChecklist assignment(String serviceId, String checklistId) {

@@ -199,4 +199,15 @@ class ServiceChecklistServiceImplTest {
         assertEquals(ErrorCode.CHECKLIST_NOT_FOUND,
                 assertThrows(ApiException.class, () -> useCase.getByChecklist("missing")).getErrorCode());
     }
+    @Test void existingTemplateReadsCarryDeviceTypes() {
+        var requirements = mock(com.ondemandmonitoring.checklist.service.IChecklistDeviceRequirementService.class);
+        useCase.setDeviceRequirements(requirements);
+        var type = new com.ondemandmonitoring.device.dto.response.DeviceTypeResponse();
+        type.setCode("DRONE");
+        when(requirements.findDeviceTypesByChecklistIds(List.of("c1")))
+                .thenReturn(java.util.Map.of("c1", List.of(type)));
+        when(services.findById("s1")).thenReturn(Optional.of(service));
+        when(assignments.findAllByServiceIdOrderByDisplayOrderAscIdAsc("s1")).thenReturn(List.of(link()));
+        assertEquals("DRONE", useCase.getByService("s1", false).getFirst().getDeviceTypes().getFirst().getCode());
+    }
 }

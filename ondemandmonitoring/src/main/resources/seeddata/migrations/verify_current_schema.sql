@@ -31,6 +31,8 @@ DO $$ DECLARE e record; actual text; keys text[]; predicate text; meta record; B
         ('order_checklist_items','ck_order_checklist_manager_quote','c'),
         ('services','ck_services_default_price','c'),
         ('checklist_definitions','ck_checklist_pricing','c'),
+        ('checklist_device_requirements','uk_checklist_device_requirement','u'),
+        ('mission_template_items','uk_mission_template_item','u'),
         ('service_checklists','ck_service_checklist_overrides','c'),
         ('pricing_rules','ck_pricing_rule_media','c'),
         ('mission_checklist_assignments','uk_assignment_identity','u'),
@@ -59,6 +61,11 @@ DO $$ DECLARE e record; actual text; keys text[]; predicate text; meta record; B
         ('mission_checklist_evidence','fk_evidence_media_mission','FOREIGN KEY (media_asset_id, mission_id) REFERENCES drone_media(id, mission_id) ON DELETE RESTRICT'),
         ('mission_checklist_evidence','fk_evidence_attached_user','FOREIGN KEY (attached_by) REFERENCES users(id) ON DELETE RESTRICT'),
         ('mission_checklist_evidence','fk_evidence_detached_user','FOREIGN KEY (detached_by) REFERENCES users(id) ON DELETE RESTRICT')
+        ,('checklist_device_requirements','fk_checklist_device_requirement_checklist','FOREIGN KEY (checklist_definition_id) REFERENCES checklist_definitions(id)')
+        ,('checklist_device_requirements','fk_checklist_device_requirement_type','FOREIGN KEY (device_type_id) REFERENCES device_types(id)')
+        ,('mission_templates','fk_mission_template_service','FOREIGN KEY (service_id) REFERENCES services(id)')
+        ,('mission_template_items','fk_mission_template_item_template','FOREIGN KEY (mission_template_id) REFERENCES mission_templates(id)')
+        ,('mission_template_items','fk_mission_template_item_checklist','FOREIGN KEY (checklist_definition_id) REFERENCES checklist_definitions(id)')
     ) AS expected(table_name,constraint_name,definition) LOOP
         SELECT pg_get_constraintdef(oid) INTO actual FROM pg_constraint
             WHERE conrelid=to_regclass('public.'||e.table_name)
@@ -82,6 +89,11 @@ DO $$ DECLARE e record; actual text; keys text[]; predicate text; meta record; B
         ('uk_resource_reservation_active_pair','resource_time_locks','resource_id,mission_id',true,'released_atisnull'),
         ('ix_resource_reservation_active_window','resource_time_locks','resource_id,start_time,end_time',false,'released_atisnull'),
         ('ix_order_checklist_order','order_checklist_items','order_id,display_order,id',false,'')
+        ,('ix_checklist_device_requirement_checklist','checklist_device_requirements','checklist_definition_id',false,'')
+        ,('ix_checklist_device_requirement_type','checklist_device_requirements','device_type_id',false,'')
+        ,('ix_mission_template_service','mission_templates','service_id',false,'')
+        ,('ix_mission_template_item_template','mission_template_items','mission_template_id',false,'')
+        ,('ix_mission_template_item_checklist','mission_template_items','checklist_definition_id',false,'')
     ) AS expected(index_name,table_name,column_names,is_unique,predicate) LOOP
         SELECT i.*,am.amname INTO meta FROM pg_index i
             JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_am am ON am.oid=c.relam
@@ -120,6 +132,16 @@ DO $$ DECLARE e record; actual text; keys text[]; predicate text; meta record; B
     IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='public.mission_checklist_executions'::regclass
         AND attname='mission_checklist_assignment_id' AND attnotnull) THEN
         RAISE EXCEPTION 'Execution assignment link must be NOT NULL';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='public.mission_templates'::regclass
+        AND attname='scope_label' AND attnotnull
+        AND format_type(atttypid,atttypmod)='character varying(255)') THEN
+        RAISE EXCEPTION 'Mission template scope_label must be varchar(255) NOT NULL';
+    END IF;
+    IF EXISTS (SELECT 1 FROM mission_template_items item
+        JOIN mission_templates template ON template.id=item.mission_template_id
+        GROUP BY template.service_id,item.checklist_definition_id HAVING count(*) > 1) THEN
+        RAISE EXCEPTION 'Checklist overlap exists between mission templates of the same service';
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='public.order_checklist_items'::regclass
         AND attname='required_evidence_type' AND attnotnull

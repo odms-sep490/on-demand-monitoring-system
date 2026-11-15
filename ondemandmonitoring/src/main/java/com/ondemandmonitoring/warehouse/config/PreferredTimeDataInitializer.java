@@ -37,7 +37,8 @@ public class PreferredTimeDataInitializer {
             new PreferredTimeSeed(PreferredTimeCode.MORNING, "Morning", LocalTime.of(7, 0), LocalTime.of(11, 0)),
             new PreferredTimeSeed(PreferredTimeCode.AFTERNOON, "Afternoon", LocalTime.of(13, 0), LocalTime.of(17, 0)),
             new PreferredTimeSeed(PreferredTimeCode.EVENING, "Evening", LocalTime.of(17, 30), LocalTime.of(20, 30)),
-            new PreferredTimeSeed(PreferredTimeCode.NIGHT, "Night", LocalTime.of(21, 0), LocalTime.of(23, 59))
+            new PreferredTimeSeed(PreferredTimeCode.NIGHT, "Night", LocalTime.of(21, 0), LocalTime.of(23, 59)),
+            new PreferredTimeSeed(PreferredTimeCode.ANY_TIME, "Any time", LocalTime.MIDNIGHT, LocalTime.of(23, 59))
     );
 
     private record PreferredTimeSeed(PreferredTimeCode code, String name, LocalTime startTime, LocalTime endTime) {

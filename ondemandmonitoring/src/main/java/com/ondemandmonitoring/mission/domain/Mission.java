@@ -19,7 +19,8 @@ import java.time.Instant;
 @org.hibernate.annotations.Check(name="ck_mission_internal_correction_origin", constraints="inspection_correction_id is null or (mission_purpose = 'REWORK' and result_revision_case_id is null)")
 @Entity
 @Table(name = "missions", uniqueConstraints = {
-        @UniqueConstraint(name = "uk_mission_id_order", columnNames = {"id", "order_id"})},
+        @UniqueConstraint(name = "uk_mission_id_order", columnNames = {"id", "order_id"}),
+        @UniqueConstraint(name = "uk_mission_order_template", columnNames = {"order_id", "mission_template_id"})},
         indexes = @Index(name = "ix_missions_status_schedule", columnList = "status,scheduled_start_at"))
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class Mission extends BaseEntity {
@@ -56,6 +57,10 @@ public class Mission extends BaseEntity {
     @Column(name = "scope_label", length = 255)
     String scopeLabel;
 
+    /** Template that generated this Mission, used to make deposit callbacks idempotent. */
+    @Column(name = "mission_template_id", length = 36, updatable = false)
+    String missionTemplateId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "mission_purpose", nullable = false, length = 20)
     MissionPurpose purpose = MissionPurpose.ORIGINAL;
@@ -89,10 +94,10 @@ public class Mission extends BaseEntity {
 
     // ===== Schedule =====
 
-    @Column(name = "scheduled_start_at", nullable = false)
+    @Column(name = "scheduled_start_at")
     Instant scheduledStartAt;
 
-    @Column(name = "scheduled_end_at", nullable = false)
+    @Column(name = "scheduled_end_at")
     Instant scheduledEndAt;
 
     @Column(name = "actual_start_at")

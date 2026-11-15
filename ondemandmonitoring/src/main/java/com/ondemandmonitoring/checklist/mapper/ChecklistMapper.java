@@ -15,5 +15,6 @@ public interface ChecklistMapper {
     @Mapping(target = "seedCode", ignore = true)
     @Mapping(target = "isActive", constant = "true")
     ChecklistDefinition toEntity(ChecklistRequest request);
+    @Mapping(target = "deviceTypes", ignore = true)
     ChecklistResponse toResponse(ChecklistDefinition entity);
 }

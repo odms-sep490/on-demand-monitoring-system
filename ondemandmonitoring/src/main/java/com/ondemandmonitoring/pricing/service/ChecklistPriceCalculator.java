@@ -29,6 +29,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class ChecklistPriceCalculator {
+    private static final BigDecimal VND_ROUNDING_UNIT = BigDecimal.valueOf(1_000);
     public static final String DEFAULT_PROFILE = "DEFAULT";
     /** Pricing profile used for free-text requirements added by a customer. */
     public static final String GENERIC_CUSTOMER_ADDED_PROFILE = "GENERIC_CUSTOMER_ADDED";
@@ -48,9 +49,12 @@ public class ChecklistPriceCalculator {
         }
     }
 
-    public record RequestContext(BigDecimal areaHa, BigDecimal lengthKm, BigDecimal altitudeM) {
+    public record RequestContext(BigDecimal areaHa, BigDecimal lengthKm, BigDecimal altitudeM, BigDecimal areaM2) {
+        public RequestContext(BigDecimal areaHa, BigDecimal lengthKm, BigDecimal altitudeM) {
+            this(areaHa, lengthKm, altitudeM, areaHa == null ? null : areaHa.multiply(new BigDecimal("10000")));
+        }
         public static RequestContext empty() {
-            return new RequestContext(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+            return new RequestContext(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, null);
         }
     }
 
@@ -122,6 +126,17 @@ public class ChecklistPriceCalculator {
         if (in.custom()) customAreaLines(policy, profile, context.areaHa(), lines);
 
         BigDecimal subtotal = lines.stream().map(Line::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (in.custom()) {
+            BigDecimal roundedSubtotal = subtotal.divide(VND_ROUNDING_UNIT, 0, RoundingMode.HALF_UP)
+                    .multiply(VND_ROUNDING_UNIT);
+            BigDecimal roundingAdjustment = roundedSubtotal.subtract(subtotal);
+            if (roundingAdjustment.signum() != 0) {
+                lines.add(new Line("ROUNDING", PricingCategory.CHECKLIST,
+                        "Làm tròn tổng giá checklist đến 1.000 VND", BigDecimal.ONE,
+                        roundingAdjustment, roundingAdjustment, null, null, null, null));
+            }
+            subtotal = roundedSubtotal;
+        }
         return new ChecklistPriceBreakdown(in.checklistId(), in.content(), profile, in.custom(), includedImages, includedVideos,
                 requestedImages, requestedVideos, extraImages, extraVideos, in.standardVideoDurationSeconds(), List.copyOf(lines), subtotal);
     }

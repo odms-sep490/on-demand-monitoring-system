@@ -52,9 +52,7 @@ class OrderChecklistSnapshotServiceTest {
                 Mappers.getMapper(OrderChecklistItemMapper.class), resolver,
                 mock(com.ondemandmonitoring.pricing.repository.PricingPolicyRepository.class),
                 new com.ondemandmonitoring.pricing.service.ChecklistPriceCalculator(),
-                new com.ondemandmonitoring.pricing.service.ServicePriceResolver(assignments,
-                        mock(com.ondemandmonitoring.pricing.repository.PricingPolicyRepository.class),
-                        new com.ondemandmonitoring.pricing.service.ChecklistPriceCalculator()));
+                new com.ondemandmonitoring.pricing.service.ServicePriceResolver(assignments));
     }
     ChecklistDefinition definition(String id, String content) {
         var c = new ChecklistDefinition(); c.setId(id); c.setContent(content); c.setVersion(2L); return c;

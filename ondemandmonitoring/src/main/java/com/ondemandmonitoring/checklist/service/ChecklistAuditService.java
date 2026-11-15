@@ -49,18 +49,13 @@ public class ChecklistAuditService {
         values.put("executionSteps", join(checklist.getExecutionSteps()));
         values.put("inputRequirements", join(checklist.getInputRequirements()));
         values.put("expectedOutputs", join(checklist.getExpectedOutputs()));
-        values.put("difficulty", text(checklist.getDifficulty()));
         values.put("basePrice", text(checklist.getBasePrice()));
+        values.put("standardAreaM2", text(checklist.getStandardAreaM2()));
         values.put("includedImageCount", text(checklist.getIncludedImageCount()));
         values.put("includedVideoCount", text(checklist.getIncludedVideoCount()));
+        values.put("extraImageUnitPrice", text(checklist.getExtraImageUnitPrice()));
+        values.put("extraVideoUnitPrice", text(checklist.getExtraVideoUnitPrice()));
         values.put("standardVideoDurationSeconds", text(checklist.getStandardVideoDurationSeconds()));
-        values.put("pricingProfile", checklist.getPricingProfile());
-        values.put("areaPricingEnabled", text(checklist.isAreaPricingEnabled()));
-        values.put("lengthPricingEnabled", text(checklist.isLengthPricingEnabled()));
-        values.put("altitudePricingEnabled", text(checklist.isAltitudePricingEnabled()));
-        values.put("includedAreaHa", text(checklist.getIncludedAreaHa()));
-        values.put("includedLengthKm", text(checklist.getIncludedLengthKm()));
-        values.put("includedAltitudeM", text(checklist.getIncludedAltitudeM()));
         values.put("isActive", text(checklist.getIsActive()));
         return values;
     }
@@ -69,10 +64,8 @@ public class ChecklistAuditService {
     public Map<String, String> snapshot(ServiceChecklist link) {
         var values = new LinkedHashMap<String, String>();
         values.put("required", text(link.isRequired()));
-        values.put("basePriceOverride", text(link.getBasePriceOverride()));
         values.put("includedImageCountOverride", text(link.getIncludedImageCountOverride()));
         values.put("includedVideoCountOverride", text(link.getIncludedVideoCountOverride()));
-        values.put("pricingProfileOverride", link.getPricingProfileOverride());
         values.put("displayOrder", text(link.getDisplayOrder()));
         return values;
     }

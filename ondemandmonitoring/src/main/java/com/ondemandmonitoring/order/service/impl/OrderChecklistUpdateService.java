@@ -31,6 +31,7 @@ import com.ondemandmonitoring.pricing.enums.ChecklistDifficulty;
 import com.ondemandmonitoring.pricing.enums.MediaPricingComponent;
 import com.ondemandmonitoring.pricing.repository.PricingPolicyRepository;
 import com.ondemandmonitoring.pricing.service.ChecklistPriceCalculator;
+import com.ondemandmonitoring.pricing.service.BaseChecklistPriceCalculator;
 import com.ondemandmonitoring.pricing.service.ServicePriceResolver;
 import com.ondemandmonitoring.service.domain.Service;
 import com.ondemandmonitoring.service.repository.ServiceRepository;
@@ -73,6 +74,12 @@ public class OrderChecklistUpdateService implements IOrderChecklistUpdateService
     private final OrderChecklistEditPolicy editPolicy;
     private final AuthenticatedUserResolver currentUser;
     private final IOrderService orderService;
+    private BaseChecklistPriceCalculator baseChecklistPrices = new BaseChecklistPriceCalculator();
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setBaseChecklistPrices(BaseChecklistPriceCalculator baseChecklistPrices) {
+        this.baseChecklistPrices = baseChecklistPrices;
+    }
 
     @Override
     @Transactional
@@ -334,19 +341,30 @@ public class OrderChecklistUpdateService implements IOrderChecklistUpdateService
 
             boolean custom = entity.getSourceType() == OrderChecklistSourceType.CUSTOMER_CUSTOM;
             if (policy != null) {
-                pricedTotal = pricedTotal.add(priceCalculator.price(policy, new ChecklistPriceCalculator.Input(
-                        entity.getSourceChecklist() == null ? null : entity.getSourceChecklist().getId(),
-                        entity.getContent(),
-                        entity.getDifficultySnapshot(),
-                        custom,
-                        entity.getBasePriceSnapshot(),
-                        custom ? null : entity.getIncludedImageCountSnapshot(),
-                        custom ? null : entity.getIncludedVideoCountSnapshot(),
-                        entity.getRequestedImageCount(),
-                        entity.getRequestedVideoCount(),
-                        entity.getPricingProfileSnapshot(),
-                        entity.getStandardVideoDurationSnapshot(),
-                        false)).subtotal());
+                if (!custom && entity.getPricingSnapshotVersion() >= 2) {
+                    var actualArea = baseChecklistPrices.measureSquareMeters(order.getTargetArea());
+                    var areaPrice = baseChecklistPrices.breakdown(entity.getSourceChecklist().getId(), entity.getContent(),
+                            baseChecklistPrices.calculate(entity.getBasePriceSnapshot(),
+                                    entity.getSourceChecklist().getStandardAreaM2(), actualArea));
+                    pricedTotal = pricedTotal.add(baseChecklistPrices.withMediaCharges(areaPrice,
+                            entity.getIncludedImageCountSnapshot(), entity.getIncludedVideoCountSnapshot(),
+                            entity.getRequestedImageCount(), entity.getRequestedVideoCount(),
+                            entity.getExtraImageUnitPriceSnapshot(), entity.getExtraVideoUnitPriceSnapshot()).subtotal());
+                } else {
+                    pricedTotal = pricedTotal.add(priceCalculator.price(policy, new ChecklistPriceCalculator.Input(
+                            entity.getSourceChecklist() == null ? null : entity.getSourceChecklist().getId(),
+                            entity.getContent(),
+                            entity.getDifficultySnapshot(),
+                            custom,
+                            entity.getBasePriceSnapshot(),
+                            custom ? null : entity.getIncludedImageCountSnapshot(),
+                            custom ? null : entity.getIncludedVideoCountSnapshot(),
+                            entity.getRequestedImageCount(),
+                            entity.getRequestedVideoCount(),
+                            entity.getPricingProfileSnapshot(),
+                            entity.getStandardVideoDurationSnapshot(),
+                            false)).subtotal());
+                }
             }
             entities.add(entity);
         }
@@ -384,11 +402,14 @@ public class OrderChecklistUpdateService implements IOrderChecklistUpdateService
         entity.setDifficultySnapshot(existing.getDifficultySnapshot());
         entity.setPricingSnapshotVersion(
                 existing.getPricingSnapshotVersion() == 0 ? 1 : existing.getPricingSnapshotVersion());
-        entity.setManagerQuoteRequired(existing.isManagerQuoteRequired());
+        entity.setManagerQuoteRequired(existing.getPricingSnapshotVersion() >= 2 && existing.getSourceChecklist() != null
+                ? false : existing.isManagerQuoteRequired());
         entity.setBasePriceSnapshot(
                 existing.getBasePriceSnapshot() == null ? BigDecimal.ZERO : existing.getBasePriceSnapshot());
         entity.setIncludedImageCountSnapshot(existing.getIncludedImageCountSnapshot());
         entity.setIncludedVideoCountSnapshot(existing.getIncludedVideoCountSnapshot());
+        entity.setExtraImageUnitPriceSnapshot(existing.getExtraImageUnitPriceSnapshot());
+        entity.setExtraVideoUnitPriceSnapshot(existing.getExtraVideoUnitPriceSnapshot());
         entity.setPricingProfileSnapshot(existing.getPricingProfileSnapshot());
         entity.setStandardVideoDurationSnapshot(existing.getStandardVideoDurationSnapshot());
         entity.setAreaPricingEnabledSnapshot(existing.isAreaPricingEnabledSnapshot());
@@ -403,8 +424,9 @@ public class OrderChecklistUpdateService implements IOrderChecklistUpdateService
 
         boolean templateItem = existing.getSourceType() == OrderChecklistSourceType.SERVICE_TEMPLATE;
         entity.setReviewStatus(templateItem ? ChecklistReviewStatus.INCLUDED : ChecklistReviewStatus.PENDING);
-        entity.setPricingStatus(
-                templateItem ? ChecklistPricingStatus.AUTO_PRICED : ChecklistPricingStatus.NEEDS_MANAGER_REVIEW);
+        boolean systemPricedBase = existing.getPricingSnapshotVersion() >= 2 && existing.getSourceChecklist() != null;
+        entity.setPricingStatus(templateItem || systemPricedBase ? ChecklistPricingStatus.AUTO_PRICED
+                : ChecklistPricingStatus.NEEDS_MANAGER_REVIEW);
 
         String content = item.getContentOverride() != null ? item.getContentOverride() : existing.getContent();
         entity.setContent(ChecklistContentNormalizer.content(content));
@@ -450,10 +472,7 @@ public class OrderChecklistUpdateService implements IOrderChecklistUpdateService
         boolean custom = source == null;
         boolean packageChecklist = source != null && membership.contains(source.getId());
 
-        BigDecimal basePrice = custom ? BigDecimal.ZERO
-                : (override != null && override.getBasePriceOverride() != null
-                        ? override.getBasePriceOverride()
-                        : source.getBasePrice());
+        BigDecimal basePrice = custom ? BigDecimal.ZERO : source.getBasePrice();
         int includedImages = custom
                 ? (policy == null ? 0 : priceCalculator.customAllowance(policy, MediaPricingComponent.INCLUDED_IMAGE))
                 : (override != null && override.getIncludedImageCountOverride() != null
@@ -464,12 +483,12 @@ public class OrderChecklistUpdateService implements IOrderChecklistUpdateService
                 : (override != null && override.getIncludedVideoCountOverride() != null
                         ? override.getIncludedVideoCountOverride()
                         : source.getIncludedVideoCount());
-        String profile = custom
-                ? ChecklistPriceCalculator.GENERIC_CUSTOMER_ADDED_PROFILE
-                : ChecklistPriceCalculator
-                        .normalizeProfile(override != null && override.getPricingProfileOverride() != null
-                                ? override.getPricingProfileOverride()
-                                : source.getPricingProfile());
+        String profile = custom ? ChecklistPriceCalculator.GENERIC_CUSTOMER_ADDED_PROFILE : ChecklistPriceCalculator.DEFAULT_PROFILE;
+
+        if (!custom && (source.getStandardAreaM2() == null || source.getStandardAreaM2().signum() <= 0)) {
+            throw new ApiException(ErrorCode.SERVICE_NOT_PRICED,
+                    "Configure a positive standard area for checklist: " + source.getContent());
+        }
 
         int requestedImages = item.getRequestedImageCount() == null ? includedImages : item.getRequestedImageCount();
         int requestedVideos = item.getRequestedVideoCount() == null ? includedVideos : item.getRequestedVideoCount();
@@ -477,32 +496,32 @@ public class OrderChecklistUpdateService implements IOrderChecklistUpdateService
             throw invalid("A checklist needs at least one image or video");
         }
 
-        entity.setPricingSnapshotVersion(1);
-        entity.setManagerQuoteRequired(!packageChecklist);
+        entity.setPricingSnapshotVersion(custom ? 1 : 3);
+        entity.setManagerQuoteRequired(custom);
         entity.setBasePriceSnapshot(basePrice == null ? BigDecimal.ZERO : basePrice);
         entity.setIncludedImageCountSnapshot(includedImages);
         entity.setIncludedVideoCountSnapshot(includedVideos);
+        entity.setExtraImageUnitPriceSnapshot(custom ? null : source.getExtraImageUnitPrice());
+        entity.setExtraVideoUnitPriceSnapshot(custom ? null : source.getExtraVideoUnitPrice());
         entity.setPricingProfileSnapshot(profile);
         entity.setStandardVideoDurationSnapshot(custom ? null : source.getStandardVideoDurationSeconds());
-        entity.setAreaPricingEnabledSnapshot(!custom && source.isAreaPricingEnabled());
-        entity.setLengthPricingEnabledSnapshot(!custom && source.isLengthPricingEnabled());
-        entity.setAltitudePricingEnabledSnapshot(!custom && source.isAltitudePricingEnabled());
-        entity.setIncludedAreaHaSnapshot(custom ? BigDecimal.ZERO : source.getIncludedAreaHa());
-        entity.setIncludedLengthKmSnapshot(custom ? BigDecimal.ZERO : source.getIncludedLengthKm());
-        entity.setIncludedAltitudeMSnapshot(custom ? BigDecimal.ZERO : source.getIncludedAltitudeM());
+        entity.setAreaPricingEnabledSnapshot(false);
+        entity.setLengthPricingEnabledSnapshot(false);
+        entity.setAltitudePricingEnabledSnapshot(false);
+        entity.setIncludedAreaHaSnapshot(BigDecimal.ZERO);
+        entity.setIncludedLengthKmSnapshot(BigDecimal.ZERO);
+        entity.setIncludedAltitudeMSnapshot(BigDecimal.ZERO);
 
         applyEvidenceAndMedia(entity, item, explicitMedia, explicitEvidence, requestedImages, requestedVideos);
 
         entity.setSourceChecklist(source);
-        entity.setDifficultySnapshot(source == null || source.getDifficulty() == null
-                ? ChecklistDifficulty.BASIC
-                : source.getDifficulty());
+        entity.setDifficultySnapshot(ChecklistDifficulty.BASIC);
         entity.setSourceType(custom ? OrderChecklistSourceType.CUSTOMER_CUSTOM
                 : packageChecklist ? OrderChecklistSourceType.SERVICE_TEMPLATE
                         : OrderChecklistSourceType.CUSTOMER_SELECTED);
         entity.setReviewStatus(packageChecklist ? ChecklistReviewStatus.INCLUDED : ChecklistReviewStatus.PENDING);
-        entity.setPricingStatus(packageChecklist ? ChecklistPricingStatus.AUTO_PRICED
-                : ChecklistPricingStatus.NEEDS_MANAGER_REVIEW);
+        entity.setPricingStatus(custom ? ChecklistPricingStatus.NEEDS_MANAGER_REVIEW
+                : ChecklistPricingStatus.AUTO_PRICED);
 
         String content = item.getContentOverride();
         if (content == null && source != null) {

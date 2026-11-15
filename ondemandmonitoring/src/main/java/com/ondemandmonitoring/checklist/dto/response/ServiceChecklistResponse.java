@@ -23,20 +23,13 @@ public class ServiceChecklistResponse {
     private boolean required;
     /** How many services include this checklist; more than one means editing its content changes all of them. */
     private long usedByServiceCount;
-    // Effective values = override, else inherited from the checklist definition.
-    private java.math.BigDecimal basePrice;
     private Integer includedImageCount;
     private Integer includedVideoCount;
-    private String pricingProfile;
     private Integer standardVideoDurationSeconds;
-    private java.math.BigDecimal basePriceOverride;
     private Integer includedImageCountOverride;
     private Integer includedVideoCountOverride;
-    private String pricingProfileOverride;
-    private java.math.BigDecimal checklistBasePrice;
     private int checklistIncludedImageCount;
     private int checklistIncludedVideoCount;
-    private String checklistPricingProfile;
     /** Device types associated with the underlying checklist definition. */
     private java.util.List<com.ondemandmonitoring.device.dto.response.DeviceTypeResponse> deviceTypes = java.util.List.of();
 }

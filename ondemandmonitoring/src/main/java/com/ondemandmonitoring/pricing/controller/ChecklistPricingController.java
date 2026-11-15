@@ -20,12 +20,6 @@ public class ChecklistPricingController {
         return ApiResponse.ok(preview.defaultPrice(serviceId));
     }
 
-    @PostMapping("/api/admin/pricing/service-preview")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ApiResponse<ServicePricePreviewResponse> adminPreview(@Valid @RequestBody ChecklistPricingPreviewRequests.Admin request) {
-        return ApiResponse.ok(preview.adminPreview(request));
-    }
-
     @PostMapping("/api/pricing/checklist-quote")
     @PreAuthorize("hasRole('CUSTOMER')")
     public ApiResponse<ServicePricePreviewResponse> customerQuote(@Valid @RequestBody ChecklistPricingPreviewRequests.Customer request) {

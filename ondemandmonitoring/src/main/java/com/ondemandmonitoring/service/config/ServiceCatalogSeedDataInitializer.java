@@ -6,7 +6,6 @@ import com.ondemandmonitoring.service.domain.ServiceDeliverable;
 import com.ondemandmonitoring.service.repository.DeliverableTypeRepository;
 import com.ondemandmonitoring.service.repository.ServiceDeliverableRepository;
 import com.ondemandmonitoring.service.repository.ServiceRepository;
-import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -66,28 +65,24 @@ public class ServiceCatalogSeedDataInitializer implements ApplicationRunner {
                         "CONSTRUCTION_MONITORING",
                         "Giám sát công trình",
                         "Ghi nhận hiện trạng và tiến độ thi công bằng hình ảnh, video từ drone.",
-                        3_500_000L,
                         "https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=1200&auto=format&fit=crop&q=80"
                 ),
                 new ServiceSeed(
                         "FACTORY_INSPECTION",
                         "Kiểm tra nhà xưởng",
                         "Kiểm tra mái, kết cấu bên ngoài và các vị trí khó tiếp cận bằng drone.",
-                        3_000_000L,
                         "https://images.unsplash.com/photo-1565793298595-6a879b1d9492?w=1200&auto=format&fit=crop&q=80"
                 ),
                 new ServiceSeed(
                         "AREA_MONITORING",
                         "Giám sát khu vực",
                         "Quan sát tổng thể, ghi nhận hiện trạng và các vị trí cần theo dõi trong khu vực.",
-                        2_500_000L,
                         "https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=1200&auto=format&fit=crop&q=80"
                 ),
                 new ServiceSeed(
                         "FOREST_MONITORING",
                         "Giám sát rừng",
                         "Quan sát hiện trạng rừng, theo dõi thảm thực vật và ghi nhận khu vực bất thường.",
-                        4_000_000L,
                         "https://images.unsplash.com/photo-1448375240586-882707db888b?w=1200&auto=format&fit=crop&q=80"
                 )
         );
@@ -109,11 +104,6 @@ public class ServiceCatalogSeedDataInitializer implements ApplicationRunner {
         }
         if (!seed.description().equals(service.getDescription())) {
             service.setDescription(seed.description());
-            changed = true;
-        }
-        BigDecimal price = BigDecimal.valueOf(seed.basePrice());
-        if (!price.equals(service.getBasePrice())) {
-            service.setBasePrice(price);
             changed = true;
         }
         if (!Objects.equals(seed.imageUrl(), service.getImageUrl())) {
@@ -268,7 +258,7 @@ public class ServiceCatalogSeedDataInitializer implements ApplicationRunner {
                 .forEach(serviceDeliverableRepository::delete);
     }
 
-    private record ServiceSeed(String code, String name, String description, long basePrice, String imageUrl) {
+    private record ServiceSeed(String code, String name, String description, String imageUrl) {
     }
 
     private record DeliverableTypeSeed(String name, String defaultFormat) {

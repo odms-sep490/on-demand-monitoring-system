@@ -531,9 +531,8 @@ class ChecklistPostgresTest {
         }
         @Bean com.ondemandmonitoring.pricing.service.ServiceDefaultPriceService defaultPrices(ServiceRepository services,
                 ServiceChecklistRepository links, com.ondemandmonitoring.pricing.repository.PricingPolicyRepository pricingPolicies) {
-            var calculator = new com.ondemandmonitoring.pricing.service.ChecklistPriceCalculator();
             return new com.ondemandmonitoring.pricing.service.ServiceDefaultPriceService(services, links,
-                    new com.ondemandmonitoring.pricing.service.ServicePriceResolver(links, pricingPolicies, calculator));
+                    new com.ondemandmonitoring.pricing.service.ServicePriceResolver(links));
         }
         @Bean IChecklistService catalog(ChecklistDefinitionRepository repository,
                 com.ondemandmonitoring.pricing.service.ServiceDefaultPriceService defaultPrices) {
@@ -571,8 +570,7 @@ class ChecklistPostgresTest {
             return new OrderChecklistSnapshotService(services, definitions, assignments, snapshots,
                     Mappers.getMapper(OrderChecklistItemMapper.class), resolver, pricingPolicies,
                     new com.ondemandmonitoring.pricing.service.ChecklistPriceCalculator(),
-                    new com.ondemandmonitoring.pricing.service.ServicePriceResolver(assignments, pricingPolicies,
-                            new com.ondemandmonitoring.pricing.service.ChecklistPriceCalculator()));
+                    new com.ondemandmonitoring.pricing.service.ServicePriceResolver(assignments));
         }
         @Bean IOrderService orderService(OrderRepository orders, ServiceRepository services,
                 DeliverableTypeRepository deliverables, ServiceDeliverableRepository links,

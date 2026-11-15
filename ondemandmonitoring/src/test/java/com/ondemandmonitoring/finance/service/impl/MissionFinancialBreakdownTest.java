@@ -67,8 +67,8 @@ class MissionFinancialBreakdownTest {
         when(missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc("order")).thenReturn(List.of(first, second));
         when(milestones.findAllByInvoiceIdForDisplay("invoice")).thenReturn(List.of(
                 milestone(first, firstAmount), milestone(second, secondAmount)));
-        when(milestones.sumChecklistPricesByMission(eq("quote"), eq("order"), anyList())).thenReturn(List.of(
-                price("m1", firstGross), price("m2", secondGross)));
+        var prices = List.of(price("m1", firstGross), price("m2", secondGross));
+        when(milestones.sumChecklistPricesByMission(eq("quote"), eq("order"), anyList())).thenReturn(prices);
         return invoice;
     }
 

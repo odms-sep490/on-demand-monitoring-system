@@ -12,7 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Keeps {@code services.default_price} (the stored sum of a service's default checklists) in step with its source of truth.
  * The stored value is a cache for display; {@link ServicePriceResolver} stays the one place that knows how to compute it.
- * Call {@code refresh*} inside the transaction that changed a checklist, an association, or published a policy.
+ * Call {@code refresh*} inside the transaction that changed a checklist or its service assignment.
  */
 @org.springframework.stereotype.Service
 @RequiredArgsConstructor
@@ -26,13 +26,13 @@ public class ServiceDefaultPriceService {
         services.findById(serviceId).ifPresent(this::store);
     }
 
-    /** Every service that uses the checklist (its price, allowance, profile or active flag changed). */
+    /** Every service that uses the checklist (its Base Checklist price, standard area or active flag changed). */
     @Transactional
     public void refreshForChecklist(String checklistId) {
         for (var row : assignments.findAllByChecklistIdOrderByServiceNameAscServiceIdAsc(checklistId)) store(row.getService());
     }
 
-    /** A published pricing policy can change every service (included-media prices, tiers, difficulty rules). */
+    /** Recompute all cached service totals after a catalog-wide change or data repair. */
     @Transactional
     public void refreshAll() {
         services.findAll().forEach(this::store);

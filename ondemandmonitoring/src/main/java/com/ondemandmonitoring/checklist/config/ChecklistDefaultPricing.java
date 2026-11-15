@@ -6,13 +6,16 @@ import java.util.Map;
 /**
  * Starting prices for the bootstrap checklists in {@link ChecklistDefaults}, keyed by number (1-based, same as
  * {@link ChecklistDefaults#code(int)}). Calibrated so each default service keeps its current catalog price:
- * construction 3.5M, factory 3.0M, area 2.5M, forest 4.0M (checklists 4 and 6 are shared by several services).
+ * construction 3.5M, factory 2.7M, area 2.5M, forest 4.0M (checklists 4 and 6 are shared by several services).
  * Media prices come from the DEFAULT pricing profile, so only the base price and the included allowance live here.
- * They are starting values an Admin is expected to adjust; the initializer never overwrites a checklist that already
- * has a price or allowance.
+ * They are starting values an Admin is expected to adjust. The initializer preserves saved prices and allowances,
+ * except for the guarded legacy factory price update when its standard area is still unset.
  */
 public final class ChecklistDefaultPricing {
     private ChecklistDefaultPricing() {}
+
+    /** Default area represented by a checklist base price: 50 hectares. */
+    public static final BigDecimal DEFAULT_STANDARD_AREA_M2 = BigDecimal.valueOf(500_000);
 
     public record Pricing(BigDecimal basePrice, int includedImages, int includedVideos, Integer videoSeconds) {
         static Pricing of(long basePrice, int images, int videos) {
@@ -27,7 +30,7 @@ public final class ChecklistDefaultPricing {
             Map.entry(4, Pricing.of(400_000, 10, 1)),   // Quan sát khu vực khó tiếp cận (shared)
             Map.entry(5, Pricing.of(500_000, 4, 0)),    // Chụp ảnh tổng quan công trình
             Map.entry(6, Pricing.of(300_000, 5, 1)),    // Ghi nhận hiện trạng sau khi hoàn tất kiểm tra (shared)
-            Map.entry(7, Pricing.of(700_000, 10, 1)),   // Kiểm tra tình trạng tổng thể nhà xưởng
+            Map.entry(7, Pricing.of(400_000, 10, 1)),   // Kiểm tra tình trạng tổng thể nhà xưởng
             Map.entry(8, Pricing.of(700_000, 15, 1)),   // Kiểm tra mái nhà xưởng
             Map.entry(9, Pricing.of(500_000, 10, 1)),   // Kiểm tra bề mặt và kết cấu phía trên
             Map.entry(10, Pricing.of(400_000, 15, 0)),  // Chụp ảnh các vị trí bất thường

@@ -21,6 +21,7 @@ public interface ServiceMapper {
     @Mapping(target = "imageS3Bucket", ignore = true)
     @Mapping(target = "imageUrl", ignore = true)
     @Mapping(target = "checklistDefaultsInitialized", ignore = true)
+    @Mapping(target = "basePrice", ignore = true)
     Service toEntity(ServiceRequest request);
 
     @Mapping(target = "imageUrl", ignore = true)
@@ -38,5 +39,6 @@ public interface ServiceMapper {
     @Mapping(target = "imageS3Bucket", ignore = true)
     @Mapping(target = "imageUrl", ignore = true)
     @Mapping(target = "checklistDefaultsInitialized", ignore = true)
+    @Mapping(target = "basePrice", ignore = true)
     void updateEntityFromRequest(ServiceRequest request, @MappingTarget Service entity);
 }

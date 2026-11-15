@@ -32,11 +32,11 @@ public class Service extends BaseEntity {
 
     @Builder.Default
     @Column(name = "base_price", nullable = false, precision = 19, scale = 0)
-    private BigDecimal basePrice = new BigDecimal("3200000");
+    private BigDecimal basePrice = BigDecimal.ZERO;
 
     /**
-     * Stored sum of the active default checklists at their included allowance (see ServicePriceResolver). It is a cache of the
-     * pricing source of truth, refreshed whenever a checklist, its association, or the pricing policy changes.
+     * Stored sum of the active Base Checklist prices at their standard areas. It is a cache refreshed when a checklist
+     * or its service association changes.
      */
     @Column(name = "default_price", precision = 19, scale = 0)
     private BigDecimal defaultPrice;

@@ -32,7 +32,7 @@ class ChecklistDefaultPricingTest {
     }
 
     @Test void eachDefaultServiceTotalsItsFormerCatalogPrice() {
-        Map<String, Long> expected = Map.of("Giám sát công trình", 3_500_000L, "Kiểm tra nhà xưởng", 3_000_000L,
+        Map<String, Long> expected = Map.of("Giám sát công trình", 3_500_000L, "Kiểm tra nhà xưởng", 2_700_000L,
                 "Giám sát khu vực", 2_500_000L, "Giám sát rừng", 4_000_000L);
         ChecklistDefaults.templates().forEach((service, numbers) -> {
             BigDecimal total = numbers.stream().map(n -> ChecklistDefaultPricing.forNumber(n).basePrice())

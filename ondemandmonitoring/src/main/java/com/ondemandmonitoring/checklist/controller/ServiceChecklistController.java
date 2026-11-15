@@ -35,10 +35,10 @@ public class ServiceChecklistController {
         return ApiResponse.ok(service.updateOrder(serviceId, checklistId, request.getDisplayOrder()));
     }
 
-    @PutMapping("/{checklistId}/pricing")
-    public ApiResponse<ServiceChecklistResponse> updatePricing(@PathVariable String serviceId,
-            @PathVariable String checklistId, @Valid @RequestBody ServiceChecklistPricingRequest request) {
-        return ApiResponse.ok(service.updatePricing(serviceId, checklistId, request));
+    @PutMapping("/{checklistId}/requirements")
+    public ApiResponse<ServiceChecklistResponse> updateRequirements(@PathVariable String serviceId,
+            @PathVariable String checklistId, @Valid @RequestBody ServiceChecklistRequirementsRequest request) {
+        return ApiResponse.ok(service.updateRequirements(serviceId, checklistId, request));
     }
 
     @PostMapping("/{checklistId}/fork")

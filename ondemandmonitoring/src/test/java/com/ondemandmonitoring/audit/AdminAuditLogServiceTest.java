@@ -142,7 +142,7 @@ class AdminAuditLogServiceTest {
 
         assertThat(specification.getValue().toPredicate(root, null, criteriaBuilder)).isNotNull();
 
-        verify(entityType).in(java.util.Set.of("refresh_token_cookie", "service_default_price"));
+        verify(entityType).in(java.util.Set.of("refresh_token_cookie", "service_default_price", "checklist_evidence_policy"));
         verify(criteriaBuilder).equal(entityType, "user");
         verify(criteriaBuilder).equal(actorId, "system");
         verify(criteriaBuilder).equal(action, AuditAction.STATUS_CHANGE);

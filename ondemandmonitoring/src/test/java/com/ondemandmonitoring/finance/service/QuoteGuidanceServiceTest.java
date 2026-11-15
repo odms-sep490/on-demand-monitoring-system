@@ -58,8 +58,8 @@ class QuoteGuidanceServiceTest {
                 mock(IMissionChecklistExecutionService.class), users, new PaymentProperties(new BigDecimal("0.30")),
                 expirationSettings, readiness, pricingEngine, mock(PricingPolicyRepository.class),
                 mock(ChecklistPricingAuditRepository.class), mock(org.springframework.context.ApplicationEventPublisher.class),
-                java.time.Clock.systemUTC());
-        order = new Order(); order.setId("o1"); order.setChecklistRevision(2); order.setOrderStatus(OrderStatus.APPROVED);
+                java.time.Clock.systemUTC(), mock(com.ondemandmonitoring.contract.service.QuoteContractPolicy.class));
+        order = new Order(); order.setId("o1"); var customer = new User(); customer.setId("customer"); order.setCustomer(customer); order.setChecklistRevision(2); order.setOrderStatus(OrderStatus.APPROVED);
         order.getFlightAreaReview().setLegalReviewStatus(LegalReviewStatus.NOT_REQUIRED);
         item = new OrderChecklistItem(); item.setId("i1"); item.setOrder(order); item.setChecklistRevision(2);
         item.setSourceType(OrderChecklistSourceType.CUSTOMER_CUSTOM); item.setReviewStatus(ChecklistReviewStatus.ADDITIONAL);
@@ -180,7 +180,7 @@ class QuoteGuidanceServiceTest {
         expect(ErrorCode.CHECKLIST_GUIDANCE_EDIT_BLOCKED, () -> service.saveChecklistGuidance("o1", "i1", complete(0, false)));
         when(quotes.findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc("o1", List.of(QuoteStatus.ACCEPTED_BY_CUSTOMER)))
                 .thenReturn(Optional.empty());
-        Mission mission = new Mission(); mission.setStatus(MissionStatus.IN_FLIGHT);
+        Mission mission = new Mission(); mission.setStatus(MissionStatus.IN_PROGRESS);
         when(missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc("o1")).thenReturn(List.of(mission));
         expect(ErrorCode.CHECKLIST_GUIDANCE_EDIT_BLOCKED, () -> service.saveChecklistGuidance("o1", "i1", complete(0, false)));
     }

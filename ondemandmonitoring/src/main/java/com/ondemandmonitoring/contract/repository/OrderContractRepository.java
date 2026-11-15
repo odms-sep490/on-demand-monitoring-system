@@ -7,9 +7,15 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface OrderContractRepository extends JpaRepository<OrderContract, String> {
   Optional<OrderContract> findByInvoiceId(String invoiceId);
 
+  Optional<OrderContract> findByQuoteId(String quoteId);
+
+  boolean existsByQuoteId(String quoteId);
+
   @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"invoice", "invoice.order"})
   java.util.List<OrderContract> findByInvoice_Order_Customer_IdOrderByIssuedAtDesc(
       String customerId, org.springframework.data.domain.Pageable pageable);
 
   boolean existsByContractNumber(String contractNumber);
+
+  boolean existsByDocumentBucketAndDocumentKey(String bucket, String key);
 }

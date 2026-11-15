@@ -19,6 +19,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -39,8 +40,9 @@ public class BusinessAuditAspect {
         this.auditLog = auditLog;
         this.snapshots = snapshots;
         this.transactions = new TransactionTemplate(transactionManager);
-        // Run the audited mutation and its audit writes in a fresh writable transaction.
-        this.transactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        // Keep nested mutations and audit writes in the caller's business transaction.
+        // A separate transaction cannot see newly created entities and may commit after outer rollback.
+        this.transactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRED);
     }
 
     @Around("execution(public * com.ondemandmonitoring..service..*(..))"
@@ -52,6 +54,7 @@ public class BusinessAuditAspect {
         Class<?> serviceType = AopUtils.getTargetClass(joinPoint.getTarget());
 
         if (!snapshots.isCriticalBusinessMutation(serviceType, method)
+                || TransactionSynchronizationManager.isCurrentTransactionReadOnly()
                 || isHighVolumeTelemetry(serviceType, method)
                 || isScheduledEntryPoint(method)) {
             return joinPoint.proceed();

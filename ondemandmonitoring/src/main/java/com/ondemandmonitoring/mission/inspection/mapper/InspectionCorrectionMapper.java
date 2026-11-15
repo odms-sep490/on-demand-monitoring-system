@@ -8,6 +8,7 @@ import org.mapstruct.*;
 @Mapper(componentModel = "spring")
 public interface InspectionCorrectionMapper {
   @Mapping(target = "executionId", source = "execution.id")
+  @Mapping(target = "orderChecklistItemId", source = "execution.orderChecklistItemId")
   @Mapping(target = "content", source = "contentSnapshot")
   InspectionCorrectionResponse.Item item(InspectionCorrectionItem item);
 

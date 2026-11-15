@@ -4,5 +4,8 @@ package com.ondemandmonitoring.order.enums;
 public enum OrderCancellationReason {
     QUOTATION_EXPIRED,
     DEPOSIT_PAYMENT_EXPIRED,
+    CONTRACT_REVIEW_REQUIRED,
+    CONTRACT_SYSTEM_RESPONSIBILITY,
+    CONTRACT_CUSTOMER_RESPONSIBILITY,
     PERMIT_REJECTED
 }

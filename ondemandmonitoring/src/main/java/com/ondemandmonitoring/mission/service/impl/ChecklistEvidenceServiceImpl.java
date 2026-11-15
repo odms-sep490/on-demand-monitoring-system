@@ -69,6 +69,9 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
         // Reuse the same assignment/order integrity validation as attachment mutations.
         MissionChecklistExecution execution = validateExecution(mission, locked);
         version(execution, request.expectedVersion());
+        if (execution.getAssessmentStatus() != ChecklistAssessmentStatus.COMPLIANT)
+            throw new ApiException(ErrorCode.CHECKLIST_NOT_READY,
+                    "Only a compliant checklist can select evidence for Customer delivery");
         var applicable = active(missionId).stream()
                 .filter(link -> link.getDetachedAt() == null && executionId.equals(link.getMissionChecklistExecution().getId())).toList();
         var requested = new HashSet<>(request.evidenceIds());

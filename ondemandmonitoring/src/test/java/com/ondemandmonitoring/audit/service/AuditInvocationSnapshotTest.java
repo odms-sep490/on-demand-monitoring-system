@@ -7,6 +7,7 @@ import com.ondemandmonitoring.auth.service.impl.AdminAccountServiceImpl;
 import com.ondemandmonitoring.checklist.service.impl.ChecklistServiceImpl;
 import com.ondemandmonitoring.finance.service.impl.PaymentService;
 import com.ondemandmonitoring.media.service.impl.MediaValidationServiceImpl;
+import com.ondemandmonitoring.mission.service.impl.ChecklistEvidencePolicy;
 import com.ondemandmonitoring.mission.service.impl.MissionChecklistAssignmentServiceImpl;
 import com.ondemandmonitoring.mission.service.impl.MissionResultService;
 import com.ondemandmonitoring.order.service.impl.OrderService;
@@ -35,6 +36,19 @@ class AuditInvocationSnapshotTest {
     }
 
     @Test
+    void auditsInternalInspectionWorkflowAtItsOuterMutationBoundary() {
+        var internal = com.ondemandmonitoring.mission.inspection.service.impl.InternalInspectionMissionService.class;
+        var corrections = com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionService.class;
+        assertThat(isAudited(internal, "create")).isTrue();
+        assertThat(isAudited(internal, "finalizePlan")).isTrue();
+        assertThat(isAudited(corrections, "request")).isTrue();
+        assertThat(isAudited(corrections, "resubmit")).isTrue();
+        assertThat(isAudited(corrections, "resolve")).isTrue();
+        assertThat(isAudited(corrections, "returnToStaff")).isTrue();
+        assertThat(isAudited(corrections, "list")).isFalse();
+    }
+
+    @Test
     void ignoresRoutineStatusChangesAndMediaProcessing() {
         assertThat(isAudited(UserManagementServiceImpl.class, "updateStatus")).isFalse();
         assertThat(isAudited(MediaValidationServiceImpl.class, "processObjectCreated")).isFalse();
@@ -43,6 +57,7 @@ class AuditInvocationSnapshotTest {
     @Test
     void doesNotAuditReadOnlyPricingResolverAsAMutation() {
         assertThat(isAudited(ServicePriceResolver.class, "resolve", Service.class, PricingPolicy.class)).isFalse();
+        assertThat(isAudited(ChecklistEvidencePolicy.class, "attachable")).isFalse();
     }
 
     @Test

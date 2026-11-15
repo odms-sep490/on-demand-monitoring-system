@@ -104,6 +104,17 @@ class MissionPaymentEligibilityServiceTest {
         assertThat(service.isMissionExecutionEligible(invoice)).isTrue();
     }
 
+    @Test void signedAndPaidIsNotEnoughForMissionExecutionWithoutConfirmation() {
+        invoice.setContractRequired(true);
+        invoice.setContractSubmittedAt(Instant.parse("2026-11-14T00:00:00Z"));
+        assertThat(invoice.isContractPaymentReady()).isTrue();
+        assertThat(service.isDepositSatisfied(invoice)).isFalse();
+        assertThat(service.isMissionExecutionEligible(invoice)).isFalse();
+        invoice.setContractConfirmedAt(Instant.parse("2026-11-14T01:00:00Z"));
+        assertThat(service.isDepositSatisfied(invoice)).isTrue();
+        assertThat(service.isMissionExecutionEligible(invoice)).isTrue();
+    }
+
     private ResourceTimeLock lock(String id) {
         return ResourceTimeLock.builder().resourceId(id).mission(mission)
                 .startTime(mission.getScheduledStartAt()).endTime(mission.getScheduledEndAt()).build();

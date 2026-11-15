@@ -104,6 +104,13 @@ public class InspectionCorrectionService implements IInspectionCorrectionService
             .collect(java.util.stream.Collectors.toMap(MissionChecklistExecution::getId, e -> e));
     var links = evidence.findActiveByMissionId(missionId);
     var frozen = correctionPolicy.delegatedExecutions(missionId);
+    var failed = actual.values().stream()
+        .filter(e -> e.getAssessmentStatus() == com.ondemandmonitoring.mission.enums.ChecklistAssessmentStatus.NON_COMPLIANT)
+        .filter(e -> !frozen.containsKey(e.getId()))
+        .map(MissionChecklistExecution::getId).collect(java.util.stream.Collectors.toSet());
+    if (!failed.equals(requested.keySet()))
+      throw new ApiException(ErrorCode.CHECKLIST_NOT_READY,
+          "Request correction for every failed checklist and exclude compliant or unassessed checklists");
     for (var entry : requested.values()) {
       var execution = actual.get(entry.executionId());
       if (frozen.containsKey(entry.executionId()))

@@ -218,4 +218,18 @@ class ChecklistEvidenceServiceTest {
         assertFalse(service.ready(execution,List.of(one,two),false));
     }
     @Test void technicalValidationRequiredEvenWhenAvailable() { asset.setMediaStatus(MediaStatus.AVAILABLE); asset.setValidatedAt(null); assertFalse(service.ready(execution,List.of(link()),true)); }
+
+    @Test void nonCompliantAndUnassessedChecklistsCannotSelectCustomerEvidenceViaApi() {
+        var orders=(com.ondemandmonitoring.order.repository.OrderRepository)org.springframework.test.util.ReflectionTestUtils.getField(service,"orders");
+        when(missions.findOrderIdByMissionId("m")).thenReturn(Optional.of("o"));
+        when(orders.findByIdForUpdate("o")).thenReturn(Optional.of(mission.getOrder()));
+        when(executions.findByIdForUpdate("e")).thenReturn(Optional.of(execution));
+        when(auth.canSelectCustomerEvidence("m")).thenReturn(true);
+        for(var status:List.of(ChecklistAssessmentStatus.NON_COMPLIANT,ChecklistAssessmentStatus.NOT_ASSESSED)){
+            execution.setAssessmentStatus(status);
+            var failure=assertThrows(ApiException.class,()->service.selectForCustomer("m","e",new com.ondemandmonitoring.mission.dto.request.ChecklistCustomerSelectionRequest(0L,List.of(),false)));
+            assertEquals(ErrorCode.CHECKLIST_NOT_READY,failure.getErrorCode());
+        }
+        verify(links,never()).saveAllAndFlush(any());
+    }
 }

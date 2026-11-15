@@ -13,7 +13,6 @@ import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.dto.request.FlightPermitUpdateRequest;
 import com.ondemandmonitoring.mission.dto.response.MissionResponse;
 import com.ondemandmonitoring.mission.enums.FlightPermitStatus;
-import com.ondemandmonitoring.mission.enums.MissionPurpose;
 import com.ondemandmonitoring.mission.enums.MissionStatus;
 import com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus;
 import com.ondemandmonitoring.mission.mapper.MissionMapper;
@@ -60,8 +59,7 @@ public class FlightPermitServiceImpl implements IFlightPermitService {
         Order lockedOrder = orderRepository.findByIdForUpdate(mission.getOrder().getId())
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found"));
         if (refundHoldService != null) refundHoldService.requireOrderNotOnRefundHold(lockedOrder.getId());
-        if (mission.getPurpose() == MissionPurpose.REWORK
-                && mission.getStatus() == MissionStatus.PLANNING)
+        if (mission.getStatus() == MissionStatus.PLANNING)
             throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_FINALIZED);
         var invoice = invoiceRepository.findByOrderId(mission.getOrder().getId())
                 .orElseThrow(() -> new ApiException(ErrorCode.INVALID_REQUEST,
@@ -73,6 +71,16 @@ public class FlightPermitServiceImpl implements IFlightPermitService {
             throw new ApiException(ErrorCode.INVALID_REQUEST,
                     "Flight permit updates require the order deposit to be paid");
         }
+        // All permit mutations follow finalized planning and explicit crew acceptance.
+            var currentStaff = missionStaffAssignmentRepository
+                    .findAllByMissionIdAndIsCurrentTrue(missionId).stream()
+                    .filter(assignment -> assignment.getReleasedAt() == null)
+                    .toList();
+            if (currentStaff.isEmpty() || currentStaff.stream().anyMatch(assignment ->
+                    assignment.getResponseStatus() != MissionStaffAssignmentStatus.ACCEPTED)) {
+                throw new ApiException(ErrorCode.INVALID_REQUEST,
+                        "All assigned staff must accept the mission before flight permit processing");
+            }
         FlightPermit permit = flightPermitRepository.findByMissionId(missionId)
                 .orElseGet(() -> FlightPermit.pendingFor(mission));
         if (Set.of(MissionStatus.IN_PROGRESS, MissionStatus.AWAITING_REVIEW, MissionStatus.PENDING_REVIEW,
@@ -95,15 +103,6 @@ public class FlightPermitServiceImpl implements IFlightPermitService {
                     && blankToNull(permit.getDataUrl()) == null) {
                 throw new ApiException(ErrorCode.INVALID_REQUEST,
                         "A flight permit file is required before approval");
-            }
-            var currentStaff = missionStaffAssignmentRepository
-                    .findAllByMissionIdAndIsCurrentTrue(missionId).stream()
-                    .filter(assignment -> assignment.getReleasedAt() == null)
-                    .toList();
-            if (currentStaff.isEmpty() || currentStaff.stream().anyMatch(assignment ->
-                    assignment.getResponseStatus() != MissionStaffAssignmentStatus.ACCEPTED)) {
-                throw new ApiException(ErrorCode.INVALID_REQUEST,
-                        "All assigned staff must accept the mission before the flight permit can be approved");
             }
         }
         if (request.status() == FlightPermitStatus.PENDING

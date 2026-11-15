@@ -20,6 +20,7 @@ public record InspectionCorrectionResponse(
     List<Event> events) {
   public record Item(
       String executionId,
+      String orderChecklistItemId,
       String content,
       long requestedExecutionVersion,
       String reason,

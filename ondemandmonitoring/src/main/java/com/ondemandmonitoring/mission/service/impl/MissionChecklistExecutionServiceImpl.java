@@ -78,7 +78,7 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
         var delegated = inspectionCorrections.delegatedExecutions(missionId);
         var rows = actual.stream().map(e -> {
             var response = evidenceService.enrich(mapper.toResponse(e, guidance), e, links);
-            response.setCustomerSelectionEditable(customerSelectionEditable && !delegated.containsKey(e.getId()));
+            response.setCustomerSelectionEditable(customerSelectionEditable && e.getAssessmentStatus() == ChecklistAssessmentStatus.COMPLIANT && !delegated.containsKey(e.getId()));
             var replacement=delegated.get(e.getId());
             if(replacement!=null) {
                 response.setFulfilledByMissionId(replacement.getMissionId());response.setFulfilledByMissionCode(replacement.getMission().getMissionCode());
@@ -207,7 +207,17 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
             if (updated != 1) throw new ApiException(ErrorCode.CONCURRENT_UPDATE);
             MissionChecklistExecution updatedExecution = executions.findById(executionId)
                     .orElseThrow(() -> new ApiException(ErrorCode.CHECKLIST_EXECUTION_NOT_FOUND));
-            return evidenceService.enrich(mapper.toResponse(updatedExecution, guidance), updatedExecution, evidenceService.active(missionId));
+            var currentEvidence = evidenceService.active(missionId);
+            if (nextAssessment != ChecklistAssessmentStatus.COMPLIANT) {
+                // A failed/reopened assessment invalidates the delivery choice, not its evidence attachments.
+                currentEvidence.stream().filter(link -> executionId.equals(link.getMissionChecklistExecution().getId()))
+                    .forEach(link -> {
+                        link.setSelectedForCustomer(false);
+                        link.setSelectedBy(null);
+                        link.setSelectedAt(null);
+                    });
+            }
+            return evidenceService.enrich(mapper.toResponse(updatedExecution, guidance), updatedExecution, currentEvidence);
         } catch (org.springframework.dao.DataIntegrityViolationException | org.hibernate.exception.ConstraintViolationException exception) {
             throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_INTEGRITY_INVALID);
         }

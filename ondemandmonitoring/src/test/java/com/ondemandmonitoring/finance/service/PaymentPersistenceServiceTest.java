@@ -38,7 +38,7 @@ class PaymentPersistenceServiceTest {
 
     @BeforeEach void setUp() {
         owner = new User(); owner.setId("owner");
-        Order order = new Order(); order.setId("o1"); order.setCustomer(owner); order.getFlightAreaReview().setLegalReviewStatus(com.ondemandmonitoring.order.enums.LegalReviewStatus.NOT_REQUIRED);
+        Order order = new Order(); order.setId("o1"); order.setCustomer(owner); order.setOrderStatus(com.ondemandmonitoring.order.enums.OrderStatus.APPROVED); order.getFlightAreaReview().setLegalReviewStatus(com.ondemandmonitoring.order.enums.LegalReviewStatus.NOT_REQUIRED);
         invoice = new Invoice(); invoice.setId("i1"); invoice.setOrder(order); invoice.setStatus(InvoiceStatus.ISSUED);
         invoice.setTotalAmount(new BigDecimal("1000")); invoice.setDepositAmount(new BigDecimal("300"));
         invoice.setPaidAmount(BigDecimal.ZERO); invoice.setRemainingAmount(new BigDecimal("1000"));
@@ -141,4 +141,18 @@ class PaymentPersistenceServiceTest {
         invoice.setContractConfirmedAt(java.time.Instant.now());
         assertThat(service.prepareDeposit("i1").amount()).isEqualByComparingTo("300");
     }
+    @Test void aSignedSubmissionAllowsDepositButDoesNotConfirmTheContract() {
+        invoice.setContractRequired(true); invoice.setContractSubmittedAt(java.time.Instant.now());
+        assertThat(invoice.isContractReady()).isFalse();
+        assertThat(service.prepareDeposit("i1").amount()).isEqualByComparingTo("300");
+        assertThat(invoice.getContractConfirmedAt()).isNull();
+    }
+    @Test void aCancelledOrderCannotCreateAnotherDepositLink() {
+        invoice.setContractSubmittedAt(java.time.Instant.now());
+        invoice.getOrder().setOrderStatus(com.ondemandmonitoring.order.enums.OrderStatus.CANCELLED);
+        assertThatThrownBy(()->service.prepareDeposit("i1")).isInstanceOf(ApiException.class)
+            .extracting("errorCode").isEqualTo(ErrorCode.INVOICE_NOT_PAYABLE);
+        verify(payments,never()).saveAndFlush(any());
+    }
+
 }

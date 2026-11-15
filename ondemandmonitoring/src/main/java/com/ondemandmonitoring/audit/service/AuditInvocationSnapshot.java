@@ -40,7 +40,8 @@ public class AuditInvocationSnapshot {
             "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$");
     static final Set<String> NON_BUSINESS_ENTITY_TYPES = Set.of(
             "refresh_token_cookie",
-            "service_default_price");
+            "service_default_price",
+            "checklist_evidence_policy");
     private static final Set<String> CRITICAL_SERVICE_PACKAGES = Set.of(
             "com.ondemandmonitoring.auth.service",
             "com.ondemandmonitoring.checklist.service",
@@ -49,6 +50,7 @@ public class AuditInvocationSnapshot {
             "com.ondemandmonitoring.finance.service",
             "com.ondemandmonitoring.flightpermit.service",
             "com.ondemandmonitoring.mission.service",
+            "com.ondemandmonitoring.mission.inspection.service",
             "com.ondemandmonitoring.order.service",
             "com.ondemandmonitoring.pricing.service",
             "com.ondemandmonitoring.service.service",
@@ -60,7 +62,7 @@ public class AuditInvocationSnapshot {
             "publish", "cancel", "assign", "unassign", "replace", "start", "stop", "complete",
             "fail", "request", "confirm", "finalize", "revoke", "suspend", "activate",
             "deactivate", "enable", "disable", "issue", "expire", "refresh", "reconcile",
-            "settle", "refund", "mark", "clear", "retry", "prepare", "process", "submit",
+            "settle", "refund", "mark", "clear", "retry", "prepare", "process", "submit", "resubmit",
             "close", "open", "resolve", "respond", "release", "attach", "detach", "lock",
             "unlock", "consume", "sync", "synchronize", "amend", "renew", "migrate",
             "restore", "archive", "extend", "change", "transition", "handover", "connect",

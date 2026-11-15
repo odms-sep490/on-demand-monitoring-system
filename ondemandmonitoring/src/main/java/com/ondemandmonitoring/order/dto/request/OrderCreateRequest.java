@@ -38,7 +38,6 @@ import lombok.experimental.FieldDefaults;
 @Schema(description = "Request object for creating a monitoring order")
 public class OrderCreateRequest {
 
-    @NotBlank(message = "Title is required")
     @Size(max = 255, message = "Title must not exceed 255 characters")
     @Schema(description = "Title of the order", example = "Forest Area Monitoring")
     String title;

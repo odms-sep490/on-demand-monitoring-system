@@ -45,6 +45,8 @@ public enum ReviewCriterionCode {
     @Deprecated
     CAPABILITY(ReviewCriterionType.MANUAL, true, "Năng lực thực hiện",
             "Công ty đủ thiết bị và nhân sự cho yêu cầu này"),
+    /** Historical answers remain readable; area feasibility is handled by the area review. */
+    @Deprecated
     REQUESTED_SCOPE_FEASIBLE(ReviewCriterionType.MANUAL, true,
             "Khả năng đáp ứng phạm vi và kết quả",
             "Phạm vi và kết quả khách yêu cầu có khả năng thực hiện bằng hệ thống hiện tại"),
@@ -69,6 +71,6 @@ public enum ReviewCriterionCode {
     public boolean isActive() {
         return this != CHECKLIST_REVIEWED && this != FLIGHT_SCALE
                 && this != SENSITIVE_AREA && this != AIRSPACE_PERMIT
-                && this != CAPABILITY && this != PRICE_REASONABLE && this != SURVEY_NEEDED;
+                && this != REQUESTED_SCOPE_FEASIBLE && this != CAPABILITY && this != PRICE_REASONABLE && this != SURVEY_NEEDED;
     }
 }

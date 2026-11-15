@@ -41,6 +41,7 @@ public class NotificationFeedService {
             MissionStatus.COMPLETED,
             MissionStatus.FAILED);
 
+    private final ContractNotificationService contractNotifications;
     private final AuthenticatedUserResolver currentUser;
     private final OrderRepository orders;
     private final MissionRepository missions;
@@ -49,12 +50,14 @@ public class NotificationFeedService {
     private final com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository deviceAssignments;
 
     public NotificationFeedService(
+            ContractNotificationService contractNotifications,
             AuthenticatedUserResolver currentUser,
             OrderRepository orders,
             MissionRepository missions,
             PaymentRepository payments,
             MissionStaffAssignmentRepository staffAssignments,
             com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository deviceAssignments) {
+        this.contractNotifications = contractNotifications;
         this.currentUser = currentUser;
         this.orders = orders;
         this.missions = missions;
@@ -80,7 +83,7 @@ public class NotificationFeedService {
     }
 
     private List<NotificationItemResponse> customerItems(String customerId, int limit) {
-        List<NotificationItemResponse> items = new ArrayList<>();
+        List<NotificationItemResponse> items = new ArrayList<>(contractNotifications.customerItems(customerId, limit));
         orders.findByCustomer_IdOrderByCreatedAtDesc(customerId, PageRequest.of(0, limit))
                 .stream()
                 .filter(order -> order.getOrderStatus() != OrderStatus.PENDING)
@@ -93,13 +96,24 @@ public class NotificationFeedService {
     }
 
     private List<NotificationItemResponse> managerItems(int limit) {
-        List<NotificationItemResponse> items = new ArrayList<>();
-        // Only new orders need manager action. UNDER_REVIEW and NEEDS_INFO are
-        // customer-facing status updates and belong in the customer's feed.
+        List<NotificationItemResponse> items = new ArrayList<>(contractNotifications.managerItems(limit));
+        // Resubmissions have their own event timestamp and notification identity.
         orders.findByOrderStatusInOrderByCreatedAtDesc(
                         List.of(OrderStatus.PENDING),
                         PageRequest.of(0, limit))
+                .filter(order -> order.getInformationSubmittedAt() == null)
                 .forEach(order -> items.add(orderStatusChanged(order)));
+
+        orders.findByInformationSubmittedAtIsNotNullOrderByInformationSubmittedAtDesc(PageRequest.of(0, limit))
+                .forEach(order -> {
+                    Instant submittedAt = order.getInformationSubmittedAt();
+                    String reference = order.getOrderCode() == null || order.getOrderCode().isBlank()
+                            ? order.getId() : order.getOrderCode();
+                    items.add(new NotificationItemResponse(
+                            "order-information:" + order.getId() + ":" + submittedAt,
+                            NotificationType.ORDER_INFORMATION_SUBMITTED,
+                            order.getId(), null, reference, submittedAt));
+                });
 
         payments.findRecentByStatusAndPaymentType(
                         PaymentStatus.SUCCESS, PaymentType.DEPOSIT, PageRequest.of(0, limit))

@@ -4,5 +4,6 @@ public enum PreferredTimeCode {
     MORNING,
     AFTERNOON,
     EVENING,
-    NIGHT
+    NIGHT,
+    ANY_TIME
 }

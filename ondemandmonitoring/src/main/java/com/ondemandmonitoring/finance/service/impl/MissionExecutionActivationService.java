@@ -23,8 +23,15 @@ public class MissionExecutionActivationService implements IMissionExecutionActiv
     @Transactional
     public void activateIfEligible(String orderId) {
         var invoice = invoices.findByOrderId(orderId).orElse(null);
-        if (invoice == null || !eligibility.isMissionExecutionEligible(invoice)) return;
+        if (invoice == null) return;
+        boolean executionEligible = eligibility.isMissionExecutionEligible(invoice);
         Runnable activate = () -> {
+            try {
+                missions.createMissionsFromTemplates(orderId);
+            } catch (RuntimeException exception) {
+                log.warn("Mission template generation remains pending for Order {} and will be retried", orderId, exception);
+            }
+            if (!executionEligible) return;
             try {
                 missions.transitionToPendingConfirmation(orderId);
             } catch (RuntimeException exception) {

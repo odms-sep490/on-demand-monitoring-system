@@ -27,8 +27,12 @@ import com.ondemandmonitoring.mission.dto.response.MissionTelemetryReadinessResp
 import com.ondemandmonitoring.mission.enums.*;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.enums.OrderStatus;
+import com.ondemandmonitoring.order.enums.ChecklistAssignmentStatus;
 import com.ondemandmonitoring.mission.repository.ControlHandoverRepository;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
+import com.ondemandmonitoring.missiontemplate.domain.MissionTemplate;
+import com.ondemandmonitoring.missiontemplate.repository.MissionTemplateItemRepository;
+import com.ondemandmonitoring.missiontemplate.repository.MissionTemplateRepository;
 import com.ondemandmonitoring.mission.mapper.MissionMapper;
 import com.ondemandmonitoring.mission.service.IMissionResultService;
 import com.ondemandmonitoring.mission.service.IMissionChecklistExecutionService;
@@ -102,6 +106,8 @@ public class MissionService implements IMissionService {
             MissionStaffRole.MAINTAINER, MissionStaffRole.INSPECTOR);
 
     MissionRepository missionRepository;
+    MissionTemplateRepository missionTemplateRepository;
+    MissionTemplateItemRepository missionTemplateItemRepository;
     @Autowired @NonFinal
     MissionChecklistAssignmentRepository missionChecklistAssignmentRepository;
     DeviceRepository deviceRepository;
@@ -280,6 +286,84 @@ public class MissionService implements IMissionService {
     @PreAuthorize("@missionAuthorizationService.canManageMissions()")
     public MissionResponse createAdditionalMission(String orderId, MissionCreateRequest request) {
         return createMissionInternal(orderId, request, true);
+    }
+
+    @Override
+    @Transactional
+    public List<MissionResponse> createMissionsFromTemplates(String orderId) {
+        Order order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
+        var invoice = invoiceRepository.findByOrderId(orderId)
+                .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
+        if (!missionPaymentEligibilityService.isDepositSatisfied(invoice)) {
+            throw new ApiException(ErrorCode.INVOICE_NOT_PAID,
+                    "The required deposit must be paid before Missions can be generated from templates");
+        }
+
+        List<MissionTemplate> templates = missionTemplateRepository
+                .findAllByServiceIdOrderByCreatedAtAscIdAsc(order.getService().getId());
+        if (templates.isEmpty()) return List.of();
+
+        Map<String, List<String>> templateChecklistIds = new java.util.LinkedHashMap<>();
+        missionTemplateItemRepository.findAllByMissionTemplateIdIn(
+                        templates.stream().map(MissionTemplate::getId).toList())
+                .forEach(item -> templateChecklistIds
+                        .computeIfAbsent(item.getMissionTemplate().getId(), ignored -> new ArrayList<>())
+                        .add(item.getChecklistDefinition().getId()));
+
+        Map<String, com.ondemandmonitoring.order.domain.OrderChecklistItem> orderChecklistByDefinition = new java.util.LinkedHashMap<>();
+        orderChecklistItemRepository.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId).stream()
+                .filter(item -> item.getSourceChecklist() != null)
+                .forEach(item -> orderChecklistByDefinition.putIfAbsent(item.getSourceChecklist().getId(), item));
+
+        Set<String> alreadyAssigned = missionChecklistAssignmentRepository.findActiveByOrderId(orderId).stream()
+                .map(MissionChecklistAssignment::getOrderChecklistItemId)
+                .collect(java.util.stream.Collectors.toSet());
+
+        List<MissionResponse> created = new ArrayList<>();
+        for (MissionTemplate template : templates) {
+            if (missionRepository.existsByOrder_IdAndMissionTemplateId(orderId, template.getId())) continue;
+
+            Mission mission = newPlanningMission(order, null, null, template.getScopeLabel(), MissionPurpose.ORIGINAL);
+            mission.setMissionTemplateId(template.getId());
+            Mission saved = missionRepository.saveAndFlush(mission);
+
+            List<com.ondemandmonitoring.order.domain.OrderChecklistItem> matchedOrderChecklistItems = templateChecklistIds
+                    .getOrDefault(template.getId(), List.of()).stream()
+                    .map(orderChecklistByDefinition::get)
+                    .filter(java.util.Objects::nonNull)
+                    .filter(item -> !alreadyAssigned.contains(item.getId()))
+                    .collect(java.util.stream.Collectors.toMap(
+                            com.ondemandmonitoring.order.domain.OrderChecklistItem::getId,
+                            item -> item,
+                            (first, ignored) -> first,
+                            java.util.LinkedHashMap::new))
+                    .values().stream()
+                    .toList();
+            if (!matchedOrderChecklistItems.isEmpty()) {
+                Instant assignedAt = Instant.now();
+                List<MissionChecklistAssignment> assignments = new ArrayList<>();
+                int position = 0;
+                for (var item : matchedOrderChecklistItems) {
+                    MissionChecklistAssignment assignment = new MissionChecklistAssignment();
+                    assignment.setMissionId(saved.getId());
+                    assignment.setOrderId(orderId);
+                    assignment.setOrderChecklistItemId(item.getId());
+                    assignment.setMission(saved);
+                    assignment.setOrderChecklistItem(item);
+                    assignment.setAssignedAt(assignedAt);
+                    assignment.setAssignedBy("SYSTEM:MISSION_TEMPLATE");
+                    assignment.setDisplayOrder(position++);
+                    assignments.add(assignment);
+                    item.setAssignmentStatus(ChecklistAssignmentStatus.ASSIGNED);
+                    alreadyAssigned.add(item.getId());
+                }
+                missionChecklistAssignmentRepository.saveAllAndFlush(assignments);
+                orderChecklistItemRepository.saveAllAndFlush(matchedOrderChecklistItems);
+            }
+            created.add(missionMapper.toResponse(saved));
+        }
+        return created;
     }
 
     @Override

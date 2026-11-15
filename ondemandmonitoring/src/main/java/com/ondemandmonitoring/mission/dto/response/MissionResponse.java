@@ -133,6 +133,10 @@ public class MissionResponse {
     @Schema(description = "Actual start timestamp")
     Instant actualStartAt;
 
+    @lombok.Setter
+    @Schema(description = "Most recent confirmed control handover timestamp")
+    Instant controlHandoverAt;
+
     @Schema(description = "Actual end timestamp")
     Instant actualEndAt;
 

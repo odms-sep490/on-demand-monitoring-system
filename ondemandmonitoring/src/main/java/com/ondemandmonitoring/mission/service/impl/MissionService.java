@@ -249,9 +249,14 @@ public class MissionService implements IMissionService {
     public MissionResponse getByIdResponse(String missionId) {
         Mission mission = getMissionByIdOrThrow(missionId);
         User viewer = authenticatedUserResolver.getCurrentUser();
-        return viewer.getRole() != null && viewer.getRole().getCode() == RoleCode.STAFF
-                ? toStaffMissionResponse(mission, viewer.getId())
-                : missionMapper.toResponse(mission);
+        if (viewer.getRole() != null && viewer.getRole().getCode() == RoleCode.STAFF) {
+            return toStaffMissionResponse(mission, viewer.getId());
+        }
+        MissionResponse response = missionMapper.toResponse(mission);
+        controlHandoverRepository.findTopByStaffAssignment_Mission_IdAndStatusOrderByConfirmedAtDesc(
+                mission.getId(), "CONFIRMED")
+                .ifPresent(handover -> response.setControlHandoverAt(handover.getConfirmedAt()));
+        return response;
     }
         @Override
     @Transactional(readOnly = true)

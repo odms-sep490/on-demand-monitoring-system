@@ -58,6 +58,7 @@ public interface MissionMapper {
     @Mapping(source = ".", target = "staffAssignments", qualifiedByName = "missionStaffAssignments")
     @Mapping(source = ".", target = "deviceAssignments", qualifiedByName = "missionDeviceAssignments")
     @Mapping(source = ".", target = "plan", qualifiedByName = "missionPlan")
+    @Mapping(target = "controlHandoverAt", ignore = true)
     MissionResponse toResponse(Mission mission);
 
     @Mapping(target = "estimatedRemainingBatteryPercent", source = ".", qualifiedByName = "planRemainingBattery")

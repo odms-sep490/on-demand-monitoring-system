@@ -35,6 +35,10 @@ public final class ServiceAreaPolicy {
     }
 
     public static void assertSupported(Point point, Geometry coverageArea) {
+        if (point != null && coverageArea != null && !coverageArea.covers(point)) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "Vùng giám sát phải bao quanh điểm giám sát đã chọn.");
+        }
         if (!contains(point)) {
             throw new ApiException(
                     ErrorCode.INVALID_REQUEST,

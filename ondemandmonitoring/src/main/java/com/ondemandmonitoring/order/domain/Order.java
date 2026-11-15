@@ -175,8 +175,6 @@ public class Order extends BaseEntity {
     @Column(name = "terms_accepted_at")
     private Instant termsAcceptedAt;
 
-    @Column(name = "terms_version", length = 20)
-    private String termsVersion;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "order_status", nullable = false)
@@ -195,6 +193,9 @@ public class Order extends BaseEntity {
     /** Customer-facing section that the manager explicitly asked to be corrected. */
     @Column(name = "requested_update_scope", length = 40)
     private String requestedUpdateScope;
+
+    @Column(name = "information_submitted_at")
+    private Instant informationSubmittedAt;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "review_by")

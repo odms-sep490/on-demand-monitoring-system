@@ -35,6 +35,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class OrderReadinessServiceTest {
+    com.ondemandmonitoring.review.service.CriterionCatalogService catalog =
+            mock(com.ondemandmonitoring.review.service.CriterionCatalogService.class);
+    com.ondemandmonitoring.review.repository.CustomCriterionAnswerRepository customAnswers =
+            mock(com.ondemandmonitoring.review.repository.CustomCriterionAnswerRepository.class);
     OrderRepository orders = mock(OrderRepository.class);
     OrderChecklistItemRepository items = mock(OrderChecklistItemRepository.class);
     OrderReviewRecordRepository records = mock(OrderReviewRecordRepository.class);
@@ -47,7 +51,12 @@ class OrderReadinessServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new OrderReadinessService(orders, items, records, users, regionPolicies);
+        service = new OrderReadinessService(catalog, customAnswers, orders, items, records, users, regionPolicies);
+        when(catalog.list()).thenReturn(java.util.Arrays.stream(ReviewCriterionCode.values())
+                .filter(ReviewCriterionCode::isActive)
+                .map(code -> new com.ondemandmonitoring.review.service.CriterionCatalogService.Definition(
+                        code.name(), code.getTitle(), code.getDescription(), code.isRequired(), code.getType(), true))
+                .toList());
         order = new Order();
         order.setId("o1");
         order.setOrderStatus(OrderStatus.PENDING);
@@ -93,7 +102,7 @@ class OrderReadinessServiceTest {
         assertThat(result.recommendation()).isEqualTo(ReadinessRecommendation.COMPLETE_REVIEW);
         assertThat(result.blockingReasons()).anyMatch(reason -> reason.contains("Quyền truy cập hiện trường"));
         assertThat(result.criteria()).noneMatch(
-                criterion -> criterion.code() == ReviewCriterionCode.AIRSPACE_PERMIT);
+                criterion -> criterion.code().equals(ReviewCriterionCode.AIRSPACE_PERMIT.name()));
         assertThat(find(result, ReviewCriterionCode.SERVICE_AREA).result()).isEqualTo(CriterionResult.PASS);
     }
 
@@ -178,7 +187,7 @@ class OrderReadinessServiceTest {
                 item(ChecklistReviewStatus.INCLUDED), item(ChecklistReviewStatus.PENDING)));
         var result = service.evaluate("o1");
         assertThat(result.criteria()).noneMatch(
-                criterion -> criterion.code() == ReviewCriterionCode.CHECKLIST_REVIEWED);
+                criterion -> criterion.code().equals(ReviewCriterionCode.CHECKLIST_REVIEWED.name()));
     }
 
     @Test
@@ -189,7 +198,7 @@ class OrderReadinessServiceTest {
         var result = service.evaluate("o1");
 
         assertThat(result.criteria()).noneMatch(
-                criterion -> criterion.code() == ReviewCriterionCode.FLIGHT_SCALE);
+                criterion -> criterion.code().equals(ReviewCriterionCode.FLIGHT_SCALE.name()));
     }
 
     @Test
@@ -226,7 +235,7 @@ class OrderReadinessServiceTest {
     }
 
     private static OrderReadinessResponse.Criterion find(OrderReadinessResponse response, ReviewCriterionCode code) {
-        return response.criteria().stream().filter(c -> c.code() == code).findFirst().orElseThrow();
+        return response.criteria().stream().filter(c -> c.code().equals(code.name())).findFirst().orElseThrow();
     }
 
     private static OrderChecklistItem item(ChecklistReviewStatus status) {

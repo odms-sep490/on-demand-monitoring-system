@@ -93,7 +93,7 @@ class ManagerDashboardAuthorizationTest {
                 List.of(), List.of(),
                 new ManagerDashboardResponse.PricingPipeline(0, 0, 0, 0, 0),
                 new ManagerDashboardResponse.MissionOverview(0, 0, 0, 0, 0, 0),
-                List.of(), List.of(), Instant.parse("2026-10-22T00:00:00Z"));
+                List.of(), List.of(), Instant.parse("2026-10-22T00:00:00Z"), null);
     }
 
     @Configuration

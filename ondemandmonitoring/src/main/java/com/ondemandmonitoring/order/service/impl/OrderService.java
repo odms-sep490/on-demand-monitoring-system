@@ -99,6 +99,25 @@ public class OrderService implements IOrderService {
 
     @Override
     @Transactional
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public OrderCreateResponse cancelBeforeReview(String orderId) {
+        Order order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
+        User customer = authenticatedUserResolver.getCurrentUser();
+        if (order.getCustomer() == null || !order.getCustomer().getId().equals(customer.getId())) {
+            throw new ApiException(ErrorCode.ACCESS_DENIED, "This order does not belong to the current customer");
+        }
+        if (order.getOrderStatus() != OrderStatus.PENDING) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "Chỉ có thể hủy đơn trước khi quản lý bắt đầu duyệt.");
+        }
+        order.setOrderStatus(OrderStatus.CANCELLED);
+        order.setCancelledAt(Instant.now());
+        return toResponse(orderRepository.save(order));
+    }
+
+    @Override
+    @Transactional
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public OrderCreateResponse approveOrder(String orderId) {
         Order order = orderRepository.findByIdForUpdate(orderId).or(() -> orderRepository.findById(orderId))
@@ -331,6 +350,7 @@ public class OrderService implements IOrderService {
 
         // 7. Map and persist order
         Order order = orderMapper.toEntity(request);
+        order.setTitle("");
         order.setCustomer(customer);
         order.setService(service);
         order.setPreferredTime(preferredTime);
@@ -363,7 +383,6 @@ public class OrderService implements IOrderService {
         order.setDeliveryMethods(distinctOrDefault(request.getDeliveryMethods(), OrderDeliveryMethod.DOWNLOAD));
         order.setDataRetentionDays(retentionDays);
         order.setTermsAcceptedAt(java.time.Instant.now());
-        order.setTermsVersion(TERMS_VERSION);
         order.setOrderCode(generateUniqueOrderCode());
         order.setReviewBy(null);
         order.setReviewAt(null);
@@ -507,6 +526,7 @@ public class OrderService implements IOrderService {
         order.setRejectReason(null);
         order.setRequestedUpdateScope(null);
         order.setReviewAt(null);
+        order.setInformationSubmittedAt(Instant.now());
         reviewRecords.reopenFailed(order, request.information());
         return toResponse(orderRepository.save(order));
     }
@@ -538,6 +558,7 @@ public class OrderService implements IOrderService {
                 || request.recurrenceType() != null || request.recurrenceOccurrences() != null
                 || request.resultFormats() != null || request.permitStatus() != null;
 
+        boolean submittingRequestedInformation = order.getOrderStatus() == OrderStatus.NEEDS_INFO;
         boolean submittingLocationCorrection = order.getOrderStatus() == OrderStatus.NEEDS_INFO
                 && "LOCATION".equals(order.getRequestedUpdateScope());
         if (submittingLocationCorrection) {
@@ -562,7 +583,7 @@ public class OrderService implements IOrderService {
             }
         }
 
-        if (request.title() != null && !request.title().isBlank()) order.setTitle(request.title().strip());
+
         if (request.description() != null) order.setDescription(request.description().strip());
         if (request.address() != null) order.setAddress(request.address().strip());
         if (request.longitude() != null || request.latitude() != null || request.coverageArea() != null) {
@@ -628,7 +649,8 @@ public class OrderService implements IOrderService {
             order.setReviewBy(null);
             order.setReviewAt(null);
         }
-        if (order.getOrderStatus() == OrderStatus.NEEDS_INFO) {
+        if (submittingRequestedInformation) {
+            order.setInformationSubmittedAt(Instant.now());
             order.setOrderStatus(OrderStatus.PENDING);
             order.setRejectReason(null);
             order.setRequestedUpdateScope(null);
@@ -822,7 +844,6 @@ public class OrderService implements IOrderService {
     }
 
     /** Version recorded with the customer's acceptance of the terms and security commitment. */
-    static final String TERMS_VERSION = "2026-10";
     static final java.util.List<Integer> ALLOWED_RETENTION_DAYS = java.util.List.of(30, 90, 180, 365);
 
     /** Keeps the customer's order of choice, drops duplicates, falls back to one default. */

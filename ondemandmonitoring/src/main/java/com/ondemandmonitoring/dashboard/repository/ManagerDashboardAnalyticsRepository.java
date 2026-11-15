@@ -16,6 +16,40 @@ import org.springframework.stereotype.Repository;
 public class ManagerDashboardAnalyticsRepository {
     private final EntityManager entityManager;
 
+    private static final String CASH_MOVEMENTS = """
+            with movements as (
+                select p.id, i.order_id, p.payment_type as kind, p.amount, p.paid_at as occurred_at
+                from payments p join invoices i on i.id = p.invoice_id
+                where p.status in ('SUCCESS', 'REFUNDED')
+                  and p.payment_type in ('DEPOSIT', 'MISSION_PAYMENT', 'FINAL_PAYMENT')
+                  and p.currency = 'VND' and p.paid_at >= :from and p.paid_at < :to
+                union all
+                select r.id, r.order_id, 'REFUND', r.refunded_amount, r.completed_at
+                from deposit_refunds r
+                where r.status = 'COMPLETED' and r.completed_at >= :from and r.completed_at < :to
+            )
+            """;
+
+    public ManagerDashboardResponse.Finance finance(Instant from, Instant to, String bucket) {
+        var cashFlow = rows(CASH_MOVEMENTS + """
+                select cast(date_trunc(:bucket, timezone('Asia/Ho_Chi_Minh', occurred_at)) as date),
+                       coalesce(sum(amount) filter (where kind <> 'REFUND'), 0),
+                       coalesce(sum(amount) filter (where kind = 'REFUND'), 0)
+                from movements group by 1 order by 1
+                """, from, to, bucket).stream().map(row -> new ManagerDashboardResponse.CashPoint(
+                date(row[0]), decimal(row[1]), decimal(row[2]))).toList();
+        var recent = rows(CASH_MOVEMENTS + """
+                select m.id, m.order_id, o.order_code, m.kind, m.amount,
+                       extract(epoch from m.occurred_at) * 1000
+                from movements m join orders o on o.id = m.order_id
+                order by m.occurred_at desc, m.kind, m.id desc limit 8
+                """, from, to, null).stream().map(row -> new ManagerDashboardResponse.Transaction(
+                String.valueOf(row[0]), String.valueOf(row[1]),
+                row[2] == null ? null : String.valueOf(row[2]), String.valueOf(row[3]),
+                decimal(row[4]), Instant.ofEpochMilli(((Number) row[5]).longValue()))).toList();
+        return new ManagerDashboardResponse.Finance(cashFlow, recent);
+    }
+
     public long countOrders(Instant from, Instant to) {
         return number("select count(*) from orders where created_at >= :from and created_at < :to", from, to).longValue();
     }

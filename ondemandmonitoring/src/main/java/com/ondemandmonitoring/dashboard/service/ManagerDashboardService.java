@@ -138,7 +138,8 @@ public class ManagerDashboardService {
                 analytics.missionStatuses(),
                 analytics.missionTrend(periodFrom, periodTo, selected.bucket()),
                 actionItems(), recentOrders(periodFrom, periodTo), pipeline, missionOverview,
-                activeMissions(), recentActivities(periodFrom, periodTo), Instant.now(clock));
+                activeMissions(), recentActivities(periodFrom, periodTo), Instant.now(clock),
+                analytics.finance(periodFrom, periodTo, selected.bucket()));
     }
 
     private DashboardPeriod resolvePeriod(String range, LocalDate requestedFrom, LocalDate requestedTo) {

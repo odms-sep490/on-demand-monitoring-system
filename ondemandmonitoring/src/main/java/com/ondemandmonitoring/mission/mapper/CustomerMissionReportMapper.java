@@ -16,6 +16,7 @@ public interface CustomerMissionReportMapper {
     @Mapping(target = "status", source = "mission.status")
     @Mapping(target = "scheduledStartAt", source = "mission.scheduledStartAt")
     @Mapping(target = "scheduledEndAt", source = "mission.scheduledEndAt")
+    @Mapping(target = "actualStartAt", source = "mission.actualStartAt")
     @Mapping(target = "replacesMissionId", source = "visibleReplacementId")
     @Mapping(target = "reportAvailable", source = "available")
     CustomerMissionSummary summary(Mission mission, String visibleReplacementId, boolean available);

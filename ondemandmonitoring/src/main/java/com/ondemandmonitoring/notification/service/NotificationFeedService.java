@@ -41,23 +41,29 @@ public class NotificationFeedService {
             MissionStatus.COMPLETED,
             MissionStatus.FAILED);
 
+    private final ContractNotificationService contractNotifications;
     private final AuthenticatedUserResolver currentUser;
     private final OrderRepository orders;
     private final MissionRepository missions;
     private final PaymentRepository payments;
     private final MissionStaffAssignmentRepository staffAssignments;
+    private final com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository deviceAssignments;
 
     public NotificationFeedService(
+            ContractNotificationService contractNotifications,
             AuthenticatedUserResolver currentUser,
             OrderRepository orders,
             MissionRepository missions,
             PaymentRepository payments,
-            MissionStaffAssignmentRepository staffAssignments) {
+            MissionStaffAssignmentRepository staffAssignments,
+            com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository deviceAssignments) {
+        this.contractNotifications = contractNotifications;
         this.currentUser = currentUser;
         this.orders = orders;
         this.missions = missions;
         this.payments = payments;
         this.staffAssignments = staffAssignments;
+        this.deviceAssignments = deviceAssignments;
     }
 
     @Transactional(readOnly = true)
@@ -68,9 +74,8 @@ public class NotificationFeedService {
             case CUSTOMER -> customerItems(user.getId(), limit);
             case MANAGER -> managerItems(limit);
             case STAFF -> staffItems(user.getId(), limit);
-            // Admins can also work in the manager portal and need the same
-            // operational alerts there.
-            case ADMIN -> managerItems(limit);
+            // New order alerts are reserved for managers.
+            case ADMIN -> List.of();
         });
         items.sort(Comparator.comparing(NotificationItemResponse::createdAt,
                 Comparator.nullsLast(Comparator.naturalOrder())).reversed());
@@ -78,8 +83,10 @@ public class NotificationFeedService {
     }
 
     private List<NotificationItemResponse> customerItems(String customerId, int limit) {
-        List<NotificationItemResponse> items = new ArrayList<>();
+        List<NotificationItemResponse> items = new ArrayList<>(contractNotifications.customerItems(customerId, limit));
         orders.findByCustomer_IdOrderByCreatedAtDesc(customerId, PageRequest.of(0, limit))
+                .stream()
+                .filter(order -> order.getOrderStatus() != OrderStatus.PENDING)
                 .forEach(order -> items.add(orderStatusChanged(order)));
         missions.findByOrder_Customer_IdAndStatusIn(
                         customerId, List.of(MissionStatus.COMPLETED), PageRequest.of(0, limit))
@@ -89,19 +96,52 @@ public class NotificationFeedService {
     }
 
     private List<NotificationItemResponse> managerItems(int limit) {
-        List<NotificationItemResponse> items = new ArrayList<>();
-        // Only new orders need manager action. UNDER_REVIEW and NEEDS_INFO are
-        // customer-facing status updates and belong in the customer's feed.
+        List<NotificationItemResponse> items = new ArrayList<>(contractNotifications.managerItems(limit));
+        // Resubmissions have their own event timestamp and notification identity.
         orders.findByOrderStatusInOrderByCreatedAtDesc(
                         List.of(OrderStatus.PENDING),
                         PageRequest.of(0, limit))
+                .filter(order -> order.getInformationSubmittedAt() == null)
                 .forEach(order -> items.add(orderStatusChanged(order)));
+
+        orders.findByInformationSubmittedAtIsNotNullOrderByInformationSubmittedAtDesc(PageRequest.of(0, limit))
+                .forEach(order -> {
+                    Instant submittedAt = order.getInformationSubmittedAt();
+                    String reference = order.getOrderCode() == null || order.getOrderCode().isBlank()
+                            ? order.getId() : order.getOrderCode();
+                    items.add(new NotificationItemResponse(
+                            "order-information:" + order.getId() + ":" + submittedAt,
+                            NotificationType.ORDER_INFORMATION_SUBMITTED,
+                            order.getId(), null, reference, submittedAt));
+                });
 
         payments.findRecentByStatusAndPaymentType(
                         PaymentStatus.SUCCESS, PaymentType.DEPOSIT, PageRequest.of(0, limit))
                 .forEach(payment -> items.add(depositPaid(payment)));
 
         Set<String> acceptedEvents = new HashSet<>();
+        Set<String> replacementEvents = new HashSet<>();
+        staffAssignments.findByResponseStatusAndIsCurrentTrueAndReleasedAtIsNullOrderByRespondedAtDesc(
+                MissionStaffAssignmentStatus.REJECTED, PageRequest.of(0, limit)).forEach(assignment -> {
+            Mission mission = assignment.getMission();
+            if (List.of(MissionStatus.COMPLETED, MissionStatus.CANCELLED, MissionStatus.FAILED).contains(mission.getStatus())) return;
+            Instant at = assignment.getRespondedAt() != null ? assignment.getRespondedAt() : assignment.getUpdatedAt();
+            String id = "mission-staff-replacement:" + mission.getId() + ":" + assignment.getStaff().getId() + ":" + at;
+            if (!replacementEvents.add(id)) return;
+            items.add(new NotificationItemResponse(id, NotificationType.MISSION_STAFF_REPLACEMENT_REQUIRED,
+                    mission.getId(), mission.getOrder().getId(), mission.getMissionCode(), at,
+                    assignment.getStaff().getFullName()));
+        });
+        deviceAssignments.findByIsCurrentTrueAndReleasedAtIsNullAndReplacementRequestedAtIsNotNullOrderByReplacementRequestedAtDesc(
+                PageRequest.of(0, limit)).forEach(assignment -> {
+            Mission mission = assignment.getMission();
+            if (assignment.getReplacementAssignment() != null ||
+                    List.of(MissionStatus.COMPLETED, MissionStatus.CANCELLED, MissionStatus.FAILED).contains(mission.getStatus())) return;
+            Instant at = assignment.getReplacementRequestedAt();
+            items.add(new NotificationItemResponse("mission-drone-replacement:" + assignment.getId() + ":" + at,
+                    NotificationType.MISSION_DRONE_REPLACEMENT_REQUIRED, mission.getId(), mission.getOrder().getId(),
+                    mission.getMissionCode(), at, assignment.getDevice().getDeviceCode()));
+        });
         staffAssignments.findByResponseStatusAndIsCurrentTrueAndReleasedAtIsNullOrderByRespondedAtDesc(
                         MissionStaffAssignmentStatus.ACCEPTED, PageRequest.of(0, limit))
                 .forEach(assignment -> {
@@ -157,10 +197,10 @@ public class NotificationFeedService {
     }
 
     private List<NotificationItemResponse> staffItems(String staffId, int limit) {
-        return missions.findCurrentAssignmentsForStaff(
+        List<NotificationItemResponse> items = new ArrayList<>();
+        missions.findCurrentAssignmentsForStaff(
                         staffId, STAFF_MISSION_STATUSES, PageRequest.of(0, limit))
-                .stream()
-                .map(mission -> {
+                .forEach(mission -> {
                     NotificationType type = switch (mission.getStatus()) {
                         case COMPLETED -> NotificationType.MISSION_COMPLETED;
                         case FAILED -> NotificationType.MISSION_WARNING;
@@ -168,11 +208,21 @@ public class NotificationFeedService {
                     };
                     Instant timestamp = mission.getStatus() == MissionStatus.COMPLETED
                             ? completedAt(mission) : eventAt(mission);
-                    return missionItem(mission, type, timestamp);
-                })
-                .sorted(byTimeDescending())
-                .limit(limit)
-                .toList();
+                    items.add(missionItem(mission, type, timestamp));
+                });
+        deviceAssignments.findRecentReplacementsForStaff(staffId, PageRequest.of(0, limit))
+                .forEach(previous -> {
+                    var mission = previous.getMission();
+                    var replacement = previous.getReplacementAssignment();
+                    var device = replacement.getDevice();
+                    items.add(new NotificationItemResponse(
+                            "mission-drone-replaced:" + replacement.getId(),
+                            NotificationType.MISSION_DRONE_REPLACED,
+                            mission.getId(), mission.getOrder().getId(),
+                            mission.getMissionCode(), previous.getReleasedAt(),
+                            device.getDeviceCode() != null ? device.getDeviceCode() : device.getId()));
+                });
+        return items.stream().sorted(byTimeDescending()).limit(limit).toList();
     }
 
     private NotificationItemResponse orderStatusChanged(Order order) {

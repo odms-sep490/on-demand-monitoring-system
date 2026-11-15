@@ -147,6 +147,9 @@ class InspectionCorrectionPostgresTest {
           em.persist(assignment);
           em.flush();
           MissionChecklistExecution execution = new MissionChecklistExecution();
+          execution.setAssessmentStatus(ChecklistAssessmentStatus.NON_COMPLIANT);
+          execution.setAssessedBy("inspector");
+          execution.setAssessedAt(NOW);
           execution.setMissionId(missionId);
           execution.setOrderId(order.getId());
           execution.setOrderChecklistItemId(item.getId());
@@ -348,8 +351,93 @@ class InspectionCorrectionPostgresTest {
         .containsExactly("REQUESTED", "RESUBMITTED", "RESOLVED");
   }
 
+  @Test
+  void cannotCreateACorrectionForACompliantChecklistInTheDatabase() {
+    jdbc.update(
+        "update mission_checklist_executions set assessment_status='COMPLIANT' where id=?",
+        executionId);
+    assertThatThrownBy(() -> service.request(missionId, request()))
+        .isInstanceOf(ApiException.class)
+        .extracting("errorCode")
+        .isEqualTo(com.ondemandmonitoring.common.exception.ErrorCode.CHECKLIST_NOT_READY);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from mission_inspection_corrections", Integer.class))
+        .isZero();
+  }
+
+  @Autowired
+  com.ondemandmonitoring.mission.inspection.service.IInternalInspectionMissionService
+      internalMissions;
+
+  @Test
+  void createsInternalMissionAndAssignsFailedScopeInOneTransaction() {
+    var correction = service.request(missionId, request());
+    assertThat(correction.items().getFirst().orderChecklistItemId())
+        .isEqualTo(jdbc.queryForObject("select order_checklist_item_id from mission_checklist_executions where id=?",String.class,executionId));
+    var child =
+        internalMissions.create(
+            missionId,
+            correction.id(),
+            new com.ondemandmonitoring.mission.inspection.dto.request
+                .InternalCorrectionMissionRequest(
+                correction.version(),
+                UUID.randomUUID(),
+                "Recapture fence",
+                NOW.plusSeconds(3600),
+                NOW.plusSeconds(7200)));
+    assertThat(child.getId()).isNotBlank().isNotEqualTo(missionId);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from mission_checklist_assignments where mission_id=? and"
+                    + " removed_at is null",
+                Integer.class,
+                child.getId()))
+        .isEqualTo(1);
+    assertThat(service.list(missionId).getFirst().supplementalMissionId()).isEqualTo(child.getId());
+  }
+
+  @Autowired AuthenticatedUserResolver users;
+
+  @Test
+  void rollsBackNewMissionAndCorrectionLinkWhenAssignmentFails() {
+    var correction = service.request(missionId, request());
+    when(users.getCurrentUserId())
+        .thenThrow(new IllegalStateException("Assignment actor unavailable"));
+    try {
+      assertThatThrownBy(
+              () ->
+                  internalMissions.create(
+                      missionId,
+                      correction.id(),
+                      new com.ondemandmonitoring.mission.inspection.dto.request
+                          .InternalCorrectionMissionRequest(
+                          correction.version(),
+                          UUID.randomUUID(),
+                          "Recapture fence",
+                          NOW.plusSeconds(3600),
+                          NOW.plusSeconds(7200))))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessage("Assignment actor unavailable");
+      assertThat(jdbc.queryForObject("select count(*) from missions", Integer.class)).isEqualTo(1);
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from mission_checklist_assignments", Integer.class))
+          .isEqualTo(1);
+      assertThat(
+              jdbc.queryForObject(
+                  "select supplemental_mission_id from mission_inspection_corrections where id=?",
+                  String.class,
+                  correction.id()))
+          .isNull();
+    } finally {
+      doReturn("test-actor").when(users).getCurrentUserId();
+    }
+  }
+
   @Configuration
   @EnableTransactionManagement
+  @EnableAspectJAutoProxy
   @EnableJpaAuditing
   @EnableJpaRepositories(
       basePackageClasses = {
@@ -455,6 +543,102 @@ class InspectionCorrectionPostgresTest {
           return false;
         }
       };
+    }
+
+    @Bean
+    com.ondemandmonitoring.audit.service.AdminAuditLogService auditLog() {
+      return mock(com.ondemandmonitoring.audit.service.AdminAuditLogService.class);
+    }
+
+    @Bean
+    com.ondemandmonitoring.audit.service.AuditInvocationSnapshot auditSnapshots() {
+      return new com.ondemandmonitoring.audit.service.AuditInvocationSnapshot(
+          new com.fasterxml.jackson.databind.ObjectMapper());
+    }
+
+    @Bean
+    com.ondemandmonitoring.audit.aspect.BusinessAuditAspect auditAspect(
+        com.ondemandmonitoring.audit.service.AdminAuditLogService logs,
+        com.ondemandmonitoring.audit.service.AuditInvocationSnapshot snapshots,
+        PlatformTransactionManager transactions) {
+      return new com.ondemandmonitoring.audit.aspect.BusinessAuditAspect(
+          logs, snapshots, transactions);
+    }
+
+    @Bean
+    com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository
+        revisionCaseItems() {
+      return mock(
+          com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository.class);
+    }
+
+    @Bean
+    IMissionChecklistAssignmentService assignmentService(
+        OrderRepository orders,
+        MissionRepository missions,
+        com.ondemandmonitoring.order.repository.OrderChecklistItemRepository checklist,
+        MissionChecklistAssignmentRepository assignments,
+        MissionChecklistExecutionRepository executions,
+        AuthenticatedUserResolver users,
+        InspectionCorrectionItemRepository items) {
+      var guidance =
+          mock(com.ondemandmonitoring.finance.service.IAcceptedChecklistGuidanceService.class);
+      var assignmentService =
+          new com.ondemandmonitoring.mission.service.impl.MissionChecklistAssignmentServiceImpl(
+              orders,
+              missions,
+              checklist,
+              assignments,
+              executions,
+              users,
+              Mappers.getMapper(
+                  com.ondemandmonitoring.mission.mapper.MissionChecklistAssignmentMapper.class),
+              guidance);
+      org.springframework.test.util.ReflectionTestUtils.setField(
+          assignmentService, "inspectionItems", items);
+      return assignmentService;
+    }
+
+    @Bean
+    com.ondemandmonitoring.mission.inspection.service.IInternalInspectionMissionService
+        internalMissions(
+            IOrderExecutionCompletionPolicy aggregate,
+            MissionRepository missions,
+            OrderRepository orders,
+            InspectionCorrectionRepository corrections,
+            InspectionCorrectionItemRepository items,
+            IMissionChecklistAssignmentService assignmentService,
+            AuthenticatedUserResolver users,
+            Clock clock,
+            InspectionCorrectionEventRepository events) {
+      var invoices = mock(com.ondemandmonitoring.finance.repository.InvoiceRepository.class);
+      when(invoices.findByOrderId(anyString()))
+          .thenReturn(Optional.of(new com.ondemandmonitoring.finance.domain.Invoice()));
+      var payment =
+          mock(com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService.class);
+      when(payment.isDepositSatisfied(any())).thenReturn(true);
+      var mapper = mock(com.ondemandmonitoring.mission.mapper.MissionMapper.class);
+      when(mapper.toResponse(any()))
+          .thenAnswer(
+              call ->
+                  com.ondemandmonitoring.mission.dto.response.MissionResponse.builder()
+                      .id(((Mission) call.getArgument(0)).getId())
+                      .build());
+      return new com.ondemandmonitoring.mission.inspection.service.impl
+          .InternalInspectionMissionService(
+          aggregate,
+          missions,
+          orders,
+          invoices,
+          corrections,
+          items,
+          assignmentService,
+          payment,
+          mock(com.ondemandmonitoring.mission.service.impl.MissionPlanningActivationService.class),
+          mapper,
+          clock,
+          events,
+          users);
     }
 
     @Bean

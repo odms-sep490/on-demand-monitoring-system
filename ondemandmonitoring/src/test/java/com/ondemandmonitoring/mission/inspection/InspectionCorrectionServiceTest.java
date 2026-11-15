@@ -312,4 +312,18 @@ class InspectionCorrectionServiceTest {
     assertThat(service.list("mission")).isEmpty();
     verify(corrections, never()).saveAndFlush(any());
   }
+
+  @Test void cannotRequestCorrectionForCompliantOrUnassessedChecklist() {
+    for(var status:List.of(ChecklistAssessmentStatus.COMPLIANT,ChecklistAssessmentStatus.NOT_ASSESSED)){
+      execution.setAssessmentStatus(status);
+      assertThatThrownBy(()->opened()).isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.CHECKLIST_NOT_READY);
+    }
+    verify(corrections,never()).saveAndFlush(any());
+  }
+  @Test void aCorrectionMustIncludeAllFailedChecklistItems() {
+    var other=new MissionChecklistExecution();other.setId("other");other.setAssessmentStatus(ChecklistAssessmentStatus.NON_COMPLIANT);
+    when(executions.findOrderedByMissionId("mission")).thenReturn(List.of(execution,other));
+    assertThatThrownBy(()->opened()).isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.CHECKLIST_NOT_READY);
+    verify(corrections,never()).saveAndFlush(any());
+  }
 }

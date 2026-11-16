@@ -8,7 +8,10 @@ import com.ondemandmonitoring.devicecheck.domain.PersistedPreDeviceCheck;
 import com.ondemandmonitoring.devicecheck.domain.PersistedPreDeviceCheckItem;
 import com.ondemandmonitoring.devicecheck.dto.request.PreDeviceCheckItemUpdateRequest;
 import com.ondemandmonitoring.devicecheck.dto.response.PersistedPreDeviceCheckResponse;
+import com.ondemandmonitoring.devicecheck.enums.DeviceCheckPhase;
+import com.ondemandmonitoring.devicecheck.enums.PreDeviceCheckLevel;
 import com.ondemandmonitoring.devicecheck.enums.PreDeviceCheckStatus;
+import com.ondemandmonitoring.devicecheck.service.DeviceCheckCatalog;
 import com.ondemandmonitoring.devicecheck.enums.PreDeviceCheckType;
 import com.ondemandmonitoring.devicecheck.enums.PreDeviceItemStatus;
 import com.ondemandmonitoring.devicecheck.enums.PreflightCheckSource;
@@ -76,7 +79,8 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
             PreDeviceCheckType.WEATHER_CONDITIONS,
             PreDeviceCheckType.MEDIA_STORAGE);
 
-    private static final List<PreDeviceCheckType> CHECKS = Arrays.stream(PreDeviceCheckType.values())
+    /** Built-in catalogue used to seed admin criteria and as fallback before any criterion is stored. */
+    public static final List<PreDeviceCheckType> DEFAULT_CHECKS = Arrays.stream(PreDeviceCheckType.values())
             .filter(check -> !REMOVED_CHECKS.contains(check))
             .toList();
     private static final Set<String> IGNORED_CHECK_TYPES = Set.of(
@@ -104,6 +108,15 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
     private final DeviceTelemetryRepository telemetryRepository;
     private final AuthenticatedUserResolver authenticatedUserResolver;
     private final MissionWeatherCheckRepository weatherCheckRepository;
+    private DeviceCheckCatalog catalog = new DeviceCheckCatalog(null) {
+        @Override
+        public List<Criterion> activeCriteria(DeviceCheckPhase phase) { return defaults(phase); }
+    };
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setCatalog(DeviceCheckCatalog catalog) {
+        if (catalog != null) this.catalog = catalog;
+    }
 
     @Transactional
     @Override
@@ -164,24 +177,33 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
         PersistedPreDeviceCheck run = new PersistedPreDeviceCheck();
         run.setMission(mission);
         run.setStatus(PreDeviceCheckStatus.CHECKING);
-        run.setTotalChecks(CHECKS.size());
+        List<DeviceCheckCatalog.Criterion> criteria = catalog.activeCriteria(DeviceCheckPhase.PRE);
+        if (criteria.isEmpty()) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "No active preflight criteria are configured.");
+        }
+        run.setTotalChecks(criteria.size());
         run.setPassedChecks(0);
         run.setFailedChecks(0);
         run.setStartedAt(Instant.now());
 
         run.setMissionDeviceAssignment(assignment);
 
-        for (PreDeviceCheckType definition : CHECKS) {
+        for (DeviceCheckCatalog.Criterion definition : criteria) {
             PersistedPreDeviceCheckItem item = new PersistedPreDeviceCheckItem();
             item.setPreDeviceCheck(run);
             item.setCheckType(definition.code());
-            item.setCheckName(definition.displayName());
-            item.setCheckLevel(definition.level());
+            item.setCheckName(definition.name());
+            item.setCheckLevel(definition.required() ? PreDeviceCheckLevel.CRITICAL : PreDeviceCheckLevel.WARNING);
             item.setDescription(definition.description());
             item.setCategory(definition.category());
             item.setRequired(definition.required());
             item.setSource(definition.source());
-            evaluateAvailableEvidence(item, definition, mission, assignment);
+            if (definition.builtIn().isPresent()) {
+                evaluateAvailableEvidence(item, definition.builtIn().get(), mission, assignment);
+            } else {
+                item.setStatus(PreDeviceItemStatus.PENDING);
+                item.setMessage("Chờ người vận hành xác nhận");
+            }
             run.getItems().add(item);
         }
 

@@ -50,7 +50,8 @@ public class PersistedPostDeviceCheckService implements IPersistedPostDeviceChec
     private List<Definition> checks() {
         List<Definition> checks = catalog.activeCriteria(DeviceCheckPhase.POST).stream()
                 .map(c -> new Definition(c.code(), c.name(),
-                        c.required() ? DeviceCheckLevel.CRITICAL : DeviceCheckLevel.WARNING))
+                        c.required() ? DeviceCheckLevel.CRITICAL : DeviceCheckLevel.WARNING,
+                        c.description(), c.category(), c.required()))
                 .toList();
         if (checks.isEmpty()) {
             throw new ApiException(ErrorCode.INVALID_REQUEST, "No active post-flight criteria are configured.");
@@ -96,6 +97,9 @@ public class PersistedPostDeviceCheckService implements IPersistedPostDeviceChec
             item.setCheckType(definition.type);
             item.setCheckName(definition.name);
             item.setCheckLevel(definition.level);
+            item.setDescription(definition.description);
+            item.setCategory(definition.category);
+            item.setRequired(definition.required);
             run.getItems().add(item);
         }
 
@@ -249,6 +253,9 @@ public class PersistedPostDeviceCheckService implements IPersistedPostDeviceChec
             InspectionResult result = results.get(definition.type());
             item.setCheckName(definition.name());
             item.setCheckLevel(definition.level());
+            item.setDescription(definition.description());
+            item.setCategory(definition.category());
+            item.setRequired(definition.required());
             item.setStatus(result == InspectionResult.FAIL
                     ? DeviceCheckItemStatus.FAILED
                     : DeviceCheckItemStatus.PASSED);
@@ -291,7 +298,8 @@ public class PersistedPostDeviceCheckService implements IPersistedPostDeviceChec
         }
     }
 
-    private record Definition(String type, String name, DeviceCheckLevel level) {}
+    private record Definition(String type, String name, DeviceCheckLevel level,
+            String description, String category, boolean required) {}
 }
 
 

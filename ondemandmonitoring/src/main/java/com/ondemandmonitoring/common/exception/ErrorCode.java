@@ -199,6 +199,8 @@ public enum ErrorCode {
     DEVICE_NOT_FOUND("Device not found", HttpStatus.NOT_FOUND),
     DEVICE_SERIAL_NUMBER_EXISTS("Device serial number already exists", HttpStatus.CONFLICT),
     DEVICE_IMAGE_STORAGE_ERROR("Unable to store device image", HttpStatus.BAD_GATEWAY),
+    AI_PROVIDER_UNAVAILABLE("AI provider is unavailable", HttpStatus.BAD_GATEWAY),
+    AI_RESPONSE_INVALID("AI provider returned an unreadable response", HttpStatus.BAD_GATEWAY),
     /**
      * Support Ticket Error Codes
      */

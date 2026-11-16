@@ -56,6 +56,12 @@ public enum ErrorCode {
     INTERNAL_SERVER_ERROR("Lỗi hệ thống", HttpStatus.INTERNAL_SERVER_ERROR),
 
     /**
+     * Device check criteria (admin) Error Code
+     */
+    DEVICE_CHECK_CRITERION_NOT_FOUND("Không tìm thấy tiêu chí kiểm tra thiết bị", HttpStatus.NOT_FOUND),
+    DEVICE_CHECK_LAST_ACTIVE_CRITERION("Mỗi loại kiểm tra phải còn ít nhất một tiêu chí đang bật", HttpStatus.CONFLICT),
+
+    /**
      * Operator busy schedule Error Code
      */
     BUSY_SCHEDULE_NOT_FOUND("Không tìm thấy lịch bận", HttpStatus.NOT_FOUND),

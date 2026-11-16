@@ -50,6 +50,8 @@ public enum ErrorCode {
     PASSWORD_POLICY_VIOLATED("Mật khẩu không đáp ứng chính sách bảo mật", HttpStatus.BAD_REQUEST),
     REFRESH_TOKEN_INVALID("Refresh token không hợp lệ hoặc đã hết hạn", HttpStatus.UNAUTHORIZED),
     AUTH_PROVIDER_ERROR("Không thể kết nối nhà cung cấp xác thực", HttpStatus.BAD_GATEWAY),
+    AI_PROVIDER_UNAVAILABLE("AI provider is unavailable", HttpStatus.BAD_GATEWAY),
+    AI_RESPONSE_INVALID("AI provider returned an unreadable response", HttpStatus.BAD_GATEWAY),
     SOCIAL_EMAIL_NOT_VERIFIED("Email social chưa được xác thực", HttpStatus.UNAUTHORIZED),
     SOCIAL_PROVIDER_UNSUPPORTED("Nhà cung cấp social chưa được hỗ trợ", HttpStatus.BAD_REQUEST),
 

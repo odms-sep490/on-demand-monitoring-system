@@ -25,37 +25,52 @@ public class RuleBasedPricingEngine implements PricingEngine {
     private final CustomWorkAssessmentRepository assessments;
     private final ChecklistPriceCalculator checklistPrices;
     private final OrderLevelPriceCalculator orderLevelPrices;
+    private final BaseChecklistPriceCalculator baseChecklistPrices;
 
     @Autowired
     public RuleBasedPricingEngine(PricingPolicyRepository policies, CustomWorkAssessmentRepository assessments,
-            ChecklistPriceCalculator checklistPrices, OrderLevelPriceCalculator orderLevelPrices) {
+            ChecklistPriceCalculator checklistPrices, OrderLevelPriceCalculator orderLevelPrices,
+            BaseChecklistPriceCalculator baseChecklistPrices) {
         this.policies = policies;
         this.assessments = assessments;
         this.checklistPrices = checklistPrices;
         this.orderLevelPrices = orderLevelPrices;
+        this.baseChecklistPrices = baseChecklistPrices;
+    }
+
+    public RuleBasedPricingEngine(PricingPolicyRepository policies, CustomWorkAssessmentRepository assessments,
+            ChecklistPriceCalculator checklistPrices, OrderLevelPriceCalculator orderLevelPrices) {
+        this(policies, assessments, checklistPrices, orderLevelPrices, new BaseChecklistPriceCalculator());
     }
 
     /** Test/backward-compatible constructor; production injects the shared order-level calculator above. */
     public RuleBasedPricingEngine(PricingPolicyRepository policies, CustomWorkAssessmentRepository assessments,
             ChecklistPriceCalculator checklistPrices) {
-        this(policies, assessments, checklistPrices, new OrderLevelPriceCalculator());
+        this(policies, assessments, checklistPrices, new OrderLevelPriceCalculator(), new BaseChecklistPriceCalculator());
     }
 
     @Override
     @Transactional(readOnly = true)
     public PricingBreakdown calculate(Order order, List<OrderChecklistItem> checklistItems) {
-        PricingPolicy policy = resolvePolicy(order);
         List<PricingBreakdownItem> result = new ArrayList<>();
         // Checklists are the price. Only legacy orders with version-0 checklist snapshots keep a PACKAGE line.
         boolean legacyOrder = checklistItems.stream().anyMatch(i -> i.getPricingSnapshotVersion() == 0);
+        boolean hasAreaPricedChecklist = checklistItems.stream()
+                .anyMatch(i -> i.getPricingSnapshotVersion() >= 2 && i.getSourceType() != OrderChecklistSourceType.CUSTOMER_CUSTOM);
+        boolean allCatalogItemsAreaPriced = checklistItems.stream()
+                .filter(i -> i.getSourceType() != OrderChecklistSourceType.CUSTOMER_CUSTOM)
+                .allMatch(i -> i.getPricingSnapshotVersion() >= 2);
+        boolean simpleBasePricing = hasAreaPricedChecklist && allCatalogItemsAreaPriced;
+        boolean customWork = checklistItems.stream().anyMatch(i -> i.getSourceType() == OrderChecklistSourceType.CUSTOMER_CUSTOM
+                && i.getReviewStatus() != ChecklistReviewStatus.REJECTED && i.getReviewStatus() != ChecklistReviewStatus.DUPLICATE);
+        // New catalog-only orders have a complete frozen price basis. They do not need an Advanced Pricing Policy.
+        PricingPolicy policy = simpleBasePricing && !customWork ? null : resolvePolicy(order);
         BigDecimal base = money(legacyOrder ? order.getService().getBasePrice() : BigDecimal.ZERO);
         if (legacyOrder) add(result, PricingCategory.PACKAGE, order.getService().getName(), BigDecimal.ONE, base, base);
 
         // Legacy snapshots (version 0) keep the single order-level custom charge; new snapshots price each custom item.
         boolean legacyCustom = checklistItems.stream().anyMatch(i -> i.getSourceType() == OrderChecklistSourceType.CUSTOMER_CUSTOM
                 && i.getPricingSnapshotVersion() == 0
-                && i.getReviewStatus() != ChecklistReviewStatus.REJECTED && i.getReviewStatus() != ChecklistReviewStatus.DUPLICATE);
-        boolean customWork = checklistItems.stream().anyMatch(i -> i.getSourceType() == OrderChecklistSourceType.CUSTOMER_CUSTOM
                 && i.getReviewStatus() != ChecklistReviewStatus.REJECTED && i.getReviewStatus() != ChecklistReviewStatus.DUPLICATE);
         boolean assessmentComplete = true;
         if (legacyCustom) keyed(policy, PricingCategory.RESOURCE, "CUSTOM_BASE").ifPresent(r -> addFixed(result, r, BigDecimal.ONE));
@@ -73,7 +88,7 @@ public class RuleBasedPricingEngine implements PricingEngine {
 
         // Work done on every visit is billed once per visit; permits, terrain and discounts apply to the order as a whole.
         // Orders priced before this rule (version-0 checklist snapshots) keep their single-visit price.
-        int occurrences = legacyOrder || legacyDimensions ? 1 : PricingOccurrences.of(order);
+        int occurrences = legacyOrder || legacyDimensions || simpleBasePricing ? 1 : PricingOccurrences.of(order);
         int visitStart = result.size();
         List<String> pendingQuotes = new ArrayList<>();
         for (OrderChecklistItem item : checklistItems) {
@@ -81,6 +96,22 @@ public class RuleBasedPricingEngine implements PricingEngine {
             if (item.getPricingSnapshotVersion() == 0) {
                 String key = Optional.ofNullable(item.getDifficultySnapshot()).orElse(ChecklistDifficulty.BASIC).name();
                 keyed(policy, PricingCategory.CHECKLIST, key).ifPresent(rule -> addFixed(result, rule, BigDecimal.ONE));
+                continue;
+            }
+            if (item.getPricingSnapshotVersion() >= 2
+                    && item.getSourceType() != OrderChecklistSourceType.CUSTOMER_CUSTOM) {
+                var calculation = baseChecklistPrices.calculate(item.getBasePriceSnapshot(),
+                        item.getSourceChecklist() == null ? null : item.getSourceChecklist().getStandardAreaM2(),
+                        baseChecklistPrices.measureSquareMeters(order.getTargetArea()));
+                var priced = baseChecklistPrices.withMediaCharges(
+                        baseChecklistPrices.breakdown(item.getSourceChecklist() == null ? null : item.getSourceChecklist().getId(),
+                                item.getContent(), calculation),
+                        item.getIncludedImageCountSnapshot(), item.getIncludedVideoCountSnapshot(),
+                        item.getRequestedImageCount(), item.getRequestedVideoCount(),
+                        item.getExtraImageUnitPriceSnapshot(), item.getExtraVideoUnitPriceSnapshot());
+                for (ChecklistPriceBreakdown.Line line : priced.lines())
+                    add(result, line.category(), shorten(item.getContent()) + " · " + line.description(),
+                            line.quantity(), line.unitPrice(), line.amount(), item.getId());
                 continue;
             }
             // Priced only from the frozen snapshot plus the policy: later catalog edits cannot change this order.
@@ -106,17 +137,20 @@ public class RuleBasedPricingEngine implements PricingEngine {
                 add(result, line.category(), label + " · " + line.description(), line.quantity(), line.unitPrice(), line.amount(),
                         item.getId());
         }
-        scaleVisitLines(result, visitStart, occurrences);
+        if (!simpleBasePricing) scaleVisitLines(result, visitStart, occurrences);
         // OUTPUT, permit and other order-level charges are calculated once per order, never once per checklist/visit.
-        orderLevelPrices.calculate(policy, OrderLevelPriceCalculator.Context.order(order), subtotal(result), base).stream()
-                .map(OrderLevelPriceCalculator.Charge::line)
-                .filter(line -> line.amount().signum() != 0)
-                .forEach(result::add);
+        if (!simpleBasePricing) {
+            orderLevelPrices.calculate(policy, OrderLevelPriceCalculator.Context.order(order), subtotal(result), base).stream()
+                    .map(OrderLevelPriceCalculator.Charge::line)
+                    .filter(line -> line.amount().signum() != 0)
+                    .forEach(result::add);
+        }
 
         BigDecimal total = subtotal(result);
         if (total.signum() < 0) throw new ApiException(ErrorCode.PRICING_CALCULATION_FAILED);
         // Work assessment is only forced for legacy custom items; v1 custom items are priced by the policy or quoted per item.
-        return new PricingBreakdown(policy.getId(), policy.getPolicyVersion(), policy.getCurrency(), total,
+        return new PricingBreakdown(policy == null ? null : policy.getId(), policy == null ? 0 : policy.getPolicyVersion(),
+                policy == null ? "VND" : policy.getCurrency(), total,
                 customWork, assessmentComplete,
                 List.copyOf(result), List.copyOf(pendingQuotes));
     }

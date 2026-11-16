@@ -13,6 +13,7 @@ import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.domain.OrderChecklistItem;
 import com.ondemandmonitoring.order.dto.request.OrderChecklistItemRequest;
+import com.ondemandmonitoring.order.enums.ChecklistPricingStatus;
 import com.ondemandmonitoring.order.enums.OrderChecklistSourceType;
 import com.ondemandmonitoring.order.enums.ChecklistReviewStatus;
 import com.ondemandmonitoring.order.enums.OrderStatus;
@@ -79,7 +80,7 @@ class OrderChecklistPricingSnapshotTest {
                 rule(MediaPricingComponent.CHECKLIST_BASE, "CUSTOM", "300000", null, null), customTier());
         useCase = new OrderChecklistSnapshotService(services, definitions, assignments, snapshots,
                 Mappers.getMapper(OrderChecklistItemMapper.class), resolver, policies, new ChecklistPriceCalculator(),
-                new ServicePriceResolver(assignments, policies, new ChecklistPriceCalculator()));
+                new ServicePriceResolver(assignments));
         when(engine.calculate(any(), any())).thenReturn(new PricingBreakdown("p1", 3, "VND", BigDecimal.ZERO,
                 false, true, List.of(), List.of()));
         useCase.setPricingEngine(engine);
@@ -89,7 +90,7 @@ class OrderChecklistPricingSnapshotTest {
         var c = new ChecklistDefinition();
         c.setId(id); c.setContent(content); c.setVersion(2L); c.setIsActive(true);
         c.setBasePrice(new BigDecimal(base)); c.setIncludedImageCount(images); c.setIncludedVideoCount(videos);
-        c.setPricingProfile("STANDARD"); c.setStandardVideoDurationSeconds(images > 0 ? 30 : null);
+        c.setStandardVideoDurationSeconds(images > 0 ? 30 : null);
         return c;
     }
     PricingRule rule(MediaPricingComponent component, String profile, String price, Integer allowance, PricingRounding rounding) {
@@ -124,10 +125,8 @@ class OrderChecklistPricingSnapshotTest {
     ServiceChecklistRepository.TemplateOverride override(String checklistId, String base, Integer images, Integer videos, String profile, boolean required) {
         var o = mock(ServiceChecklistRepository.TemplateOverride.class);
         when(o.getChecklistId()).thenReturn(checklistId);
-        when(o.getBasePriceOverride()).thenReturn(base == null ? null : new BigDecimal(base));
         when(o.getIncludedImageCountOverride()).thenReturn(images);
         when(o.getIncludedVideoCountOverride()).thenReturn(videos);
-        when(o.getPricingProfileOverride()).thenReturn(profile);
         when(o.isRequired()).thenReturn(required);
         when(o.getChecklistActive()).thenReturn(true);
         return o;
@@ -157,7 +156,7 @@ class OrderChecklistPricingSnapshotTest {
         assertEquals(RequiredEvidenceType.IMAGE_AND_VIDEO, item.getRequiredEvidenceType());
     }
 
-    @Test void catalogChecklistOutsideThePackageRequiresManagerReview() {
+    @Test void catalogChecklistOutsideThePackageRequiresReviewButUsesTheSystemPrice() {
         var thermal = definition("c3", "Thermal inspection", "350000", 0, 0);
         when(definitions.findByIdForUpdate("c3")).thenReturn(Optional.of(thermal));
 
@@ -165,7 +164,8 @@ class OrderChecklistPricingSnapshotTest {
 
         assertEquals(OrderChecklistSourceType.CUSTOMER_SELECTED, saved.getFirst().getSourceType());
         assertEquals(ChecklistReviewStatus.PENDING, saved.getFirst().getReviewStatus());
-        assertTrue(saved.getFirst().isManagerQuoteRequired());
+        assertEquals(ChecklistPricingStatus.AUTO_PRICED, saved.getFirst().getPricingStatus());
+        assertFalse(saved.getFirst().isManagerQuoteRequired());
     }
 
     @Test void catalogEditsAfterCaptureDoNotChangeTheStoredSnapshot() {

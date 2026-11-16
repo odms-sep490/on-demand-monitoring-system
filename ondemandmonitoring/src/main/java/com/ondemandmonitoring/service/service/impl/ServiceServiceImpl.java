@@ -9,6 +9,7 @@ import com.ondemandmonitoring.service.mapper.ServiceMapper;
 import com.ondemandmonitoring.service.repository.ServiceRepository;
 import com.ondemandmonitoring.service.service.IServiceService;
 import com.ondemandmonitoring.service.service.IServiceImageService;
+import java.math.BigDecimal;
 import java.util.List;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +38,7 @@ public class ServiceServiceImpl implements IServiceService {
                     "Service with code '" + request.getCode() + "' already exists");
         }
         Service entity = serviceMapper.toEntity(request);
+        if (entity.getBasePrice() == null) entity.setBasePrice(BigDecimal.ZERO);
         if (entity.getIsActive() == null) {
             entity.setIsActive(true);
         }

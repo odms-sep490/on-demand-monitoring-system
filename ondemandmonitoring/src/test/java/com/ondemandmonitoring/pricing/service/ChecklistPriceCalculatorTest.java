@@ -203,6 +203,17 @@ class ChecklistPriceCalculatorTest {
         assertThat(big.subtotal()).isEqualByComparingTo("375000");
         assertThat(big.lines()).extracting(l -> l.component()).contains("EXTRA_AREA");
         assertThat(big.lines().getLast().description()).contains("3.5 ha");
+
+        PricingRule fifteenHaIncluded = media("CUSTOM", MediaPricingComponent.INCLUDED_AREA, "0");
+        fifteenHaIncluded.setIncludedQuantity(15);
+        PricingPolicy fractionalAreaPolicy = policy(media("CUSTOM", MediaPricingComponent.CHECKLIST_BASE, "200000"),
+                fifteenHaIncluded, media("CUSTOM", MediaPricingComponent.EXTRA_AREA, "10000"));
+        var rounded = calculator.price(fractionalAreaPolicy, helper.custom(new BigDecimal("28.094")));
+        assertThat(rounded.subtotal()).isEqualByComparingTo("331000");
+        assertThat(rounded.lines().getLast().component()).isEqualTo("ROUNDING");
+        assertThat(rounded.lines().getLast().amount()).isEqualByComparingTo("60");
+        assertThat(rounded.lines().stream().map(ChecklistPriceBreakdown.Line::amount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)).isEqualByComparingTo(rounded.subtotal());
     }
 
     @Test void customAreaSurchargeNeedsAPriceWhenTheAreaExceedsTheAllowance() {

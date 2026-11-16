@@ -2,6 +2,7 @@ package com.ondemandmonitoring.pricing.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
+import com.ondemandmonitoring.checklist.domain.ChecklistDefinition;
 import com.ondemandmonitoring.order.domain.*;
 import com.ondemandmonitoring.order.enums.*;
 import com.ondemandmonitoring.pricing.domain.*;
@@ -10,6 +11,8 @@ import com.ondemandmonitoring.pricing.repository.*;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
+import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.GeometryFactory;
 import org.junit.jupiter.api.Test;
 
 class RuleBasedPricingEngineTest {
@@ -66,6 +69,36 @@ class RuleBasedPricingEngineTest {
         assertThat(result.policyId()).isEqualTo("p1");
         assertThat(result.systemCalculatedAmount()).isEqualByComparingTo("4300000");
         verify(policies, never()).findEffectiveActive(any());
+    }
+
+    @Test void catalogOnlyAreaPricedOrderDoesNotRequireAnAdvancedPricingPolicy() {
+        when(policies.findEffectiveActive(any(Instant.class))).thenReturn(List.of());
+        Order order = order("0");
+        var geometry = new GeometryFactory();
+        order.setTargetArea(geometry.createPolygon(new Coordinate[] {
+                new Coordinate(0, 0), new Coordinate(0.001, 0), new Coordinate(0.001, 0.001),
+                new Coordinate(0, 0.001), new Coordinate(0, 0)
+        }));
+        OrderChecklistItem item = new OrderChecklistItem();
+        item.setId("item-1");
+        item.setSourceType(OrderChecklistSourceType.SERVICE_TEMPLATE);
+        item.setReviewStatus(ChecklistReviewStatus.INCLUDED);
+        item.setPricingSnapshotVersion(2);
+        item.setContent("Checklist A");
+        item.setBasePriceSnapshot(new BigDecimal("2000000"));
+        ChecklistDefinition definition = new ChecklistDefinition();
+        definition.setStandardAreaM2(new BigDecimal("100"));
+        item.setSourceChecklist(definition);
+
+        var result = engine.calculate(order, List.of(item));
+
+        var calculator = new BaseChecklistPriceCalculator();
+        BigDecimal area = calculator.measureSquareMeters(order.getTargetArea());
+        BigDecimal expected = calculator.calculate(new BigDecimal("2000000"), new BigDecimal("100"), area).calculatedPrice();
+        assertThat(result.policyId()).isNull();
+        assertThat(result.policyVersion()).isZero();
+        assertThat(result.currency()).isEqualTo("VND");
+        assertThat(result.systemCalculatedAmount()).isEqualByComparingTo(expected);
     }
 
     private PricingPolicy policy() { PricingPolicy p = new PricingPolicy(); p.setId("p1"); p.setPolicyVersion(3); p.setStatus(PricingPolicyStatus.ACTIVE); p.setCurrency("VND"); return p; }

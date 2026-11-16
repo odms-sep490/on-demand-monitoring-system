@@ -89,8 +89,7 @@ public class ServiceController {
                 .map(ServicePricingEstimateResponse.AdditionalRequirementPrice::additionalPrice)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // Same figure as the checklist quote's default total: the sum of the default checklists, or the legacy catalog
-        // price while none of them is priced. The response shape is unchanged.
+        // Same figure as the Base Checklist quote preview: the sum of configured default checklist prices.
         BigDecimal servicePrice = priceResolver.forDisplay(service).total();
         ServicePricingEstimateResponse response = ServicePricingEstimateResponse.builder()
                 .serviceId(serviceId)

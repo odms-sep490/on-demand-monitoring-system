@@ -2,7 +2,6 @@ package com.ondemandmonitoring.checklist.dto.response;
 
 import java.time.Instant;
 import lombok.*;
-import com.ondemandmonitoring.pricing.enums.ChecklistDifficulty;
 
 @Getter
 @Setter
@@ -15,18 +14,11 @@ public class ChecklistResponse {
     private java.util.List<String> inputRequirements;
     private java.util.List<String> expectedOutputs;
     private Boolean isActive;
-    private ChecklistDifficulty difficulty;
     private java.math.BigDecimal basePrice;
+    private java.math.BigDecimal standardAreaM2;
     private int includedImageCount;
     private int includedVideoCount;
     private Integer standardVideoDurationSeconds;
-    private String pricingProfile;
-    private boolean areaPricingEnabled;
-    private boolean lengthPricingEnabled;
-    private boolean altitudePricingEnabled;
-    private java.math.BigDecimal includedAreaHa;
-    private java.math.BigDecimal includedLengthKm;
-    private java.math.BigDecimal includedAltitudeM;
     /** Device types associated with this checklist definition. */
     private java.util.List<com.ondemandmonitoring.device.dto.response.DeviceTypeResponse> deviceTypes = java.util.List.of();
     /** How many services currently include this checklist; editing it changes all of them. */

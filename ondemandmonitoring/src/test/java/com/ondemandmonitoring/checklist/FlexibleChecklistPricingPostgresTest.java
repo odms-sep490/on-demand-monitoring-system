@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 
 import com.ondemandmonitoring.checklist.dto.request.ChecklistRequest;
-import com.ondemandmonitoring.checklist.dto.request.ServiceChecklistPricingRequest;
+import com.ondemandmonitoring.checklist.dto.request.ServiceChecklistRequirementsRequest;
 import com.ondemandmonitoring.order.domain.OrderChecklistItem;
 import com.ondemandmonitoring.order.dto.request.OrderChecklistItemRequest;
 import com.ondemandmonitoring.order.enums.ChecklistReviewStatus;
@@ -29,7 +29,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 /** Real PostgreSQL (isolated random schema of the dedicated verification database). */
 class FlexibleChecklistPricingPostgresTest extends ChecklistPostgresTest {
     @Autowired PricingPolicyRepository policyRepository;
-    @Autowired com.ondemandmonitoring.pricing.service.ServiceDefaultPriceService defaultPrices;
 
     PricingRule media(String profile, MediaPricingComponent component, String price) {
         var r = new PricingRule();
@@ -63,7 +62,7 @@ class FlexibleChecklistPricingPostgresTest extends ChecklistPostgresTest {
     String pricedChecklist(String content) {
         var r = new ChecklistRequest();
         r.setContent(content); r.setBasePrice(new BigDecimal("200000")); r.setIncludedImageCount(10); r.setIncludedVideoCount(0);
-        r.setStandardVideoDurationSeconds(30); r.setPricingProfile("standard");
+        r.setStandardAreaM2(new BigDecimal("100"));
         return catalog.create(r).getId();
     }
     void resetPricing() {
@@ -75,9 +74,8 @@ class FlexibleChecklistPricingPostgresTest extends ChecklistPostgresTest {
         String id = pricedChecklist("Check roof");
         var stored = catalog.getById(id);
         assertEquals(0, new BigDecimal("200000").compareTo(stored.getBasePrice()));
+        assertEquals(0, new BigDecimal("100").compareTo(stored.getStandardAreaM2()));
         assertEquals(10, stored.getIncludedImageCount());
-        assertEquals(30, stored.getStandardVideoDurationSeconds());
-        assertEquals("STANDARD", stored.getPricingProfile());
         var edit = new ChecklistRequest(); edit.setContent("Check roof"); edit.setIncludedImageCount(25);
         assertEquals(25, catalog.update(id, edit).getIncludedImageCount());
         assertEquals(0, new BigDecimal("200000").compareTo(catalog.getById(id).getBasePrice()));
@@ -93,48 +91,23 @@ class FlexibleChecklistPricingPostgresTest extends ChecklistPostgresTest {
         String s1 = service("A"), s2 = service("B"), c = pricedChecklist("Check roof");
         assignments.assign(s1, assignment(c, 0));
         assignments.assign(s2, assignment(c, 0));
-        var pricing = new ServiceChecklistPricingRequest();
-        pricing.setBasePriceOverride(new BigDecimal("260000")); pricing.setIncludedImageCountOverride(20); pricing.setRequired(true);
-        assignments.updatePricing(s1, c, pricing);
+        var requirements = new ServiceChecklistRequirementsRequest();
+        requirements.setIncludedImageCountOverride(20); requirements.setRequired(true);
+        assignments.updateRequirements(s1, c, requirements);
 
         var first = assignments.getByService(s1, false).getFirst();
         var second = assignments.getByService(s2, false).getFirst();
-        assertEquals(0, new BigDecimal("260000").compareTo(first.getBasePrice()));
         assertEquals(20, first.getIncludedImageCount());
         assertTrue(first.isRequired());
-        assertEquals(0, new BigDecimal("200000").compareTo(second.getBasePrice()));
         assertEquals(10, second.getIncludedImageCount());
         assertFalse(second.isRequired());
         assertEquals(10, catalog.getById(c).getIncludedImageCount());
 
         var jdbc = new JdbcTemplate(dataSource);
-        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("update service_checklists set base_price_override = -5 where service_id = ?", s1));
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("update service_checklists set included_video_count_override = 600 where service_id = ?", s1));
     }
 
-    @Test void mediaPolicyRulesPersistAndDatabaseRejectsMalformedMediaRules() {
-        resetPricing();
-        var policy = publish(1, "50000", "50000", "40000");
-        var reloaded = transaction.execute(status -> policyRepository.findById(policy.getId()).orElseThrow().getRules().stream()
-                .map(r -> r.getMediaComponent() + ":" + r.getPricingProfile() + ":" + r.getRoundingMode()).sorted().toList());
-        assertEquals(List.of("EXTRA_IMAGE:STANDARD:CEILING", "EXTRA_IMAGE:STANDARD:CEILING", "INCLUDED_IMAGE:STANDARD:null"), reloaded);
-
-        var jdbc = new JdbcTemplate(dataSource);
-        String sql = "insert into pricing_rules(id,created_at,version,policy_id,category,calculation_type,rule_key,description,priority,enabled,"
-                + "pricing_profile,media_component,fixed_amount,unit_size,min_value,max_value) values (?,now(),0,?,?,?,?,?,0,true,?,?,?,?,?,?)";
-        // MEDIA rule without a profile
-        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(sql, "bad1", policy.getId(), "MEDIA", "FIXED", "K1", "d", null, "INCLUDED_IMAGE", 1, null, null, null));
-        // negative price
-        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(sql, "bad2", policy.getId(), "MEDIA", "FIXED", "K2", "d", "STANDARD", "INCLUDED_IMAGE", -1, null, null, null));
-        // extra tier with a zero block size
-        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(sql, "bad3", policy.getId(), "MEDIA", "PER_BLOCK", "K3", "d", "STANDARD", "EXTRA_VIDEO", 10, 0, 0, null));
-        // range with max <= min
-        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(sql, "bad4", policy.getId(), "MEDIA", "PER_BLOCK", "K4", "d", "STANDARD", "EXTRA_VIDEO", 10, 1, 5, 5));
-        // a non-MEDIA rule cannot carry a profile
-        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(sql, "bad5", policy.getId(), "OUTPUT", "FIXED", "K5", "d", "STANDARD", null, 10, null, null, null));
-    }
-
-    @Test void orderSnapshotFreezesPricingInputsAndSurvivesCatalogAndPolicyChanges() {
+    @Test void orderSnapshotFreezesBasePriceAndUsesCurrentChecklistStandardArea() {
         resetPricing();
         publish(1, "50000", "50000", "40000");
         String s = service("Priced"), c = pricedChecklist("Check roof");
@@ -147,7 +120,7 @@ class FlexibleChecklistPricingPostgresTest extends ChecklistPostgresTest {
 
         var created = orderService.createOrder(request);
         var response = created.getChecklistItems().getFirst();
-        assertEquals(1, response.getPricingSnapshotVersion());
+        assertEquals(2, response.getPricingSnapshotVersion());
         assertEquals(30, response.getRequestedImageCount());
         assertEquals(10, response.getIncludedImageCountSnapshot());
         assertEquals(3, response.getEvidencePolicyVersion());
@@ -155,31 +128,47 @@ class FlexibleChecklistPricingPostgresTest extends ChecklistPostgresTest {
         assertEquals(RequiredEvidenceType.IMAGE, response.getRequiredEvidenceType());
 
         var engine = new RuleBasedPricingEngine(policyRepository, mock(CustomWorkAssessmentRepository.class), new ChecklistPriceCalculator());
-        BigDecimal v1Total = transaction.execute(status -> {
+        BigDecimal frozenTotal = transaction.execute(status -> {
             var order = orders.findById(created.getId()).orElseThrow();
-            return engine.calculate(order, snapshots.findAllByOrderIdOrderByDisplayOrderAscIdAsc(created.getId())).systemCalculatedAmount();
+            var snapshot = snapshots.findAllByOrderIdOrderByDisplayOrderAscIdAsc(created.getId()).getFirst();
+            return new com.ondemandmonitoring.pricing.service.BaseChecklistPriceCalculator()
+                    .calculate(snapshot.getBasePriceSnapshot(), snapshot.getSourceChecklist().getStandardAreaM2(),
+                            new com.ondemandmonitoring.pricing.service.BaseChecklistPriceCalculator().measureSquareMeters(order.getTargetArea()))
+                    .calculatedPrice();
         });
-        // the service is priced by its checklist, so the legacy catalog price (3,200,000) is not added:
-        // base 200,000 + included 50,000 + extra 50,000 + 40,000 (a new policy has no CHECKLIST difficulty rule)
-        assertEquals(0, new BigDecimal("340000").compareTo(v1Total));
+        var firstPrice = transaction.execute(status -> {
+            var order = orders.findById(created.getId()).orElseThrow();
+            return engine.calculate(order, snapshots.findAllByOrderIdOrderByDisplayOrderAscIdAsc(created.getId()));
+        });
+        assertEquals(0, frozenTotal.compareTo(firstPrice.systemCalculatedAmount()));
+        assertEquals(0, firstPrice.policyVersion());
 
-        // The catalog, the association and the policy all change afterwards.
-        var edit = new ChecklistRequest(); edit.setContent("Check roof"); edit.setBasePrice(new BigDecimal("999000")); edit.setIncludedImageCount(0);
+        // The catalog's current standard area is read at pricing time. The order's submitted base price and evidence remain frozen.
+        var edit = new ChecklistRequest(); edit.setContent("Check roof"); edit.setBasePrice(new BigDecimal("999000"));
+        edit.setStandardAreaM2(new BigDecimal("250")); edit.setIncludedImageCount(0);
         catalog.update(c, edit);
         assignments.unassign(s, c);
         publish(2, "90000", "70000", "60000");
 
         var frozen = transaction.execute(status -> snapshots.findAllByOrderIdOrderByDisplayOrderAscIdAsc(created.getId()).stream()
-                .map(i -> List.of(i.getBasePriceSnapshot().toPlainString(), "" + i.getIncludedImageCountSnapshot(), "" + i.getRequestedImageCount(),
-                        i.getPricingProfileSnapshot(), "" + i.getPricingSnapshotVersion(), "" + i.getMinimumImageCount())).toList());
-        assertEquals(List.of(List.of("200000", "10", "30", "STANDARD", "1", "30")), frozen);
+                .map(i -> List.of(i.getBasePriceSnapshot().toPlainString(),
+                        "" + i.getIncludedImageCountSnapshot(), "" + i.getRequestedImageCount(), "" + i.getPricingSnapshotVersion(),
+                        "" + i.getMinimumImageCount())).toList());
+        assertEquals(List.of(List.of("200000", "10", "30", "2", "30")), frozen);
         BigDecimal stillV1 = transaction.execute(status -> {
             var order = orders.findById(created.getId()).orElseThrow();
             return engine.calculate(order, snapshots.findAllByOrderIdOrderByDisplayOrderAscIdAsc(created.getId()))
                     .systemCalculatedAmount();
         });
-        assertEquals(0, new BigDecimal("340000").compareTo(stillV1),
-                "a submitted order remains on its request-time pricing policy");
+        BigDecimal currentStandardAreaTotal = transaction.execute(status -> {
+            var order = orders.findById(created.getId()).orElseThrow();
+            var snapshot = snapshots.findAllByOrderIdOrderByDisplayOrderAscIdAsc(created.getId()).getFirst();
+            var calculator = new com.ondemandmonitoring.pricing.service.BaseChecklistPriceCalculator();
+            return calculator.calculate(snapshot.getBasePriceSnapshot(), snapshot.getSourceChecklist().getStandardAreaM2(),
+                    calculator.measureSquareMeters(order.getTargetArea())).calculatedPrice();
+        });
+        assertEquals(0, currentStandardAreaTotal.compareTo(stillV1));
+        assertNotEquals(0, frozenTotal.compareTo(stillV1), "the live standard area should be used when preparing a new quote");
     }
 
     @Test void legacySnapshotRowsKeepVersionZeroAndLegacyPricing() {
@@ -240,154 +229,41 @@ class FlexibleChecklistPricingPostgresTest extends ChecklistPostgresTest {
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(sql, "bad-type", orderId, "x6", 7, 3, 1, "STREAMING", 1, 0));
         verifyCurrentSchema();
     }
-    // ---- Admin API flow for MEDIA rules: create draft -> edit -> publish -> price (real PostgreSQL) -------------------
-    private com.ondemandmonitoring.pricing.service.PricingPolicyService policyService() {
-        var policyService = new com.ondemandmonitoring.pricing.service.PricingPolicyService(policyRepository);
-        policyService.setDefaultPrices(defaultPrices);
-        return policyService;
-    }
-    private com.ondemandmonitoring.pricing.dto.PricingPolicyResponse createDraft(com.ondemandmonitoring.pricing.dto.PricingPolicyRequest request) {
-        return transaction.execute(status -> policyService().createDraft(request));
-    }
-    private com.ondemandmonitoring.pricing.dto.PricingPolicyResponse updateDraft(String id, com.ondemandmonitoring.pricing.dto.PricingPolicyRequest request) {
-        return transaction.execute(status -> policyService().updateDraft(id, request));
-    }
-    private com.ondemandmonitoring.pricing.dto.PricingRuleRequest mediaRule(String key, MediaPricingComponent component, String from,
-            String to, String block, String price) {
-        boolean tier = component == MediaPricingComponent.EXTRA_IMAGE || component == MediaPricingComponent.EXTRA_VIDEO;
-        return new com.ondemandmonitoring.pricing.dto.PricingRuleRequest(PricingCategory.MEDIA,
-                tier ? PricingCalculationType.PER_BLOCK : PricingCalculationType.FIXED, key, key,
-                from == null ? null : new BigDecimal(from), to == null ? null : new BigDecimal(to), new BigDecimal(price), null, null,
-                block == null ? null : new BigDecimal(block), null, 0, true, "standard", component, null, null);
-    }
-    private com.ondemandmonitoring.pricing.dto.PricingPolicyRequest policyRequest(com.ondemandmonitoring.pricing.dto.PricingRuleRequest... rules) {
-        return new com.ondemandmonitoring.pricing.dto.PricingPolicyRequest("Media policy", null, null, new BigDecimal("25"), new BigDecimal("25"),
-                new BigDecimal("10"), new BigDecimal("0.75"), new BigDecimal("1000"), List.of(rules));
-    }
-    private void publishViaAdminApi(com.ondemandmonitoring.pricing.dto.PricingPolicyRequest request) {
-        var draft = createDraft(request);
-        transaction.executeWithoutResult(status -> policyService().publish(draft.id()));
-    }
-    private com.ondemandmonitoring.pricing.service.ChecklistPricingPreviewService previewService() {
-        var calculator = new ChecklistPriceCalculator();
-        return new com.ondemandmonitoring.pricing.service.ChecklistPricingPreviewService(services, definitions, links, policyRepository, calculator,
-                new com.ondemandmonitoring.pricing.service.ServicePriceResolver(links, policyRepository, calculator));
-    }
-    private com.ondemandmonitoring.pricing.dto.ServicePricePreviewResponse quote(String serviceId, String checklistId, Integer images, Integer videos) {
-        return transaction.execute(status -> previewService().customerQuote(new com.ondemandmonitoring.pricing.dto.ChecklistPricingPreviewRequests.Customer(
-                serviceId, List.of(new com.ondemandmonitoring.pricing.dto.ChecklistPricingPreviewRequests.CustomerItem(checklistId, null, images, videos)))));
-    }
-
-    @Test void adminCreatesEditsAndPublishesMediaTiersThatThePricingFollows() {
-        resetPricing();
-        String s = service("Media flow"), c = pricedChecklist("Check roof");
-        assignments.assign(s, assignment(c, 0));
-        var draft = createDraft(policyRequest(
-                mediaRule("INC", MediaPricingComponent.INCLUDED_IMAGE, null, null, null, "50000"),
-                mediaRule("T1", MediaPricingComponent.EXTRA_IMAGE, "0", "10", "10", "50000"),
-                mediaRule("T2", MediaPricingComponent.EXTRA_IMAGE, "10", null, "10", "30000")));
-        // edit the draft: the second tier becomes 40,000
-        updateDraft(draft.id(), policyRequest(
-                mediaRule("INC", MediaPricingComponent.INCLUDED_IMAGE, null, null, null, "50000"),
-                mediaRule("T1", MediaPricingComponent.EXTRA_IMAGE, "0", "10", "10", "50000"),
-                mediaRule("T2", MediaPricingComponent.EXTRA_IMAGE, "10", null, "10", "40000")));
-        // a draft is not effective yet: pricing has no policy
-        var none = assertThrows(com.ondemandmonitoring.common.exception.ApiException.class, () -> quote(s, c, 30, null));
-        assertEquals(ErrorCode.PRICING_POLICY_NOT_FOUND, none.getErrorCode());
-        assertEquals(409, none.getStatus().value());
-
-        transaction.executeWithoutResult(status -> policyService().publish(draft.id()));
-
-        var result = quote(s, c, 30, null);
-        // 200,000 base + 50,000 included images + 50,000 (first extra block) + 40,000 (next extra block); no legacy price added
-        assertEquals(0, new BigDecimal("340000").compareTo(result.total()));
-        assertEquals("CHECKLISTS", result.priceSource());
-        assertEquals(0, BigDecimal.ZERO.compareTo(result.packageFee()));
-        assertEquals(List.of("BASE", "INCLUDED_IMAGE", "EXTRA_IMAGE", "EXTRA_IMAGE"),
-                result.checklists().getFirst().lines().stream().map(l -> l.component()).toList());
-        // 25 extra images: tier 1 = 1 block (50,000), tier 2 = 15 images = ceil(1.5) = 2 blocks (80,000); 200,000 + 50,000 + 130,000
-        assertEquals(0, new BigDecimal("380000").compareTo(quote(s, c, 35, null).total()));
-        // published policies are immutable
-        assertThrows(com.ondemandmonitoring.common.exception.ApiException.class, () -> updateDraft(draft.id(), policyRequest(
-                mediaRule("INC", MediaPricingComponent.INCLUDED_IMAGE, null, null, null, "1"))));
-    }
-
-    @Test void conflictOnlyForMissingTierMissingCoverageOrMissingPolicyAndItsMessageSaysHowToFix() {
-        resetPricing();
-        String s = service("Conflicts"), c = pricedChecklist("Check roof");
-        assignments.assign(s, assignment(c, 0));
-        publishViaAdminApi(policyRequest(
-                mediaRule("INC", MediaPricingComponent.INCLUDED_IMAGE, null, null, null, "50000"),
-                mediaRule("T1", MediaPricingComponent.EXTRA_IMAGE, "0", "10", "10", "50000")));
-
-        // covered quantities never conflict
-        assertEquals(0, new BigDecimal("250000").compareTo(quote(s, c, 10, null).total()));
-        assertEquals(0, new BigDecimal("300000").compareTo(quote(s, c, 20, null).total()));
-        // beyond the last bounded tier
-        var uncovered = assertThrows(com.ondemandmonitoring.common.exception.ApiException.class, () -> quote(s, c, 21, null));
-        assertEquals(ErrorCode.MEDIA_PRICING_NOT_CONFIGURED, uncovered.getErrorCode());
-        assertEquals(409, uncovered.getStatus().value());
-        assertTrue(uncovered.getMessage().contains("extend the tiers") && uncovered.getMessage().contains("publish"), uncovered.getMessage());
-        // no video tier configured at all
-        var noTier = assertThrows(com.ondemandmonitoring.common.exception.ApiException.class, () -> quote(s, c, null, 1));
-        assertEquals(ErrorCode.MEDIA_PRICING_NOT_CONFIGURED, noTier.getErrorCode());
-        assertTrue(noTier.getMessage().contains("add a tier starting at 0"), noTier.getMessage());
-        // the same selection is accepted at order capture time only when it is priceable
-        new JdbcTemplate(dataSource).execute("TRUNCATE pricing_policies CASCADE");
-        assertEquals(ErrorCode.PRICING_POLICY_NOT_FOUND,
-                assertThrows(com.ondemandmonitoring.common.exception.ApiException.class, () -> quote(s, c, 10, null)).getErrorCode());
-    }
-
-    @Test void invalidMediaPolicyIsRejectedBeforeItIsStored() {
-        resetPricing();
-        var overlap = assertThrows(com.ondemandmonitoring.common.exception.ApiException.class, () -> createDraft(policyRequest(
-                mediaRule("T1", MediaPricingComponent.EXTRA_IMAGE, "0", "10", "10", "50000"),
-                mediaRule("T2", MediaPricingComponent.EXTRA_IMAGE, "5", null, "10", "40000"))));
-        assertEquals(400, overlap.getStatus().value());
-        assertEquals(0, policyRepository.count());
-    }
-
-    // ---- Stored service default price + Manager-quoted custom checklists -----------------------------------------------
+    // ---- Stored Base Checklist default price + legacy Manager-quoted custom checklists -------------------------------
     private BigDecimal storedDefault(String serviceId) {
         return transaction.execute(status -> services.findById(serviceId).orElseThrow().getDefaultPrice());
     }
     private BigDecimal liveDefault(String serviceId) {
-        var calculator = new ChecklistPriceCalculator();
-        var resolver = new com.ondemandmonitoring.pricing.service.ServicePriceResolver(links, policyRepository, calculator);
-        return transaction.execute(status -> resolver.resolve(services.findById(serviceId).orElseThrow(),
-                policyRepository.findEffectiveActive(Instant.now()).getFirst()).checklistSubtotal());
+        var resolver = new com.ondemandmonitoring.pricing.service.ServicePriceResolver(links);
+        return transaction.execute(status -> resolver.resolve(services.findById(serviceId).orElseThrow()).checklistSubtotal());
     }
     private void assertStoredMatchesLive(String serviceId, String expected) {
         assertEquals(0, new BigDecimal(expected).compareTo(storedDefault(serviceId)), "stored default price");
         assertEquals(0, storedDefault(serviceId).compareTo(liveDefault(serviceId)), "stored == recomputed from the source of truth");
     }
 
-    @Test void storedServiceDefaultPriceFollowsChecklistsAssociationsAndPolicy() {
+    @Test void storedServiceDefaultPriceFollowsGlobalBaseChecklistPricesAndAssociations() {
         resetPricing();
-        publishViaAdminApi(policyRequest(mediaRule("INC", MediaPricingComponent.INCLUDED_IMAGE, null, null, null, "50000")));
         String s = service("Stored price"), c1 = pricedChecklist("Check roof"), c2 = pricedChecklist("Check wall");
         assertNull(storedDefault(s));
 
         assignments.assign(s, assignment(c1, 0));
-        assertStoredMatchesLive(s, "250000");                      // 200,000 + 50,000 included images
+        assertStoredMatchesLive(s, "200000");
         var wall = new ChecklistRequest(); wall.setContent("Check wall"); wall.setBasePrice(new BigDecimal("100000")); wall.setIncludedImageCount(0);
         catalog.update(c2, wall);
         assignments.assign(s, assignment(c2, 1));
-        assertStoredMatchesLive(s, "350000");                      // adding a default checklist adds its price
+        assertStoredMatchesLive(s, "300000");
 
         var roof = new ChecklistRequest(); roof.setContent("Check roof"); roof.setBasePrice(new BigDecimal("300000"));
         catalog.update(c1, roof);                                  // editing the checklist refreshes every service that uses it
-        assertStoredMatchesLive(s, "450000");
+        assertStoredMatchesLive(s, "400000");
 
-        var override = new ServiceChecklistPricingRequest(); override.setBasePriceOverride(new BigDecimal("100000"));
-        assignments.updatePricing(s, c1, override);                // per-service override only
-        assertStoredMatchesLive(s, "250000");
+        var requirements = new ServiceChecklistRequirementsRequest(); requirements.setIncludedImageCountOverride(12);
+        assignments.updateRequirements(s, c1, requirements);        // evidence requirements do not affect the price
+        assertStoredMatchesLive(s, "400000");
 
         assignments.unassign(s, c2);                               // removing a checklist removes its price
-        assertStoredMatchesLive(s, "150000");
-
-        publishViaAdminApi(policyRequest(mediaRule("INC", MediaPricingComponent.INCLUDED_IMAGE, null, null, null, "80000")));
-        assertStoredMatchesLive(s, "180000");                      // a new policy version refreshes every service
+        assertStoredMatchesLive(s, "300000");
 
         catalog.updateStatus(c1, false);
         assertStoredMatchesLive(s, "0");

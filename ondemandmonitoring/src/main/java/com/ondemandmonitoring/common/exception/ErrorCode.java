@@ -50,12 +50,16 @@ public enum ErrorCode {
     PASSWORD_POLICY_VIOLATED("Mật khẩu không đáp ứng chính sách bảo mật", HttpStatus.BAD_REQUEST),
     REFRESH_TOKEN_INVALID("Refresh token không hợp lệ hoặc đã hết hạn", HttpStatus.UNAUTHORIZED),
     AUTH_PROVIDER_ERROR("Không thể kết nối nhà cung cấp xác thực", HttpStatus.BAD_GATEWAY),
-    AI_PROVIDER_UNAVAILABLE("AI provider is unavailable", HttpStatus.BAD_GATEWAY),
-    AI_RESPONSE_INVALID("AI provider returned an unreadable response", HttpStatus.BAD_GATEWAY),
     SOCIAL_EMAIL_NOT_VERIFIED("Email social chưa được xác thực", HttpStatus.UNAUTHORIZED),
     SOCIAL_PROVIDER_UNSUPPORTED("Nhà cung cấp social chưa được hỗ trợ", HttpStatus.BAD_REQUEST),
 
     INTERNAL_SERVER_ERROR("Lỗi hệ thống", HttpStatus.INTERNAL_SERVER_ERROR),
+
+    /**
+     * Device check criteria (admin) Error Code
+     */
+    DEVICE_CHECK_CRITERION_NOT_FOUND("Không tìm thấy tiêu chí kiểm tra thiết bị", HttpStatus.NOT_FOUND),
+    DEVICE_CHECK_LAST_ACTIVE_CRITERION("Mỗi loại kiểm tra phải còn ít nhất một tiêu chí đang bật", HttpStatus.CONFLICT),
 
     /**
      * Operator busy schedule Error Code
@@ -195,6 +199,8 @@ public enum ErrorCode {
     DEVICE_NOT_FOUND("Device not found", HttpStatus.NOT_FOUND),
     DEVICE_SERIAL_NUMBER_EXISTS("Device serial number already exists", HttpStatus.CONFLICT),
     DEVICE_IMAGE_STORAGE_ERROR("Unable to store device image", HttpStatus.BAD_GATEWAY),
+    AI_PROVIDER_UNAVAILABLE("AI provider is unavailable", HttpStatus.BAD_GATEWAY),
+    AI_RESPONSE_INVALID("AI provider returned an unreadable response", HttpStatus.BAD_GATEWAY),
     /**
      * Support Ticket Error Codes
      */

@@ -64,6 +64,8 @@ class InspectionCorrectionPostgresTest {
   @Autowired EntityManagerFactory emf;
   @Autowired PlatformTransactionManager transactions;
   @Autowired IInspectionCorrectionService service;
+  @Autowired IMissionChecklistAssignmentService assignmentService;
+  @Autowired com.ondemandmonitoring.mission.inspection.service.IInternalInspectionMissionService drafts;
   @Autowired InspectionCorrectionRepository corrections;
   @Autowired InspectionCorrectionItemRepository items;
   @Autowired MissionChecklistExecutionRepository executions;
@@ -490,6 +492,175 @@ class InspectionCorrectionPostgresTest {
     assertThat(jdbc.queryForObject("select assignment_status from order_checklist_items where id=(select order_checklist_item_id from mission_checklist_executions where id=?)",String.class,executionId)).isEqualTo("IN_PROGRESS");
   }
 
+  @Test
+  void concurrentDraftRestorationCreatesOnlyOneReplacementAndRetainsTheFailedAttempt() throws Exception {
+    var correction = service.request(missionId, flightRequest());
+    var failedId = correction.supplementalMissionId();
+    jdbc.update("update missions set status='FAILED' where id=?", failedId);
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    var start = new CountDownLatch(1);
+    try {
+      List<Future<String>> calls = new ArrayList<>();
+      for (int i=0; i<2; i++) calls.add(pool.submit(() -> {
+        start.await();
+        return drafts.ensureDraft(missionId, correction.id(), true).getId();
+      }));
+      start.countDown();
+      var first = calls.getFirst().get(30, TimeUnit.SECONDS);
+      assertThat(calls.getLast().get(30, TimeUnit.SECONDS)).isEqualTo(first).isNotEqualTo(failedId);
+      assertThat(jdbc.queryForObject("select count(*) from missions", Integer.class)).isEqualTo(3);
+      assertThat(jdbc.queryForObject("select status from missions where id=?", String.class, failedId)).isEqualTo("FAILED");
+      assertThat(jdbc.queryForObject("select supplemental_mission_id from mission_inspection_corrections where id=?", String.class, correction.id())).isEqualTo(first);
+    } finally { pool.shutdownNow(); }
+  }
+
+  private com.ondemandmonitoring.mission.service.impl.MissionService customerDraftService() {
+    var service = mock(com.ondemandmonitoring.mission.service.impl.MissionService.class, CALLS_REAL_METHODS);
+    var repositoryFactory = new org.springframework.data.jpa.repository.support.JpaRepositoryFactory(
+        SharedEntityManagerCreator.createSharedEntityManager(emf));
+    var invoices = mock(com.ondemandmonitoring.finance.repository.InvoiceRepository.class);
+    var invoice = new com.ondemandmonitoring.finance.domain.Invoice();
+    var quote = new com.ondemandmonitoring.finance.domain.Quote();
+    quote.setStatus(com.ondemandmonitoring.finance.enums.QuoteStatus.ACCEPTED_BY_CUSTOMER); invoice.setQuote(quote);
+    when(invoices.findByOrderId(anyString())).thenReturn(Optional.of(invoice));
+    var eligibility = mock(com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService.class);
+    when(eligibility.isDepositSatisfied(any())).thenReturn(true);
+    Map<String,Object> dependencies = Map.of(
+        "missionRepository", repositoryFactory.getRepository(MissionRepository.class),
+        "orderRepository", repositoryFactory.getRepository(OrderRepository.class),
+        "resultRevisionCases", repositoryFactory.getRepository(com.ondemandmonitoring.delivery.repository.ResultRevisionCaseRepository.class),
+        "resultRevisionCaseItems", repositoryFactory.getRepository(com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository.class),
+        "invoiceRepository", invoices,
+        "missionPaymentEligibilityService", eligibility,
+        "checklistAssignmentService", assignmentService,
+        "reworkContextSnapshots", new com.ondemandmonitoring.mission.service.impl.MissionReworkContextSnapshotService(
+            repositoryFactory.getRepository(com.ondemandmonitoring.delivery.repository.ResultRevisionRequestItemRepository.class),
+            repositoryFactory.getRepository(MissionReworkChecklistContextRepository.class)));
+    dependencies.forEach((name,value) -> org.springframework.test.util.ReflectionTestUtils.setField(service,name,value));
+    var mapper = mock(com.ondemandmonitoring.mission.mapper.MissionMapper.class);
+    when(mapper.toResponse(any())).thenAnswer(call -> com.ondemandmonitoring.mission.dto.response.MissionResponse.builder()
+        .id(((Mission)call.getArgument(0)).getId()).build());
+    org.springframework.test.util.ReflectionTestUtils.setField(service,"missionMapper",mapper);
+    return service;
+  }
+
+  private String customerCase() {
+    return tx.execute(status -> {
+      var em = SharedEntityManagerCreator.createSharedEntityManager(emf);
+      var source = em.find(Mission.class,missionId);
+      var revisionCase = new com.ondemandmonitoring.delivery.domain.ResultRevisionCase();
+      revisionCase.setOrder(source.getOrder()); revisionCase.setTicketId(UUID.randomUUID().toString());
+      revisionCase.setOpenedAt(NOW); em.persist(revisionCase);
+      addCustomerCaseItem(em, revisionCase, em.find(MissionChecklistExecution.class,executionId).getOrderChecklistItem(), missionId);
+      return revisionCase.getId();
+    });
+  }
+
+  private void addCustomerCaseItem(EntityManager em, com.ondemandmonitoring.delivery.domain.ResultRevisionCase revisionCase,
+      OrderChecklistItem checklist, String sourceId) {
+    var item = new com.ondemandmonitoring.delivery.domain.ResultRevisionCaseItem();
+    item.setResultRevisionCase(revisionCase); item.setOrderChecklistItem(checklist); item.setSourceMissionId(sourceId);
+    item.setScopeDecision(com.ondemandmonitoring.delivery.enums.ResultRevisionScope.IN_SCOPE);
+    item.setStrategy(com.ondemandmonitoring.delivery.enums.ResultRevisionStrategy.REWORK);
+    item.setStatus(com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.IN_PROGRESS);
+    item.setManagerInstructions("Redo this scope"); em.persist(item);
+  }
+
+  @Test
+  void concurrentCustomerDraftsAreIdempotentAndTerminalReplacementIsExplicit() throws Exception {
+    var caseId = customerCase();
+    var service = customerDraftService();
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    var start = new CountDownLatch(1);
+    try {
+      List<Future<?>> calls = new ArrayList<>();
+      for (int i=0; i<2; i++) calls.add(pool.submit(() -> {
+        try { start.await(); } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new RuntimeException(interrupted); }
+        tx.executeWithoutResult(status -> service.ensureResultRevisionReworkDrafts(caseId,false));
+      }));
+      start.countDown(); for (var call:calls) call.get(30,TimeUnit.SECONDS);
+    } finally { pool.shutdownNow(); }
+    assertThat(jdbc.queryForObject("select count(*) from missions",Integer.class)).isEqualTo(2);
+    assertThat(jdbc.queryForObject("select count(*) from mission_rework_checklist_contexts",Integer.class)).isEqualTo(1);
+    var failedId = jdbc.queryForObject("select assigned_rework_mission_id from result_revision_case_items where case_id=?",String.class,caseId);
+    jdbc.update("update missions set status='CANCELLED' where id=?",failedId);
+    tx.executeWithoutResult(status -> service.ensureResultRevisionReworkDrafts(caseId,false));
+    assertThat(jdbc.queryForObject("select count(*) from missions",Integer.class)).isEqualTo(2);
+    tx.executeWithoutResult(status -> service.ensureResultRevisionReworkDrafts(caseId,true));
+    assertThat(jdbc.queryForObject("select count(*) from missions",Integer.class)).isEqualTo(3);
+    assertThat(jdbc.queryForObject("select assigned_rework_mission_id from result_revision_case_items where case_id=?",String.class,caseId)).isNotEqualTo(failedId);
+    assertThat(jdbc.queryForObject("select count(*) from mission_rework_checklist_contexts",Integer.class)).isEqualTo(2);
+  }
+
+  @Test
+  void scopesFromSiblingMissionsJoinOneCustomerDraftWithoutDuplicatingSnapshots() {
+    var caseId = customerCase(); var service = customerDraftService();
+    tx.executeWithoutResult(status -> service.ensureResultRevisionReworkDrafts(caseId,false));
+    var draftId = jdbc.queryForObject("select assigned_rework_mission_id from result_revision_case_items where case_id=?",String.class,caseId);
+    tx.executeWithoutResult(status -> {
+      var em = SharedEntityManagerCreator.createSharedEntityManager(emf);
+      var revisionCase = em.find(com.ondemandmonitoring.delivery.domain.ResultRevisionCase.class,caseId);
+      var sibling = new Mission(); sibling.setOrder(revisionCase.getOrder()); sibling.setMissionCode("MS-SIBLING");
+      sibling.setStatus(MissionStatus.COMPLETED); em.persist(sibling);
+      var checklist = new OrderChecklistItem(); checklist.setOrder(revisionCase.getOrder());
+      checklist.setSourceType(OrderChecklistSourceType.CUSTOMER_CUSTOM); checklist.setContent("Second source mission scope");
+      checklist.setReviewStatus(ChecklistReviewStatus.INCLUDED); em.persist(checklist);
+      addCustomerCaseItem(em,revisionCase,checklist,sibling.getId());
+    });
+    tx.executeWithoutResult(status -> service.ensureResultRevisionReworkDrafts(caseId,false));
+    assertThat(jdbc.queryForObject("select count(distinct assigned_rework_mission_id) from result_revision_case_items where case_id=?",Integer.class,caseId)).isEqualTo(1);
+    assertThat(jdbc.queryForObject("select count(*) from mission_checklist_assignments where mission_id=? and removed_at is null",Integer.class,draftId)).isEqualTo(2);
+    assertThat(jdbc.queryForObject("select count(*) from mission_rework_checklist_contexts where mission_id=?",Integer.class,draftId)).isEqualTo(2);
+    assertThat(jdbc.queryForObject("select count(*) from mission_checklist_assignments where mission_id=? and removed_at is null",Integer.class,missionId)).isEqualTo(1);
+  }
+
+  @Test
+  void failedCustomerSnapshotRollsBackTheDraftScopeAndPlanRevisionTogether() {
+    var caseId = customerCase(); var service = customerDraftService();
+    var snapshots = mock(IMissionReworkContextSnapshotService.class);
+    doThrow(new IllegalStateException("Snapshot unavailable")).when(snapshots).capture(any(),anyList());
+    org.springframework.test.util.ReflectionTestUtils.setField(service,"reworkContextSnapshots",snapshots);
+    assertThatThrownBy(() -> tx.executeWithoutResult(status -> service.ensureResultRevisionReworkDrafts(caseId,false)))
+        .isInstanceOf(IllegalStateException.class);
+    assertThat(jdbc.queryForObject("select count(*) from missions",Integer.class)).isEqualTo(1);
+    assertThat(jdbc.queryForObject("select count(*) from result_revision_case_items where assigned_rework_mission_id is not null",Integer.class)).isZero();
+    assertThat(jdbc.queryForObject("select count(*) from mission_checklist_assignments",Integer.class)).isEqualTo(1);
+    assertThat(jdbc.queryForObject("select revision from order_execution_plans",Long.class)).isEqualTo(2L);
+  }
+
+  @Test
+  void concurrentInitialPlanningPreservesBothScopesAndEveryPlanRevision() throws Exception {
+    var ids = tx.execute(status -> {
+      var em = SharedEntityManagerCreator.createSharedEntityManager(emf);
+      var source = em.find(Mission.class,missionId); source.setStatus(MissionStatus.CANCELLED);
+      var order = source.getOrder(); order.setOrderStatus(OrderStatus.APPROVED);
+      order.getExecutionPlan().setStatus(ExecutionPlanStatus.DRAFT);
+      var first = em.find(MissionChecklistExecution.class,executionId).getOrderChecklistItem();
+      var second = new OrderChecklistItem(); second.setOrder(order);
+      second.setSourceType(OrderChecklistSourceType.CUSTOMER_CUSTOM); second.setContent("Independent second scope");
+      second.setReviewStatus(ChecklistReviewStatus.INCLUDED); em.persist(second);
+      return List.of(order.getId(),first.getId(),second.getId());
+    });
+    var service = customerDraftService();
+    ExecutorService pool = Executors.newFixedThreadPool(2); var start = new CountDownLatch(1);
+    try {
+      List<Future<String>> calls = new ArrayList<>();
+      for (String itemId:ids.subList(1,3)) calls.add(pool.submit(() -> {
+        start.await();
+        var request = new com.ondemandmonitoring.mission.dto.request.MissionCreateRequest();
+        request.setScopeLabel("Concurrent scope"); request.setChecklistIds(List.of(itemId));
+        request.setScheduledStartAt(Instant.parse("2026-12-01T02:00:00Z"));
+        request.setScheduledEndAt(Instant.parse("2026-12-01T03:00:00Z"));
+        return tx.execute(status -> service.createMission(ids.getFirst(),request).getId());
+      }));
+      start.countDown();
+      assertThat(calls.getFirst().get(30,TimeUnit.SECONDS)).isNotEqualTo(calls.getLast().get(30,TimeUnit.SECONDS));
+    } finally { pool.shutdownNow(); }
+    assertThat(jdbc.queryForObject("select count(*) from missions",Integer.class)).isEqualTo(3);
+    assertThat(jdbc.queryForObject("select revision from order_execution_plans",Long.class)).isEqualTo(4L);
+    assertThat(jdbc.queryForObject("select count(*) from mission_checklist_assignments where mission_id<>?",Integer.class,missionId)).isEqualTo(2);
+  }
+
   @Configuration
   @EnableTransactionManagement
   @EnableAspectJAutoProxy
@@ -657,9 +828,10 @@ class InspectionCorrectionPostgresTest {
 
     @Bean
     com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository
-        revisionCaseItems() {
-      return mock(
-          com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository.class);
+        revisionCaseItems(EntityManagerFactory emf) {
+      return new org.springframework.data.jpa.repository.support.JpaRepositoryFactory(
+          SharedEntityManagerCreator.createSharedEntityManager(emf))
+          .getRepository(com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository.class);
     }
 
     @Bean

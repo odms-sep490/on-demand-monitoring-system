@@ -8,6 +8,8 @@ public interface IInternalInspectionMissionService {
   MissionResponse create(
       String missionId, String correctionId, InternalCorrectionMissionRequest request);
 
+  MissionResponse ensureDraft(String missionId, String correctionId, boolean replaceTerminal);
+
   MissionResponse finalizePlan(
       String missionId, String correctionId, ExecutionPlanFinalizeRequest request);
 }

@@ -12,6 +12,6 @@ public record CreateResultRevisionReworkMissionRequest(
         @NotNull Long expectedCaseVersion,
         @NotNull UUID clientRequestId,
         @NotBlank @Size(max = 255) String scopeLabel,
-        @NotNull Instant scheduledStartAt,
-        @NotNull Instant scheduledEndAt,
+        Instant scheduledStartAt,
+        Instant scheduledEndAt,
         @NotEmpty @Size(max = 100) List<@NotBlank String> caseItemIds) {}

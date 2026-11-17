@@ -26,6 +26,13 @@ public class ManagerResultRevisionCaseController {
     private final IResultRevisionCaseService service;
     private final com.ondemandmonitoring.mission.service.IMissionService missions;
 
+    @PostMapping("/result-revision-cases/{caseId}/ensure-drafts")
+    public ApiResponse<Void> ensureDrafts(@PathVariable String caseId,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "false") boolean replaceTerminal) {
+        missions.ensureResultRevisionReworkDrafts(caseId, replaceTerminal);
+        return ApiResponse.ok(null);
+    }
+
     @PostMapping("/result-revision-cases/{caseId}/rework-plan/finalize")
     public ApiResponse<Void> finalizeReworkPlan(@PathVariable String caseId,
             @Valid @RequestBody com.ondemandmonitoring.mission.dto.request.ExecutionPlanFinalizeRequest request) {

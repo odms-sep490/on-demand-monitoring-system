@@ -61,6 +61,9 @@ class MissionReworkPlanFinalizeTest {
         ReflectionTestUtils.setField(service, "missionMapper", mock(MissionMapper.class));
         order.setId("order"); order.setOrderStatus(OrderStatus.COMPLETED);
         order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED); order.getExecutionPlan().setRevision(7);
+        mission.setScheduledStartAt(java.time.LocalDate.now(java.time.ZoneId.of("Asia/Ho_Chi_Minh")).plusDays(2)
+                .atTime(9, 0).atZone(java.time.ZoneId.of("Asia/Ho_Chi_Minh")).toInstant());
+        mission.setScheduledEndAt(mission.getScheduledStartAt().plusSeconds(3600));
         mission.setId("rework"); mission.setOrder(order); mission.setPurpose(MissionPurpose.REWORK);
         mission.setResultRevisionCaseId("case"); mission.setStatus(MissionStatus.PLANNING);
         revisionCase.setId("case"); revisionCase.setOrder(order); revisionCase.setActive(true);
@@ -160,6 +163,59 @@ class MissionReworkPlanFinalizeTest {
     void aStalePlanCannotFinalize() {
         assertThatThrownBy(() -> service.finalizeReworkPlan("case", new ExecutionPlanFinalizeRequest(6L, true)))
                 .isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.EXECUTION_PLAN_REVISION_CONFLICT);
+        verifyNoInteractions(materialization);
+    }
+
+    @Test void automaticReworkDraftIsUnscheduledAndReplayDoesNotDuplicateIt() {
+        var checklist = new OrderChecklistItem(); checklist.setId("checklist"); checklist.setContent("Inspect fence");
+        item.setOrderChecklistItem(checklist); item.setAssignedReworkMissionId(null); item.setStatus(ResultRevisionCaseItemStatus.IN_PROGRESS);
+        when(missions.findAllByOrderIdForUpdateOrderById("order")).thenReturn(List.of());
+        var selector = mock(com.ondemandmonitoring.mission.service.IMissionChecklistAssignmentService.class);
+        var snapshots = mock(com.ondemandmonitoring.mission.service.IMissionReworkContextSnapshotService.class);
+        ReflectionTestUtils.setField(service, "checklistAssignmentService", selector);
+        ReflectionTestUtils.setField(service, "reworkContextSnapshots", snapshots);
+        when(missions.saveAndFlush(any())).thenAnswer(call -> {
+            Mission created = call.getArgument(0); created.setId("auto-draft");
+            when(missions.findById("auto-draft")).thenReturn(Optional.of(created));
+            return created;
+        });
+        service.ensureResultRevisionReworkDrafts("case", false);
+        var draft = org.mockito.ArgumentCaptor.forClass(Mission.class);
+        verify(missions).saveAndFlush(draft.capture());
+        assertThat(draft.getValue().getScheduledStartAt()).isNull();
+        assertThat(draft.getValue().getScheduledEndAt()).isNull();
+        assertThat(item.getAssignedReworkMissionId()).isEqualTo("auto-draft");
+        service.ensureResultRevisionReworkDrafts("case", false);
+        verify(missions, times(1)).saveAndFlush(any());
+        verify(snapshots).capture(eq(draft.getValue()), eq(List.of(item)));
+        verify(selector).replace(eq("auto-draft"), any());
+    }
+
+    @Test void newReworkItemsJoinTheExistingPlanningDraftAndPreserveEarlierScope() {
+        var firstChecklist = new OrderChecklistItem(); firstChecklist.setId("first");
+        item.setOrderChecklistItem(firstChecklist);
+        var secondChecklist = new OrderChecklistItem(); secondChecklist.setId("second");
+        var added = new ResultRevisionCaseItem(); added.setOrderChecklistItem(secondChecklist);
+        added.setScopeDecision(ResultRevisionScope.IN_SCOPE); added.setStrategy(ResultRevisionStrategy.REWORK);
+        added.setStatus(ResultRevisionCaseItemStatus.IN_PROGRESS);
+        item.setStatus(ResultRevisionCaseItemStatus.IN_PROGRESS);
+        when(caseItems.findByResultRevisionCaseIdOrderByCreatedAtAsc("case")).thenReturn(List.of(item, added));
+        var selector = mock(com.ondemandmonitoring.mission.service.IMissionChecklistAssignmentService.class);
+        var snapshots = mock(com.ondemandmonitoring.mission.service.IMissionReworkContextSnapshotService.class);
+        ReflectionTestUtils.setField(service, "checklistAssignmentService", selector);
+        ReflectionTestUtils.setField(service, "reworkContextSnapshots", snapshots);
+        service.ensureResultRevisionReworkDrafts("case", false);
+        assertThat(added.getAssignedReworkMissionId()).isEqualTo("rework");
+        verify(missions, never()).saveAndFlush(any());
+        verify(selector).replace(eq("rework"), argThat(command ->
+                command.items().stream().map(i -> i.orderChecklistItemId()).toList().equals(List.of("first", "second"))));
+        verify(snapshots).capture(mission, List.of(added));
+    }
+
+    @Test void unscheduledReworkDraftCannotBeFinalized() {
+        mission.setScheduledStartAt(null); mission.setScheduledEndAt(null);
+        assertThatThrownBy(() -> service.finalizeReworkPlan("case", new ExecutionPlanFinalizeRequest(7L, false)))
+                .isInstanceOf(ApiException.class);
         verifyNoInteractions(materialization);
     }
 }

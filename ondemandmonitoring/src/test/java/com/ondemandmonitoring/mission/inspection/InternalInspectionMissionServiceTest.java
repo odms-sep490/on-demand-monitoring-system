@@ -129,8 +129,8 @@ class InternalInspectionMissionServiceTest {
     assertThat(saved.getPurpose()).isEqualTo(MissionPurpose.REWORK);
     assertThat(parent.getStatus()).isEqualTo(MissionStatus.IN_PROGRESS);
     verify(assignments)
-        .replace(
-            eq("child"),
+        .initializeInternalCorrectionDraft(
+            eq("parent"), eq("child"),
             argThat(
                 r ->
                     r.items().size() == 1
@@ -260,7 +260,32 @@ class InternalInspectionMissionServiceTest {
     var failed = items.findItems("c").getFirst();
     when(items.findItems("c")).thenReturn(List.of(failed, retained));
     service.create("parent", "c", request());
-    verify(assignments).replace(eq("child"), argThat(selection ->
+    verify(assignments).initializeInternalCorrectionDraft(eq("parent"), eq("child"), argThat(selection ->
         selection.items().size() == 1 && selection.items().getFirst().orderChecklistItemId().equals("bad-item")));
+  }
+
+  @Test
+  void automaticallyCreatesOneUnscheduledDraftAndReusesItOnRetry() {
+    service.ensureDraft("parent", "c", false);
+    var draft = saved;
+    assertThat(draft.getScheduledStartAt()).isNull();
+    assertThat(draft.getScheduledEndAt()).isNull();
+    assertThat(draft.getStatus()).isEqualTo(MissionStatus.PLANNING);
+    service.ensureDraft("parent", "c", false);
+    verify(missions, times(1)).saveAndFlush(any());
+    assertThat(correction.getSupplementalMission()).isSameAs(draft);
+    verifyNoInteractions(activation);
+  }
+
+  @Test
+  void cancelledDraftIsRetainedUntilManagerExplicitlyRequestsAReplacement() {
+    service.ensureDraft("parent", "c", false);
+    var previous = saved; previous.setStatus(MissionStatus.CANCELLED);
+    service.ensureDraft("parent", "c", false);
+    verify(missions, times(1)).saveAndFlush(any());
+    service.ensureDraft("parent", "c", true);
+    verify(missions, times(2)).saveAndFlush(any());
+    assertThat(correction.getSupplementalMission()).isNotSameAs(previous);
+    assertThat(previous.getStatus()).isEqualTo(MissionStatus.CANCELLED);
   }
 }

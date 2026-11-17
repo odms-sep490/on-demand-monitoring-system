@@ -70,6 +70,8 @@ class InspectionCorrectionServiceTest {
 
   @BeforeEach
   void setup() {
+    org.springframework.test.util.ReflectionTestUtils.setField(service, "draftMissions",
+        mock(com.ondemandmonitoring.mission.inspection.service.IInternalInspectionMissionService.class));
     org.springframework.test.util.ReflectionTestUtils.setField(service, "resultWorkflow", mock(IMissionResultService.class));
     org.springframework.test.util.ReflectionTestUtils.setField(service, "submissions", mock(com.ondemandmonitoring.mission.service.impl.MissionEvidenceSubmissionService.class));
     org.springframework.test.util.ReflectionTestUtils.setField(service, "evidenceEligibility", new com.ondemandmonitoring.mission.service.impl.ChecklistEvidencePolicy());
@@ -460,5 +462,15 @@ class InspectionCorrectionServiceTest {
         .isInstanceOf(ApiException.class);
     assertThat(correction.getMode()).isEqualTo(
         com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.DOSSIER_ADJUSTMENT);
+  }
+
+  @Test
+  void openingAFlightCorrectionAutomaticallyPreparesItsDraft() {
+    var initial = request();
+    service.request("mission", new InspectionCorrectionRequest(initial.clientRequestId(),
+        com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT, initial.items()));
+    var drafts = (com.ondemandmonitoring.mission.inspection.service.IInternalInspectionMissionService)
+        org.springframework.test.util.ReflectionTestUtils.getField(service, "draftMissions");
+    verify(drafts).ensureDraft("mission", "correction", false);
   }
 }

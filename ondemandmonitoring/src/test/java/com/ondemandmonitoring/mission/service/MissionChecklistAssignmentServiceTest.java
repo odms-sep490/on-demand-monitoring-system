@@ -92,4 +92,47 @@ class MissionChecklistAssignmentServiceTest {
         service.replace("m",request()); assertEquals("manager",a.getRemovedBy()); assertNotNull(a.getRemovedAt());
         verify(assignments,never()).delete(any()); assertEquals(3,order.getExecutionPlan().getRevision());
     }
+    @org.springframework.context.annotation.Configuration
+    @org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity
+    static class MethodSecurityConfig {}
+
+    @Test void assignedStaffCanInitializeOnlyItsNewInternalDraftThroughMethodSecurity() {
+        var authorization = mock(IMissionAuthorizationService.class);
+        when(authorization.canRequestInspectionCorrection("source")).thenReturn(true);
+        var source = new Mission(); source.setId("source"); source.setOrder(order);
+        var correction = new com.ondemandmonitoring.mission.inspection.domain.InspectionCorrection();
+        correction.setId("correction"); correction.setMission(source); correction.setSupplementalMission(mission);
+        correction.setStatus(com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionStatus.OPEN);
+        mission.setInspectionCorrection(correction);
+        mission.setPurpose(com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK);
+        var execution = new MissionChecklistExecution(); execution.setOrderChecklistItemId("i");
+        var correctionItem = new com.ondemandmonitoring.mission.inspection.domain.InspectionCorrectionItem();
+        correctionItem.setExecution(execution);
+        var correctionItems = mock(com.ondemandmonitoring.mission.inspection.repository.InspectionCorrectionItemRepository.class);
+        when(correctionItems.findItems("correction")).thenReturn(List.of(correctionItem));
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"inspectionItems",correctionItems);
+        var context = new org.springframework.context.annotation.AnnotationConfigApplicationContext();
+        context.register(MethodSecurityConfig.class);
+        context.registerBean("missionAuthorizationService", IMissionAuthorizationService.class, () -> authorization);
+        context.registerBean("inspectionItems", com.ondemandmonitoring.mission.inspection.repository.InspectionCorrectionItemRepository.class, () -> correctionItems);
+        context.registerBean("revisionCaseItems", com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository.class, () -> mock(com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository.class));
+        context.registerBean("acceptedGuidance", com.ondemandmonitoring.finance.service.IAcceptedChecklistGuidanceService.class, () -> acceptedGuidance);
+        context.registerBean("assignmentService", IMissionChecklistAssignmentService.class, () -> service);
+        context.refresh();
+        var secured = context.getBean(IMissionChecklistAssignmentService.class);
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+            org.springframework.security.authentication.UsernamePasswordAuthenticationToken.authenticated("staff", "n/a",
+                List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_STAFF"))));
+        try {
+            assertThrows(org.springframework.security.access.AccessDeniedException.class, () -> secured.replace("m",request("i")));
+            assertThrows(org.springframework.security.access.AccessDeniedException.class, () -> secured.initializeInternalCorrectionDraft("unrelated","m",request("i")));
+            assertEquals(3, secured.initializeInternalCorrectionDraft("source","m",request("i")).revision());
+            when(assignments.findByMissionIdAndRemovedAtIsNullOrderByDisplayOrderAscIdAsc("m")).thenReturn(List.of(new MissionChecklistAssignment()));
+            assertEquals(ErrorCode.MISSION_PLANNING_ONLY, assertThrows(ApiException.class,
+                () -> secured.initializeInternalCorrectionDraft("source","m",request("i"))).getErrorCode());
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext(); context.close();
+        }
+    }
+
 }

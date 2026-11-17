@@ -3,7 +3,6 @@ package com.ondemandmonitoring.mission.inspection.service.impl;
 import com.ondemandmonitoring.common.exception.*;
 import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService;
-import com.ondemandmonitoring.flightpermit.domain.FlightPermit;
 import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.dto.request.*;
 import com.ondemandmonitoring.mission.dto.response.MissionResponse;
@@ -35,7 +34,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 @Transactional
-@PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
 public class InternalInspectionMissionService implements IInternalInspectionMissionService {
   private final IOrderExecutionCompletionPolicy aggregate;
   private final MissionRepository missions;
@@ -52,6 +50,7 @@ public class InternalInspectionMissionService implements IInternalInspectionMiss
   private final com.ondemandmonitoring.user.service.AuthenticatedUserResolver users;
 
   @Override
+  @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
   public MissionResponse create(
       String sourceId, String correctionId, InternalCorrectionMissionRequest request) {
     var correction = lock(sourceId, correctionId);
@@ -83,27 +82,21 @@ public class InternalInspectionMissionService implements IInternalInspectionMiss
     var previous = correction.getSupplementalMission();
     if (previous != null && !Set.of(MissionStatus.CANCELLED, MissionStatus.FAILED).contains(previous.getStatus()))
       throw new ApiException(ErrorCode.INSPECTION_CORRECTION_STATE_CONFLICT);
-    schedule(request.scheduledStartAt(), request.scheduledEndAt());
+    if (request.scheduledStartAt() != null || request.scheduledEndAt() != null)
+      schedule(request.scheduledStartAt(), request.scheduledEndAt());
     var selections = items.findItems(correctionId).stream()
         .filter(item -> item.getExecution().getAssessmentStatus() != ChecklistAssessmentStatus.COMPLIANT).toList();
     if (selections.isEmpty()) throw new ApiException(ErrorCode.CHECKLIST_COVERAGE_INCOMPLETE);
-    var mission = new Mission();
-    mission.setOrder(order);
-    mission.setMissionCode(MissionCodeGenerator.next(missions::existsByMissionCode));
-    mission.setPurpose(MissionPurpose.REWORK);
+    var mission = MissionPlanningDraftFactory.create(order, MissionCodeGenerator.next(missions::existsByMissionCode),
+        MissionPurpose.REWORK, request.scopeLabel().trim(), request.scheduledStartAt(), request.scheduledEndAt());
     mission.setInspectionCorrection(correction);
-    mission.setStatus(MissionStatus.PLANNING);
-    mission.setScopeLabel(request.scopeLabel().trim());
-    mission.setScheduledStartAt(request.scheduledStartAt());
-    mission.setScheduledEndAt(request.scheduledEndAt());
-    FlightPermit.pendingFor(mission);
     mission.setReworkRequestId(request.clientRequestId());
     mission.setReworkRequestFingerprint(fingerprint);
     missions.saveAndFlush(mission);
     correction.setSupplementalMission(mission);
     corrections.saveAndFlush(correction);
-    assignments.replace(
-        mission.getId(),
+    assignments.initializeInternalCorrectionDraft(
+        sourceId, mission.getId(),
         new ChecklistAssignmentSelectionRequest(
             order.getExecutionPlan().getRevision(),
             selections.stream()
@@ -116,7 +109,25 @@ public class InternalInspectionMissionService implements IInternalInspectionMiss
     return mapper.toResponse(mission);
   }
 
+  /** Used after an authorized correction decision, under the same Order lock and transaction. */
   @Override
+  public MissionResponse ensureDraft(String sourceId, String correctionId, boolean replaceTerminal) {
+    var correction = lock(sourceId, correctionId);
+    var previous = correction.getSupplementalMission();
+    if (previous != null && (!replaceTerminal || !Set.of(MissionStatus.CANCELLED, MissionStatus.FAILED).contains(previous.getStatus())))
+      return mapper.toResponse(previous);
+    String attempt = previous == null ? "initial" : previous.getId();
+    UUID command = UUID.nameUUIDFromBytes(("inspection-draft:" + correctionId + ":" + attempt)
+        .getBytes(StandardCharsets.UTF_8));
+    String scopeLabel = correction.getMission().getScopeLabel();
+    if (scopeLabel == null || scopeLabel.isBlank()) scopeLabel = correction.getMission().getMissionCode();
+    if (scopeLabel == null || scopeLabel.isBlank()) scopeLabel = correctionId;
+    return create(sourceId, correctionId, new InternalCorrectionMissionRequest(
+        correction.getVersion(), command, scopeLabel, null, null));
+  }
+
+  @Override
+  @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
   public MissionResponse finalizePlan(
       String sourceId, String correctionId, ExecutionPlanFinalizeRequest request) {
     var correction = lock(sourceId, correctionId);

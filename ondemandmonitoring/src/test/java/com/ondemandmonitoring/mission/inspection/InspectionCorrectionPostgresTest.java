@@ -202,7 +202,7 @@ class InspectionCorrectionPostgresTest {
     var opened = service.request(missionId, request);
     var escalated = service.requireFlight(missionId, opened.id(), decision(opened));
     assertThat(escalated.mode()).isEqualTo(com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT);
-    assertThat(escalated.events()).hasSize(2);
+    assertThat(escalated.events()).hasSize(3);
     when(auth.canAssessMonitoringChecklist(missionId)).thenReturn(false);
     assertThat(service.request(missionId, request).id()).isEqualTo(opened.id());
     assertThatThrownBy(() -> service.requireFlight(missionId, opened.id(), decision(escalated))).isInstanceOf(ApiException.class);
@@ -360,28 +360,17 @@ class InspectionCorrectionPostgresTest {
           EntityManager em = SharedEntityManagerCreator.createSharedEntityManager(emf);
           var correction = corrections.findById(opened.id()).orElseThrow();
           var original = items.findItems(opened.id()).getFirst().getExecution();
-          Mission child = new Mission();
-          child.setOrder(correction.getMission().getOrder());
-          child.setMissionCode("MS-INTERNAL-TEST");
-          child.setPurpose(MissionPurpose.REWORK);
-          child.setInspectionCorrection(correction);
+          Mission child = correction.getSupplementalMission();
           child.setStatus(MissionStatus.COMPLETED);
           child.setScopeLabel("Recapture fence");
           child.setScheduledStartAt(NOW.minusSeconds(1800));
           child.setScheduledEndAt(NOW.plusSeconds(1800));
           child.setActualEndAt(NOW);
           child.setCompletedAt(NOW);
-          em.persist(child);
           em.flush();
-          correction.setSupplementalMission(child);
-          corrections.saveAndFlush(correction);
-          var assignment = new MissionChecklistAssignment();
-          assignment.setMissionId(child.getId());
-          assignment.setOrderId(child.getOrder().getId());
-          assignment.setOrderChecklistItemId(original.getOrderChecklistItemId());
-          assignment.setAssignedAt(NOW.minusSeconds(60));
-          em.persist(assignment);
-          em.flush();
+          var assignment = em.createQuery(
+              "select a from MissionChecklistAssignment a where a.missionId=:id and a.removedAt is null",
+              MissionChecklistAssignment.class).setParameter("id", child.getId()).getSingleResult();
           var replacement = new MissionChecklistExecution();
           replacement.setMissionId(child.getId());
           replacement.setOrderId(child.getOrder().getId());
@@ -427,7 +416,7 @@ class InspectionCorrectionPostgresTest {
             com.ondemandmonitoring.mission.inspection.dto.response.InspectionCorrectionResponse
                     .Event
                 ::action)
-        .containsExactly("REQUESTED", "RESUBMITTED", "RESOLVED");
+        .containsExactly("REQUESTED", "INTERNAL_MISSION_CREATED", "RESUBMITTED", "RESOLVED");
   }
 
   @Test
@@ -454,17 +443,11 @@ class InspectionCorrectionPostgresTest {
     var correction = service.request(missionId, flightRequest());
     assertThat(correction.items().getFirst().orderChecklistItemId())
         .isEqualTo(jdbc.queryForObject("select order_checklist_item_id from mission_checklist_executions where id=?",String.class,executionId));
-    var child =
-        internalMissions.create(
-            missionId,
-            correction.id(),
-            new com.ondemandmonitoring.mission.inspection.dto.request
-                .InternalCorrectionMissionRequest(
-                correction.version(),
-                UUID.randomUUID(),
-                "Recapture fence",
-                NOW.plusSeconds(3600),
-                NOW.plusSeconds(7200)));
+    var child = internalMissions.ensureDraft(missionId, correction.id(), false);
+    var repeated = internalMissions.ensureDraft(missionId, correction.id(), false);
+    assertThat(repeated.getId()).isEqualTo(child.getId());
+    assertThat(jdbc.queryForObject("select count(*) from missions", Integer.class)).isEqualTo(2);
+    assertThat(jdbc.queryForObject("select scheduled_start_at from missions where id=?", java.sql.Timestamp.class, child.getId())).isNull();
     assertThat(child.getId()).isNotBlank().isNotEqualTo(missionId);
     assertThat(
             jdbc.queryForObject(
@@ -480,35 +463,14 @@ class InspectionCorrectionPostgresTest {
 
   @Test
   void rollsBackNewMissionAndCorrectionLinkWhenAssignmentFails() {
-    var correction = service.request(missionId, flightRequest());
-    when(users.getCurrentUserId())
+    when(users.getCurrentUserId()).thenReturn("test-actor", "test-actor")
         .thenThrow(new IllegalStateException("Assignment actor unavailable"));
     try {
-      assertThatThrownBy(
-              () ->
-                  internalMissions.create(
-                      missionId,
-                      correction.id(),
-                      new com.ondemandmonitoring.mission.inspection.dto.request
-                          .InternalCorrectionMissionRequest(
-                          correction.version(),
-                          UUID.randomUUID(),
-                          "Recapture fence",
-                          NOW.plusSeconds(3600),
-                          NOW.plusSeconds(7200))))
-          .isInstanceOf(IllegalStateException.class)
-          .hasMessage("Assignment actor unavailable");
+      assertThatThrownBy(() -> service.request(missionId, flightRequest()))
+          .isInstanceOf(IllegalStateException.class).hasMessage("Assignment actor unavailable");
       assertThat(jdbc.queryForObject("select count(*) from missions", Integer.class)).isEqualTo(1);
-      assertThat(
-              jdbc.queryForObject(
-                  "select count(*) from mission_checklist_assignments", Integer.class))
-          .isEqualTo(1);
-      assertThat(
-              jdbc.queryForObject(
-                  "select supplemental_mission_id from mission_inspection_corrections where id=?",
-                  String.class,
-                  correction.id()))
-          .isNull();
+      assertThat(jdbc.queryForObject("select count(*) from mission_checklist_assignments", Integer.class)).isEqualTo(1);
+      assertThat(jdbc.queryForObject("select count(*) from mission_inspection_corrections", Integer.class)).isZero();
     } finally {
       doReturn("test-actor").when(users).getCurrentUserId();
     }
@@ -517,10 +479,10 @@ class InspectionCorrectionPostgresTest {
   @Test
   void failedInternalMissionCanBeReplacedWithoutDeletingItsHistory() {
     var correction=service.request(missionId,flightRequest());
-    var first=internalMissions.create(missionId,correction.id(),new com.ondemandmonitoring.mission.inspection.dto.request.InternalCorrectionMissionRequest(correction.version(),UUID.randomUUID(),"Recapture fence",NOW.plusSeconds(3600),NOW.plusSeconds(7200)));
+    var first=internalMissions.ensureDraft(missionId,correction.id(),false);
     jdbc.update("update missions set status='FAILED' where id=?",first.getId());
     var current=service.list(missionId).getFirst();
-    var second=internalMissions.create(missionId,current.id(),new com.ondemandmonitoring.mission.inspection.dto.request.InternalCorrectionMissionRequest(current.version(),UUID.randomUUID(),"Recapture fence",NOW.plusSeconds(10800),NOW.plusSeconds(14400)));
+    var second=internalMissions.ensureDraft(missionId,current.id(),true);
     assertThat(second.getId()).isNotEqualTo(first.getId());
     assertThat(jdbc.queryForObject("select status from missions where id=?",String.class,first.getId())).isEqualTo("FAILED");
     assertThat(jdbc.queryForObject("select count(*) from mission_checklist_assignments where mission_id=? and removed_at is null",Integer.class,first.getId())).isEqualTo(1);

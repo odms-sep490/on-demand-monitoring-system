@@ -35,6 +35,8 @@ public interface IMissionService {
     /** Creates planning Missions from the service templates after an Order deposit is paid. */
     List<MissionResponse> createMissionsFromTemplates(String orderId);
 
+    void ensureResultRevisionReworkDrafts(String caseId, boolean replaceTerminal);
+
     MissionResponse createResultRevisionReworkMission(String caseId,
             com.ondemandmonitoring.mission.dto.request.CreateResultRevisionReworkMissionRequest request);
 

@@ -53,6 +53,10 @@ public class InspectionCorrectionService implements IInspectionCorrectionService
   private IMissionResultService resultWorkflow;
 
   @org.springframework.beans.factory.annotation.Autowired
+  @org.springframework.context.annotation.Lazy
+  private com.ondemandmonitoring.mission.inspection.service.IInternalInspectionMissionService draftMissions;
+
+  @org.springframework.beans.factory.annotation.Autowired
   private com.ondemandmonitoring.mission.mapper.MissionChecklistExecutionMapper executionMapper;
 
   @Override
@@ -187,6 +191,8 @@ public class InspectionCorrectionService implements IInspectionCorrectionService
     }
     items.flush();
     event(correction, "REQUESTED", null);
+    if (correction.getMode() == com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT)
+      draftMissions.ensureDraft(missionId, correction.getId(), false);
     return response(correction);
   }
 
@@ -327,6 +333,7 @@ public class InspectionCorrectionService implements IInspectionCorrectionService
     correction.setMode(com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT);
     corrections.saveAndFlush(correction);
     event(correction, "FLIGHT_REQUIRED", decision.note().trim());
+    draftMissions.ensureDraft(missionId, id, false);
     return response(correction);
   }
 

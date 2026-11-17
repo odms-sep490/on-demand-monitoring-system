@@ -30,6 +30,14 @@ public class InspectionCorrectionController {
     return ApiResponse.ok(missions.create(missionId, id, request));
   }
 
+  @PostMapping("/{id}/ensure-draft")
+  @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+  public ApiResponse<com.ondemandmonitoring.mission.dto.response.MissionResponse> ensureDraft(
+      @PathVariable String missionId, @PathVariable String id,
+      @RequestParam(defaultValue = "false") boolean replaceTerminal) {
+    return ApiResponse.ok(missions.ensureDraft(missionId, id, replaceTerminal));
+  }
+
   @PostMapping("/{id}/finalize-plan")
   @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
   public ApiResponse<com.ondemandmonitoring.mission.dto.response.MissionResponse> finalizePlan(

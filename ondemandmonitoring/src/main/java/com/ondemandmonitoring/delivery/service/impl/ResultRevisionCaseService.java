@@ -102,6 +102,8 @@ public class ResultRevisionCaseService implements IResultRevisionCaseService {
         item.setStatus(request.scopeDecision() == ResultRevisionScope.IN_SCOPE
                 ? ResultRevisionCaseItemStatus.IN_PROGRESS : ResultRevisionCaseItemStatus.NEEDS_TRIAGE);
         caseItems.saveAndFlush(item);
+        if (item.getScopeDecision() == ResultRevisionScope.IN_SCOPE && item.getStrategy() == ResultRevisionStrategy.REWORK)
+            missions.ensureResultRevisionReworkDrafts(caseId, false);
         return map(revisionCase);
     }
 

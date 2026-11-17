@@ -9,7 +9,12 @@ public record NotificationItemResponse(
         String relatedEntityId,
         String reference,
         Instant createdAt,
-        String actorName) {
+        String actorName,
+        java.math.BigDecimal amount) {
+
+    public NotificationItemResponse(String id, NotificationType type, String entityId, String relatedEntityId, String reference, Instant createdAt, String actorName) {
+        this(id, type, entityId, relatedEntityId, reference, createdAt, actorName, null);
+    }
 
     public NotificationItemResponse(
             String id,

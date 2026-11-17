@@ -191,6 +191,28 @@ public class ManagerDashboardService {
                 .forEach(order -> result.add(quoteReadyOrderAction(order)));
         quotes.findByStatusInOrderByUpdatedAtDesc(List.of(QuoteStatus.DRAFT), PageRequest.of(0, PREVIEW_LIMIT))
                 .forEach(quote -> result.add(quoteAction(quote)));
+        invoices.findContractsAwaitingConfirmation(PageRequest.of(0, PREVIEW_LIMIT)).forEach(invoice -> {
+            Order order = invoice.getOrder();
+            result.add(new ManagerDashboardResponse.ActionItem("contract-" + invoice.getId(), "CONTRACT_REVIEW", "MEDIUM",
+                    order.getId(), order.getOrderCode(), null, null, "Hợp đồng chờ xác nhận",
+                    "Khách hàng đã gửi hợp đồng. Kiểm tra và xác nhận trước khi lập kế hoạch.", "PENDING", null,
+                    invoice.getContractSubmittedAt(), "VIEW_ORDER"));
+        });
+        invoices.findOrdersReadyToPlan(PageRequest.of(0, PREVIEW_LIMIT)).forEach(invoice -> {
+            Order order = invoice.getOrder();
+            result.add(new ManagerDashboardResponse.ActionItem("plan-" + order.getId(), "ORDER_PLANNING", "MEDIUM",
+                    order.getId(), order.getOrderCode(), null, null, "Đơn hàng cần lập kế hoạch",
+                    "Đã thanh toán cọc và đủ điều kiện lập kế hoạch nhiệm vụ.", "READY", null,
+                    invoice.getUpdatedAt(), "VIEW_ORDER"));
+        });
+        missions.findByStatusInOrderByUpdatedAtDesc(List.of(MissionStatus.PLANNING, MissionStatus.AWAITING_REVIEW, MissionStatus.PENDING_REVIEW), PageRequest.of(0, PREVIEW_LIMIT))
+                .forEach(mission -> {
+                    boolean planning = mission.getStatus() == MissionStatus.PLANNING;
+                    result.add(new ManagerDashboardResponse.ActionItem("workflow-" + mission.getId(), planning ? "MISSION_PLANNING" : "RESULT_REVIEW", "MEDIUM",
+                            mission.getOrder().getId(), mission.getOrder().getOrderCode(), mission.getId(), null,
+                            planning ? "Nhiệm vụ cần hoàn tất kế hoạch" : "Kết quả nhiệm vụ chờ duyệt", mission.getMissionCode(), mission.getStatus().name(), null,
+                            mission.getUpdatedAt(), "VIEW_MISSION"));
+                });
         return result.stream()
                 .sorted(Comparator.comparingInt((ManagerDashboardResponse.ActionItem item) -> priority(item.priority()))
                         .thenComparing(ManagerDashboardResponse.ActionItem::createdAt,
@@ -213,7 +235,7 @@ public class ManagerDashboardService {
             Mission mission, String priority, String type, String actionType) {
         return new ManagerDashboardResponse.ActionItem("mission-" + mission.getId(), type, priority,
                 mission.getOrder().getId(), mission.getOrder().getOrderCode(), mission.getId(), null,
-                "Mission cần xử lý", mission.getMissionCode(), mission.getStatus().name(), null,
+                "Nhiệm vụ cần xử lý", mission.getMissionCode(), mission.getStatus().name(), null,
                 mission.getUpdatedAt(), actionType);
     }
 

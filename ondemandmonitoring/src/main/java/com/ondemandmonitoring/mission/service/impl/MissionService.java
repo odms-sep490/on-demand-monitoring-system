@@ -514,15 +514,18 @@ public class MissionService implements IMissionService {
     private MissionResponse createMissionInternal(String orderId, MissionCreateRequest request, boolean additional) {
         String scopeLabel = Normalizer.normalize(
                 request.getScopeLabel().strip().replaceAll("\\s+", " "), Normalizer.Form.NFC);
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdForUpdate(orderId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
         if (additional) {
             if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.FINALIZED)
                 throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_FINALIZED);
             if (order.getOrderStatus() != OrderStatus.APPROVED && order.getOrderStatus() != OrderStatus.IN_PROGRESS)
                 throw new ApiException(ErrorCode.INVALID_REQUEST, "Order must be APPROVED or IN_PROGRESS");
-        } else if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.DRAFT) {
-            throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_DRAFT);
+        } else {
+            if (order.getOrderStatus() != OrderStatus.APPROVED)
+                throw new ApiException(ErrorCode.INVALID_REQUEST, "Order must be APPROVED for initial mission planning");
+            if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.DRAFT)
+                throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_DRAFT);
         }
         validatePlanningSchedule(request.getScheduledStartAt(), request.getScheduledEndAt(), order);
         

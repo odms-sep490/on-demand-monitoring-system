@@ -21,7 +21,7 @@ class MissionCreationServiceTest {
     MissionServiceTest fixture;
     Order order;
     static MissionCreateRequest request(String orderId, String key, long revision) {
-        var r = new MissionCreateRequest(); r.setScopeLabel("Whole Order scope");
+        var r = new MissionCreateRequest(); r.setScopeLabel("Whole Order scope"); r.setChecklistIds(List.of("checklist"));
         r.setScheduledStartAt(Instant.parse("2026-10-08T02:00:00Z"));
         r.setScheduledEndAt(Instant.parse("2026-10-08T04:00:00Z")); return r;
     }
@@ -36,6 +36,11 @@ class MissionCreationServiceTest {
                 .preferredDateTo(LocalDate.of(2026,10,8)).preferredTime(
                     com.ondemandmonitoring.warehouse.domain.PreferredTime.builder()
                         .startTime(LocalTime.of(9,0)).endTime(LocalTime.of(11,0)).build()).build(); order.setId("o");
+        var assignmentService = (IMissionChecklistAssignmentService) org.springframework.test.util.ReflectionTestUtils.getField(fixture.missionService, "checklistAssignmentService");
+        when(assignmentService.replace(anyString(), any())).thenAnswer(call -> {
+            order.getExecutionPlan().setRevision(Math.incrementExact(order.getExecutionPlan().getRevision()));
+            return null;
+        });
         var geometry = new GeometryFactory(new PrecisionModel(),4326);
         order.setPoint(geometry.createPoint(new Coordinate(106,10)));
         when(fixture.orderRepository.findByIdForUpdate("o")).thenReturn(Optional.of(order));
@@ -122,7 +127,7 @@ class MissionCreationServiceTest {
                         mock(com.ondemandmonitoring.mission.repository.MissionChecklistAssignmentRepository.class),
                         new com.ondemandmonitoring.mission.service.impl.ExecutionPlanCoverageService()),
                 checks,fixture.authenticatedUserResolver,null);
-        error(ErrorCode.CHECKLIST_ASSIGNMENT_NOT_FINALIZED,()->service.approve("r",null));
+        error(ErrorCode.ACCESS_DENIED,()->service.approve("r",null));
         assertEquals(OrderStatus.APPROVED,order.getOrderStatus());verifyNoInteractions(checks);verify(fixture.orderRepository,never()).save(any());
     }
 }

@@ -36,6 +36,7 @@ class MissionPlanningServiceTest {
     @org.mockito.Mock MissionMapper mapper;
     @org.mockito.Mock InvoiceRepository invoices;
     @org.mockito.Mock IMissionPaymentEligibilityService paymentEligibility;
+    @org.mockito.Mock com.ondemandmonitoring.user.service.AuthenticatedUserResolver actor;
     @org.mockito.InjectMocks MissionService service;
     AutoCloseable mocks;
     Order order;
@@ -112,24 +113,27 @@ class MissionPlanningServiceTest {
         verifyNoInteractions(materializer);
     }
 
-    @Test void deletingDraftCleansChildrenAndUnassignsChecklistBeforeDeletingParent() {
+    @Test void cancellingDraftReleasesResourcesButPreservesAuditedHistory() {
         order.getExecutionPlan().setStatus(ExecutionPlanStatus.DRAFT);
+        when(actor.getCurrentUserId()).thenReturn("manager");
         when(staff.findByMissionId("m")).thenReturn(List.of());
         when(devices.findByMissionId("m")).thenReturn(List.of());
-        when(assignments.findByMissionId("m")).thenReturn(List.of(assignment));
+        when(assignments.findByMissionIdAndRemovedAtIsNullOrderByDisplayOrderAscIdAsc("m")).thenReturn(List.of(assignment));
         var missionSchedule = UserSchedule.builder().scheduleType(UserScheduleType.MISSION).build();
         var leave = UserSchedule.builder().scheduleType(UserScheduleType.LEAVE).build();
         when(schedules.findByReferenceId("m")).thenReturn(List.of(missionSchedule, leave));
         service.cancelDraftMission("m");
         assertEquals(ChecklistAssignmentStatus.UNASSIGNED, assignment.getOrderChecklistItem().getAssignmentStatus());
         assertEquals(6, order.getExecutionPlan().getRevision());
-        var sequence = inOrder(resources, assignments, schedules, locks, staff, devices, missions);
-        verifyNoInteractions(resources);
-        sequence.verify(assignments).deleteAll(List.of(assignment));
-        sequence.verify(schedules).deleteAll(List.of(missionSchedule));
-        sequence.verify(locks).deleteAll(List.of());
-        sequence.verify(staff).deleteAll(List.of()); sequence.verify(devices).deleteAll(List.of());
-        sequence.verify(missions).delete(mission);
+        assertEquals(MissionStatus.CANCELLED, mission.getStatus());
+        assertNotNull(mission.getCancellationAt());
+        assertNotNull(assignment.getRemovedAt());
+        assertEquals("manager", assignment.getRemovedBy());
+        assertEquals(com.ondemandmonitoring.userschedule.enums.UserScheduleStatus.CANCELLED,missionSchedule.getStatus());
+        verify(resources).release("m","MISSION_CANCELLED");
+        verify(schedules).saveAll(List.of(missionSchedule));
+        verify(assignments,never()).deleteAll(any());
+        verify(missions,never()).delete(any(Mission.class));
     }
 
     @Test void cannotDeleteFinalizedOrExecutedMission() {

@@ -13,6 +13,7 @@ import com.ondemandmonitoring.role.enumeration.RoleCode;
 import com.ondemandmonitoring.user.domain.User;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import com.ondemandmonitoring.mission.repository.*;
+import com.ondemandmonitoring.weather.repository.MissionWeatherCheckRepository;
 import java.time.*;
 import java.util.*;
 import org.junit.jupiter.api.*;
@@ -60,6 +61,10 @@ class MissionCreationHttpTest {
         order=Order.builder().orderStatus(OrderStatus.APPROVED).preferredDateFrom(LocalDate.of(2026,10,8)).preferredDateTo(LocalDate.of(2026,10,10)).build();order.setId("o");
         order.setPoint(new GeometryFactory(new PrecisionModel(),4326).createPoint(new Coordinate(106,10)));
         when(fixture.orderRepository.findByIdForUpdate("o")).thenReturn(Optional.of(order));
+        var selection = (IMissionChecklistAssignmentService) org.springframework.test.util.ReflectionTestUtils.getField(fixture.missionService,"checklistAssignmentService");
+        when(selection.replace(anyString(),any())).thenAnswer(call -> {
+            order.getExecutionPlan().setRevision(Math.incrementExact(order.getExecutionPlan().getRevision())); return null;
+        });
         stored=new HashMap<>();
         when(fixture.missionRepository.findAllByOrderIdOrderByScheduledStartAtAscIdAsc(anyString()))
                 .thenAnswer(inv->stored.values().stream().filter(m->m.getOrder().getId().equals(inv.getArgument(0))).toList());
@@ -82,17 +87,16 @@ class MissionCreationHttpTest {
         when(fixture.orderRepository.findByIdForUpdate("other")).thenReturn(Optional.of(other));
         create("other",key,0,"Scope","ADMIN").andExpect(status().isCreated());assertEquals(3,stored.size());
     }
-    @Test void staleAndFinalizedErrorsAreExplicit() throws Exception {
+    @Test void finalizedPlanCannotCreateAnotherInitialMission() throws Exception {
         String key=UUID.randomUUID().toString();
-        create("o",key,3,"Scope","MANAGER").andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("EXECUTION_PLAN_REVISION_CONFLICT"));
         create("o",key,0,"Scope","MANAGER").andExpect(status().isCreated());
-        order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED);order.setOrderStatus(OrderStatus.COMPLETED);
-        create("o",UUID.randomUUID().toString(),1,"Scope","MANAGER").andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("EXECUTION_PLAN_NOT_DRAFT"));
-        create("o",key,0,"Scope","MANAGER").andExpect(status().isConflict());
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED);
+        create("o",key,0,"Scope","MANAGER").andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("EXECUTION_PLAN_NOT_DRAFT"));
+        assertEquals(1,stored.size());
     }
     @ParameterizedTest @EnumSource(value=OrderStatus.class,names={"COMPLETED","CANCELLED","REJECTED"})
     void terminalOrderRejected(OrderStatus status) throws Exception {order.setOrderStatus(status);create("o",UUID.randomUUID().toString(),0,"Scope","MANAGER").andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));}
-    @Test void requiredFieldsAndRevisionValidatedAndCustomerDenied() throws Exception {
+    @Test void requiredFieldsValidatedAndCustomerDenied() throws Exception {
         mvc.perform(post("/api/missions/o").with(jwt().authorities(()->"ROLE_MANAGER")).contentType("application/json").content("{}"))
                 .andExpect(status().isBadRequest());
         caller.setRole(Role.builder().code(RoleCode.CUSTOMER).active(true).build());
@@ -106,6 +110,17 @@ class MissionCreationHttpTest {
         @Bean com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService deliveryWorkflow() {
             return org.mockito.Mockito.mock(com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService.class);
         }
+        @Bean MissionChecklistAssignmentRepository checklistAssignments(){return mock(MissionChecklistAssignmentRepository.class);}
+        @Bean MissionWeatherCheckRepository weatherChecks(){return mock(MissionWeatherCheckRepository.class);}
+        @Bean IMissionReworkContextSnapshotService reworkSnapshots(){return mock(IMissionReworkContextSnapshotService.class);}
+        @Bean com.ondemandmonitoring.delivery.repository.ResultRevisionCaseRepository revisionCases(){return mock(com.ondemandmonitoring.delivery.repository.ResultRevisionCaseRepository.class);}
+        @Bean com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository revisionCaseItems(){return mock(com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository.class);}
+        @Bean com.ondemandmonitoring.flightpermit.service.IFlightPermitService permits(){return mock(com.ondemandmonitoring.flightpermit.service.IFlightPermitService.class);}
+        @Bean MissionDeviceAssignmentRepository devices(){return mock(MissionDeviceAssignmentRepository.class);}
+        @Bean ControlHandoverRepository handovers(){return mock(ControlHandoverRepository.class);}
+        @Bean com.ondemandmonitoring.devicecheck.repository.PersistedPostDeviceCheckRepository postflight(){return mock(com.ondemandmonitoring.devicecheck.repository.PersistedPostDeviceCheckRepository.class);}
+        @Bean com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository publishedEvidence(){return mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class);}
+        @Bean com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy handoffPolicy(){return mock(com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy.class);}
         @Bean IMissionChecklistScopeService scope(){return ScopeTestFixture.validScope();}
         @Bean MissionServiceTest fixture(){var f=new MissionServiceTest();f.setUp();return f;}
         @Bean IMissionService missionService(MissionServiceTest f){return f.missionService;}

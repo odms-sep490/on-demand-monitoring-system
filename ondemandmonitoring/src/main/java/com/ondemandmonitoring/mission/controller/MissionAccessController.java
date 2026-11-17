@@ -34,6 +34,7 @@ public class MissionAccessController {
                 authorization.canAttachChecklistEvidence(id),
                 authorization.canDetachChecklistEvidence(id),
                 authorization.canAssessMonitoringChecklist(id),
-                authorization.canConfirmMissionFailure(id)));
+                authorization.canConfirmMissionFailure(id),
+                authorization.canAccessMissionInspection(id)));
     }
 }

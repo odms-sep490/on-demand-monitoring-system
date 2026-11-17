@@ -160,7 +160,11 @@ String mission=mission(1),media=asset(mission,MediaStatus.PENDING_MANAGER_APPROV
 
         @Bean com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard mediaLock(MediaAssetRepository media,MissionRepository missions,MissionResultRepository results,MissionChecklistEvidenceRepository evidence) {return new com.ondemandmonitoring.mission.service.impl.MissionMediaEvidenceGuardImpl(media,missions,results,evidence);}
         @Bean IManagerMediaApprovalService approvalService(MediaAssetRepository media,IMediaObjectStorage storage,com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard lock) {
-            return new ManagerMediaApprovalServiceImpl(media,storage,org.mapstruct.factory.Mappers.getMapper(MediaWorkflowMapper.class),lock);
+            return new ManagerMediaApprovalServiceImpl(media,
+                storage,
+                org.mockito.Mockito.mock(com.ondemandmonitoring.media.service.impl.MediaDerivativeService.class),
+                org.mapstruct.factory.Mappers.getMapper(MediaWorkflowMapper.class),
+                lock);
         }
     }
 }

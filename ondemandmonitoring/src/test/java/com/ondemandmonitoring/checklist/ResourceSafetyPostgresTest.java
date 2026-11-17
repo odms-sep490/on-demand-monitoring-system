@@ -71,7 +71,9 @@ class ResourceSafetyPostgresTest extends ExecutionPlanAmendmentPostgresTest {
         });
         var directory = mock(IStaffDirectoryService.class);
         when(directory.requireActiveStaff(anyString())).thenAnswer(c -> repository(entityManagerFactory, UserRepository.class).findById(c.getArgument(0)).orElseThrow());
-        operational = new MissionService(missions, repository(entityManagerFactory, DeviceRepository.class),
+        operational = new MissionService(missions,
+                    mock(com.ondemandmonitoring.missiontemplate.repository.MissionTemplateRepository.class),
+                    mock(com.ondemandmonitoring.missiontemplate.repository.MissionTemplateItemRepository.class), repository(entityManagerFactory, DeviceRepository.class),
                 mapper,
                 null,repository(entityManagerFactory, ControlHandoverRepository.class),
                 repository(entityManagerFactory, PersistedPostDeviceCheckRepository.class),
@@ -80,7 +82,7 @@ class ResourceSafetyPostgresTest extends ExecutionPlanAmendmentPostgresTest {
                 repository(entityManagerFactory, UserScheduleRepository.class),
                 repository(entityManagerFactory, MissionDeviceAssignmentRepository.class),repository(entityManagerFactory, MissionStaffAssignmentRepository.class),
                 repository(entityManagerFactory, ResourceTimeLockRepository.class),runtime,
-                mock(com.ondemandmonitoring.mission.service.IMissionChecklistMaterializationService.class),
+                mock(com.ondemandmonitoring.mission.service.impl.MissionPlanningActivationService.class),
                 mock(com.ondemandmonitoring.mission.service.IMissionChecklistAssignmentService.class),
                 reservations,
                 repository(entityManagerFactory, com.ondemandmonitoring.device.repository.DeviceTelemetryRepository.class),

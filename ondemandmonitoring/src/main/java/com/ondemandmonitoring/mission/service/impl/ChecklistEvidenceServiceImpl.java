@@ -139,7 +139,7 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
         for (var target : request.targets().stream().sorted(Comparator.comparing(BatchChecklistEvidenceRequest.Target::executionId)).toList()) {
             if (!seen.add(target.executionId())) throw new ApiException(ErrorCode.INVALID_REQUEST, "Duplicate execution target");
             MissionChecklistExecution execution = execution(mission, target.executionId());
-            inspectionMutation.requireEditable(missionId,target.executionId());
+            inspectionMutation.requireDossierEditable(missionId,target.executionId());
             var requiredType = execution.getOrderChecklistItem().getEvidencePolicyVersion() == 1
                     ? RequiredEvidenceType.IMAGE_OR_VIDEO : execution.getOrderChecklistItem().getRequiredEvidenceType();
             if (!policy.mediaTypeMatches(requiredType, asset.getType())) {
@@ -167,7 +167,7 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
         if (!authorization.canViewMission(missionId)) throw new ApiException(ErrorCode.ACCESS_DENIED);
         if (!authorization.canDetachChecklistEvidence(missionId)) throw new ApiException(ErrorCode.ACCESS_DENIED);
         MissionChecklistExecution execution = execution(mission, executionId);
-        inspectionMutation.requireEditable(missionId,executionId);
+        inspectionMutation.requireDossierEditable(missionId,executionId);
         var link = evidence.findById(evidenceId).orElseThrow(() -> new ApiException(ErrorCode.EVIDENCE_NOT_FOUND));
         if (!missionId.equals(link.getMissionId()) || !executionId.equals(link.getMissionChecklistExecution().getId()))
             throw new ApiException(ErrorCode.ACCESS_DENIED);

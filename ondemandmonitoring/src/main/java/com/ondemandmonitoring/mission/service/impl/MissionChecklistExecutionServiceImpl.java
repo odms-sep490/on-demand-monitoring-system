@@ -154,6 +154,7 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
         if (request.getAssessmentNote() == null) assessmentNote = execution.getAssessmentNote();
         boolean assessmentChanged = request.getAssessmentStatus() != execution.getAssessmentStatus()
                 || !Objects.equals(assessmentNote, execution.getAssessmentNote());
+        if (executionChanged) inspectionMutation.requireDossierEditable(missionId, executionId);
         if (executionChanged && !canExecute)
             throw new ApiException(ErrorCode.ACCESS_DENIED);
         if (assessmentChanged && !canAssess) throw new ApiException(ErrorCode.ACCESS_DENIED);

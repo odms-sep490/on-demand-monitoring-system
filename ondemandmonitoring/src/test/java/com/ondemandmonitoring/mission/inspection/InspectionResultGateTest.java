@@ -42,4 +42,19 @@ class InspectionResultGateTest {
     verify(policy).requireResolved(fixture.targetId);
     verify(fixture.delivery).publishInspectedResults("order-1");
   }
+  @Test void supplementalApprovalConnectsToTheOriginalRequestBeforeDeliveryIsConsidered() {
+    var fixture = new MissionResultSubmissionFixture();
+    fixture.prepare(MissionResultSubmissionFixture.Scenario.INSPECTOR);
+    var correction = new com.ondemandmonitoring.mission.inspection.domain.InspectionCorrection();
+    fixture.mission.setInspectionCorrection(correction);
+    var workflow = mock(com.ondemandmonitoring.mission.inspection.service.IInspectionCorrectionService.class);
+    ReflectionTestUtils.setField(fixture.service, "correctionWorkflow", workflow);
+    var request = new MissionResultRequest(); request.setStatus(MissionResultStatus.COMPLETED);
+    fixture.service.upsert(fixture.targetId, request);
+    var sequence = inOrder(fixture.results, workflow, fixture.delivery);
+    sequence.verify(fixture.results).saveAndFlush(any());
+    sequence.verify(workflow).registerAcceptedSupplement(fixture.mission);
+    sequence.verify(fixture.delivery).publishInspectedResults("order-1");
+  }
+
 }

@@ -8,5 +8,5 @@ public record InternalCorrectionMissionRequest(
     @NotNull @PositiveOrZero Long expectedVersion,
     @NotNull UUID clientRequestId,
     @NotBlank @Size(max = 255) String scopeLabel,
-    @NotNull Instant scheduledStartAt,
-    @NotNull Instant scheduledEndAt) {}
+    Instant scheduledStartAt,
+    Instant scheduledEndAt) {}

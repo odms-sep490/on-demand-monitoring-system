@@ -21,7 +21,7 @@ class MissionCancellationServiceTest {
         var service = new MissionCancellationServiceImpl(orders, missions, results, actor);
         var order = new Order(); order.setId("o"); order.setOrderStatus(OrderStatus.APPROVED);
         order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED); order.getExecutionPlan().setRevision(2);
-        var mission = new Mission(); mission.setId("m"); mission.setOrder(order); mission.setStatus(MissionStatus.IN_FLIGHT);
+        var mission = new Mission(); mission.setId("m"); mission.setOrder(order); mission.setStatus(MissionStatus.IN_PROGRESS);
         when(missions.findOrderIdByMissionId("m")).thenReturn(Optional.of("o"));
         when(missions.findById("m")).thenReturn(Optional.of(mission));
         when(orders.findById("o")).thenReturn(Optional.of(order));

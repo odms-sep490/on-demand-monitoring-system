@@ -42,8 +42,40 @@ public class InspectionCorrectionService implements IInspectionCorrectionService
   private final IChecklistEvidenceService evidencePolicy;
   private final InspectionCorrectionMapper mapper;
   private final Clock clock;
+  @org.springframework.beans.factory.annotation.Autowired
+  private com.ondemandmonitoring.mission.service.impl.MissionEvidenceSubmissionService submissions;
+  @org.springframework.beans.factory.annotation.Autowired
+  private com.ondemandmonitoring.mission.service.impl.ChecklistEvidencePolicy evidenceEligibility;
   private final com.ondemandmonitoring.order.service.IOrderExecutionCompletionPolicy aggregate;
   private final InspectionCorrectionPolicy correctionPolicy;
+  @org.springframework.beans.factory.annotation.Autowired
+  @org.springframework.context.annotation.Lazy
+  private IMissionResultService resultWorkflow;
+
+  @org.springframework.beans.factory.annotation.Autowired
+  @org.springframework.context.annotation.Lazy
+  private com.ondemandmonitoring.mission.inspection.service.IInternalInspectionMissionService draftMissions;
+
+  @org.springframework.beans.factory.annotation.Autowired
+  private com.ondemandmonitoring.mission.mapper.MissionChecklistExecutionMapper executionMapper;
+
+  @Override
+  public com.ondemandmonitoring.mission.inspection.dto.response.SupplementInspectionResponse
+      supplementResult(String missionId, String id) {
+    if (!authorization.canRequestInspectionCorrection(missionId)) throw denied();
+    var correction = required(missionId, id);
+    if (correction.getMode() != com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT)
+      throw conflict();
+    var child = correctionPolicy.acceptedSupplement(correction);
+    var links = evidencePolicy.active(child.getId());
+    var rows = executions.findOrderedByMissionId(child.getId()).stream().map(execution -> {
+      var row = evidencePolicy.enrich(executionMapper.toResponse(execution), execution, links);
+      row.setCustomerSelectionEditable(false);
+      return row;
+    }).toList();
+    return new com.ondemandmonitoring.mission.inspection.dto.response.SupplementInspectionResponse(
+        child.getId(), child.getMissionCode(), child.getCompletedAt(), rows);
+  }
 
   @Override
   public List<InspectionCorrectionResponse> list(String missionId) {
@@ -59,10 +91,11 @@ public class InspectionCorrectionService implements IInspectionCorrectionService
   public InspectionCorrectionResponse request(
       String missionId, InspectionCorrectionRequest request) {
     Mission mission = lock(missionId);
-    if (!authorization.canAssessMonitoringChecklist(missionId)) throw denied();
+    if (!authorization.canRequestInspectionCorrection(missionId)) throw denied();
     editable(mission);
     if (request == null
         || request.clientRequestId() == null
+        || request.mode() == null
         || request.items() == null
         || request.items().isEmpty()
         || request.items().size() > 100) throw invalid();
@@ -86,7 +119,10 @@ public class InspectionCorrectionService implements IInspectionCorrectionService
             missionId, request.clientRequestId().toString());
     if (replay.isPresent()) {
       var saved = items.findItems(replay.get().getId());
-      if (saved.size() != requested.size()
+      if ((replay.get().getMode() != request.mode()
+              && !(request.mode() == com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.DOSSIER_ADJUSTMENT
+                  && events.findByCorrection_IdOrderBySequenceNumberAsc(replay.get().getId()).stream()
+                      .anyMatch(e -> "FLIGHT_REQUIRED".equals(e.getAction())))) || saved.size() != requested.size()
           || saved.stream()
               .anyMatch(
                   i -> {
@@ -98,6 +134,11 @@ public class InspectionCorrectionService implements IInspectionCorrectionService
                   })) throw new ApiException(ErrorCode.IDEMPOTENCY_KEY_REUSED);
       return response(replay.get());
     }
+    if (!authorization.canAssessMonitoringChecklist(missionId)) throw denied();
+    if (mission.getInspectionCorrection() != null
+        && request.mode() == com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT)
+      throw new ApiException(ErrorCode.INVALID_REQUEST,
+          "An internal supplemental flight must be failed and replaced from its original correction when another flight is required");
     if (corrections.existsByActiveMissionId(missionId)) throw conflict();
     var actual =
         executions.findOrderedByMissionId(missionId).stream()
@@ -133,6 +174,7 @@ public class InspectionCorrectionService implements IInspectionCorrectionService
     correction.setMission(mission);
     correction.setActiveMissionId(missionId);
     correction.setClientRequestId(request.clientRequestId().toString());
+    correction.setMode(request.mode());
     correction.setStatus(InspectionCorrectionStatus.OPEN);
     correction.setRequestedAt(Instant.now(clock));
     correction.setRequestedBy(users.getCurrentUserId());
@@ -149,6 +191,8 @@ public class InspectionCorrectionService implements IInspectionCorrectionService
     }
     items.flush();
     event(correction, "REQUESTED", null);
+    if (correction.getMode() == com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT)
+      draftMissions.ensureDraft(missionId, correction.getId(), false);
     return response(correction);
   }
 
@@ -163,16 +207,71 @@ public class InspectionCorrectionService implements IInspectionCorrectionService
     version(correction, decision);
     if (correction.getStatus() != InspectionCorrectionStatus.OPEN) throw conflict();
     // Do not change assessments: only the assigned Inspector can accept the repaired work.
-    if (correction.getSupplementalMission() != null)
+    if (correction.getMode() == com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT)
       correctionPolicy.acceptedSupplement(correction);
     else
       for (var item : items.findItems(id))
         if (!evidencePolicy.ready(item.getExecution(), evidencePolicy.active(missionId), false))
           throw new ApiException(ErrorCode.CHECKLIST_NOT_READY);
+    var activeLinks = evidencePolicy.active(missionId);
+    if (correction.getMode() == com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.DOSSIER_ADJUSTMENT
+        && items.findItems(id).stream().flatMap(i -> activeLinks.stream()
+            .filter(l -> i.getExecution().getId().equals(l.getMissionChecklistExecution().getId())))
+            .anyMatch(l -> evidenceEligibility.ineligibilityReason(l.getMediaAsset(), false) != null))
+      throw new ApiException(ErrorCode.CHECKLIST_NOT_READY);
+    submissions.capture(mission, "correction:" + id + ":" + correction.getVersion(), id);
+    // Only failed work is reassessed. Preserve accepted checklist decisions and their delivery selections.
+    if (correction.getMode() == com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.DOSSIER_ADJUSTMENT) {
+      for (var item : items.findItems(id)) {
+        var execution = item.getExecution();
+        if (execution.getAssessmentStatus() == ChecklistAssessmentStatus.NON_COMPLIANT) {
+          execution.setAssessmentStatus(ChecklistAssessmentStatus.NOT_ASSESSED);
+          execution.setAssessmentNote(null);
+          execution.setAssessedBy(null);
+          execution.setAssessedAt(null);
+        }
+      }
+      executions.flush();
+    }
     correction.setStatus(InspectionCorrectionStatus.SUBMITTED);
     corrections.saveAndFlush(correction);
     event(correction, "RESUBMITTED", decision.note().trim());
     return response(correction);
+  }
+
+  @Override
+  @Transactional
+  public void reconcileChecklistReview(String missionId) {
+    var mission = lock(missionId);
+    if (!authorization.canAssessMonitoringChecklist(missionId)) throw denied();
+    editable(mission);
+    var correction = corrections.findByMission_IdOrderByRequestedAtDescIdDesc(missionId).stream()
+        .filter(row -> row.getStatus() == InspectionCorrectionStatus.SUBMITTED
+            && row.getMode() == com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.DOSSIER_ADJUSTMENT)
+        .findFirst().orElse(null);
+    if (correction == null) return;
+    var requested = items.findItems(correction.getId());
+    if (requested.isEmpty() || requested.stream().anyMatch(item ->
+        item.getExecution().getAssessmentStatus() == ChecklistAssessmentStatus.NOT_ASSESSED)) return;
+    var failed = requested.stream().filter(item ->
+        item.getExecution().getAssessmentStatus() == ChecklistAssessmentStatus.NON_COMPLIANT).toList();
+    if (!failed.isEmpty()) {
+      if (failed.stream().anyMatch(item -> item.getExecution().getAssessmentNote() == null
+          || item.getExecution().getAssessmentNote().isBlank())) return;
+      correction.setStatus(InspectionCorrectionStatus.OPEN);
+      corrections.saveAndFlush(correction);
+      event(correction, "RETURNED", failed.stream().map(item ->
+          item.getExecution().getAssessmentNote()).collect(java.util.stream.Collectors.joining("\n")));
+      return;
+    }
+    var links = evidencePolicy.active(missionId);
+    if (requested.stream().anyMatch(item ->
+        !evidencePolicy.readyForInspectorApproval(item.getExecution(), links))) return;
+    correction.setStatus(InspectionCorrectionStatus.RESOLVED);
+    correction.setActiveMissionId(null);
+    correction.setResolvedAt(Instant.now(clock));
+    corrections.saveAndFlush(correction);
+    event(correction, "RESOLVED", "Checklist review completed");
   }
 
   @Override
@@ -186,7 +285,7 @@ public class InspectionCorrectionService implements IInspectionCorrectionService
     version(correction, decision);
     if (correction.getStatus() != InspectionCorrectionStatus.SUBMITTED) throw conflict();
     var links = evidencePolicy.active(missionId);
-    if (correction.getSupplementalMission() != null)
+    if (correction.getMode() == com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT)
       correctionPolicy.acceptedSupplement(correction);
     else if (items.findItems(id).stream()
         .anyMatch(i -> !evidencePolicy.readyForInspectorApproval(i.getExecution(), links)))
@@ -209,9 +308,69 @@ public class InspectionCorrectionService implements IInspectionCorrectionService
     editable(mission);
     version(correction, decision);
     if (correction.getStatus() != InspectionCorrectionStatus.SUBMITTED) throw conflict();
+    if (correction.getMode() == com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT)
+      throw new ApiException(ErrorCode.INVALID_REQUEST, "Supplemental checklist acceptance belongs to its assigned Inspector");
     correction.setStatus(InspectionCorrectionStatus.OPEN);
     corrections.saveAndFlush(correction);
     event(correction, "RETURNED", decision.note().trim());
+    return response(correction);
+  }
+
+  @Override
+  @Transactional
+  public InspectionCorrectionResponse requireFlight(String missionId, String id, InspectionCorrectionDecision decision) {
+    var mission = lock(missionId);
+    if (!authorization.canAttachChecklistEvidence(missionId)) throw denied();
+    var correction = required(missionId, id);
+    editable(mission);
+    version(correction, decision);
+    if (correction.getStatus() != InspectionCorrectionStatus.OPEN
+        || correction.getMode() != com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.DOSSIER_ADJUSTMENT)
+      throw conflict();
+    if (mission.getInspectionCorrection() != null)
+      throw new ApiException(ErrorCode.INVALID_REQUEST,
+          "Replace the failed supplemental flight from its original correction");
+    correction.setMode(com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT);
+    corrections.saveAndFlush(correction);
+    event(correction, "FLIGHT_REQUIRED", decision.note().trim());
+    draftMissions.ensureDraft(missionId, id, false);
+    return response(correction);
+  }
+
+  @Override
+  @Transactional
+  public void registerAcceptedSupplement(Mission child) {
+    if (child.getInspectionCorrection() == null) return;
+    var sourceId = child.getInspectionCorrection().getMission().getId();
+    var source = lock(sourceId);
+    var correction = required(sourceId, child.getInspectionCorrection().getId());
+    // Old failed/replaced attempts cannot satisfy the currently linked correction.
+    if (correction.getMode() != com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT
+        || correction.getSupplementalMission() == null
+        || !child.getId().equals(correction.getSupplementalMission().getId())) throw conflict();
+    if (correction.getStatus() == InspectionCorrectionStatus.RESOLVED) {
+      resultWorkflow.completeSupplementedSource(child);
+      return;
+    }
+    editable(source);
+    correctionPolicy.acceptedSupplement(correction);
+    submissions.capture(correction.getMission(), "supplement-approved:" + child.getId(), correction.getId());
+    correction.setStatus(InspectionCorrectionStatus.RESOLVED);
+    correction.setActiveMissionId(null);
+    correction.setResolvedAt(Instant.now(clock));
+    corrections.saveAndFlush(correction);
+    event(correction, "SUPPLEMENT_ACCEPTED", child.getMissionCode());
+    resultWorkflow.completeSupplementedSource(child);
+  }
+
+  @Override
+  @Transactional
+  public InspectionCorrectionResponse synchronizeSupplement(String missionId, String id) {
+    lock(missionId);
+    if (!authorization.canRequestInspectionCorrection(missionId)) throw denied();
+    var correction = required(missionId, id);
+    if (correction.getSupplementalMission() == null) throw conflict();
+    registerAcceptedSupplement(correction.getSupplementalMission());
     return response(correction);
   }
 
@@ -286,6 +445,7 @@ public class InspectionCorrectionService implements IInspectionCorrectionService
         row.getMission().getId(),
         row.getVersion() == null ? 0 : row.getVersion(),
         row.getStatus(),
+        row.getMode(),
         reviewToken(row),
         row.getRequestedBy(),
         row.getRequestedAt(),

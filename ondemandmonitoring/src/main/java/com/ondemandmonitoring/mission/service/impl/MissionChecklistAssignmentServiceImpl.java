@@ -24,7 +24,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
 public class MissionChecklistAssignmentServiceImpl implements IMissionChecklistAssignmentService {
     private final OrderRepository orders;
     private final MissionRepository missions;
@@ -40,11 +39,32 @@ public class MissionChecklistAssignmentServiceImpl implements IMissionChecklistA
 
     @Override
     @Transactional(readOnly = true)
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ChecklistAssignmentSelectionResponse get(String missionId) { return response(mission(missionId)); }
+
+    /** Initializes only a fresh internal draft after an authorized source correction decision. */
+    @Override
+    @Transactional
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN') or @missionAuthorizationService.canRequestInspectionCorrection(#sourceMissionId) or @missionAuthorizationService.canAttachChecklistEvidence(#sourceMissionId)")
+    public ChecklistAssignmentSelectionResponse initializeInternalCorrectionDraft(String sourceMissionId, String missionId,
+            ChecklistAssignmentSelectionRequest request) {
+        var draft = mission(missionId);
+        if (draft.getInspectionCorrection() == null
+                || !sourceMissionId.equals(draft.getInspectionCorrection().getMission().getId()))
+            throw new ApiException(ErrorCode.ACCESS_DENIED);
+        if (!assignments.findByMissionIdAndRemovedAtIsNullOrderByDisplayOrderAscIdAsc(missionId).isEmpty())
+            throw new ApiException(ErrorCode.MISSION_PLANNING_ONLY);
+        return replaceSelection(missionId, request);
+    }
 
     @Override
     @Transactional
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ChecklistAssignmentSelectionResponse replace(String missionId, ChecklistAssignmentSelectionRequest request) {
+        return replaceSelection(missionId, request);
+    }
+
+    private ChecklistAssignmentSelectionResponse replaceSelection(String missionId, ChecklistAssignmentSelectionRequest request) {
         var orderId = mission(missionId).getOrder().getId();
         var order = orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
         var mission = missions.findById(missionId).orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
@@ -77,7 +97,7 @@ public class MissionChecklistAssignmentServiceImpl implements IMissionChecklistA
         boolean rework = mission.getPurpose() == com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK;
         if (rework && mission.getInspectionCorrection()!=null) {
             var correction=mission.getInspectionCorrection();
-            var allowed=inspectionItems.findItems(correction.getId()).stream().map(i->i.getExecution().getOrderChecklistItemId()).collect(java.util.stream.Collectors.toSet());
+            var allowed=inspectionItems.findItems(correction.getId()).stream().filter(i -> i.getExecution().getAssessmentStatus() != com.ondemandmonitoring.mission.enums.ChecklistAssessmentStatus.COMPLIANT).map(i->i.getExecution().getOrderChecklistItemId()).collect(java.util.stream.Collectors.toSet());
             if(correction.getStatus()!=com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionStatus.OPEN
                     || correction.getSupplementalMission()==null || !missionId.equals(correction.getSupplementalMission().getId())
                     || !orderId.equals(correction.getMission().getOrder().getId()) || !allowed.equals(selected.keySet()))
@@ -132,6 +152,7 @@ public class MissionChecklistAssignmentServiceImpl implements IMissionChecklistA
             item.setAssignmentStatus(ChecklistAssignmentStatus.ASSIGNED);
         }
         assignments.saveAllAndFlush(changed);
+        if (rework) ChecklistAssignmentStatusSync.recompute(mission, selected.values(), assignments.findActiveByOrderId(orderId));
         items.saveAll(selected.values());
         order.getExecutionPlan().setRevision(Math.addExact(order.getExecutionPlan().getRevision(), 1));
         orders.saveAndFlush(order);

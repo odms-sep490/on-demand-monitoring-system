@@ -5,5 +5,6 @@ import com.ondemandmonitoring.mission.dto.response.ChecklistAssignmentSelectionR
 
 public interface IMissionChecklistAssignmentService {
     ChecklistAssignmentSelectionResponse get(String missionId);
+    ChecklistAssignmentSelectionResponse initializeInternalCorrectionDraft(String sourceMissionId, String missionId, ChecklistAssignmentSelectionRequest request);
     ChecklistAssignmentSelectionResponse replace(String missionId, ChecklistAssignmentSelectionRequest request);
 }

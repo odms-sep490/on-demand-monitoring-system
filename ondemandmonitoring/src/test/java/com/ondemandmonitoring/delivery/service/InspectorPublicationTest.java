@@ -31,7 +31,6 @@ import java.util.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
 class InspectorPublicationTest {
@@ -54,6 +53,8 @@ class InspectorPublicationTest {
             results, invoices, mock(MissionPaymentMilestoneService.class), media, mock(MediaDerivativeService.class), mock(IResultRetentionAccessService.class),
             mock(AuthenticatedUserResolver.class), completion, publisher, rounds, roundEvidence, roundItems,
             evidence, items, new ChecklistEvidencePolicy(), cases, caseItems);
+    final com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionPolicy corrections =
+            mock(com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionPolicy.class);
     final Order order = new Order();
     final OrderDelivery delivery = new OrderDelivery();
     final OrderDelivery secondDelivery = new OrderDelivery();
@@ -66,6 +67,7 @@ class InspectorPublicationTest {
     final List<MissionResult> packages = new ArrayList<>();
 
     @BeforeEach void setUp() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "inspectionCorrections", corrections);
         order.setId("order"); order.setOrderStatus(OrderStatus.COMPLETED);
         org.springframework.test.util.ReflectionTestUtils.setField(service, "missionScope", scope);
         delivery.setMissionId("first");
@@ -165,8 +167,9 @@ class InspectorPublicationTest {
         assertThat(secondDelivery.getStatus()).isEqualTo(DeliveryStatus.CUSTOMER_REVIEW);
     }
 
-    @ParameterizedTest @ValueSource(booleans = {false,true})
-    void reworkReplacesOnlyItsChecklistAndRetainsUnchangedChecklist(boolean sharedMedia) {
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"false,false", "true,false", "false,true", "true,true"})
+    void reworkReplacesOnlyItsChecklistAndRetainsUnchangedChecklist(boolean sharedMedia, boolean supplementalFlight) {
         delivery.setMissionId(null);
         when(deliveries.findByOrderId("order")).thenReturn(Optional.of(delivery));
         if (sharedMedia) {
@@ -193,6 +196,14 @@ class InspectorPublicationTest {
         var ea = new ResultReviewRoundEvidence(); ea.setId("old-a"); ea.setRoundItem(riA); ea.setMediaAsset(link("a1",first,a,true).getMediaAsset());
         var eb = new ResultReviewRoundEvidence(); eb.setId("old-b"); eb.setRoundItem(riB); eb.setMediaAsset(link(sharedMedia ? "a1" : "b1",sharedMedia ? first : second,b,true).getMediaAsset());
         when(roundEvidence.findByRoundItemIdInOrderByRoundItemIdAscCreatedAtAsc(List.of("ri-a","ri-b"))).thenReturn(List.of(ea,eb));
+        if (supplementalFlight) {
+            var supplement = mission("supplement", MissionPurpose.REWORK);
+            children.add(supplement); packages.add(approved(supplement));
+            var acceptedLink = link("new-b", supplement, b, true);
+            when(evidence.findActiveByMissionId("rework")).thenReturn(List.of(link("rejected-b", rework, b, false)));
+            when(evidence.findActiveByMissionId("supplement")).thenReturn(List.of(acceptedLink));
+            when(corrections.selectedSupplementalEvidence("rework")).thenReturn(List.of(acceptedLink));
+        }
         assertThat(service.publishInspectedResults("order")).isTrue();
         ArgumentCaptor<Map<String,Set<String>>> selections = ArgumentCaptor.forClass(Map.class);
         verify(publisher).publishByChecklist(eq(order), eq(delivery), anyList(), selections.capture(), any(), any(), anyMap(), anyMap(), eq(Set.of("b")), eq(false));

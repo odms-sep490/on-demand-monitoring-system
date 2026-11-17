@@ -40,7 +40,6 @@ import com.ondemandmonitoring.mission.service.IMissionChecklistMaterializationSe
 import com.ondemandmonitoring.mission.service.IMissionReworkContextSnapshotService;
 import com.ondemandmonitoring.mission.service.IMissionService;
 import com.ondemandmonitoring.flightpermit.service.IFlightPermitService;
-import com.ondemandmonitoring.flightpermit.domain.FlightPermit;
 import com.ondemandmonitoring.order.repository.OrderChecklistItemRepository;
 import com.ondemandmonitoring.order.repository.OrderRepository;
 import com.ondemandmonitoring.finance.enums.QuoteStatus;
@@ -80,7 +79,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.util.concurrent.ThreadLocalRandom;
 
 import com.ondemandmonitoring.device.domain.MaintenanceTicket;
 import com.ondemandmonitoring.device.repository.MaintenanceTicketRepository;
@@ -433,7 +431,8 @@ public class MissionService implements IMissionService {
             }
         }
 
-        validatePlanningSchedule(request.scheduledStartAt(), request.scheduledEndAt(), order, MissionPurpose.REWORK);
+        if (request.scheduledStartAt() != null || request.scheduledEndAt() != null)
+            validatePlanningSchedule(request.scheduledStartAt(), request.scheduledEndAt(), order, MissionPurpose.REWORK);
         String scopeLabel = Normalizer.normalize(request.scopeLabel().strip().replaceAll("\\s+", " "), Normalizer.Form.NFC);
         Mission mission = newPlanningMission(order, request.scheduledStartAt(), request.scheduledEndAt(),
                 scopeLabel, MissionPurpose.REWORK);
@@ -452,6 +451,54 @@ public class MissionService implements IMissionService {
         return missionMapper.toResponse(saved);
     }
 
+    @Override
+    @Transactional
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public void ensureResultRevisionReworkDrafts(String caseId, boolean replaceTerminal) {
+        var snapshot = resultRevisionCases.findById(caseId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        var order = orderRepository.findByIdForUpdate(snapshot.getOrder().getId())
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        var revisionCase = resultRevisionCases.findByIdForUpdate(caseId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        if (!revisionCase.isActive()
+                || revisionCase.getStatus() != com.ondemandmonitoring.delivery.enums.ResultRevisionCaseStatus.OPEN)
+            return;
+        var selected = resultRevisionCaseItems.findByResultRevisionCaseIdOrderByCreatedAtAsc(caseId).stream()
+                .filter(item -> item.getScopeDecision() == com.ondemandmonitoring.delivery.enums.ResultRevisionScope.IN_SCOPE
+                        && item.getStrategy() == com.ondemandmonitoring.delivery.enums.ResultRevisionStrategy.REWORK
+                        && item.getStatus() == com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.IN_PROGRESS)
+                .toList();
+        var pending = selected.stream().filter(item -> item.getAssignedReworkMissionId() == null
+                || replaceTerminal && missionRepository.findById(item.getAssignedReworkMissionId()).map(previous ->
+                    Set.of(MissionStatus.FAILED, MissionStatus.CANCELLED).contains(previous.getStatus())).orElse(false)).toList();
+        if (pending.isEmpty()) return;
+        if (!isReworkOrderState(order) || order.getExecutionPlan().getStatus() != ExecutionPlanStatus.FINALIZED)
+            throw new ApiException(ErrorCode.INVALID_DELIVERY_STATE);
+        var invoice = invoiceRepository.findByOrderId(order.getId())
+                .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
+        if (!missionPaymentEligibilityService.isDepositSatisfied(invoice))
+            throw new ApiException(ErrorCode.INVOICE_NOT_PAID);
+        var draft = missionRepository.findAllByOrderIdForUpdateOrderById(order.getId()).stream()
+                .filter(mission -> caseId.equals(mission.getResultRevisionCaseId())
+                        && mission.getStatus() == MissionStatus.PLANNING && mission.getCancellationAt() == null)
+                .findFirst().orElse(null);
+        if (draft == null) {
+            String label = pending.getFirst().getOrderChecklistItem().getContent();
+            if (label == null || label.isBlank()) label = caseId;
+            draft = newPlanningMission(order, null, null, label.substring(0, Math.min(255, label.length())), MissionPurpose.REWORK);
+            draft.setResultRevisionCaseId(caseId);
+            missionRepository.saveAndFlush(draft);
+        }
+        Mission target = draft;
+        pending.forEach(item -> item.setAssignedReworkMissionId(target.getId()));
+        resultRevisionCaseItems.saveAllAndFlush(pending);
+        assignChecklist(target, order, selected.stream()
+                .filter(item -> target.getId().equals(item.getAssignedReworkMissionId()))
+                .map(item -> item.getOrderChecklistItem().getId()).toList());
+        reworkContextSnapshots.capture(target, pending);
+    }
+
     private String reworkFingerprint(String caseId, CreateResultRevisionReworkMissionRequest request) {
         try {
             String canonical = caseId + "\\n" + request.expectedCaseVersion() + "\\n" + request.scopeLabel().strip()
@@ -467,15 +514,18 @@ public class MissionService implements IMissionService {
     private MissionResponse createMissionInternal(String orderId, MissionCreateRequest request, boolean additional) {
         String scopeLabel = Normalizer.normalize(
                 request.getScopeLabel().strip().replaceAll("\\s+", " "), Normalizer.Form.NFC);
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdForUpdate(orderId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
         if (additional) {
             if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.FINALIZED)
                 throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_FINALIZED);
             if (order.getOrderStatus() != OrderStatus.APPROVED && order.getOrderStatus() != OrderStatus.IN_PROGRESS)
                 throw new ApiException(ErrorCode.INVALID_REQUEST, "Order must be APPROVED or IN_PROGRESS");
-        } else if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.DRAFT) {
-            throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_DRAFT);
+        } else {
+            if (order.getOrderStatus() != OrderStatus.APPROVED)
+                throw new ApiException(ErrorCode.INVALID_REQUEST, "Order must be APPROVED for initial mission planning");
+            if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.DRAFT)
+                throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_DRAFT);
         }
         validatePlanningSchedule(request.getScheduledStartAt(), request.getScheduledEndAt(), order);
         
@@ -498,16 +548,8 @@ public class MissionService implements IMissionService {
     /** Original and rework Missions share the same planning lifecycle and permit initialization. */
     private Mission newPlanningMission(Order order, Instant scheduledStart, Instant scheduledEnd,
             String scopeLabel, MissionPurpose purpose) {
-        Mission mission = new Mission();
-        mission.setMissionCode(generateMissionCode());
-        mission.setPurpose(purpose);
-        mission.setStatus(MissionStatus.PLANNING);
-        mission.setOrder(order);
-        FlightPermit.pendingFor(mission);
-        mission.setScheduledStartAt(scheduledStart);
-        mission.setScheduledEndAt(scheduledEnd);
-        mission.setScopeLabel(scopeLabel);
-        return mission;
+        return MissionPlanningDraftFactory.create(order, generateMissionCode(), purpose,
+                scopeLabel, scheduledStart, scheduledEnd);
     }
 
     @Override
@@ -600,6 +642,7 @@ public class MissionService implements IMissionService {
                 || item.getStrategy() != com.ondemandmonitoring.delivery.enums.ResultRevisionStrategy.REWORK
                 || !mission.getId().equals(item.getAssignedReworkMissionId())))
             throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_INTEGRITY_INVALID);
+        validatePlanningSchedule(mission.getScheduledStartAt(), mission.getScheduledEndAt(), order, MissionPurpose.REWORK);
         requirePlanningReady(mission);
         var invoice = invoiceRepository.findByOrderId(order.getId())
                 .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
@@ -721,7 +764,9 @@ public class MissionService implements IMissionService {
         var mission = missionRepository.findByIdForUpdate(missionId).or(() -> missionRepository.findById(missionId))
                 .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
         if (mission.getStatus() == MissionStatus.CANCELLED) return;
-        if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.DRAFT)
+        if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.DRAFT
+                && !(mission.getPurpose() == MissionPurpose.REWORK && order.getExecutionPlan().getStatus() == ExecutionPlanStatus.FINALIZED
+                && (mission.getResultRevisionCaseId() != null || mission.getInspectionCorrection() != null)))
             throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_DRAFT);
         if (mission.getStatus() != MissionStatus.PLANNING || mission.getActualStartAt() != null
                 || !missionChecklistExecutionRepository.findOrderedByMissionId(missionId).isEmpty())
@@ -1768,6 +1813,7 @@ public class MissionService implements IMissionService {
     }
 
     private void refreshResourceReadiness(Mission mission) {
+        if (flightPermitService != null) flightPermitService.synchronizeForCrew(mission);
         if (mission.getStatus() == MissionStatus.READY && !isReadyForHandover(mission)) {
             mission.setStatus(MissionStatus.PENDING_CONFIRMATION);
         }
@@ -2014,6 +2060,21 @@ public class MissionService implements IMissionService {
     @Transactional
     @PreAuthorize("@missionAuthorizationService.canCompleteMission(#missionId)")
     public MissionResponse completeMission(String missionId) {
+        return completeMissionInternal(missionId);
+    }
+
+    @Override
+    @Transactional
+    public MissionResponse completeMissionAfterSupplement(Mission child) {
+        var correction = child.getInspectionCorrection();
+        if (correction == null || correction.getSupplementalMission() == null
+                || !child.getId().equals(correction.getSupplementalMission().getId())
+                || correction.getStatus() != com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionStatus.RESOLVED)
+            throw new ApiException(ErrorCode.INSPECTION_CORRECTION_PENDING);
+        return completeMissionInternal(correction.getMission().getId());
+    }
+
+    private MissionResponse completeMissionInternal(String missionId) {
         Mission resolved = getRuntimeMissionOrThrow(missionId);
         MissionRuntimeGate.requireOperationalCommandsAllowed(resolved);
         orderRepository.findById(resolved.getOrder().getId())
@@ -2036,7 +2097,7 @@ public class MissionService implements IMissionService {
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
                     "A recorded post-flight inspection is required before mission completion");
         }
-        checklistExecutionService.requireReadyForSubmission(mission);
+        checklistExecutionService.requireReadyForInspectorApproval(mission);
         Instant completedAt = Instant.now();
         if (mission.getActualEndAt() == null) {
             mission.setActualEndAt(completedAt);
@@ -2279,12 +2340,7 @@ public class MissionService implements IMissionService {
     }
 
     private String generateMissionCode() {
-        String code;
-        do {
-            int number = ThreadLocalRandom.current().nextInt(100000);
-            code = String.format("MS-%05d", number);
-        } while (missionRepository.existsByMissionCode(code));
-        return code;
+        return MissionCodeGenerator.next(missionRepository::existsByMissionCode);
     }
 
     // =========================================================================

@@ -105,4 +105,24 @@ class ResultRevisionCaseEvidenceTest {
         var link = new ResultRevisionRequestItemMedia(); link.setRequestItem(feedback); link.setRoundEvidence(evidence);
         return link;
     }
+
+    @Test void managerReworkDecisionPreparesADraftWithinTheDecisionTransaction() {
+        var order = new Order(); order.setId("order");
+        var revisionCase = new ResultRevisionCase(); revisionCase.setId("case");
+        revisionCase.setOrder(order); revisionCase.setTicketId("ticket"); revisionCase.setActive(true);
+        revisionCase.setStatus(com.ondemandmonitoring.delivery.enums.ResultRevisionCaseStatus.OPEN);
+        var checklist = new OrderChecklistItem(); checklist.setId("checklist");
+        var item = new ResultRevisionCaseItem(); item.setId("case-item"); item.setVersion(1L);
+        item.setOrderChecklistItem(checklist); item.setResultRevisionCase(revisionCase);
+        when(cases.findById("case")).thenReturn(Optional.of(revisionCase));
+        when(cases.findByIdForUpdate("case")).thenReturn(Optional.of(revisionCase));
+        when(items.findByIdForUpdate("case-item")).thenReturn(Optional.of(item));
+        var orders = (OrderRepository) org.springframework.test.util.ReflectionTestUtils.getField(service, "orders");
+        when(orders.findByIdForUpdate("order")).thenReturn(Optional.of(order));
+        var missions = (IMissionService) org.springframework.test.util.ReflectionTestUtils.getField(service, "missions");
+        service.decide("case", "case-item", new com.ondemandmonitoring.delivery.dto.request.ResultRevisionDecisionRequest(
+            1L, com.ondemandmonitoring.delivery.enums.ResultRevisionScope.IN_SCOPE,
+            com.ondemandmonitoring.delivery.enums.ResultRevisionStrategy.REWORK, "Recapture", "Fence overview"));
+        verify(missions).ensureResultRevisionReworkDrafts("case", false);
+    }
 }

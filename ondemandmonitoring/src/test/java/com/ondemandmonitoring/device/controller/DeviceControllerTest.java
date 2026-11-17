@@ -37,7 +37,9 @@ class DeviceControllerTest {
     void setUp() {
         deviceService = mock(IDeviceService.class);
         availabilityService = mock(com.ondemandmonitoring.device.service.IDeviceAvailabilityService.class);
-        mockMvc = MockMvcBuilders.standaloneSetup(new DeviceController(deviceService, availabilityService))
+        mockMvc = MockMvcBuilders.standaloneSetup(new DeviceController(deviceService,
+                availabilityService,
+                org.mockito.Mockito.mock(com.ondemandmonitoring.device.service.DeviceCreationService.class)))
                 .setCustomArgumentResolvers(new PageableHandlerMethodArgumentResolver())
                 .build();
     }

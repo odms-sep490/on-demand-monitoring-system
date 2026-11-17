@@ -21,7 +21,11 @@ class ManagerMediaApprovalServiceTest {
     private final IMediaObjectStorage storage = mock(IMediaObjectStorage.class);
     private final MediaWorkflowMapper mapper = org.mapstruct.factory.Mappers.getMapper(MediaWorkflowMapper.class);
     private final ManagerMediaApprovalServiceImpl service =
-            new ManagerMediaApprovalServiceImpl(media, storage, mapper, mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class));
+            new ManagerMediaApprovalServiceImpl(media,
+                storage,
+                org.mockito.Mockito.mock(com.ondemandmonitoring.media.service.impl.MediaDerivativeService.class),
+                mapper,
+                mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class));
 
     @Test
     void approveMakesMediaAvailableForDelivery() {

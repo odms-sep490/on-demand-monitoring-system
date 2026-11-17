@@ -49,6 +49,12 @@ public final class MissionResultSubmissionFixture {
     public String targetId;
 
     public MissionResultSubmissionFixture() {
+        var handoff = mock(com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy.class);
+        when(handoff.editable(anyString())).thenReturn(true);
+        when(handoff.reviewable(anyString())).thenReturn(true);
+        when(handoff.submitted(anyString())).thenReturn(true);
+        org.springframework.test.util.ReflectionTestUtils.setField(authorization, "evidenceHandoff", handoff);
+
         var media = mock(MediaAssetRepository.class);
         var mediaService = mock(IMediaAssetService.class);
         var mapper = mock(MissionResultMapper.class);
@@ -60,6 +66,7 @@ public final class MissionResultSubmissionFixture {
         service = new MissionResultService(results, missions, media, mediaService, mapper,
                 completion, checklist, resolver, authorization);
         org.springframework.test.util.ReflectionTestUtils.setField(service, "deliveryWorkflow", delivery);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "evidenceHandoff", mock(com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy.class));
         org.springframework.test.util.ReflectionTestUtils.setField(service, "inspectionCorrections", mock(com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionPolicy.class));
     }
 

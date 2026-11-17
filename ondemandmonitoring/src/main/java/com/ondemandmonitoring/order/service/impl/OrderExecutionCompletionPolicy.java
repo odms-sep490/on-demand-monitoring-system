@@ -52,12 +52,14 @@ public class OrderExecutionCompletionPolicy implements IOrderExecutionCompletion
         if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.FINALIZED) return false;
         if (order.getOrderStatus() != OrderStatus.APPROVED && order.getOrderStatus() != OrderStatus.IN_PROGRESS
                 && order.getOrderStatus() != OrderStatus.COMPLETED) return false;
-        var effective = execution.missions().stream().filter(ExecutionPlanCoverageService::effective).toList();
+        var activeAssignments = assignments.findActiveByOrderId(order.getId());
+        var effective = execution.missions().stream().filter(ExecutionPlanCoverageService::effective)
+                .filter(m -> !com.ondemandmonitoring.mission.service.impl.ReworkReplacementPolicy.replaced(m, execution.missions(), activeAssignments)).toList();
         if (effective.isEmpty()) return false;
         // Recheck the aggregate, not just each package: FINALIZED metadata cannot stand in
         // for effective coverage of every historical Order requirement.
         if (!coverage.evaluate(items.findAllByOrderIdInOrderByDisplayOrderAscIdAsc(List.of(order.getId())),
-                execution.missions(), assignments.findActiveByOrderId(order.getId())).coverageReady()) return false;
+                execution.missions(), activeAssignments).coverageReady()) return false;
         var byMission = results.findByMissionIds(effective.stream().map(m -> m.getId()).toList()).stream()
                 .collect(java.util.stream.Collectors.toMap(r -> r.getMission().getId(), r -> r));
         for (var mission : effective) {

@@ -64,6 +64,8 @@ class InspectionCorrectionPostgresTest {
   @Autowired EntityManagerFactory emf;
   @Autowired PlatformTransactionManager transactions;
   @Autowired IInspectionCorrectionService service;
+  @Autowired IMissionChecklistAssignmentService assignmentService;
+  @Autowired com.ondemandmonitoring.mission.inspection.service.IInternalInspectionMissionService drafts;
   @Autowired InspectionCorrectionRepository corrections;
   @Autowired InspectionCorrectionItemRepository items;
   @Autowired MissionChecklistExecutionRepository executions;
@@ -83,6 +85,7 @@ class InspectionCorrectionPostgresTest {
             + " CASCADE");
     reset(auth, evidence);
     when(auth.canAssessMonitoringChecklist(anyString())).thenReturn(true);
+    when(auth.canRequestInspectionCorrection(anyString())).thenReturn(true);
     when(auth.canAttachChecklistEvidence(anyString())).thenReturn(true);
     when(auth.canViewMission(anyString())).thenReturn(true);
     when(evidence.ready(any(), anyList(), eq(false))).thenReturn(true);
@@ -160,12 +163,90 @@ class InspectionCorrectionPostgresTest {
         });
   }
 
+  @Autowired com.ondemandmonitoring.mission.service.impl.MissionEvidenceSubmissionService submissions;
+
+  @Test
+  void evidenceHandoffPersistsSnapshotAndReplaysWithoutAnotherRevision() {
+    jdbc.update("update missions set completed_at=? where id=?", java.sql.Timestamp.from(NOW), missionId);
+    var state = submissions.get(missionId);
+    assertThat(state.canSubmit()).isTrue();
+    var command = new com.ondemandmonitoring.mission.service.impl.MissionEvidenceSubmissionService.Command(UUID.randomUUID(), state.reviewToken());
+    var sent = submissions.submit(missionId, command);
+    assertThat(sent.reviewable()).isTrue();
+    assertThat(sent.canSubmit()).isFalse();
+    assertThat(sent.history()).hasSize(1);
+    assertThat(submissions.submit(missionId, command).history()).hasSize(1);
+    assertThat(jdbc.queryForObject("select jsonb_array_length(snapshot) from mission_evidence_submissions", Integer.class)).isEqualTo(1);
+    jdbc.update("update mission_checklist_executions set observation='changed later' where id=?", executionId);
+    assertThat(jdbc.queryForObject("select snapshot::text from mission_evidence_submissions", String.class)).doesNotContain("changed later");
+  }
+
+  @Test
+  void dossierAdjustmentNeverCreatesANewFlight() {
+    var opened = service.request(missionId, request());
+    assertThatThrownBy(() -> internalMissions.create(missionId, opened.id(),
+        new com.ondemandmonitoring.mission.inspection.dto.request.InternalCorrectionMissionRequest(
+            opened.version(), UUID.randomUUID(), "Not a flight", NOW.plusSeconds(3600), NOW.plusSeconds(7200))))
+        .isInstanceOf(ApiException.class);
+    assertThat(jdbc.queryForObject("select count(*) from missions", Integer.class)).isEqualTo(1);
+  }
+
+  @Test
+  void supplementalRequestCannotBeResubmittedWithoutAcceptedFlight() {
+    var opened = service.request(missionId, flightRequest());
+    assertThatThrownBy(() -> service.resubmit(missionId, opened.id(), decision(opened))).isInstanceOf(ApiException.class);
+    assertThat(service.list(missionId).getFirst().status()).isEqualTo(InspectionCorrectionStatus.OPEN);
+  }
+
+  @Test
+  void missingOriginalDataCanEscalateToFlightWithoutLosingHistoryOrRequestReplay() {
+    var request = request();
+    var opened = service.request(missionId, request);
+    var escalated = service.requireFlight(missionId, opened.id(), decision(opened));
+    assertThat(escalated.mode()).isEqualTo(com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT);
+    assertThat(escalated.events()).hasSize(3);
+    when(auth.canAssessMonitoringChecklist(missionId)).thenReturn(false);
+    assertThat(service.request(missionId, request).id()).isEqualTo(opened.id());
+    assertThatThrownBy(() -> service.requireFlight(missionId, opened.id(), decision(escalated))).isInstanceOf(ApiException.class);
+    assertThatThrownBy(() -> service.resubmit(missionId, opened.id(), decision(escalated))).isInstanceOf(ApiException.class);
+  }
+
+  @Test
+  void concurrentHandoffsProduceExactlyOneSubmission() throws Exception {
+    jdbc.update("update missions set completed_at=? where id=?", java.sql.Timestamp.from(NOW), missionId);
+    var token = submissions.get(missionId).reviewToken();
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    var start = new CountDownLatch(1);
+    try {
+      List<Future<Boolean>> calls = new ArrayList<>();
+      for (int i = 0; i < 2; i++) calls.add(pool.submit(() -> {
+        start.await();
+        try {
+          submissions.submit(missionId, new com.ondemandmonitoring.mission.service.impl.MissionEvidenceSubmissionService.Command(UUID.randomUUID(), token));
+          return true;
+        } catch (ApiException expected) { return false; }
+      }));
+      start.countDown();
+      int accepted = 0;
+      for (var call : calls) if (call.get(30, TimeUnit.SECONDS)) accepted++;
+      assertThat(accepted).isEqualTo(1);
+      assertThat(jdbc.queryForObject("select count(*) from mission_evidence_submissions", Integer.class)).isEqualTo(1);
+    } finally { pool.shutdownNow(); }
+  }
+
   InspectionCorrectionRequest request() {
     return new InspectionCorrectionRequest(
         UUID.randomUUID(),
+        com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.DOSSIER_ADJUSTMENT,
         List.of(
             new InspectionCorrectionRequest.Item(
                 executionId, 0L, "The image is blurred", List.of())));
+  }
+
+  InspectionCorrectionRequest flightRequest() {
+    var request = request();
+    return new InspectionCorrectionRequest(request.clientRequestId(),
+        com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT, request.items());
   }
 
   InspectionCorrectionDecision decision(InspectionCorrectionResponse row) {
@@ -274,35 +355,24 @@ class InspectionCorrectionPostgresTest {
 
   @Test
   void acceptedSupplementClosesTheOriginalRequestWithoutCopyingExecutionRows() {
-    var opened = service.request(missionId, request());
+    var opened = service.request(missionId, flightRequest());
     String[] childIds = new String[2];
     tx.executeWithoutResult(
         status -> {
           EntityManager em = SharedEntityManagerCreator.createSharedEntityManager(emf);
           var correction = corrections.findById(opened.id()).orElseThrow();
           var original = items.findItems(opened.id()).getFirst().getExecution();
-          Mission child = new Mission();
-          child.setOrder(correction.getMission().getOrder());
-          child.setMissionCode("MS-INTERNAL-TEST");
-          child.setPurpose(MissionPurpose.REWORK);
-          child.setInspectionCorrection(correction);
+          Mission child = correction.getSupplementalMission();
           child.setStatus(MissionStatus.COMPLETED);
           child.setScopeLabel("Recapture fence");
           child.setScheduledStartAt(NOW.minusSeconds(1800));
           child.setScheduledEndAt(NOW.plusSeconds(1800));
           child.setActualEndAt(NOW);
           child.setCompletedAt(NOW);
-          em.persist(child);
           em.flush();
-          correction.setSupplementalMission(child);
-          corrections.saveAndFlush(correction);
-          var assignment = new MissionChecklistAssignment();
-          assignment.setMissionId(child.getId());
-          assignment.setOrderId(child.getOrder().getId());
-          assignment.setOrderChecklistItemId(original.getOrderChecklistItemId());
-          assignment.setAssignedAt(NOW.minusSeconds(60));
-          em.persist(assignment);
-          em.flush();
+          var assignment = em.createQuery(
+              "select a from MissionChecklistAssignment a where a.missionId=:id and a.removedAt is null",
+              MissionChecklistAssignment.class).setParameter("id", child.getId()).getSingleResult();
           var replacement = new MissionChecklistExecution();
           replacement.setMissionId(child.getId());
           replacement.setOrderId(child.getOrder().getId());
@@ -348,7 +418,7 @@ class InspectionCorrectionPostgresTest {
             com.ondemandmonitoring.mission.inspection.dto.response.InspectionCorrectionResponse
                     .Event
                 ::action)
-        .containsExactly("REQUESTED", "RESUBMITTED", "RESOLVED");
+        .containsExactly("REQUESTED", "INTERNAL_MISSION_CREATED", "RESUBMITTED", "RESOLVED");
   }
 
   @Test
@@ -372,20 +442,14 @@ class InspectionCorrectionPostgresTest {
 
   @Test
   void createsInternalMissionAndAssignsFailedScopeInOneTransaction() {
-    var correction = service.request(missionId, request());
+    var correction = service.request(missionId, flightRequest());
     assertThat(correction.items().getFirst().orderChecklistItemId())
         .isEqualTo(jdbc.queryForObject("select order_checklist_item_id from mission_checklist_executions where id=?",String.class,executionId));
-    var child =
-        internalMissions.create(
-            missionId,
-            correction.id(),
-            new com.ondemandmonitoring.mission.inspection.dto.request
-                .InternalCorrectionMissionRequest(
-                correction.version(),
-                UUID.randomUUID(),
-                "Recapture fence",
-                NOW.plusSeconds(3600),
-                NOW.plusSeconds(7200)));
+    var child = internalMissions.ensureDraft(missionId, correction.id(), false);
+    var repeated = internalMissions.ensureDraft(missionId, correction.id(), false);
+    assertThat(repeated.getId()).isEqualTo(child.getId());
+    assertThat(jdbc.queryForObject("select count(*) from missions", Integer.class)).isEqualTo(2);
+    assertThat(jdbc.queryForObject("select scheduled_start_at from missions where id=?", java.sql.Timestamp.class, child.getId())).isNull();
     assertThat(child.getId()).isNotBlank().isNotEqualTo(missionId);
     assertThat(
             jdbc.queryForObject(
@@ -401,38 +465,200 @@ class InspectionCorrectionPostgresTest {
 
   @Test
   void rollsBackNewMissionAndCorrectionLinkWhenAssignmentFails() {
-    var correction = service.request(missionId, request());
-    when(users.getCurrentUserId())
+    when(users.getCurrentUserId()).thenReturn("test-actor", "test-actor")
         .thenThrow(new IllegalStateException("Assignment actor unavailable"));
     try {
-      assertThatThrownBy(
-              () ->
-                  internalMissions.create(
-                      missionId,
-                      correction.id(),
-                      new com.ondemandmonitoring.mission.inspection.dto.request
-                          .InternalCorrectionMissionRequest(
-                          correction.version(),
-                          UUID.randomUUID(),
-                          "Recapture fence",
-                          NOW.plusSeconds(3600),
-                          NOW.plusSeconds(7200))))
-          .isInstanceOf(IllegalStateException.class)
-          .hasMessage("Assignment actor unavailable");
+      assertThatThrownBy(() -> service.request(missionId, flightRequest()))
+          .isInstanceOf(IllegalStateException.class).hasMessage("Assignment actor unavailable");
       assertThat(jdbc.queryForObject("select count(*) from missions", Integer.class)).isEqualTo(1);
-      assertThat(
-              jdbc.queryForObject(
-                  "select count(*) from mission_checklist_assignments", Integer.class))
-          .isEqualTo(1);
-      assertThat(
-              jdbc.queryForObject(
-                  "select supplemental_mission_id from mission_inspection_corrections where id=?",
-                  String.class,
-                  correction.id()))
-          .isNull();
+      assertThat(jdbc.queryForObject("select count(*) from mission_checklist_assignments", Integer.class)).isEqualTo(1);
+      assertThat(jdbc.queryForObject("select count(*) from mission_inspection_corrections", Integer.class)).isZero();
     } finally {
       doReturn("test-actor").when(users).getCurrentUserId();
     }
+  }
+
+  @Test
+  void failedInternalMissionCanBeReplacedWithoutDeletingItsHistory() {
+    var correction=service.request(missionId,flightRequest());
+    var first=internalMissions.ensureDraft(missionId,correction.id(),false);
+    jdbc.update("update missions set status='FAILED' where id=?",first.getId());
+    var current=service.list(missionId).getFirst();
+    var second=internalMissions.ensureDraft(missionId,current.id(),true);
+    assertThat(second.getId()).isNotEqualTo(first.getId());
+    assertThat(jdbc.queryForObject("select status from missions where id=?",String.class,first.getId())).isEqualTo("FAILED");
+    assertThat(jdbc.queryForObject("select count(*) from mission_checklist_assignments where mission_id=? and removed_at is null",Integer.class,first.getId())).isEqualTo(1);
+    assertThat(service.list(missionId).getFirst().supplementalMissionId()).isEqualTo(second.getId());
+    assertThat(jdbc.queryForObject("select assignment_status from order_checklist_items where id=(select order_checklist_item_id from mission_checklist_executions where id=?)",String.class,executionId)).isEqualTo("IN_PROGRESS");
+  }
+
+  @Test
+  void concurrentDraftRestorationCreatesOnlyOneReplacementAndRetainsTheFailedAttempt() throws Exception {
+    var correction = service.request(missionId, flightRequest());
+    var failedId = correction.supplementalMissionId();
+    jdbc.update("update missions set status='FAILED' where id=?", failedId);
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    var start = new CountDownLatch(1);
+    try {
+      List<Future<String>> calls = new ArrayList<>();
+      for (int i=0; i<2; i++) calls.add(pool.submit(() -> {
+        start.await();
+        return drafts.ensureDraft(missionId, correction.id(), true).getId();
+      }));
+      start.countDown();
+      var first = calls.getFirst().get(30, TimeUnit.SECONDS);
+      assertThat(calls.getLast().get(30, TimeUnit.SECONDS)).isEqualTo(first).isNotEqualTo(failedId);
+      assertThat(jdbc.queryForObject("select count(*) from missions", Integer.class)).isEqualTo(3);
+      assertThat(jdbc.queryForObject("select status from missions where id=?", String.class, failedId)).isEqualTo("FAILED");
+      assertThat(jdbc.queryForObject("select supplemental_mission_id from mission_inspection_corrections where id=?", String.class, correction.id())).isEqualTo(first);
+    } finally { pool.shutdownNow(); }
+  }
+
+  private com.ondemandmonitoring.mission.service.impl.MissionService customerDraftService() {
+    var service = mock(com.ondemandmonitoring.mission.service.impl.MissionService.class, CALLS_REAL_METHODS);
+    var repositoryFactory = new org.springframework.data.jpa.repository.support.JpaRepositoryFactory(
+        SharedEntityManagerCreator.createSharedEntityManager(emf));
+    var invoices = mock(com.ondemandmonitoring.finance.repository.InvoiceRepository.class);
+    var invoice = new com.ondemandmonitoring.finance.domain.Invoice();
+    var quote = new com.ondemandmonitoring.finance.domain.Quote();
+    quote.setStatus(com.ondemandmonitoring.finance.enums.QuoteStatus.ACCEPTED_BY_CUSTOMER); invoice.setQuote(quote);
+    when(invoices.findByOrderId(anyString())).thenReturn(Optional.of(invoice));
+    var eligibility = mock(com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService.class);
+    when(eligibility.isDepositSatisfied(any())).thenReturn(true);
+    Map<String,Object> dependencies = Map.of(
+        "missionRepository", repositoryFactory.getRepository(MissionRepository.class),
+        "orderRepository", repositoryFactory.getRepository(OrderRepository.class),
+        "resultRevisionCases", repositoryFactory.getRepository(com.ondemandmonitoring.delivery.repository.ResultRevisionCaseRepository.class),
+        "resultRevisionCaseItems", repositoryFactory.getRepository(com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository.class),
+        "invoiceRepository", invoices,
+        "missionPaymentEligibilityService", eligibility,
+        "checklistAssignmentService", assignmentService,
+        "reworkContextSnapshots", new com.ondemandmonitoring.mission.service.impl.MissionReworkContextSnapshotService(
+            repositoryFactory.getRepository(com.ondemandmonitoring.delivery.repository.ResultRevisionRequestItemRepository.class),
+            repositoryFactory.getRepository(MissionReworkChecklistContextRepository.class)));
+    dependencies.forEach((name,value) -> org.springframework.test.util.ReflectionTestUtils.setField(service,name,value));
+    var mapper = mock(com.ondemandmonitoring.mission.mapper.MissionMapper.class);
+    when(mapper.toResponse(any())).thenAnswer(call -> com.ondemandmonitoring.mission.dto.response.MissionResponse.builder()
+        .id(((Mission)call.getArgument(0)).getId()).build());
+    org.springframework.test.util.ReflectionTestUtils.setField(service,"missionMapper",mapper);
+    return service;
+  }
+
+  private String customerCase() {
+    return tx.execute(status -> {
+      var em = SharedEntityManagerCreator.createSharedEntityManager(emf);
+      var source = em.find(Mission.class,missionId);
+      var revisionCase = new com.ondemandmonitoring.delivery.domain.ResultRevisionCase();
+      revisionCase.setOrder(source.getOrder()); revisionCase.setTicketId(UUID.randomUUID().toString());
+      revisionCase.setOpenedAt(NOW); em.persist(revisionCase);
+      addCustomerCaseItem(em, revisionCase, em.find(MissionChecklistExecution.class,executionId).getOrderChecklistItem(), missionId);
+      return revisionCase.getId();
+    });
+  }
+
+  private void addCustomerCaseItem(EntityManager em, com.ondemandmonitoring.delivery.domain.ResultRevisionCase revisionCase,
+      OrderChecklistItem checklist, String sourceId) {
+    var item = new com.ondemandmonitoring.delivery.domain.ResultRevisionCaseItem();
+    item.setResultRevisionCase(revisionCase); item.setOrderChecklistItem(checklist); item.setSourceMissionId(sourceId);
+    item.setScopeDecision(com.ondemandmonitoring.delivery.enums.ResultRevisionScope.IN_SCOPE);
+    item.setStrategy(com.ondemandmonitoring.delivery.enums.ResultRevisionStrategy.REWORK);
+    item.setStatus(com.ondemandmonitoring.delivery.enums.ResultRevisionCaseItemStatus.IN_PROGRESS);
+    item.setManagerInstructions("Redo this scope"); em.persist(item);
+  }
+
+  @Test
+  void concurrentCustomerDraftsAreIdempotentAndTerminalReplacementIsExplicit() throws Exception {
+    var caseId = customerCase();
+    var service = customerDraftService();
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    var start = new CountDownLatch(1);
+    try {
+      List<Future<?>> calls = new ArrayList<>();
+      for (int i=0; i<2; i++) calls.add(pool.submit(() -> {
+        try { start.await(); } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new RuntimeException(interrupted); }
+        tx.executeWithoutResult(status -> service.ensureResultRevisionReworkDrafts(caseId,false));
+      }));
+      start.countDown(); for (var call:calls) call.get(30,TimeUnit.SECONDS);
+    } finally { pool.shutdownNow(); }
+    assertThat(jdbc.queryForObject("select count(*) from missions",Integer.class)).isEqualTo(2);
+    assertThat(jdbc.queryForObject("select count(*) from mission_rework_checklist_contexts",Integer.class)).isEqualTo(1);
+    var failedId = jdbc.queryForObject("select assigned_rework_mission_id from result_revision_case_items where case_id=?",String.class,caseId);
+    jdbc.update("update missions set status='CANCELLED' where id=?",failedId);
+    tx.executeWithoutResult(status -> service.ensureResultRevisionReworkDrafts(caseId,false));
+    assertThat(jdbc.queryForObject("select count(*) from missions",Integer.class)).isEqualTo(2);
+    tx.executeWithoutResult(status -> service.ensureResultRevisionReworkDrafts(caseId,true));
+    assertThat(jdbc.queryForObject("select count(*) from missions",Integer.class)).isEqualTo(3);
+    assertThat(jdbc.queryForObject("select assigned_rework_mission_id from result_revision_case_items where case_id=?",String.class,caseId)).isNotEqualTo(failedId);
+    assertThat(jdbc.queryForObject("select count(*) from mission_rework_checklist_contexts",Integer.class)).isEqualTo(2);
+  }
+
+  @Test
+  void scopesFromSiblingMissionsJoinOneCustomerDraftWithoutDuplicatingSnapshots() {
+    var caseId = customerCase(); var service = customerDraftService();
+    tx.executeWithoutResult(status -> service.ensureResultRevisionReworkDrafts(caseId,false));
+    var draftId = jdbc.queryForObject("select assigned_rework_mission_id from result_revision_case_items where case_id=?",String.class,caseId);
+    tx.executeWithoutResult(status -> {
+      var em = SharedEntityManagerCreator.createSharedEntityManager(emf);
+      var revisionCase = em.find(com.ondemandmonitoring.delivery.domain.ResultRevisionCase.class,caseId);
+      var sibling = new Mission(); sibling.setOrder(revisionCase.getOrder()); sibling.setMissionCode("MS-SIBLING");
+      sibling.setStatus(MissionStatus.COMPLETED); em.persist(sibling);
+      var checklist = new OrderChecklistItem(); checklist.setOrder(revisionCase.getOrder());
+      checklist.setSourceType(OrderChecklistSourceType.CUSTOMER_CUSTOM); checklist.setContent("Second source mission scope");
+      checklist.setReviewStatus(ChecklistReviewStatus.INCLUDED); em.persist(checklist);
+      addCustomerCaseItem(em,revisionCase,checklist,sibling.getId());
+    });
+    tx.executeWithoutResult(status -> service.ensureResultRevisionReworkDrafts(caseId,false));
+    assertThat(jdbc.queryForObject("select count(distinct assigned_rework_mission_id) from result_revision_case_items where case_id=?",Integer.class,caseId)).isEqualTo(1);
+    assertThat(jdbc.queryForObject("select count(*) from mission_checklist_assignments where mission_id=? and removed_at is null",Integer.class,draftId)).isEqualTo(2);
+    assertThat(jdbc.queryForObject("select count(*) from mission_rework_checklist_contexts where mission_id=?",Integer.class,draftId)).isEqualTo(2);
+    assertThat(jdbc.queryForObject("select count(*) from mission_checklist_assignments where mission_id=? and removed_at is null",Integer.class,missionId)).isEqualTo(1);
+  }
+
+  @Test
+  void failedCustomerSnapshotRollsBackTheDraftScopeAndPlanRevisionTogether() {
+    var caseId = customerCase(); var service = customerDraftService();
+    var snapshots = mock(IMissionReworkContextSnapshotService.class);
+    doThrow(new IllegalStateException("Snapshot unavailable")).when(snapshots).capture(any(),anyList());
+    org.springframework.test.util.ReflectionTestUtils.setField(service,"reworkContextSnapshots",snapshots);
+    assertThatThrownBy(() -> tx.executeWithoutResult(status -> service.ensureResultRevisionReworkDrafts(caseId,false)))
+        .isInstanceOf(IllegalStateException.class);
+    assertThat(jdbc.queryForObject("select count(*) from missions",Integer.class)).isEqualTo(1);
+    assertThat(jdbc.queryForObject("select count(*) from result_revision_case_items where assigned_rework_mission_id is not null",Integer.class)).isZero();
+    assertThat(jdbc.queryForObject("select count(*) from mission_checklist_assignments",Integer.class)).isEqualTo(1);
+    assertThat(jdbc.queryForObject("select revision from order_execution_plans",Long.class)).isEqualTo(2L);
+  }
+
+  @Test
+  void concurrentInitialPlanningPreservesBothScopesAndEveryPlanRevision() throws Exception {
+    var ids = tx.execute(status -> {
+      var em = SharedEntityManagerCreator.createSharedEntityManager(emf);
+      var source = em.find(Mission.class,missionId); source.setStatus(MissionStatus.CANCELLED);
+      var order = source.getOrder(); order.setOrderStatus(OrderStatus.APPROVED);
+      order.getExecutionPlan().setStatus(ExecutionPlanStatus.DRAFT);
+      var first = em.find(MissionChecklistExecution.class,executionId).getOrderChecklistItem();
+      var second = new OrderChecklistItem(); second.setOrder(order);
+      second.setSourceType(OrderChecklistSourceType.CUSTOMER_CUSTOM); second.setContent("Independent second scope");
+      second.setReviewStatus(ChecklistReviewStatus.INCLUDED); em.persist(second);
+      return List.of(order.getId(),first.getId(),second.getId());
+    });
+    var service = customerDraftService();
+    ExecutorService pool = Executors.newFixedThreadPool(2); var start = new CountDownLatch(1);
+    try {
+      List<Future<String>> calls = new ArrayList<>();
+      for (String itemId:ids.subList(1,3)) calls.add(pool.submit(() -> {
+        start.await();
+        var request = new com.ondemandmonitoring.mission.dto.request.MissionCreateRequest();
+        request.setScopeLabel("Concurrent scope"); request.setChecklistIds(List.of(itemId));
+        request.setScheduledStartAt(Instant.parse("2026-12-01T02:00:00Z"));
+        request.setScheduledEndAt(Instant.parse("2026-12-01T03:00:00Z"));
+        return tx.execute(status -> service.createMission(ids.getFirst(),request).getId());
+      }));
+      start.countDown();
+      assertThat(calls.getFirst().get(30,TimeUnit.SECONDS)).isNotEqualTo(calls.getLast().get(30,TimeUnit.SECONDS));
+    } finally { pool.shutdownNow(); }
+    assertThat(jdbc.queryForObject("select count(*) from missions",Integer.class)).isEqualTo(3);
+    assertThat(jdbc.queryForObject("select revision from order_execution_plans",Long.class)).isEqualTo(4L);
+    assertThat(jdbc.queryForObject("select count(*) from mission_checklist_assignments where mission_id<>?",Integer.class,missionId)).isEqualTo(2);
   }
 
   @Configuration
@@ -511,6 +737,41 @@ class InspectionCorrectionPostgresTest {
     }
 
     @Bean
+    com.ondemandmonitoring.mission.service.impl.ChecklistEvidencePolicy eligibility() {
+      return new com.ondemandmonitoring.mission.service.impl.ChecklistEvidencePolicy();
+    }
+
+    @Bean
+    com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy handoff(
+        MissionEvidenceSubmissionRepository submissions, InspectionCorrectionRepository corrections) {
+      return new com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy(submissions, corrections);
+    }
+
+    @Bean
+    com.ondemandmonitoring.mission.service.impl.MissionEvidenceSubmissionService submissions(
+        MissionRepository missions, MissionEvidenceSubmissionRepository submissions,
+        MissionChecklistExecutionRepository executions, IChecklistEvidenceService evidence,
+        com.ondemandmonitoring.mission.service.impl.ChecklistEvidencePolicy eligibility,
+        IMissionChecklistScopeService scope, IMissionAuthorizationService authorization,
+        InspectionCorrectionRepository corrections,
+        com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy handoff,
+        AuthenticatedUserResolver users, Clock clock) {
+      return new com.ondemandmonitoring.mission.service.impl.MissionEvidenceSubmissionService(
+          missions, submissions, executions, evidence, eligibility, scope, authorization,
+          corrections, handoff, users, clock);
+    }
+
+    @Bean
+    com.ondemandmonitoring.mission.mapper.MissionChecklistExecutionMapper executionMapper() {
+      return Mappers.getMapper(com.ondemandmonitoring.mission.mapper.MissionChecklistExecutionMapper.class);
+    }
+
+    @Bean
+    IMissionResultService resultWorkflow() {
+      return mock(IMissionResultService.class);
+    }
+
+    @Bean
     Clock clock() {
       return Clock.fixed(NOW, ZoneOffset.UTC);
     }
@@ -567,9 +828,10 @@ class InspectionCorrectionPostgresTest {
 
     @Bean
     com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository
-        revisionCaseItems() {
-      return mock(
-          com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository.class);
+        revisionCaseItems(EntityManagerFactory emf) {
+      return new org.springframework.data.jpa.repository.support.JpaRepositoryFactory(
+          SharedEntityManagerCreator.createSharedEntityManager(emf))
+          .getRepository(com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository.class);
     }
 
     @Bean

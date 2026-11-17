@@ -48,8 +48,8 @@ class ExecutionPlanFinalizeTest {
         when(invoices.findByOrderId("o")).thenReturn(Optional.of(new Invoice()));
         when(paymentEligibility.isDepositSatisfied(any())).thenReturn(true);
         when(missions.findIdsByOrderIdOrderById("o")).thenReturn(List.of("b", "a"));
-        when(missions.findById("a")).thenReturn(Optional.of(first));
-        when(missions.findById("b")).thenReturn(Optional.of(second));
+        when(missions.findByIdForUpdate("a")).thenReturn(Optional.of(first));
+        when(missions.findByIdForUpdate("b")).thenReturn(Optional.of(second));
         when(assignments.findActiveByOrderId("o")).thenReturn(selection);
         when(items.findAllByOrderIdInOrderByDisplayOrderAscIdAsc(List.of("o")))
                 .thenReturn(selection.stream().map(MissionChecklistAssignment::getOrderChecklistItem).toList());
@@ -82,7 +82,7 @@ class ExecutionPlanFinalizeTest {
         var sequence = inOrder(orders, missions, materializer);
         sequence.verify(orders).findByIdForUpdate("o");
         sequence.verify(missions).findIdsByOrderIdOrderById("o");
-        sequence.verify(missions).findById("a"); sequence.verify(missions).findById("b");
+        sequence.verify(missions).findByIdForUpdate("a"); sequence.verify(missions).findByIdForUpdate("b");
         sequence.verify(materializer).materialize(first); sequence.verify(materializer).materialize(second);
         assertEquals(ExecutionPlanStatus.FINALIZED, order.getExecutionPlan().getStatus());
         assertEquals(4, order.getExecutionPlan().getRevision());

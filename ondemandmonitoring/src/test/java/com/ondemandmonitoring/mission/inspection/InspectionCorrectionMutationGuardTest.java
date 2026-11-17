@@ -34,4 +34,22 @@ class InspectionCorrectionMutationGuardTest {
   void unrelatedAcceptedItemsRemainEditableUntilNormalResultLock() {
     guard.requireEditable("m", "good");
   }
+
+  @Test
+  void reporterCannotChangeAlreadyAcceptedChecklistWhileOtherWorkIsReturned() {
+    var correction = new com.ondemandmonitoring.mission.inspection.domain.InspectionCorrection();
+    correction.setId("c");
+    correction.setStatus(InspectionCorrectionStatus.OPEN);
+    correction.setMode(com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.DOSSIER_ADJUSTMENT);
+    var execution = new com.ondemandmonitoring.mission.domain.MissionChecklistExecution();
+    execution.setId("e");
+    execution.setAssessmentStatus(com.ondemandmonitoring.mission.enums.ChecklistAssessmentStatus.COMPLIANT);
+    var item = new com.ondemandmonitoring.mission.inspection.domain.InspectionCorrectionItem();
+    item.setExecution(execution);
+    when(corrections.findByMission_IdOrderByRequestedAtDescIdDesc("m")).thenReturn(java.util.List.of(correction));
+    when(items.findItems("c")).thenReturn(java.util.List.of(item));
+    assertThatThrownBy(() -> guard.requireDossierEditable("m", "e")).isInstanceOf(ApiException.class);
+    execution.setAssessmentStatus(com.ondemandmonitoring.mission.enums.ChecklistAssessmentStatus.NOT_ASSESSED);
+    guard.requireDossierEditable("m", "e");
+  }
 }

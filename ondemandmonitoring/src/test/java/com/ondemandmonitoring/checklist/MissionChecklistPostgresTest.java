@@ -63,7 +63,7 @@ class MissionChecklistPostgresTest extends OrderMissionPostgresTest {
     String mission(int count) {
         String order = snapshotOrder(count);
         String id = legacyMission(order, request(order)).getId();
-        setStatus(id, MissionStatus.IN_FLIGHT); return id;
+        setStatus(id, MissionStatus.IN_PROGRESS); return id;
     }
 
     void setStatus(String id, MissionStatus status) {
@@ -90,7 +90,10 @@ class MissionChecklistPostgresTest extends OrderMissionPostgresTest {
 
     @Test void planningCreationDoesNotInitializeAcrossRetries() {
         String order = snapshotOrder(3);
-        var controller = new com.ondemandmonitoring.mission.controller.MissionController(missionService, null, null);
+        var controller = new com.ondemandmonitoring.mission.controller.MissionController(missionService,
+                org.mockito.Mockito.mock(com.ondemandmonitoring.flightpermit.service.IFlightPermitService.class),
+                null,
+                null);
         var first = controller.createMission(order, request(order)).getBody().getData();
         var second = controller.createMission(order, request(order)).getBody().getData();
         assertEquals(first.getId(), second.getId());
@@ -137,7 +140,7 @@ class MissionChecklistPostgresTest extends OrderMissionPostgresTest {
         String order = orderService.createOrder(request).getId();
         new JdbcTemplate(dataSource).update("update order_checklist_items set minimum_image_count=0,minimum_video_count=0,evidence_policy_version=0, minimum_evidence_count=0, required_evidence_type='IMAGE_OR_VIDEO' where order_id=?", order);
         transaction.executeWithoutResult(tx -> orders.findById(order).orElseThrow().setOrderStatus(OrderStatus.APPROVED));
-        String mission = legacyMission(order, request(order)).getId(); setStatus(mission, MissionStatus.IN_FLIGHT);
+        String mission = legacyMission(order, request(order)).getId(); setStatus(mission, MissionStatus.IN_PROGRESS);
         var row = executionService.getByMissionId(mission).executions().getFirst();
         long snapshotVersion = snapshots.findById(row.getOrderChecklistItemId()).orElseThrow().getVersion();
         var edit = new com.ondemandmonitoring.checklist.dto.request.ChecklistRequest(); edit.setContent("New template");
@@ -215,7 +218,7 @@ class MissionChecklistPostgresTest extends OrderMissionPostgresTest {
         assertFalse(executionService.getByMissionId(mission).readyForSubmission());
         change(mission, inProgress, ChecklistExecutionStatus.UNABLE_TO_VERIFY);
         assertTrue(executionService.getByMissionId(mission).readyForSubmission());
-        assertEquals(MissionStatus.IN_FLIGHT, missions.findById(mission).orElseThrow().getStatus());
+        assertEquals(MissionStatus.IN_PROGRESS, missions.findById(mission).orElseThrow().getStatus());
         new JdbcTemplate(dataSource).update("delete from mission_checklist_executions where id=?", rows.get(0).getId());
         assertFalse(executionService.getByMissionId(mission).readyForSubmission());
         executionService.getByMissionId(mission); assertEquals(2, executions.count());

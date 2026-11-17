@@ -21,7 +21,7 @@ class MissionCreationServiceTest {
     MissionServiceTest fixture;
     Order order;
     static MissionCreateRequest request(String orderId, String key, long revision) {
-        var r = new MissionCreateRequest(); r.setScopeLabel("Whole Order scope");
+        var r = new MissionCreateRequest(); r.setScopeLabel("Whole Order scope"); r.setChecklistIds(List.of("checklist"));
         r.setScheduledStartAt(Instant.parse("2026-10-08T02:00:00Z"));
         r.setScheduledEndAt(Instant.parse("2026-10-08T04:00:00Z")); return r;
     }
@@ -36,6 +36,11 @@ class MissionCreationServiceTest {
                 .preferredDateTo(LocalDate.of(2026,10,8)).preferredTime(
                     com.ondemandmonitoring.warehouse.domain.PreferredTime.builder()
                         .startTime(LocalTime.of(9,0)).endTime(LocalTime.of(11,0)).build()).build(); order.setId("o");
+        var assignmentService = (IMissionChecklistAssignmentService) org.springframework.test.util.ReflectionTestUtils.getField(fixture.missionService, "checklistAssignmentService");
+        when(assignmentService.replace(anyString(), any())).thenAnswer(call -> {
+            order.getExecutionPlan().setRevision(Math.incrementExact(order.getExecutionPlan().getRevision()));
+            return null;
+        });
         var geometry = new GeometryFactory(new PrecisionModel(),4326);
         order.setPoint(geometry.createPoint(new Coordinate(106,10)));
         when(fixture.orderRepository.findByIdForUpdate("o")).thenReturn(Optional.of(order));
@@ -89,14 +94,14 @@ class MissionCreationServiceTest {
     }
     @Test void planningMissionCannotEnterLifecycleOrTelemetryEvenWithForcedRuntimeState() {
         var mission=new Mission(); mission.setId("m");
-        mission.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.IN_FLIGHT);
+        mission.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.IN_PROGRESS);
         when(fixture.missionRepository.findById("m")).thenReturn(Optional.of(mission));
         error(ErrorCode.CHECKLIST_ASSIGNMENT_NOT_FINALIZED,()->fixture.missionService.completeMission("m"));
         verifyNoInteractions(fixture.missionDeviceAssignmentRepository,fixture.missionStaffAssignmentRepository);
     }
     @Test void crewMayReadTheirPlanningMissionButCannotGainOperationalPermissions() {
         var mission=new Mission();mission.setId("m");
-        mission.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.IN_FLIGHT);
+        mission.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.IN_PROGRESS);
         var caller=com.ondemandmonitoring.user.domain.User.builder().isActive(true).role(com.ondemandmonitoring.role.domain.Role.builder().code(RoleCode.STAFF).active(true).build()).build();caller.setId("crew");
         when(fixture.authenticatedUserResolver.getCurrentUser()).thenReturn(caller);
         when(fixture.missionRepository.findById("m")).thenReturn(Optional.of(mission));
@@ -122,7 +127,7 @@ class MissionCreationServiceTest {
                         mock(com.ondemandmonitoring.mission.repository.MissionChecklistAssignmentRepository.class),
                         new com.ondemandmonitoring.mission.service.impl.ExecutionPlanCoverageService()),
                 checks,fixture.authenticatedUserResolver,null);
-        error(ErrorCode.CHECKLIST_ASSIGNMENT_NOT_FINALIZED,()->service.approve("r",null));
+        error(ErrorCode.ACCESS_DENIED,()->service.approve("r",null));
         assertEquals(OrderStatus.APPROVED,order.getOrderStatus());verifyNoInteractions(checks);verify(fixture.orderRepository,never()).save(any());
     }
 }

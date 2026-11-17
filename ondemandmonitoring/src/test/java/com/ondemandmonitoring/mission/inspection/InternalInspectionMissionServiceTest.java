@@ -123,18 +123,36 @@ class InternalInspectionMissionServiceTest {
   void createsSeparateMissionForOnlyRequestedScopeWithoutReopeningOriginal() {
     var response = service.create("parent", "c", request());
     assertThat(response.getId()).isEqualTo("child");
+    assertThat(saved.getMissionCode()).matches("MS-\\d{5}");
     assertThat(saved.getInspectionCorrection()).isSameAs(correction);
     assertThat(saved.getResultRevisionCaseId()).isNull();
     assertThat(saved.getPurpose()).isEqualTo(MissionPurpose.REWORK);
     assertThat(parent.getStatus()).isEqualTo(MissionStatus.IN_PROGRESS);
     verify(assignments)
-        .replace(
-            eq("child"),
+        .initializeInternalCorrectionDraft(
+            eq("parent"), eq("child"),
             argThat(
                 r ->
                     r.items().size() == 1
                         && r.items().getFirst().orderChecklistItemId().equals("bad-item")));
     verify(orders, never()).saveAndFlush(any());
+  }
+
+  @Test
+  void failedSupplementCanBeReplacedWithoutChangingHistory() {
+    service.create("parent","c",request());var prior=saved;prior.setStatus(MissionStatus.FAILED);
+    var next=new InternalCorrectionMissionRequest(correction.getVersion(),UUID.randomUUID(),"Recapture fence",request().scheduledStartAt(),request().scheduledEndAt());
+    service.create("parent","c",next);
+    assertThat(saved).isNotSameAs(prior);assertThat(prior.getStatus()).isEqualTo(MissionStatus.FAILED);
+    assertThat(correction.getSupplementalMission()).isSameAs(saved);
+  }
+
+  @Test
+  void replayUsesTheSameNormalizedScopeAsPersistence() {
+    var original=request();service.create("parent","c",original);
+    when(missions.findByReworkRequestId(original.clientRequestId())).thenReturn(Optional.of(saved));
+    service.create("parent","c",new InternalCorrectionMissionRequest(original.expectedVersion(),original.clientRequestId(),"  "+original.scopeLabel()+"  ",original.scheduledStartAt(),original.scheduledEndAt()));
+    verify(missions,times(1)).saveAndFlush(any());
   }
 
   @Test
@@ -222,5 +240,52 @@ class InternalInspectionMissionServiceTest {
     assertThatThrownBy(
             () -> service.finalizePlan("parent", "c", new ExecutionPlanFinalizeRequest(2L, true)))
         .isInstanceOf(ApiException.class);
+  }
+
+  @Test
+  void completedOrderStillAllowsSupplementingItsCustomerRework() {
+    order.setOrderStatus(OrderStatus.COMPLETED);
+    parent.setPurpose(MissionPurpose.REWORK);
+    parent.setResultRevisionCaseId("customer-case");
+    assertThat(service.create("parent", "c", request()).getId()).isEqualTo("child");
+  }
+
+  @Test
+  void escalationPreservesChecklistAlreadyAcceptedDuringDossierReview() {
+    var accepted = new MissionChecklistExecution();
+    accepted.setOrderChecklistItemId("accepted-item");
+    accepted.setAssessmentStatus(ChecklistAssessmentStatus.COMPLIANT);
+    var retained = new InspectionCorrectionItem();
+    retained.setExecution(accepted);
+    var failed = items.findItems("c").getFirst();
+    when(items.findItems("c")).thenReturn(List.of(failed, retained));
+    service.create("parent", "c", request());
+    verify(assignments).initializeInternalCorrectionDraft(eq("parent"), eq("child"), argThat(selection ->
+        selection.items().size() == 1 && selection.items().getFirst().orderChecklistItemId().equals("bad-item")));
+  }
+
+  @Test
+  void automaticallyCreatesOneUnscheduledDraftAndReusesItOnRetry() {
+    service.ensureDraft("parent", "c", false);
+    var draft = saved;
+    assertThat(draft.getScheduledStartAt()).isNull();
+    assertThat(draft.getScheduledEndAt()).isNull();
+    assertThat(draft.getStatus()).isEqualTo(MissionStatus.PLANNING);
+    service.ensureDraft("parent", "c", false);
+    verify(missions, times(1)).saveAndFlush(any());
+    assertThat(correction.getSupplementalMission()).isSameAs(draft);
+    verifyNoInteractions(activation);
+  }
+
+  @Test
+  void cancelledDraftIsRetainedUntilManagerExplicitlyRequestsAReplacement() {
+    service.ensureDraft("parent", "c", false);
+    var previous = saved; previous.setStatus(MissionStatus.CANCELLED);
+    service.ensureDraft("parent", "c", false);
+    verify(missions, times(1)).saveAndFlush(any());
+    service.ensureDraft("parent", "c", true);
+    verify(missions, times(2)).saveAndFlush(any());
+    assertThat(correction.getSupplementalMission()).isNotSameAs(previous);
+    assertThat(previous.getStatus()).isEqualTo(MissionStatus.CANCELLED);
   }
 }

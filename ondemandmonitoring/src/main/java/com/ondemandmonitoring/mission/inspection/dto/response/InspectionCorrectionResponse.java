@@ -9,6 +9,7 @@ public record InspectionCorrectionResponse(
     String missionId,
     long version,
     InspectionCorrectionStatus status,
+    com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode mode,
     String reviewToken,
     String requestedBy,
     Instant requestedAt,

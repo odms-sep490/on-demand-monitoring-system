@@ -111,7 +111,7 @@ class ExecutionPlanHttpTest {
             mvc.perform(delete("/api/missions/m").with(jwt().authorities(() -> "ROLE_" + role)))
                     .andExpect(status().isNoContent());
         }
-        verify(missions, times(2)).confirmMissionPlanning("m"); verify(missions, times(2)).deleteDraftMission("m");
+        verify(missions, times(2)).confirmMissionPlanning("m"); verify(missions, times(2)).cancelDraftMission("m");
     }
 
     @Test void createAdditionalUsesNewEndpointAndValidatesPayload() throws Exception {

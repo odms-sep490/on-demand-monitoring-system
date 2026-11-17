@@ -63,6 +63,9 @@ class InspectorResultOwnershipTest {
     @Bean MissionResultSubmissionFixture fixture() { return new MissionResultSubmissionFixture(); }
     @Bean IMissionResultService results(MissionResultSubmissionFixture f) { return f.service; }
     @Bean IDeliveryWorkflowService delivery(MissionResultSubmissionFixture f) { return f.delivery; }
+    @Bean com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy handoff() {
+      return mock(com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy.class);
+    }
     @Bean InspectionCorrectionPolicy policy() { return mock(InspectionCorrectionPolicy.class); }
     @Bean ManagerMissionResultApprovalController managerResults(IMissionResultService service) {
       return new ManagerMissionResultApprovalController(service);

@@ -25,6 +25,9 @@ import com.ondemandmonitoring.refund.service.IRefundHoldService;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import java.time.Instant;
 import java.util.Set;
+import java.util.List;
+import com.ondemandmonitoring.mission.domain.MissionStaffAssignment;
+import com.ondemandmonitoring.mission.enums.MissionStaffRole;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -93,12 +96,18 @@ public class FlightPermitServiceImpl implements IFlightPermitService {
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Flight permit file must not exceed 5 MB");
         }
 
+        if (permit.getPilotStaffIds() != null && !permit.getPilotStaffIds().equals(pilotIds(currentStaff)))
+            permit.setReplacementRequired(true);
         String note = blankToNull(request.note());
         if (request.status() == FlightPermitStatus.REJECTED && note == null) {
             throw new ApiException(ErrorCode.INVALID_REQUEST,
                     "A rejection reason is required for a rejected flight permit");
         }
         if (request.status() == FlightPermitStatus.APPROVED) {
+            if ((permit.isReplacementRequired() || permit.getReusedFromMissionId() != null) && blankToNull(request.dataUrl()) == null)
+                throw new ApiException(ErrorCode.INVALID_REQUEST, "Upload a permit document for this mission and its assigned Pilot");
+            if (pilotIds(currentStaff).isEmpty())
+                throw new ApiException(ErrorCode.INVALID_REQUEST, "Assign a Pilot before approving the flight permit");
             if (blankToNull(request.dataUrl()) == null
                     && blankToNull(permit.getDataUrl()) == null) {
                 throw new ApiException(ErrorCode.INVALID_REQUEST,
@@ -120,6 +129,9 @@ public class FlightPermitServiceImpl implements IFlightPermitService {
                     Instant.now().plusSeconds(RESOURCE_HOLD_HOURS * 3600));
             permit.setResourcesReleasedAt(null);
         } else if (request.status() == FlightPermitStatus.APPROVED) {
+            permit.setPilotStaffIds(pilotIds(currentStaff));
+            permit.setReplacementRequired(false);
+            if (blankToNull(request.dataUrl()) != null) permit.setReusedFromMissionId(null);
             permit.setResourceHoldUntil(null);
             permit.setResourcesReleasedAt(null);
         } else if (request.status() == FlightPermitStatus.PENDING) {
@@ -129,6 +141,9 @@ public class FlightPermitServiceImpl implements IFlightPermitService {
             permit.setFileName(request.fileName());
             permit.setContentType(request.contentType());
             permit.setDataUrl(request.dataUrl());
+            permit.setPilotStaffIds(pilotIds(currentStaff));
+            permit.setReplacementRequired(false);
+            permit.setReusedFromMissionId(null);
         }
 
         flightPermitRepository.save(permit);
@@ -142,10 +157,77 @@ public class FlightPermitServiceImpl implements IFlightPermitService {
     public void requireApprovedForExecution(Mission mission) {
         if (refundHoldService != null) refundHoldService.requireOrderNotOnRefundHold(mission.getOrder().getId());
         if (mission.getFlightPermit() == null
-                || mission.getFlightPermit().getStatus() != FlightPermitStatus.APPROVED) {
+                || mission.getFlightPermit().getStatus() != FlightPermitStatus.APPROVED
+                || mission.getFlightPermit().isReplacementRequired()
+                || mission.getFlightPermit().getReusedFromMissionId() != null
+                || blankToNull(mission.getFlightPermit().getDataUrl()) == null
+                || (mission.getFlightPermit().getPilotStaffIds() == null && hasReplacedPilot(mission.getId()))
+                || (mission.getFlightPermit().getPilotStaffIds() != null
+                    && !mission.getFlightPermit().getPilotStaffIds().equals(pilotIds(currentCrew(mission.getId()))))) {
             throw new ApiException(ErrorCode.INVALID_REQUEST,
                     "Flight permit must be approved before the mission can start");
         }
+    }
+
+    @Override
+    @Transactional
+    public void synchronizeForCrew(Mission mission) {
+        if (!Set.of(MissionStatus.PENDING_CONFIRMATION, MissionStatus.READY).contains(mission.getStatus())) return;
+        var crew = currentCrew(mission.getId());
+        var pilots = pilotIds(crew);
+        var permit = mission.getFlightPermit();
+        if (permit == null) permit = FlightPermit.pendingFor(mission);
+        // Previously inherited documents are retained as history, but cannot authorize a new flight.
+        if (permit.getReusedFromMissionId() != null) {
+            if (permit.getStatus() != FlightPermitStatus.PENDING || !permit.isReplacementRequired()) {
+                permit.setStatus(FlightPermitStatus.PENDING);
+                permit.setReplacementRequired(true);
+                flightPermitRepository.save(permit);
+                persistedPreDeviceCheckService.refreshFlightPermitCheck(mission.getId());
+                synchronizeOrderLegalReview(mission);
+            }
+            return;
+        }
+        if (permit.getPilotStaffIds() != null && !permit.getPilotStaffIds().equals(pilots)) {
+            permit.setStatus(FlightPermitStatus.PENDING);
+            permit.setReplacementRequired(true);
+            flightPermitRepository.save(permit);
+            persistedPreDeviceCheckService.refreshFlightPermitCheck(mission.getId());
+            synchronizeOrderLegalReview(mission);
+            return;
+        }
+        if (permit.getStatus() == FlightPermitStatus.APPROVED) {
+            if (permit.getPilotStaffIds() == null && !pilots.isEmpty() && !hasReplacedPilot(mission.getId())) {
+                permit.setPilotStaffIds(pilots);
+                flightPermitRepository.save(permit);
+            }
+            if (permit.getPilotStaffIds() == null || !permit.getPilotStaffIds().equals(pilots)) {
+                permit.setStatus(FlightPermitStatus.PENDING);
+                permit.setReplacementRequired(true);
+                flightPermitRepository.save(permit);
+                persistedPreDeviceCheckService.refreshFlightPermitCheck(mission.getId());
+                synchronizeOrderLegalReview(mission);
+            }
+            return;
+        }
+        // Approval is exclusively an explicit Manager action for each Mission.
+    }
+
+    private List<MissionStaffAssignment> currentCrew(String missionId) {
+        return missionStaffAssignmentRepository.findAllByMissionIdAndIsCurrentTrue(missionId).stream()
+            .filter(a -> a.getReleasedAt() == null).toList();
+    }
+
+    private boolean hasReplacedPilot(String missionId) {
+        return missionStaffAssignmentRepository.findByMissionId(missionId).stream()
+            .anyMatch(a -> a.getAssignedRole() == MissionStaffRole.PILOT
+                && a.getReleasedAt() != null && !"MISSION_COMPLETE".equals(a.getReleaseReason()));
+    }
+
+    private String pilotIds(List<MissionStaffAssignment> crew) {
+        return crew.stream().filter(a -> a.getAssignedRole() == MissionStaffRole.PILOT)
+            .filter(a -> a.getStaff() != null && a.getStaff().getId() != null)
+            .map(a -> a.getStaff().getId()).distinct().sorted().collect(java.util.stream.Collectors.joining(","));
     }
 
     private void synchronizeOrderLegalReview(Mission mission) {
@@ -165,7 +247,11 @@ public class FlightPermitServiceImpl implements IFlightPermitService {
                     .findAllByOrderIdOrderByScheduledStartAtAscIdAsc(order.getId()).stream()
                     .filter(item -> item.getStatus() != MissionStatus.CANCELLED)
                     .allMatch(item -> item.getFlightPermit() != null
-                            && item.getFlightPermit().getStatus() == FlightPermitStatus.APPROVED);
+                            && item.getFlightPermit().getStatus() == FlightPermitStatus.APPROVED
+                            && (item.getActualStartAt() != null
+                                || (item.getFlightPermit().getReusedFromMissionId() == null
+                                    && !item.getFlightPermit().isReplacementRequired()
+                                    && blankToNull(item.getFlightPermit().getDataUrl()) != null)));
             order.getFlightAreaReview().setLegalReviewStatus(allApproved
                     ? LegalReviewStatus.APPROVED
                     : LegalReviewStatus.PENDING_PERMIT);

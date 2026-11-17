@@ -25,4 +25,27 @@ class ReworkDeliveryEvidencePolicyTest {
         assertThat(ReworkDeliveryEvidencePolicy.allows(item, "original")).isTrue();
         assertThat(ReworkDeliveryEvidencePolicy.allows(null, "original")).isTrue();
     }
+
+    @Test
+    void acceptedSupplementReplacesOnlyTheDelegatedReworkChecklist() {
+        var checklist = new com.ondemandmonitoring.order.domain.OrderChecklistItem(); checklist.setId("fence");
+        var item = new ResultRevisionCaseItem(); item.setOrderChecklistItem(checklist);
+        item.setStrategy(ResultRevisionStrategy.REWORK); item.setAssignedReworkMissionId("rework");
+        var execution = new com.ondemandmonitoring.mission.domain.MissionChecklistExecution();
+        execution.setOrderChecklistItemId("fence");
+        var accepted = new com.ondemandmonitoring.media.domain.MediaAsset();
+        accepted.setId("accepted"); accepted.setMissionId("supplement");
+        var link = new com.ondemandmonitoring.mission.domain.MissionChecklistEvidence();
+        link.setMissionChecklistExecution(execution); link.setMediaAsset(accepted);
+        var originals = new com.ondemandmonitoring.media.domain.MediaAsset();
+        originals.setId("old"); originals.setMissionId("rework");
+        var reserve = new com.ondemandmonitoring.media.domain.MediaAsset();
+        reserve.setId("unselected"); reserve.setMissionId("supplement");
+        assertThat(ReworkDeliveryEvidencePolicy.allows(item, accepted, java.util.List.of(link))).isTrue();
+        assertThat(ReworkDeliveryEvidencePolicy.allows(item, originals, java.util.List.of(link))).isFalse();
+        assertThat(ReworkDeliveryEvidencePolicy.allows(item, reserve, java.util.List.of(link))).isFalse();
+        checklist.setId("other");
+        assertThat(ReworkDeliveryEvidencePolicy.allows(item, originals, java.util.List.of(link))).isTrue();
+        assertThat(ReworkDeliveryEvidencePolicy.allows(item, accepted, java.util.List.of(link))).isFalse();
+    }
 }

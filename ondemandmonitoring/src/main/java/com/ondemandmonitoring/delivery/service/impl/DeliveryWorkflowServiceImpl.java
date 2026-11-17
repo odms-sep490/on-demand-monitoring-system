@@ -199,6 +199,17 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                     selected.computeIfAbsent(link.getMissionChecklistExecution().getOrderChecklistItemId(),ignored->new ArrayList<>()).add(link);
             }
         }
+        if (revisionCase != null) {
+            for (var caseItem : reworkByItem.values()) {
+                String assignedId = caseItem.getAssignedReworkMissionId();
+                inspectionCorrections.requireResolved(assignedId);
+                var supplements = inspectionCorrections.selectedSupplementalEvidence(assignedId).stream()
+                        .filter(link -> caseItem.getOrderChecklistItem().getId().equals(
+                                link.getMissionChecklistExecution().getOrderChecklistItemId())).toList();
+                if (!supplements.isEmpty())
+                    selected.put(caseItem.getOrderChecklistItem().getId(), new ArrayList<>(supplements));
+            }
+        }
         String baseRoundId = delivery == null ? null : delivery.getCurrentReviewRoundId();
         var baseRound = baseRoundId == null ? null : reviewRounds.findByIdForUpdate(baseRoundId).orElseThrow();
         Map<String, List<com.ondemandmonitoring.delivery.domain.ResultReviewRoundEvidence>> previous = new HashMap<>();
@@ -455,7 +466,8 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                         throw new ApiException(ErrorCode.INVALID_DELIVERY_STATE);
                     for (String mediaId : candidateByChecklist.getOrDefault(changedChecklistId, Set.of())) {
                         MediaAsset asset = selectedAssetsById.get(mediaId);
-                        if (asset == null || !ReworkDeliveryEvidencePolicy.allows(caseItem, asset.getMissionId()))
+                        if (asset == null || !ReworkDeliveryEvidencePolicy.allows(caseItem, asset,
+                                inspectionCorrections.selectedSupplementalEvidence(rework.getId())))
                             throw new ApiException(ErrorCode.MEDIA_ACCESS_DENIED,
                                     "Rework delivery requires newly accepted media from its assigned rework Mission");
                     }
@@ -765,6 +777,13 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         return missionIds.stream().filter(id -> missions.findByIdWithOrder(id).map(mission -> {
             String orderId = mission.getOrder().getId();
             if (!mission.getOrder().getCustomer().getId().equals(currentUser.getCurrentUserId())) return false;
+            if (mission.getPurpose() == com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK)
+                return deliveries.findCurrentForMissionMedia(id).stream().anyMatch(d ->
+                        orderId.equals(d.getOrder().getId())
+                            && d.getStatus() == DeliveryStatus.DELIVERED && hasCustomerAcceptedCurrentReview(d)
+                            && !hasBlockingCase(orderId, d.getMissionId())
+                            && (d.getMissionId() == null ? isInvoiceFullyPaid(invoice(orderId))
+                                    : paymentMilestones.isPaidForMission(orderId, d.getMissionId())));
             if (!paymentMilestones.isPaidForMission(orderId, id)) return false;
             return deliveries.findByOrderIdIn(List.of(orderId)).stream()
                     .anyMatch(d -> mission.getId().equals(d.getMissionId()) && d.getStatus() == DeliveryStatus.DELIVERED

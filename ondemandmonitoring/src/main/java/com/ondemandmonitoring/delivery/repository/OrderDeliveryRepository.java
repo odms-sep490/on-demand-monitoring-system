@@ -29,6 +29,9 @@ public interface OrderDeliveryRepository extends JpaRepository<OrderDelivery, St
     @Query("select d from OrderDelivery d where d.id=:id")
     Optional<OrderDelivery> findByIdForUpdate(@Param("id") String id);
 
+    @Query("select distinct d from OrderDelivery d, ResultReviewRoundEvidence e where e.roundItem.round.id=d.currentReviewRoundId and e.mediaAsset.mission.id=:missionId")
+    List<OrderDelivery> findCurrentForMissionMedia(@Param("missionId") String missionId);
+
     @Query("select distinct d from OrderDelivery d, ResultReviewRoundEvidence e where e.roundItem.round.id=d.currentReviewRoundId and e.mediaAsset.id=:mediaId")
     List<OrderDelivery> findCurrentForMedia(@Param("mediaId") String mediaId);
 }

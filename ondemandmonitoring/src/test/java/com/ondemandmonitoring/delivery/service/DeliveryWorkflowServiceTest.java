@@ -153,6 +153,7 @@ class DeliveryWorkflowServiceTest {
 
     @Test void mediaDownloadDependsOnItsMissionAcceptanceNotAnotherMission() {
         configureMissionScope();
+        when(paymentMilestones.isPaidForMission("order", "mission")).thenReturn(true);
         delivery.setStatus(DeliveryStatus.DELIVERED);
         delivery.setCustomerAcceptedAt(java.time.Instant.now());
         reviewRounds.findById("round").orElseThrow().setStatus(com.ondemandmonitoring.delivery.enums.ResultReviewRoundStatus.ACCEPTED);
@@ -352,6 +353,7 @@ class DeliveryWorkflowServiceTest {
 
     @Test void originalEligibilityFilteringDoesNotThrowForUndeliveredMissions() {
         configureMissionScope();
+        when(paymentMilestones.isPaidForMission("order", "mission")).thenReturn(true);
         when(missions.findByIdWithOrder("mission")).thenReturn(Optional.of(mission));
         when(deliveries.findByOrderIdIn(List.of("order"))).thenReturn(List.of(delivery));
 
@@ -447,5 +449,23 @@ class DeliveryWorkflowServiceTest {
         MediaAsset asset = new MediaAsset(); asset.setId(id); asset.setMission(mission); asset.setMediaStatus(status);
         asset.setType("IMAGE"); asset.setOriginalFileName(id + ".jpg"); asset.setFileSize(10L);
         asset.setS3Bucket("private"); asset.setS3Key("missions/" + id); return asset;
+    }
+
+    @Test void supplementalMediaUsesThePaidOriginalMissionDelivery() {
+        configureMissionScope();
+        var supplement = new Mission(); supplement.setId("supplement"); supplement.setOrder(order);
+        supplement.setPurpose(com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK);
+        when(missions.findByIdWithOrder("supplement")).thenReturn(Optional.of(supplement));
+        delivery.setMissionId("mission"); delivery.setStatus(DeliveryStatus.DELIVERED);
+        delivery.setCustomerAcceptedAt(java.time.Instant.now());
+        var accepted = new ResultReviewRound();
+        accepted.setStatus(com.ondemandmonitoring.delivery.enums.ResultReviewRoundStatus.ACCEPTED);
+        when(reviewRounds.findById(delivery.getCurrentReviewRoundId())).thenReturn(Optional.of(accepted));
+        when(deliveries.findCurrentForMissionMedia("supplement")).thenReturn(List.of(delivery));
+        when(paymentMilestones.isPaidForMission("order", "mission")).thenReturn(true);
+        assertThat(service.originalAccessibleMissionIds(List.of("supplement"))).containsExactly("supplement");
+        when(paymentMilestones.isPaidForMission("order", "mission")).thenReturn(false);
+        assertThat(service.originalAccessibleMissionIds(List.of("supplement"))).isEmpty();
+        verify(paymentMilestones, never()).isPaidForMission("order", "supplement");
     }
 }

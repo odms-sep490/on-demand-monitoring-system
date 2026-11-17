@@ -7,5 +7,7 @@ import com.ondemandmonitoring.mission.dto.response.MissionResponse;
 public interface IFlightPermitService {
     MissionResponse updateFlightPermit(String missionId, FlightPermitUpdateRequest request);
 
+    void synchronizeForCrew(Mission mission);
+
     void requireApprovedForExecution(Mission mission);
 }

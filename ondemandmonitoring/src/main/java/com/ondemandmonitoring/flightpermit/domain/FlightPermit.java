@@ -56,6 +56,16 @@ public class FlightPermit extends BaseEntity {
     @Column(name = "resources_released_at")
     Instant resourcesReleasedAt;
 
+    /** Pilot identities bound when the document was approved; sorted, comma separated IDs. */
+    @Column(name = "pilot_staff_ids", columnDefinition = "TEXT")
+    String pilotStaffIds;
+
+    @Column(name = "reused_from_mission_id", length = 255)
+    String reusedFromMissionId;
+
+    @Column(name = "replacement_required", nullable = false)
+    boolean replacementRequired;
+
     public static FlightPermit pendingFor(Mission mission) {
         FlightPermit permit = new FlightPermit();
         permit.setMission(mission);

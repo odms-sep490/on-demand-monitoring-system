@@ -480,7 +480,11 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
             }
             case AIRSPACE_PERMISSION -> {
                 if (mission.getFlightPermit() != null
-                        && mission.getFlightPermit().getStatus() == FlightPermitStatus.APPROVED) pass(item, "Giấy phép bay đã được xác nhận", null);
+                        && mission.getFlightPermit().getStatus() == FlightPermitStatus.APPROVED
+                        && mission.getFlightPermit().getReusedFromMissionId() == null
+                        && !mission.getFlightPermit().isReplacementRequired()
+                        && mission.getFlightPermit().getDataUrl() != null
+                        && !mission.getFlightPermit().getDataUrl().isBlank()) pass(item, "Giấy phép bay đã được xác nhận", null);
                 else fail(item, "Giấy phép bay chưa được xác nhận", "FLIGHT_PERMISSION_REQUIRED");
             }
             case FLIGHT_ROUTE, FLIGHT_LIMITS, LANDING_DESTINATION -> {

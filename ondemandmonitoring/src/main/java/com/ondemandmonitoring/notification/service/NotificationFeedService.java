@@ -46,6 +46,7 @@ public class NotificationFeedService {
     private final OrderRepository orders;
     private final MissionRepository missions;
     private final PaymentRepository payments;
+    private final com.ondemandmonitoring.finance.repository.InvoiceRepository invoices;
     private final MissionStaffAssignmentRepository staffAssignments;
     private final com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository deviceAssignments;
 
@@ -55,6 +56,7 @@ public class NotificationFeedService {
             OrderRepository orders,
             MissionRepository missions,
             PaymentRepository payments,
+            com.ondemandmonitoring.finance.repository.InvoiceRepository invoices,
             MissionStaffAssignmentRepository staffAssignments,
             com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository deviceAssignments) {
         this.contractNotifications = contractNotifications;
@@ -62,6 +64,7 @@ public class NotificationFeedService {
         this.orders = orders;
         this.missions = missions;
         this.payments = payments;
+        this.invoices = invoices;
         this.staffAssignments = staffAssignments;
         this.deviceAssignments = deviceAssignments;
     }
@@ -84,6 +87,14 @@ public class NotificationFeedService {
 
     private List<NotificationItemResponse> customerItems(String customerId, int limit) {
         List<NotificationItemResponse> items = new ArrayList<>(contractNotifications.customerItems(customerId, limit));
+        invoices.findCustomerDepositsRequired(customerId, Instant.now(), PageRequest.of(0, limit)).forEach(invoice -> {
+            Order order = invoice.getOrder();
+            Instant at = invoice.getContractSubmittedAt() != null ? invoice.getContractSubmittedAt() : invoice.getIssuedAt();
+            items.add(new NotificationItemResponse("invoice:" + invoice.getId() + ":deposit_required",
+                    NotificationType.ORDER_DEPOSIT_REQUIRED, order.getId(), invoice.getId(),
+                    order.getOrderCode() == null ? order.getId() : order.getOrderCode(), at, null,
+                    invoice.getDepositAmount().subtract(invoice.getPaidAmount()).max(java.math.BigDecimal.ZERO)));
+        });
         orders.findByCustomer_IdOrderByCreatedAtDesc(customerId, PageRequest.of(0, limit))
                 .stream()
                 .filter(order -> order.getOrderStatus() != OrderStatus.PENDING)

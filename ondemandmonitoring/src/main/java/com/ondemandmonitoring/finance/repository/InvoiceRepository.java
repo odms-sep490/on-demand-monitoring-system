@@ -69,4 +69,16 @@ public interface InvoiceRepository extends JpaRepository<Invoice, String> {
             order by i.updatedAt desc
             """)
     List<Invoice> findDepositPaymentIssues(Pageable pageable);
+
+    @EntityGraph(attributePaths = "order")
+    @Query("select i from Invoice i where i.order.orderStatus = 'APPROVED' and i.status not in ('CANCELLED','REFUNDED','OVERDUE') and i.contractRequired = true and i.contractConfirmedAt is null and i.contractSubmittedAt is not null order by i.updatedAt asc")
+    List<Invoice> findContractsAwaitingConfirmation(Pageable pageable);
+
+    @EntityGraph(attributePaths = "order")
+    @Query("select i from Invoice i where i.order.orderStatus = 'APPROVED' and i.status not in ('CANCELLED','REFUNDED','OVERDUE') and i.paidAmount >= i.depositAmount and (i.contractRequired = false or i.contractConfirmedAt is not null) and not exists (select m.id from Mission m where m.order = i.order and m.status <> 'CANCELLED') order by i.updatedAt asc")
+    List<Invoice> findOrdersReadyToPlan(Pageable pageable);
+
+    @EntityGraph(attributePaths = "order")
+    @Query("select i from Invoice i where i.order.customer.id = :customerId and i.order.orderStatus = 'APPROVED' and i.status in ('ISSUED','PARTIALLY_PAID') and i.paidAmount < i.depositAmount and (i.contractRequired = false or i.contractSubmittedAt is not null or i.contractConfirmedAt is not null) and (i.depositExpiresAt is null or i.depositExpiresAt > :now) order by i.issuedAt desc")
+    List<Invoice> findCustomerDepositsRequired(@Param("customerId") String customerId, @Param("now") Instant now, Pageable pageable);
 }

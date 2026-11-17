@@ -109,7 +109,7 @@ class FlexibleChecklistPricingEngineTest {
         item.setSourceChecklist(definition);
 
         BigDecimal before = engine.calculate(order("1000000"), List.of(item)).systemCalculatedAmount();
-        definition.setBasePrice(new BigDecimal("999999")); definition.setIncludedImageCount(500); definition.setPricingProfile("OTHER");
+        definition.setBasePrice(new BigDecimal("999999")); definition.setIncludedImageCount(500);
 
         assertThat(engine.calculate(order("1000000"), List.of(item)).systemCalculatedAmount()).isEqualByComparingTo(before);
     }

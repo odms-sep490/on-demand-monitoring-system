@@ -42,6 +42,7 @@ class MissionExecutionActivationServiceTest {
         verifyNoInteractions(missions);
         TransactionSynchronizationManager.getSynchronizations()
                 .forEach(TransactionSynchronization::afterCommit);
+        verify(missions).createMissionsFromTemplates("order-1");
         verify(missions).transitionToPendingConfirmation("order-1");
     }
 
@@ -58,6 +59,7 @@ class MissionExecutionActivationServiceTest {
         service.activateIfEligible("order-1");
 
         verify(eligibility).isMissionExecutionEligible(invoice);
-        verifyNoInteractions(missions);
+        verify(missions).createMissionsFromTemplates("order-1");
+        verify(missions, never()).transitionToPendingConfirmation(anyString());
     }
 }

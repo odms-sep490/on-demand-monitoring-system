@@ -32,6 +32,7 @@ public class ChecklistServiceImpl implements IChecklistService {
     private com.ondemandmonitoring.checklist.service.ChecklistAuditService audit;
     private com.ondemandmonitoring.checklist.repository.ServiceChecklistRepository serviceUsage;
     private com.ondemandmonitoring.order.repository.OrderChecklistItemRepository orderUsage;
+    private com.ondemandmonitoring.checklist.service.IChecklistDeviceRequirementService deviceRequirements;
 
     /** Optional collaborators: change history and the "used by" counts. */
     @Autowired(required = false)
@@ -46,18 +47,31 @@ public class ChecklistServiceImpl implements IChecklistService {
         this.orderUsage = orderUsage;
     }
 
+    @Autowired(required = false)
+    public void setDeviceRequirements(
+            com.ondemandmonitoring.checklist.service.IChecklistDeviceRequirementService deviceRequirements) {
+        this.deviceRequirements = deviceRequirements;
+    }
+
     /** Adds the "used by" counts to a page of responses with two grouped queries. */
     private java.util.List<ChecklistResponse> withUsage(java.util.List<ChecklistResponse> responses) {
-        if (responses.isEmpty() || serviceUsage == null || orderUsage == null) return responses;
+        if (responses.isEmpty()) return responses;
         var ids = responses.stream().map(ChecklistResponse::getId).toList();
-        var services = new java.util.HashMap<String, Long>();
-        serviceUsage.countByChecklistIds(ids).forEach(row -> services.put(row.getChecklistId(), row.getTotal()));
-        var orders = new java.util.HashMap<String, Long>();
-        orderUsage.countBySourceChecklistIds(ids).forEach(row -> orders.put(row.getChecklistId(), row.getTotal()));
-        responses.forEach(response -> {
-            response.setUsedByServiceCount(services.getOrDefault(response.getId(), 0L));
-            response.setUsedByOrderCount(orders.getOrDefault(response.getId(), 0L));
-        });
+        if (serviceUsage != null && orderUsage != null) {
+            var services = new java.util.HashMap<String, Long>();
+            serviceUsage.countByChecklistIds(ids).forEach(row -> services.put(row.getChecklistId(), row.getTotal()));
+            var orders = new java.util.HashMap<String, Long>();
+            orderUsage.countBySourceChecklistIds(ids).forEach(row -> orders.put(row.getChecklistId(), row.getTotal()));
+            responses.forEach(response -> {
+                response.setUsedByServiceCount(services.getOrDefault(response.getId(), 0L));
+                response.setUsedByOrderCount(orders.getOrDefault(response.getId(), 0L));
+            });
+        }
+        if (deviceRequirements != null) {
+            var types = deviceRequirements.findDeviceTypesByChecklistIds(ids);
+            responses.forEach(response -> response.setDeviceTypes(
+                    types.getOrDefault(response.getId(), java.util.List.of())));
+        }
         return responses;
     }
 
@@ -83,8 +97,6 @@ public class ChecklistServiceImpl implements IChecklistService {
         ChecklistDefinition entity = mapper.toEntity(request);
         entity.setContent(content);
         entity.setNormalizedContent(normalized);
-        entity.setDifficulty(request.getDifficulty() == null
-                ? com.ondemandmonitoring.pricing.enums.ChecklistDifficulty.BASIC : request.getDifficulty());
         applyPricing(entity, request, true);
         applyGuidance(entity, request);
         var created = repository.saveAndFlush(entity);
@@ -137,7 +149,6 @@ public class ChecklistServiceImpl implements IChecklistService {
         var before = audit == null ? null : audit.snapshot(entity);
         entity.setContent(content);
         entity.setNormalizedContent(normalized);
-        if (request.getDifficulty() != null) entity.setDifficulty(request.getDifficulty());
         applyPricing(entity, request, false);
         applyGuidance(entity, request);
         var saved = repository.saveAndFlush(entity);
@@ -188,22 +199,10 @@ public class ChecklistServiceImpl implements IChecklistService {
                 throw new ApiException(ErrorCode.VALIDATION_ERROR, "basePrice must be a non-negative whole amount");
             entity.setBasePrice(request.getBasePrice().setScale(0));
         } else if (create) entity.setBasePrice(java.math.BigDecimal.ZERO);
+        if (request.getStandardAreaM2() != null) entity.setStandardAreaM2(request.getStandardAreaM2());
         if (request.getIncludedImageCount() != null) entity.setIncludedImageCount(request.getIncludedImageCount());
         if (request.getIncludedVideoCount() != null) entity.setIncludedVideoCount(request.getIncludedVideoCount());
         if (request.getStandardVideoDurationSeconds() != null) entity.setStandardVideoDurationSeconds(request.getStandardVideoDurationSeconds());
-        if (request.getPricingProfile() != null) {
-            String profile = request.getPricingProfile().trim();
-            entity.setPricingProfile(profile.isEmpty() ? null : profile.toUpperCase(Locale.ROOT));
-        }
-        if (request.getAreaPricingEnabled() != null) entity.setAreaPricingEnabled(request.getAreaPricingEnabled());
-        if (request.getLengthPricingEnabled() != null) entity.setLengthPricingEnabled(request.getLengthPricingEnabled());
-        if (request.getAltitudePricingEnabled() != null) entity.setAltitudePricingEnabled(request.getAltitudePricingEnabled());
-        if (request.getIncludedAreaHa() != null) entity.setIncludedAreaHa(request.getIncludedAreaHa());
-        else if (create) entity.setIncludedAreaHa(java.math.BigDecimal.ZERO);
-        if (request.getIncludedLengthKm() != null) entity.setIncludedLengthKm(request.getIncludedLengthKm());
-        else if (create) entity.setIncludedLengthKm(java.math.BigDecimal.ZERO);
-        if (request.getIncludedAltitudeM() != null) entity.setIncludedAltitudeM(request.getIncludedAltitudeM());
-        else if (create) entity.setIncludedAltitudeM(java.math.BigDecimal.ZERO);
     }
 
     private ChecklistDefinition locked(String id) {

@@ -43,6 +43,9 @@ public class PersistedPostDeviceCheckResponse {
 
         String checkType;
         String checkName;
+        String description;
+        String category;
+        Boolean required;
         DeviceCheckItemStatus status;
         DeviceCheckLevel checkLevel;
         String message;
@@ -89,6 +92,9 @@ public class PersistedPostDeviceCheckResponse {
                         .map(i -> Item.builder()
                                 .checkType(i.getCheckType())
                                 .checkName(i.getCheckName())
+                                .description(i.getDescription())
+                                .category(i.getCategory())
+                                .required(i.getRequired())
                                 .status(i.getStatus())
                                 .checkLevel(i.getCheckLevel())
                                 .message(i.getMessage())

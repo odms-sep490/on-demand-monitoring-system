@@ -55,6 +55,14 @@ public enum PreDeviceCheckType {
     }
 
     public String code() { return code; }
+
+    /** Built-in type for a criterion code, or empty for admin-defined (manual) criteria. */
+    public static java.util.Optional<PreDeviceCheckType> fromCode(String code) {
+        for (PreDeviceCheckType type : values()) {
+            if (type.code.equals(code)) return java.util.Optional.of(type);
+        }
+        return java.util.Optional.empty();
+    }
     public String displayName() { return displayName; }
     public String description() { return description; }
     public String category() { return category; }

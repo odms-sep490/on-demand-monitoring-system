@@ -93,7 +93,7 @@ class ServiceChecklistServiceImplTest {
     @Test void forkGivesTheServiceItsOwnCopyAndKeepsTheOriginalForOthers() {
         checklist.setDescription("Phạm vi"); checklist.setExecutionSteps(List.of("Bước 1", "Bước 2"));
         checklist.setBasePrice(new java.math.BigDecimal("800000"));
-        var link = link(); link.setRequired(true); link.setBasePriceOverride(new java.math.BigDecimal("700000"));
+        var link = link(); link.setRequired(true);
         when(assignments.findByServiceIdAndChecklistId("s1", "c1")).thenReturn(Optional.of(link));
         when(checklists.saveAndFlush(any())).thenAnswer(i -> { ChecklistDefinition copy = i.getArgument(0); copy.setId("c9"); return copy; });
         var audit = mock(ChecklistAuditService.class);
@@ -106,7 +106,6 @@ class ServiceChecklistServiceImplTest {
         assertEquals("Phạm vi", result.getDescription());
         assertEquals(List.of("Bước 1", "Bước 2"), result.getExecutionSteps());
         assertTrue(result.isRequired());
-        assertEquals(new java.math.BigDecimal("700000"), result.getBasePriceOverride(), "overrides move with the service");
         assertEquals("c1", checklist.getId());
         assertEquals("Check exits", checklist.getContent(), "the shared original is untouched");
         verify(audit).record(eq(ChecklistConfigAuditAction.SERVICE_CHECKLIST_FORKED), any(), eq(service), anyMap(), anyMap());
@@ -198,5 +197,16 @@ class ServiceChecklistServiceImplTest {
         assertEquals("s1", useCase.getByChecklist("c1").getFirst().getServiceId());
         assertEquals(ErrorCode.CHECKLIST_NOT_FOUND,
                 assertThrows(ApiException.class, () -> useCase.getByChecklist("missing")).getErrorCode());
+    }
+    @Test void existingTemplateReadsCarryDeviceTypes() {
+        var requirements = mock(com.ondemandmonitoring.checklist.service.IChecklistDeviceRequirementService.class);
+        useCase.setDeviceRequirements(requirements);
+        var type = new com.ondemandmonitoring.device.dto.response.DeviceTypeResponse();
+        type.setCode("DRONE");
+        when(requirements.findDeviceTypesByChecklistIds(List.of("c1")))
+                .thenReturn(java.util.Map.of("c1", List.of(type)));
+        when(services.findById("s1")).thenReturn(Optional.of(service));
+        when(assignments.findAllByServiceIdOrderByDisplayOrderAscIdAsc("s1")).thenReturn(List.of(link()));
+        assertEquals("DRONE", useCase.getByService("s1", false).getFirst().getDeviceTypes().getFirst().getCode());
     }
 }

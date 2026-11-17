@@ -140,8 +140,8 @@ public class OrderChecklistItem extends BaseEntity {
         private int minimumVideoCount;
 
         /**
-         * 0 = legacy snapshot priced by difficulty only; 1 = priced from the media
-         * snapshot below.
+         * 0 = legacy difficulty pricing; 1 = policy media pricing; 2 = Base Checklist area pricing;
+         * 3 = area pricing with frozen per-checklist extra-media rates.
          */
         @Column(name = "pricing_snapshot_version", nullable = false, updatable = false, columnDefinition = "integer default 0")
         private int pricingSnapshotVersion;
@@ -151,6 +151,10 @@ public class OrderChecklistItem extends BaseEntity {
         private int includedImageCountSnapshot;
         @Column(name = "included_video_count_snapshot", nullable = false, updatable = false, columnDefinition = "integer default 0")
         private int includedVideoCountSnapshot;
+        @Column(name = "extra_image_unit_price_snapshot", precision = 19, scale = 0, updatable = false)
+        private BigDecimal extraImageUnitPriceSnapshot;
+        @Column(name = "extra_video_unit_price_snapshot", precision = 19, scale = 0, updatable = false)
+        private BigDecimal extraVideoUnitPriceSnapshot;
         @Column(name = "requested_image_count", nullable = false, updatable = false, columnDefinition = "integer default 0")
         private int requestedImageCount;
         @Column(name = "requested_video_count", nullable = false, updatable = false, columnDefinition = "integer default 0")

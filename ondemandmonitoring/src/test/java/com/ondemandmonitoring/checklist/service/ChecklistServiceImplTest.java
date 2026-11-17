@@ -98,6 +98,16 @@ class ChecklistServiceImplTest {
         assertEquals(3L, response.getUsedByServiceCount());
         assertEquals(12L, response.getUsedByOrderCount());
     }
+    @Test void responsesCarryAssociatedDeviceTypes() {
+        var requirements = mock(com.ondemandmonitoring.checklist.service.IChecklistDeviceRequirementService.class);
+        service.setDeviceRequirements(requirements);
+        var type = new com.ondemandmonitoring.device.dto.response.DeviceTypeResponse();
+        type.setId("t1"); type.setCode("DRONE");
+        when(requirements.findDeviceTypesByChecklistIds(List.of("c1")))
+                .thenReturn(java.util.Map.of("c1", List.of(type)));
+        when(repository.findById("c1")).thenReturn(Optional.of(entity()));
+        assertEquals("DRONE", service.getById("c1").getDeviceTypes().getFirst().getCode());
+    }
     @Test void updateAndStatusChangesAreWrittenToTheHistory() {
         var audit = mock(ChecklistAuditService.class);
         service.setAudit(audit);

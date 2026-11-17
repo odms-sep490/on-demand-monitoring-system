@@ -8,6 +8,8 @@ import com.ondemandmonitoring.devicecheck.dto.request.DeviceCheckItemUpdateReque
 import com.ondemandmonitoring.devicecheck.dto.response.PersistedPostDeviceCheckResponse;
 import com.ondemandmonitoring.devicecheck.enums.DeviceCheckItemStatus;
 import com.ondemandmonitoring.devicecheck.enums.DeviceCheckLevel;
+import com.ondemandmonitoring.devicecheck.enums.DeviceCheckPhase;
+import com.ondemandmonitoring.devicecheck.service.DeviceCheckCatalog;
 import com.ondemandmonitoring.devicecheck.enums.DeviceCheckStatus;
 import com.ondemandmonitoring.devicecheck.repository.PersistedPostDeviceCheckRepository;
 import com.ondemandmonitoring.devicecheck.service.IPersistedPostDeviceCheckService;
@@ -34,16 +36,28 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class PersistedPostDeviceCheckService implements IPersistedPostDeviceCheckService {
 
-    private static final List<Definition> CHECKS = List.of(
-            new Definition("a1", "Airframe condition", DeviceCheckLevel.CRITICAL),
-            new Definition("a2", "Frame and landing gear", DeviceCheckLevel.CRITICAL),
-            new Definition("p1", "Motors", DeviceCheckLevel.CRITICAL),
-            new Definition("p2", "Propellers", DeviceCheckLevel.CRITICAL),
-            new Definition("e1", "Landing battery", DeviceCheckLevel.CRITICAL),
-            new Definition("e2", "Camera and payload", DeviceCheckLevel.WARNING),
-            new Definition("e3", "GPS positioning", DeviceCheckLevel.WARNING),
-            new Definition("e4", "Battery handling safety", DeviceCheckLevel.CRITICAL),
-            new Definition("d1", "Communication logs", DeviceCheckLevel.WARNING));
+    private DeviceCheckCatalog catalog = new DeviceCheckCatalog(null) {
+        @Override
+        public List<Criterion> activeCriteria(DeviceCheckPhase phase) { return defaults(phase); }
+    };
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setCatalog(DeviceCheckCatalog catalog) {
+        if (catalog != null) this.catalog = catalog;
+    }
+
+    /** Active admin-managed post-flight criteria, in admin order. */
+    private List<Definition> checks() {
+        List<Definition> checks = catalog.activeCriteria(DeviceCheckPhase.POST).stream()
+                .map(c -> new Definition(c.code(), c.name(),
+                        c.required() ? DeviceCheckLevel.CRITICAL : DeviceCheckLevel.WARNING,
+                        c.description(), c.category(), c.required()))
+                .toList();
+        if (checks.isEmpty()) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "No active post-flight criteria are configured.");
+        }
+        return checks;
+    }
 
     private final PersistedPostDeviceCheckRepository runRepository;
     private final MissionRepository missionRepository;
@@ -71,17 +85,21 @@ public class PersistedPostDeviceCheckService implements IPersistedPostDeviceChec
         run.setMission(mission);
         run.setMissionDeviceAssignment(assignment);
         run.setStatus(DeviceCheckStatus.CHECKING);
-        run.setTotalChecks(CHECKS.size());
+        List<Definition> activeChecks = checks();
+        run.setTotalChecks(activeChecks.size());
         run.setPassedChecks(0);
         run.setFailedChecks(0);
         run.setStartedAt(Instant.now());
 
-        for (Definition definition : CHECKS) {
+        for (Definition definition : activeChecks) {
             PersistedPostDeviceCheckItem item = new PersistedPostDeviceCheckItem();
             item.setPostDeviceCheck(run);
             item.setCheckType(definition.type);
             item.setCheckName(definition.name);
             item.setCheckLevel(definition.level);
+            item.setDescription(definition.description);
+            item.setCategory(definition.category);
+            item.setRequired(definition.required);
             run.getItems().add(item);
         }
 
@@ -218,9 +236,10 @@ public class PersistedPostDeviceCheckService implements IPersistedPostDeviceChec
                 });
 
         run.setMissionDeviceAssignment(mainAssignment);
-        run.setTotalChecks(CHECKS.size());
+        List<Definition> activeChecks = checks();
+        run.setTotalChecks(activeChecks.size());
         Instant checkedAt = Instant.now();
-        for (Definition definition : CHECKS) {
+        for (Definition definition : activeChecks) {
             PersistedPostDeviceCheckItem item = run.getItems().stream()
                     .filter(candidate -> definition.type().equals(candidate.getCheckType()))
                     .findFirst()
@@ -234,6 +253,9 @@ public class PersistedPostDeviceCheckService implements IPersistedPostDeviceChec
             InspectionResult result = results.get(definition.type());
             item.setCheckName(definition.name());
             item.setCheckLevel(definition.level());
+            item.setDescription(definition.description());
+            item.setCategory(definition.category());
+            item.setRequired(definition.required());
             item.setStatus(result == InspectionResult.FAIL
                     ? DeviceCheckItemStatus.FAILED
                     : DeviceCheckItemStatus.PASSED);
@@ -276,7 +298,8 @@ public class PersistedPostDeviceCheckService implements IPersistedPostDeviceChec
         }
     }
 
-    private record Definition(String type, String name, DeviceCheckLevel level) {}
+    private record Definition(String type, String name, DeviceCheckLevel level,
+            String description, String category, boolean required) {}
 }
 
 

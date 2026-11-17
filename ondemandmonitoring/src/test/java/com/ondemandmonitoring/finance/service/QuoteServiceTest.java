@@ -142,7 +142,7 @@ class QuoteServiceTest {
         assertThat(result.totalAmount()).isEqualByComparingTo("6500000");
     }
 
-    @Test void anItemCannotBeMarkedDownPastTheLimitEvenWhenTheWholeOrderStaysWithinIt() {
+    @Test void anOutOfRangeChecklistPriceNeedsAReasonAndIsAllowedWithOne() {
         var custom = item("custom", ChecklistReviewStatus.ADDITIONAL); custom.setManagerQuoteRequired(true);
         when(items.findAllByOrderIdOrderByDisplayOrderAscIdAsc("o1")).thenReturn(List.of(custom));
         when(pricingEngine.calculate(eq(order), anyList())).thenReturn(new PricingBreakdown("p1", 1, "VND", new BigDecimal("1000000"), false, true,
@@ -150,18 +150,33 @@ class QuoteServiceTest {
                                 new BigDecimal("700000"), new BigDecimal("700000")),
                         new PricingBreakdownItem(PricingCategory.RESOURCE, "Custom", BigDecimal.ONE,
                                 new BigDecimal("300000"), new BigDecimal("300000"), "custom"))));
-        // 300000 -> 150000 is -50% on the item but only -15% on the order, which the order-level guard alone would let through.
-        var request = new QuoteDraftRequest(BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO, null, Map.of("custom", new BigDecimal("150000")),
-                "Manager lowered this price a lot", PricingAdjustmentType.CORRECTION, null, null);
-        assertThatThrownBy(() -> service.saveDraft("o1", request))
+        // 300000 -> 150000 is outside the suggested item range, so the Manager must explain the override.
+        var withoutReason = new QuoteDraftRequest(BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO, null,
+                Map.of("custom", new BigDecimal("150499")), null, PricingAdjustmentType.CORRECTION,
+                null, null, null, null);
+        assertThatThrownBy(() -> service.saveDraft("o1", withoutReason))
                 .isInstanceOfSatisfying(ApiException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.PRICING_OVERRIDE_EXCEEDS_LIMIT));
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.PRICING_ADJUSTMENT_REASON_REQUIRED));
         assertThat(custom.getManagerQuotedPrice()).isNull();
+
+        String reason = "Customer requested a reduced inspection scope";
+        var withReason = new QuoteDraftRequest(BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO, null,
+                Map.of("custom", new BigDecimal("150499")), null, PricingAdjustmentType.CORRECTION,
+                null, null, null, Map.of("custom", reason));
+        var result = service.saveDraft("o1", withReason);
+
+        assertThat(custom.getManagerQuotedPrice()).isEqualByComparingTo("150000");
+        assertThat(custom.getManagerPriceAdjustmentReason()).isEqualTo(reason);
+        assertThat(result.totalAmount()).isEqualByComparingTo("850000");
     }
 
-    @Test void managerPriceIsAppliedOnlyToChecklistsThePolicyCouldNotPrice() {
+    @Test void managerPriceIsAppliedToCustomWorkButNeverOverridesANewBaseChecklist() {
         var custom = item("custom", ChecklistReviewStatus.ADDITIONAL); custom.setManagerQuoteRequired(true);
-        var catalog = item("catalog", ChecklistReviewStatus.INCLUDED);
+        var catalog = item("catalog", ChecklistReviewStatus.ADDITIONAL);
+        var sourceChecklist = new com.ondemandmonitoring.checklist.domain.ChecklistDefinition();
+        sourceChecklist.setId("catalog-definition");
+        catalog.setSourceChecklist(sourceChecklist);
+        catalog.setPricingSnapshotVersion(2);
         when(items.findAllByOrderIdOrderByDisplayOrderAscIdAsc("o1")).thenReturn(List.of(custom, catalog));
         when(pricingEngine.calculate(eq(order), anyList())).thenReturn(breakdown("5030000", List.of(
                 new PricingBreakdownItem(PricingCategory.PACKAGE, "Package", BigDecimal.ONE,
@@ -176,7 +191,30 @@ class QuoteServiceTest {
         assertThat(custom.getFinalAmount()).isEqualByComparingTo("36000");
         assertThat(custom.getPriceDifferenceAmount()).isEqualByComparingTo("6000");
         assertThat(custom.getPriceDifferencePercent()).isEqualByComparingTo("20");
-        assertThat(catalog.getManagerQuotedPrice()).as("a policy-priced checklist can never be overwritten by a client").isNull();
+        assertThat(catalog.getManagerQuotedPrice()).as("Base Checklist prices come only from the system calculation").isNull();
+    }
+
+    @Test void aNewAdditionalBaseChecklistQuoteUsesItsSystemPriceWithoutAPricingPolicy() {
+        var catalog = item("catalog", ChecklistReviewStatus.ADDITIONAL);
+        catalog.setSourceType(OrderChecklistSourceType.CUSTOMER_SELECTED);
+        catalog.setPricingSnapshotVersion(2);
+        catalog.setManagerQuoteRequired(false);
+        var sourceChecklist = new com.ondemandmonitoring.checklist.domain.ChecklistDefinition();
+        sourceChecklist.setId("catalog-definition");
+        catalog.setSourceChecklist(sourceChecklist);
+        when(items.findAllByOrderIdOrderByDisplayOrderAscIdAsc("o1")).thenReturn(List.of(catalog));
+        when(pricingEngine.calculate(eq(order), anyList())).thenReturn(new PricingBreakdown(null, 0, "VND",
+                new BigDecimal("450000"), false, true, List.of(new PricingBreakdownItem(
+                        PricingCategory.CHECKLIST, "Roof · 300000 × (150 / 100) = 450000 VND",
+                        BigDecimal.ONE, new BigDecimal("300000"), new BigDecimal("450000"), "catalog"))));
+
+        var result = service.saveDraft("o1", new QuoteDraftRequest(new BigDecimal("450000"), BigDecimal.ZERO,
+                BigDecimal.ZERO, null, Map.of("catalog", new BigDecimal("999999")), null,
+                PricingAdjustmentType.CORRECTION, null));
+
+        assertThat(result.systemCalculatedAmount()).isEqualByComparingTo("450000");
+        assertThat(result.totalAmount()).isEqualByComparingTo("450000");
+        assertThat(catalog.getManagerQuotedPrice()).isNull();
     }
 
     @Test void approvalWritesAnAuditWithServerCalculatedDifferenceAndAction() {

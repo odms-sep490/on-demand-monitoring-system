@@ -22,6 +22,8 @@ public class ChecklistConstraintHandler {
                     code = ErrorCode.CHECKLIST_ALREADY_EXISTS;
                 } else if ("uk_service_checklist".equals(violation.getConstraintName())) {
                     code = ErrorCode.SERVICE_CHECKLIST_ALREADY_EXISTS;
+                } else if ("uk_checklist_device_requirement".equals(violation.getConstraintName())) {
+                    code = ErrorCode.CHECKLIST_DEVICE_TYPE_ALREADY_EXISTS;
                 }
                 break;
             }

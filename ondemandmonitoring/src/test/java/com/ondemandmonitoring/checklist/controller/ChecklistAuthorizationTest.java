@@ -82,7 +82,7 @@ class ChecklistAuthorizationTest {
             post("/api/admin/services/s1/checklists").content("{\"checklistId\":\"c1\",\"displayOrder\":0}"),
             patch("/api/admin/services/s1/checklists/c1").content("{\"displayOrder\":2}"),
             delete("/api/admin/services/s1/checklists/c1"),
-            put("/api/admin/services/s1/checklists/c1/pricing").content("{\"basePriceOverride\":250000,\"includedImageCountOverride\":12}"),
+            put("/api/admin/services/s1/checklists/c1/requirements").content("{\"includedImageCountOverride\":12}"),
             put("/api/admin/services/s1/checklists/order").content("{\"items\":[]}"),
             get("/api/admin/services/s1/checklists"), get("/api/admin/checklists/c1/services"),
             post("/api/services").content("{\"name\":\"Service\",\"basePrice\":3200000}"),
@@ -149,13 +149,13 @@ class ChecklistAuthorizationTest {
 
     @Test void serviceReadsExposeTheLegacyPriceAndTheChecklistDefaultPriceSeparately() throws Exception {
         role(RoleCode.CUSTOMER);
-        var response = ServiceResponse.builder().id("s1").name("Service").basePrice(new BigDecimal("3200000")).build();
+        var response = ServiceResponse.builder().id("s1").name("Service").build();
         when(services.getById("s1")).thenReturn(response);
-        when(services.getAllActive()).thenReturn(List.of(ServiceResponse.builder().id("s1").name("Service").basePrice(new BigDecimal("3200000")).build()));
+        when(services.getAllActive()).thenReturn(List.of(ServiceResponse.builder().id("s1").name("Service").build()));
         when(priceResolver.forDisplay(any())).thenReturn(ServicePriceResolver.of(new BigDecimal("470000")));
         mvc.perform(get("/api/services/s1").with(jwt().authorities(() -> "ROLE_CUSTOMER")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.basePrice").value(3200000))
+                .andExpect(jsonPath("$.data.basePrice").doesNotExist())
                 .andExpect(jsonPath("$.data.defaultPrice").value(470000))
                 .andExpect(jsonPath("$.data.priceSource").value("CHECKLISTS"));
         mvc.perform(get("/api/services").param("activeOnly", "true").with(jwt().authorities(() -> "ROLE_CUSTOMER")))
@@ -181,9 +181,7 @@ class ChecklistAuthorizationTest {
                 post("/api/admin/checklists").content("{\"content\":\"Check\",\"includedImageCount\":-1}"),
                 post("/api/admin/checklists").content("{\"content\":\"Check\",\"includedVideoCount\":501}"),
                 put("/api/admin/checklists/c1").content("{\"content\":\"Check\",\"standardVideoDurationSeconds\":0}"),
-                put("/api/admin/checklists/c1").content("{\"content\":\"Check\",\"pricingProfile\":\"bad profile!\"}"),
-                put("/api/admin/services/s1/checklists/c1/pricing").content("{\"basePriceOverride\":-5}"),
-                put("/api/admin/services/s1/checklists/c1/pricing").content("{\"includedImageCountOverride\":-1}"),
+                put("/api/admin/services/s1/checklists/c1/requirements").content("{\"includedImageCountOverride\":-1}"),
                 patch("/api/admin/checklists/c1/status").content("{}"),
                 post("/api/admin/services/s1/checklists").content("{\"checklistId\":\"c1\",\"displayOrder\":-1}"),
                 patch("/api/admin/services/s1/checklists/c1").content("{}"),

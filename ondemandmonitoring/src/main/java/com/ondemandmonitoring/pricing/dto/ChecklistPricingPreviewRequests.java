@@ -14,20 +14,6 @@ public final class ChecklistPricingPreviewRequests {
      * Admin what-if: unsaved candidate configuration. Null item fields inherit the stored checklist definition.
      * A null {@code items} list previews the service's stored default checklist set.
      */
-    public record Admin(@NotBlank String serviceId, String policyId,
-            @Size(max = 100) List<@Valid AdminItem> items,
-            @DecimalMin("0") BigDecimal areaHa, @DecimalMin("0") BigDecimal lengthKm,
-            @DecimalMin("0") BigDecimal altitudeM) {
-        public Admin(String serviceId, String policyId, List<AdminItem> items) {
-            this(serviceId, policyId, items, null, null, null);
-        }
-    }
-
-    public record AdminItem(@NotBlank String checklistId, @DecimalMin("0") BigDecimal basePrice,
-            @Min(0) @Max(500) Integer includedImageCount, @Min(0) @Max(500) Integer includedVideoCount,
-            @Size(max = 60) String pricingProfile,
-            @Min(0) @Max(500) Integer requestedImageCount, @Min(0) @Max(500) Integer requestedVideoCount) {}
-
     /** Customer selection. No prices are accepted from the client, only choices and quantities. */
     public record Customer(@NotBlank String serviceId, @Size(max = 100) List<@Valid CustomerItem> items,
             @DecimalMin("0") BigDecimal areaHa, @DecimalMin("0") BigDecimal lengthKm,

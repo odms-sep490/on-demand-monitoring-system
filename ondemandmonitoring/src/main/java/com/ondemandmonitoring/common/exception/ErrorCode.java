@@ -56,6 +56,12 @@ public enum ErrorCode {
     INTERNAL_SERVER_ERROR("Lỗi hệ thống", HttpStatus.INTERNAL_SERVER_ERROR),
 
     /**
+     * Device check criteria (admin) Error Code
+     */
+    DEVICE_CHECK_CRITERION_NOT_FOUND("Không tìm thấy tiêu chí kiểm tra thiết bị", HttpStatus.NOT_FOUND),
+    DEVICE_CHECK_LAST_ACTIVE_CRITERION("Mỗi loại kiểm tra phải còn ít nhất một tiêu chí đang bật", HttpStatus.CONFLICT),
+
+    /**
      * Operator busy schedule Error Code
      */
     BUSY_SCHEDULE_NOT_FOUND("Không tìm thấy lịch bận", HttpStatus.NOT_FOUND),
@@ -70,6 +76,8 @@ public enum ErrorCode {
      *
      */
     MISSION_NOT_FOUND("Mission not found", HttpStatus.NOT_FOUND),
+    MISSION_TEMPLATE_NOT_FOUND("Mission template not found", HttpStatus.NOT_FOUND),
+    MISSION_TEMPLATE_CHECKLIST_OVERLAP("Checklist already belongs to another mission template", HttpStatus.CONFLICT),
     EXECUTION_PLAN_REVISION_CONFLICT("Execution plan changed; refresh and retry", HttpStatus.CONFLICT),
     EXECUTION_PLAN_NOT_DRAFT("Execution plan must be DRAFT", HttpStatus.CONFLICT),
     EXECUTION_PLAN_NOT_FINALIZED("Execution plan must be FINALIZED", HttpStatus.CONFLICT),
@@ -174,6 +182,8 @@ public enum ErrorCode {
     CHECKLIST_NOT_FOUND("Checklist not found", HttpStatus.NOT_FOUND),
     CHECKLIST_ALREADY_EXISTS("Checklist content already exists", HttpStatus.CONFLICT),
     CHECKLIST_INACTIVE("Checklist is inactive", HttpStatus.CONFLICT),
+    CHECKLIST_DEVICE_TYPE_ALREADY_EXISTS("Device type is already associated with this checklist", HttpStatus.CONFLICT),
+    CHECKLIST_DEVICE_TYPE_NOT_FOUND("Checklist device type association not found", HttpStatus.NOT_FOUND),
     SERVICE_CHECKLIST_NOT_FOUND("Service checklist assignment not found", HttpStatus.NOT_FOUND),
     SERVICE_CHECKLIST_ALREADY_EXISTS("Checklist is already assigned to this service", HttpStatus.CONFLICT),
     SERVICE_IMAGE_STORAGE_ERROR("Unable to store service illustration", HttpStatus.BAD_GATEWAY),
@@ -189,6 +199,8 @@ public enum ErrorCode {
     DEVICE_NOT_FOUND("Device not found", HttpStatus.NOT_FOUND),
     DEVICE_SERIAL_NUMBER_EXISTS("Device serial number already exists", HttpStatus.CONFLICT),
     DEVICE_IMAGE_STORAGE_ERROR("Unable to store device image", HttpStatus.BAD_GATEWAY),
+    AI_PROVIDER_UNAVAILABLE("AI provider is unavailable", HttpStatus.BAD_GATEWAY),
+    AI_RESPONSE_INVALID("AI provider returned an unreadable response", HttpStatus.BAD_GATEWAY),
     /**
      * Support Ticket Error Codes
      */

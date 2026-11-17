@@ -318,7 +318,7 @@ class ChecklistGuidancePostgresTest {
                 AuthenticatedUserResolver resolver, com.ondemandmonitoring.order.service.IOrderService orderService) {
             var calculator = new ChecklistPriceCalculator();
             return new OrderChecklistUpdateService(orders, services, definitions, assignments, items, revisions, quotes,
-                    policies, calculator, new ServicePriceResolver(assignments, policies, calculator),
+                    policies, calculator, new ServicePriceResolver(assignments),
                     (OrderChecklistSnapshotService) snapshots, new OrderChecklistEditPolicy(quotes, invoices,
                     mock(MissionRepository.class), mock(com.ondemandmonitoring.mission.repository.MissionChecklistAssignmentRepository.class),
                     mock(com.ondemandmonitoring.mission.repository.MissionChecklistExecutionRepository.class)), resolver, orderService);

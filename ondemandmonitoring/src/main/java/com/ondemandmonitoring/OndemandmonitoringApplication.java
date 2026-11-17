@@ -10,6 +10,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @Slf4j
 @EnableJpaAuditing
 @EnableScheduling
+@org.springframework.transaction.annotation.EnableTransactionManagement(order = org.springframework.core.Ordered.LOWEST_PRECEDENCE - 100)
 @SpringBootApplication
 public class OndemandmonitoringApplication {
 

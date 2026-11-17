@@ -35,6 +35,13 @@ class BusinessAuditAspectPointcutTest {
                 AuditLogFilter.class, Integer.class, Integer.class)).isFalse();
     }
 
+    @Test
+    void transactionAdviceRunsBeforeAuditAdvice() {
+        var transaction=com.ondemandmonitoring.OndemandmonitoringApplication.class.getAnnotation(org.springframework.transaction.annotation.EnableTransactionManagement.class);
+        var audit=BusinessAuditAspect.class.getAnnotation(org.springframework.core.annotation.Order.class);
+        assertThat(transaction.order()).isLessThan(audit.value());
+    }
+
     private static boolean matches(
             AspectJExpressionPointcut pointcut, Class<?> type, String methodName, Class<?>... parameterTypes)
             throws NoSuchMethodException {

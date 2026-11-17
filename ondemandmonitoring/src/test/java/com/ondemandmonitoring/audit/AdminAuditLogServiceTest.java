@@ -45,6 +45,7 @@ class AdminAuditLogServiceTest {
     @AfterEach
     void clearRequest() {
         RequestContextHolder.resetRequestAttributes();
+        org.springframework.security.core.context.SecurityContextHolder.clearContext();
     }
 
     @Test
@@ -53,6 +54,8 @@ class AdminAuditLogServiceTest {
         admin.setId("admin-1");
         admin.setFullName("Admin One");
         when(resolver.getCurrentUser()).thenReturn(admin);
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken("admin-1",null,java.util.List.of()));
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.addHeader("X-Forwarded-For", "10.0.0.5, 172.16.0.1");
         request.addHeader("User-Agent", "JUnit");

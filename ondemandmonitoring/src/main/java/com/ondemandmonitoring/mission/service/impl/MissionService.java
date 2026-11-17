@@ -76,7 +76,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.util.concurrent.ThreadLocalRandom;
 
 import com.ondemandmonitoring.device.domain.MaintenanceTicket;
 import com.ondemandmonitoring.device.repository.MaintenanceTicketRepository;
@@ -637,7 +636,9 @@ public class MissionService implements IMissionService {
         var mission = missionRepository.findByIdForUpdate(missionId).or(() -> missionRepository.findById(missionId))
                 .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
         if (mission.getStatus() == MissionStatus.CANCELLED) return;
-        if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.DRAFT)
+        if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.DRAFT
+                && !(mission.getPurpose() == MissionPurpose.REWORK && order.getExecutionPlan().getStatus() == ExecutionPlanStatus.FINALIZED
+                && (mission.getResultRevisionCaseId() != null || mission.getInspectionCorrection() != null)))
             throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_DRAFT);
         if (mission.getStatus() != MissionStatus.PLANNING || mission.getActualStartAt() != null
                 || !missionChecklistExecutionRepository.findOrderedByMissionId(missionId).isEmpty())
@@ -1684,6 +1685,7 @@ public class MissionService implements IMissionService {
     }
 
     private void refreshResourceReadiness(Mission mission) {
+        if (flightPermitService != null) flightPermitService.synchronizeForCrew(mission);
         if (mission.getStatus() == MissionStatus.READY && !isReadyForHandover(mission)) {
             mission.setStatus(MissionStatus.PENDING_CONFIRMATION);
         }
@@ -1930,6 +1932,21 @@ public class MissionService implements IMissionService {
     @Transactional
     @PreAuthorize("@missionAuthorizationService.canCompleteMission(#missionId)")
     public MissionResponse completeMission(String missionId) {
+        return completeMissionInternal(missionId);
+    }
+
+    @Override
+    @Transactional
+    public MissionResponse completeMissionAfterSupplement(Mission child) {
+        var correction = child.getInspectionCorrection();
+        if (correction == null || correction.getSupplementalMission() == null
+                || !child.getId().equals(correction.getSupplementalMission().getId())
+                || correction.getStatus() != com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionStatus.RESOLVED)
+            throw new ApiException(ErrorCode.INSPECTION_CORRECTION_PENDING);
+        return completeMissionInternal(correction.getMission().getId());
+    }
+
+    private MissionResponse completeMissionInternal(String missionId) {
         Mission resolved = getRuntimeMissionOrThrow(missionId);
         MissionRuntimeGate.requireOperationalCommandsAllowed(resolved);
         orderRepository.findById(resolved.getOrder().getId())
@@ -1952,7 +1969,7 @@ public class MissionService implements IMissionService {
             throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
                     "A recorded post-flight inspection is required before mission completion");
         }
-        checklistExecutionService.requireReadyForSubmission(mission);
+        checklistExecutionService.requireReadyForInspectorApproval(mission);
         Instant completedAt = Instant.now();
         if (mission.getActualEndAt() == null) {
             mission.setActualEndAt(completedAt);
@@ -2195,12 +2212,7 @@ public class MissionService implements IMissionService {
     }
 
     private String generateMissionCode() {
-        String code;
-        do {
-            int number = ThreadLocalRandom.current().nextInt(100000);
-            code = String.format("MS-%05d", number);
-        } while (missionRepository.existsByMissionCode(code));
-        return code;
+        return MissionCodeGenerator.next(missionRepository::existsByMissionCode);
     }
 
     // =========================================================================

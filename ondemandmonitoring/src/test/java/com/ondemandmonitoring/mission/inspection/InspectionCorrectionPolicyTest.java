@@ -154,4 +154,20 @@ class InspectionCorrectionPolicyTest {
     when(evidence.active("child")).thenReturn(List.of(valid, reserve, unrelated));
     assertThat(policy.selectedSupplementalEvidence("parent")).containsExactly(valid);
   }
+
+  @Test
+  void acceptedDossierChecklistIsRetainedWhenOnlyTheRemainingFailureNeedsAFlight() {
+    var retained = new MissionChecklistExecution();
+    retained.setId("retained");
+    retained.setOrderChecklistItemId("accepted-item");
+    retained.setAssessmentStatus(ChecklistAssessmentStatus.COMPLIANT);
+    var acceptedItem = new InspectionCorrectionItem();
+    acceptedItem.setExecution(retained);
+    acceptedItem.setCorrection(correction);
+    var failedItem = items.findItems("c").getFirst();
+    when(items.findItems("c")).thenReturn(List.of(failedItem, acceptedItem));
+    when(items.findResolvedDelegations("parent")).thenReturn(List.of(failedItem, acceptedItem));
+    assertThat(policy.acceptedSupplement(correction)).isSameAs(child);
+    assertThat(policy.delegatedExecutions("parent")).containsOnlyKeys("original");
+  }
 }

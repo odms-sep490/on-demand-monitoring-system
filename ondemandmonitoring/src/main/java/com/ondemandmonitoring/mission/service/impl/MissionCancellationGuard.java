@@ -23,7 +23,9 @@ final class MissionCancellationGuard {
             throw new ApiException(ErrorCode.MISSION_CANCELLATION_NOT_ALLOWED);
         if (mission.getStatus() == MissionStatus.CANCELLED || mission.getCancellationAt() != null)
             throw new ApiException(ErrorCode.MISSION_ALREADY_CANCELLED);
-        if (order.getOrderStatus() != OrderStatus.APPROVED && order.getOrderStatus() != OrderStatus.IN_PROGRESS)
+        if (order.getOrderStatus() != OrderStatus.APPROVED && order.getOrderStatus() != OrderStatus.IN_PROGRESS
+                && !(order.getOrderStatus() == OrderStatus.COMPLETED && mission.getPurpose() == MissionPurpose.REWORK
+                && (mission.getResultRevisionCaseId() != null || mission.getInspectionCorrection() != null)))
             throw new ApiException(ErrorCode.MISSION_CANCELLATION_NOT_ALLOWED);
         if (order.getExecutionPlan().getStatus() != ExecutionPlanStatus.FINALIZED)
             throw new ApiException(ErrorCode.EXECUTION_PLAN_NOT_FINALIZED);

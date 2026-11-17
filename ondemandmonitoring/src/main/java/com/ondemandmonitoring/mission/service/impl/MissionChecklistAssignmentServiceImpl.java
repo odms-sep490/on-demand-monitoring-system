@@ -132,6 +132,7 @@ public class MissionChecklistAssignmentServiceImpl implements IMissionChecklistA
             item.setAssignmentStatus(ChecklistAssignmentStatus.ASSIGNED);
         }
         assignments.saveAllAndFlush(changed);
+        if (rework) ChecklistAssignmentStatusSync.recompute(mission, selected.values(), assignments.findActiveByOrderId(orderId));
         items.saveAll(selected.values());
         order.getExecutionPlan().setRevision(Math.addExact(order.getExecutionPlan().getRevision(), 1));
         orders.saveAndFlush(order);

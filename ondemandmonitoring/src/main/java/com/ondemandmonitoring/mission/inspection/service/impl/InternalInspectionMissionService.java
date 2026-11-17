@@ -73,26 +73,23 @@ public class InternalInspectionMissionService implements IInternalInspectionMiss
       return mapper.toResponse(prior);
     }
     requireOpen(correction);
+    if (correction.getMode() != com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT)
+      throw new ApiException(ErrorCode.INVALID_REQUEST, "This correction requires dossier adjustments, not a new flight");
     if (!request.expectedVersion().equals(correction.getVersion()))
       throw new ApiException(ErrorCode.CONCURRENT_UPDATE);
     if (correction.getMission().getInspectionCorrection() != null)
       throw new ApiException(
           ErrorCode.INVALID_REQUEST, "Nested internal correction missions are not supported");
     var previous = correction.getSupplementalMission();
-    if (previous != null && previous.getStatus() != MissionStatus.CANCELLED)
+    if (previous != null && !Set.of(MissionStatus.CANCELLED, MissionStatus.FAILED).contains(previous.getStatus()))
       throw new ApiException(ErrorCode.INSPECTION_CORRECTION_STATE_CONFLICT);
     schedule(request.scheduledStartAt(), request.scheduledEndAt());
-    var selections = items.findItems(correctionId);
+    var selections = items.findItems(correctionId).stream()
+        .filter(item -> item.getExecution().getAssessmentStatus() != ChecklistAssessmentStatus.COMPLIANT).toList();
     if (selections.isEmpty()) throw new ApiException(ErrorCode.CHECKLIST_COVERAGE_INCOMPLETE);
     var mission = new Mission();
     mission.setOrder(order);
-    mission.setMissionCode(
-        "MS-I"
-            + UUID.randomUUID()
-                .toString()
-                .replace("-", "")
-                .substring(0, 12)
-                .toUpperCase(Locale.ROOT));
+    mission.setMissionCode(MissionCodeGenerator.next(missions::existsByMissionCode));
     mission.setPurpose(MissionPurpose.REWORK);
     mission.setInspectionCorrection(correction);
     mission.setStatus(MissionStatus.PLANNING);
@@ -124,6 +121,8 @@ public class InternalInspectionMissionService implements IInternalInspectionMiss
       String sourceId, String correctionId, ExecutionPlanFinalizeRequest request) {
     var correction = lock(sourceId, correctionId);
     requireOpen(correction);
+    if (correction.getMode() != com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT)
+      throw new ApiException(ErrorCode.INVALID_REQUEST, "This correction requires dossier adjustments, not a new flight");
     var order = correction.getMission().getOrder();
     if (request == null
         || !Objects.equals(request.expectedPlanRevision(), order.getExecutionPlan().getRevision())
@@ -142,6 +141,7 @@ public class InternalInspectionMissionService implements IInternalInspectionMiss
     var selected = assignments.get(mission.getId());
     var expected =
         items.findItems(correctionId).stream()
+            .filter(item -> item.getExecution().getAssessmentStatus() != ChecklistAssessmentStatus.COMPLIANT)
             .map(i -> i.getExecution().getOrderChecklistItemId())
             .collect(java.util.stream.Collectors.toSet());
     if (selected == null
@@ -185,7 +185,9 @@ public class InternalInspectionMissionService implements IInternalInspectionMiss
         || source.getStatus() != MissionStatus.IN_PROGRESS
         || source.getCancellationAt() != null)
       throw new ApiException(ErrorCode.INSPECTION_CORRECTION_STATE_CONFLICT);
-    if (!Set.of(OrderStatus.APPROVED, OrderStatus.IN_PROGRESS).contains(order.getOrderStatus()))
+    if (!Set.of(OrderStatus.APPROVED, OrderStatus.IN_PROGRESS).contains(order.getOrderStatus())
+        && !(order.getOrderStatus() == OrderStatus.COMPLETED
+            && source.getPurpose() == MissionPurpose.REWORK && source.getResultRevisionCaseId() != null))
       throw new ApiException(ErrorCode.INVALID_DELIVERY_STATE);
     MissionRuntimeGate.requireFinalizedStructure(source);
     var invoice =
@@ -225,7 +227,7 @@ public class InternalInspectionMissionService implements IInternalInspectionMiss
               + "|"
               + request.expectedVersion()
               + "|"
-              + request.scopeLabel()
+              + request.scopeLabel().trim()
               + "|"
               + request.scheduledStartAt()
               + "|"

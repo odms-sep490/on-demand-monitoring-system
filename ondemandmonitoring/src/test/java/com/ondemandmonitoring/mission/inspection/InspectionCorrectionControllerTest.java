@@ -41,14 +41,25 @@ class InspectionCorrectionControllerTest {
   }
 
   @Test
+  void onlySourceInspectorMayReadSupplementResult() throws Exception {
+    mvc.perform(get("/api/missions/m/inspection-corrections/c/supplement-result")
+        .with(user("pilot").roles("STAFF"))).andExpect(status().isForbidden());
+    verifyNoInteractions(service);
+    when(authorization.canRequestInspectionCorrection("m")).thenReturn(true);
+    mvc.perform(get("/api/missions/m/inspection-corrections/c/supplement-result")
+        .with(user("inspector").roles("STAFF"))).andExpect(status().isOk());
+    verify(service).supplementResult("m", "c");
+  }
+
+  @Test
   void inspectorRequestUsesExactMissionAndValidatedScope() throws Exception {
-    when(authorization.canAssessMonitoringChecklist("m")).thenReturn(true);
+    when(authorization.canRequestInspectionCorrection("m")).thenReturn(true);
     mvc.perform(
             post("/api/missions/m/inspection-corrections")
                 .with(user("inspector").roles("STAFF"))
                 .contentType("application/json")
                 .content(
-                    "{\"clientRequestId\":\"00000000-0000-0000-0000-000000000001\",\"items\":[{\"executionId\":\"e\",\"expectedVersion\":3,\"reason\":\"Blurred\",\"mediaIds\":[]}]}"))
+                    "{\"clientRequestId\":\"00000000-0000-0000-0000-000000000001\",\"mode\":\"SUPPLEMENTAL_FLIGHT\",\"items\":[{\"executionId\":\"e\",\"expectedVersion\":3,\"reason\":\"Blurred\",\"mediaIds\":[]}]}"))
         .andExpect(status().isOk());
     verify(service)
         .request(
@@ -163,11 +174,43 @@ class InspectionCorrectionControllerTest {
     verifyNoInteractions(planning);
   }
 
+  @Test
+  void customerCannotReadInternalEvidenceHandoffEvenWhenTheyOwnTheMission() throws Exception {
+    when(authorization.canViewMission("m")).thenReturn(true);
+    mvc.perform(get("/api/missions/m/evidence-submissions").with(user("customer").roles("CUSTOMER")))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  void internalEvidenceHandoffRequiresMissionAccess() throws Exception {
+    mvc.perform(get("/api/missions/m/evidence-submissions").with(user("staff").roles("STAFF")))
+        .andExpect(status().isForbidden());
+    when(authorization.canViewMission("m")).thenReturn(true);
+    mvc.perform(get("/api/missions/m/evidence-submissions").with(user("staff").roles("STAFF")))
+        .andExpect(status().isOk());
+  }
+
+  @Test
+  void managerCannotSubmitTheFlightCrewsDossier() throws Exception {
+    when(authorization.canViewMission("m")).thenReturn(true);
+    mvc.perform(post("/api/missions/m/evidence-submissions").with(user("manager").roles("MANAGER"))
+        .contentType("application/json").content("{\"clientRequestId\":\"00000000-0000-0000-0000-000000000001\",\"reviewToken\":\"token\"}"))
+        .andExpect(status().isForbidden());
+  }
+
   @Configuration
   @EnableWebMvc
   @EnableWebSecurity
   @EnableMethodSecurity
   static class Config {
+    @Bean com.ondemandmonitoring.mission.service.impl.MissionEvidenceSubmissionService dossierService() {
+      return mock(com.ondemandmonitoring.mission.service.impl.MissionEvidenceSubmissionService.class);
+    }
+    @Bean com.ondemandmonitoring.mission.controller.MissionEvidenceSubmissionController dossierController(
+        com.ondemandmonitoring.mission.service.impl.MissionEvidenceSubmissionService service) {
+      return new com.ondemandmonitoring.mission.controller.MissionEvidenceSubmissionController(service);
+    }
+
     @Bean
     InspectionCorrectionController controller(
         IInspectionCorrectionService s, IInternalInspectionMissionService p) {

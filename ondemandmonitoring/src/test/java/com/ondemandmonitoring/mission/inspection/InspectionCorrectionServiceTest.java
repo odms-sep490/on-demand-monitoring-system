@@ -70,6 +70,9 @@ class InspectionCorrectionServiceTest {
 
   @BeforeEach
   void setup() {
+    org.springframework.test.util.ReflectionTestUtils.setField(service, "resultWorkflow", mock(IMissionResultService.class));
+    org.springframework.test.util.ReflectionTestUtils.setField(service, "submissions", mock(com.ondemandmonitoring.mission.service.impl.MissionEvidenceSubmissionService.class));
+    org.springframework.test.util.ReflectionTestUtils.setField(service, "evidenceEligibility", new com.ondemandmonitoring.mission.service.impl.ChecklistEvidencePolicy());
     var order = new Order();
     order.setId("order");
     order.getExecutionPlan().setStatus(ExecutionPlanStatus.FINALIZED);
@@ -96,6 +99,7 @@ class InspectionCorrectionServiceTest {
     when(aggregate.lockAggregate("order"))
         .thenReturn(new IOrderExecutionCompletionPolicy.LockedExecution(order, List.of(mission)));
     when(auth.canAssessMonitoringChecklist("mission")).thenReturn(true);
+    when(auth.canRequestInspectionCorrection("mission")).thenReturn(true);
     when(auth.canAttachChecklistEvidence("mission")).thenReturn(true);
     when(users.getCurrentUserId()).thenReturn("actor");
     when(executions.findOrderedByMissionId("mission")).thenReturn(List.of(execution));
@@ -134,6 +138,7 @@ class InspectionCorrectionServiceTest {
   InspectionCorrectionRequest request() {
     return new InspectionCorrectionRequest(
         UUID.fromString("00000000-0000-0000-0000-000000000001"),
+        com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.DOSSIER_ADJUSTMENT,
         List.of(new InspectionCorrectionRequest.Item("exec", 2L, "Image is blurred", List.of())));
   }
 
@@ -144,6 +149,43 @@ class InspectionCorrectionServiceTest {
   InspectionCorrectionDecision decision(InspectionCorrectionResponse row) {
     return new InspectionCorrectionDecision(
         row.version(), "Checked the corrected evidence", row.reviewToken());
+  }
+
+  @Test
+  void sourceInspectorCanReadAcceptedSupplementWithoutChildAssignment() {
+    opened();
+    correction.setMode(com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT);
+    var child = new Mission(); child.setId("child"); child.setMissionCode("MS-12345");
+    when(correctionPolicy.acceptedSupplement(correction)).thenReturn(child);
+    when(executions.findOrderedByMissionId("child")).thenReturn(List.of(execution));
+    var mapper = Mappers.getMapper(com.ondemandmonitoring.mission.mapper.MissionChecklistExecutionMapper.class);
+    org.springframework.test.util.ReflectionTestUtils.setField(service, "executionMapper", mapper);
+    when(policy.enrich(any(), eq(execution), anyList())).thenAnswer(call -> call.getArgument(0));
+    var response = service.supplementResult("mission", "correction");
+    assertThat(response.missionId()).isEqualTo("child");
+    assertThat(response.executions()).hasSize(1);
+    assertThat(response.executions().getFirst().isCustomerSelectionEditable()).isFalse();
+    verify(auth, never()).canViewMission("child");
+  }
+
+  @Test
+  void supplementReadRejectsOtherSourceAndUnassignedStaff() {
+    opened();
+    when(auth.canRequestInspectionCorrection("other")).thenReturn(true);
+    assertThatThrownBy(() -> service.supplementResult("other", "correction")).isInstanceOf(ApiException.class);
+    when(auth.canRequestInspectionCorrection("mission")).thenReturn(false);
+    assertThatThrownBy(() -> service.supplementResult("mission", "correction")).isInstanceOf(ApiException.class);
+    verify(correctionPolicy, never()).acceptedSupplement(any());
+  }
+
+  @Test
+  void supplementReadRequiresAcceptedFlightResult() {
+    opened();
+    assertThatThrownBy(() -> service.supplementResult("mission", "correction")).isInstanceOf(ApiException.class);
+    correction.setMode(com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT);
+    when(correctionPolicy.acceptedSupplement(correction)).thenThrow(new ApiException(ErrorCode.INSPECTION_CORRECTION_PENDING));
+    assertThatThrownBy(() -> service.supplementResult("mission", "correction")).isInstanceOf(ApiException.class);
+    verify(policy, never()).enrich(any(), any(), any());
   }
 
   @Test
@@ -182,7 +224,7 @@ class InspectionCorrectionServiceTest {
     var r = request();
     var withMedia =
         new InspectionCorrectionRequest(
-            r.clientRequestId(),
+            r.clientRequestId(), r.mode(),
             List.of(
                 new InspectionCorrectionRequest.Item(
                     "exec", 2L, "Wrong image", List.of("foreign-media"))));
@@ -198,7 +240,7 @@ class InspectionCorrectionServiceTest {
                 service.request(
                     "mission",
                     new InspectionCorrectionRequest(
-                        r.clientRequestId(), List.of(r.items().getFirst(), r.items().getFirst()))))
+                        r.clientRequestId(), r.mode(), List.of(r.items().getFirst(), r.items().getFirst()))))
         .isInstanceOf(ApiException.class);
     verify(corrections, never()).saveAndFlush(any());
   }
@@ -222,7 +264,7 @@ class InspectionCorrectionServiceTest {
         .thenReturn(Optional.of(correction));
     var r =
         new InspectionCorrectionRequest(
-            request().clientRequestId(),
+            request().clientRequestId(), request().mode(),
             List.of(
                 new InspectionCorrectionRequest.Item("exec", 2L, "Different reason", List.of())));
     assertThatThrownBy(() -> service.request("mission", r)).isInstanceOf(ApiException.class);
@@ -325,5 +367,98 @@ class InspectionCorrectionServiceTest {
     when(executions.findOrderedByMissionId("mission")).thenReturn(List.of(execution,other));
     assertThatThrownBy(()->opened()).isInstanceOf(ApiException.class).extracting("errorCode").isEqualTo(ErrorCode.CHECKLIST_NOT_READY);
     verify(corrections,never()).saveAndFlush(any());
+  }
+  private Mission acceptedChild() {
+    opened();
+    correction.setMode(com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT);
+    var child = new Mission(); child.setId("child"); child.setMissionCode("MS-CHILD");
+    child.setOrder(mission.getOrder()); child.setStatus(MissionStatus.COMPLETED);
+    child.setInspectionCorrection(correction); correction.setSupplementalMission(child);
+    when(correctionPolicy.acceptedSupplement(correction)).thenReturn(child);
+    return child;
+  }
+  @Test void acceptedChildResolvesTheRequestWithoutSourceReassessment() {
+    var child = acceptedChild();
+    service.registerAcceptedSupplement(child);
+    service.registerAcceptedSupplement(child);
+    assertThat(correction.getStatus()).isEqualTo(InspectionCorrectionStatus.RESOLVED);
+    assertThat(execution.getAssessmentStatus()).isEqualTo(ChecklistAssessmentStatus.NON_COMPLIANT);
+    assertThat(savedEvents.stream().filter(e -> e.getAction().equals("SUPPLEMENT_ACCEPTED"))).hasSize(1);
+    verify(correctionPolicy).acceptedSupplement(correction);
+  }
+  @Test void recoveryRequiresOriginalInspectorAndVerifiesAcceptedChild() {
+    acceptedChild();
+    when(auth.canRequestInspectionCorrection("mission")).thenReturn(false);
+    assertThatThrownBy(() -> service.synchronizeSupplement("mission", "correction")).isInstanceOf(ApiException.class);
+    assertThat(correction.getStatus()).isEqualTo(InspectionCorrectionStatus.OPEN);
+    when(auth.canRequestInspectionCorrection("mission")).thenReturn(true);
+    assertThat(service.synchronizeSupplement("mission", "correction").status()).isEqualTo(InspectionCorrectionStatus.RESOLVED);
+  }
+  @Test void incompleteOrRejectedSupplementNeverChangesSourceRequest() {
+    var child = acceptedChild();
+    when(correctionPolicy.acceptedSupplement(correction)).thenThrow(new ApiException(ErrorCode.CHECKLIST_NOT_READY));
+    assertThatThrownBy(() -> service.registerAcceptedSupplement(child)).isInstanceOf(ApiException.class);
+    assertThat(correction.getStatus()).isEqualTo(InspectionCorrectionStatus.OPEN);
+    assertThat(savedEvents.stream().filter(e -> e.getAction().equals("SUPPLEMENT_ACCEPTED"))).isEmpty();
+  }
+  @Test void supersededChildCannotCompleteTheCurrentRequest() {
+    var child = acceptedChild();
+    var replacement = new Mission(); replacement.setId("new-attempt"); correction.setSupplementalMission(replacement);
+    assertThatThrownBy(() -> service.registerAcceptedSupplement(child)).isInstanceOf(ApiException.class);
+    assertThat(correction.getStatus()).isEqualTo(InspectionCorrectionStatus.OPEN);
+  }
+
+
+  @Test
+  void checklistReviewResolvesOnlyWhenCustomerEvidenceIsReady() {
+    var row = opened();
+    when(policy.ready(eq(execution), anyList(), eq(false))).thenReturn(true);
+    service.resubmit("mission", row.id(), decision(row));
+    assertThat(execution.getAssessmentStatus()).isEqualTo(ChecklistAssessmentStatus.NOT_ASSESSED);
+    when(corrections.findByMission_IdOrderByRequestedAtDescIdDesc("mission")).thenReturn(List.of(correction));
+    execution.setAssessmentStatus(ChecklistAssessmentStatus.COMPLIANT);
+    service.reconcileChecklistReview("mission");
+    assertThat(correction.getStatus()).isEqualTo(InspectionCorrectionStatus.SUBMITTED);
+    when(policy.readyForInspectorApproval(eq(execution), anyList())).thenReturn(true);
+    service.reconcileChecklistReview("mission");
+    assertThat(correction.getStatus()).isEqualTo(InspectionCorrectionStatus.RESOLVED);
+    service.reconcileChecklistReview("mission");
+    assertThat(savedEvents).extracting(InspectionCorrectionEvent::getAction)
+        .containsExactly("REQUESTED", "RESUBMITTED", "RESOLVED");
+  }
+
+  @Test
+  void checklistReviewReturnsFailedWorkWithItsAssessmentReason() {
+    var row = opened();
+    when(policy.ready(eq(execution), anyList(), eq(false))).thenReturn(true);
+    service.resubmit("mission", row.id(), decision(row));
+    when(corrections.findByMission_IdOrderByRequestedAtDescIdDesc("mission")).thenReturn(List.of(correction));
+    service.reconcileChecklistReview("mission");
+    assertThat(correction.getStatus()).isEqualTo(InspectionCorrectionStatus.SUBMITTED);
+    execution.setAssessmentStatus(ChecklistAssessmentStatus.NON_COMPLIANT);
+    execution.setAssessmentNote("Still blurred");
+    service.reconcileChecklistReview("mission");
+    assertThat(correction.getStatus()).isEqualTo(InspectionCorrectionStatus.OPEN);
+    assertThat(savedEvents.get(savedEvents.size() - 1).getAction()).isEqualTo("RETURNED");
+  }
+
+  @Test
+  void cannotOpenAnUnexecutableNestedFlightCorrection() {
+    mission.setInspectionCorrection(new InspectionCorrection());
+    var initial = request();
+    var nested = new InspectionCorrectionRequest(initial.clientRequestId(),
+        com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT, initial.items());
+    assertThatThrownBy(() -> service.request("mission", nested)).isInstanceOf(ApiException.class);
+    verify(corrections, never()).saveAndFlush(any());
+  }
+
+  @Test
+  void nestedDossierCannotBeConvertedIntoAnUnexecutableFlight() {
+    var opened = opened();
+    mission.setInspectionCorrection(new InspectionCorrection());
+    assertThatThrownBy(() -> service.requireFlight("mission", opened.id(), decision(opened)))
+        .isInstanceOf(ApiException.class);
+    assertThat(correction.getMode()).isEqualTo(
+        com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.DOSSIER_ADJUSTMENT);
   }
 }

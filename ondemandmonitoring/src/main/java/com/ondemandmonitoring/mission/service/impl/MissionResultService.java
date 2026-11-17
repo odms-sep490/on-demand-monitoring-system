@@ -5,7 +5,6 @@ import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.delivery.service.IDeliveryWorkflowService;
 import com.ondemandmonitoring.media.domain.MediaAsset;
-import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
 import com.ondemandmonitoring.media.service.IMediaAssetService;
 import com.ondemandmonitoring.mission.domain.Mission;
@@ -58,6 +57,52 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
     @Autowired @lombok.experimental.NonFinal
     com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionPolicy inspectionCorrections;
 
+    @Autowired @lombok.experimental.NonFinal
+    EvidenceHandoffPolicy evidenceHandoff;
+
+    @Autowired @lombok.experimental.NonFinal
+    com.ondemandmonitoring.mission.inspection.service.IInspectionCorrectionService correctionWorkflow;
+
+    @Autowired @org.springframework.context.annotation.Lazy @lombok.experimental.NonFinal
+    com.ondemandmonitoring.mission.service.IMissionService missionLifecycle;
+
+    @Override
+    @Transactional
+    public void completeSupplementedSource(Mission child) {
+        var correction = child.getInspectionCorrection();
+        if (correction == null) throw new ApiException(ErrorCode.INSPECTION_CORRECTION_PENDING);
+        var accepted = inspectionCorrections.acceptedSupplement(correction);
+        if (!child.getId().equals(accepted.getId())
+                || correction.getStatus() != com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionStatus.RESOLVED)
+            throw new ApiException(ErrorCode.INSPECTION_CORRECTION_PENDING);
+        var source = correction.getMission();
+        var aggregate = completionPolicy.lockAggregate(source.getOrder().getId());
+        var result = missionResultRepository.findByMissionId(source.getId()).orElse(null);
+        if (result != null && result.getApprovalStatus() == MissionResultApprovalStatus.APPROVED) {
+            deliveryWorkflow.publishInspectedResults(source.getOrder().getId());
+            return;
+        }
+        if (source.getStatus() != MissionStatus.IN_PROGRESS || source.getActualEndAt() == null
+                || source.getFailureRequestedAt() != null || inspectionCorrections.hasOpen(source.getId())
+                || !checklistExecutionService.isReadyForInspectorApproval(source)) return;
+        missionLifecycle.completeMissionAfterSupplement(child);
+        ensureCompletedResult(source);
+        result = missionResultRepository.findByMissionId(source.getId()).orElseThrow();
+        var childResult = missionResultRepository.findByMissionId(child.getId()).orElseThrow();
+        result.setApprovalStatus(MissionResultApprovalStatus.APPROVED);
+        result.setInspectorConfirmed(true);
+        result.setApprovedAt(Instant.now());
+        result.setSubmittedAt(Instant.now());
+        result.setReviewedBy(childResult.getReviewedBy());
+        result.setReviewNote("Completed using accepted supplemental mission " + child.getMissionCode());
+        result.setStatus(MissionResultStatus.COMPLETED);
+        source.setStatus(MissionStatus.COMPLETED);
+        missionRepository.saveAndFlush(source);
+        missionResultRepository.saveAndFlush(result);
+        completionPolicy.completeIfReady(aggregate);
+        deliveryWorkflow.publishInspectedResults(source.getOrder().getId());
+    }
+
     @Override
     @Transactional(readOnly = true)
     @PreAuthorize("@missionAuthorizationService.canViewMission(#missionId)")
@@ -82,6 +127,7 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
         MissionResult result = missionResultRepository.findByMissionId(missionId).orElse(null);
         // A retry after confirmation must not overwrite the frozen inspection package.
         if (result != null && result.getApprovalStatus() == MissionResultApprovalStatus.APPROVED) {
+            if (mission.getInspectionCorrection() != null) correctionWorkflow.registerAcceptedSupplement(mission);
             deliveryWorkflow.publishInspectedResults(orderId);
             return toResponse(result);
         }
@@ -91,6 +137,7 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
                     "Complete postflight acceptance before confirming the inspection package");
         if (request == null || request.getStatus() == MissionResultStatus.FAILED)
             throw new ApiException(ErrorCode.INVALID_REQUEST);
+        evidenceHandoff.requireReviewable(missionId);
         inspectionCorrections.requireResolved(missionId);
         checklistExecutionService.requireReadyForInspectorApproval(mission);
         if (result == null) {
@@ -109,6 +156,7 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
         mission.setStatus(MissionStatus.COMPLETED);
         missionRepository.saveAndFlush(mission);
         var saved = missionResultRepository.saveAndFlush(result);
+        if (mission.getInspectionCorrection() != null) correctionWorkflow.registerAcceptedSupplement(mission);
         completionPolicy.completeIfReady(aggregate);
         deliveryWorkflow.publishInspectedResults(orderId);
         return toResponse(saved);
@@ -130,106 +178,7 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
     @Deprecated
     @PreAuthorize("denyAll()")
     public MissionResultResponse approve(String resultId, MissionResultReviewRequest request) {
-        String orderId = missionResultRepository.findOrderIdByResultId(resultId)
-                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-        var aggregate = completionPolicy.lockAggregate(orderId);
-        MissionResult result = missionResultRepository.findById(resultId)
-                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-        if (!orderId.equals(result.getMission().getOrder().getId())
-                || aggregate.missions().stream().noneMatch(m -> m.getId().equals(result.getMission().getId())))
-            throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_INTEGRITY_INVALID);
-        if (result.getApprovalStatus() == MissionResultApprovalStatus.APPROVED) {
-            completionPolicy.completeIfReady(aggregate);
-            return toResponse(result);
-        }
-        if (result.getApprovalStatus() != MissionResultApprovalStatus.PENDING_MANAGER_APPROVAL)
-            throw new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Pending mission result not found: " + resultId);
-        if (!ExecutionPlanCoverageService.effective(result.getMission()))
-            throw new ApiException(ErrorCode.MISSION_STATUS_INVALID);
-        MissionRuntimeGate.requireFinalizedStructure(result.getMission());
-        checklistExecutionService.requireMaterialized(result.getMission());
-        inspectionCorrections.requireResolved(result.getMission().getId());
-        checklistExecutionService.requireReadyForFinalApproval(result.getMission());
-        if (result.getMission().getStatus() != MissionStatus.AWAITING_REVIEW
-                && result.getMission().getStatus() != MissionStatus.PENDING_REVIEW
-                && result.getMission().getStatus() != MissionStatus.COMPLETED)
-            throw new ApiException(ErrorCode.MISSION_STATUS_INVALID,
-                    "Mission result must be submitted before manager approval");
-        boolean unfinishedMediaReview = mediaAssetRepository
-                .findByMissionIdOrderByCapturedAtDesc(result.getMission().getId()).stream()
-                .filter(asset -> asset.getOrphanCleanupRequestedAt() == null
-                        && asset.getStorageStatus() == com.ondemandmonitoring.media.enums.MediaStorageStatus.AVAILABLE)
-                .anyMatch(asset -> asset.getMediaStatus() != MediaStatus.AVAILABLE
-                        && asset.getMediaStatus() != MediaStatus.REJECTED);
-        if (unfinishedMediaReview) {
-            throw new ApiException(ErrorCode.DELIVERY_NOT_READY,
-                    "Approve or reject every mission media file before approving the mission result");
-        }
-        requireOrderMediaQuantity(aggregate, result, request);
-        Instant now = Instant.now();
-        result.setApprovalStatus(MissionResultApprovalStatus.APPROVED);
-        result.setApprovedAt(now);
-        result.setRejectedAt(null);
-        result.setReviewedBy(currentUser.getCurrentUserId());
-        result.setReviewNote(request == null ? null : request.getNote());
-        result.getMission().setStatus(MissionStatus.COMPLETED);
-        missionRepository.saveAndFlush(result.getMission());
-        attachMissionMedia(result, result.getMission().getId());
-        var saved = missionResultRepository.saveAndFlush(result);
-        completionPolicy.completeIfReady(aggregate);
-        if (deliveryWorkflow != null) deliveryWorkflow.markReadyForManagerReview(result.getMission().getOrder().getId());
-        return toResponse(saved);
-    }
-
-    /**
-     * Order-level check: a photo may legitimately serve several checklists, so every checklist can be "complete" while fewer
-     * distinct files exist than the customer ordered. On the approval that closes the order, compare the distinct delivered
-     * files with the ordered quantities; a shortfall is allowed only with a written reason (at least 10 characters).
-     */
-    private void requireOrderMediaQuantity(
-            com.ondemandmonitoring.order.service.IOrderExecutionCompletionPolicy.LockedExecution aggregate,
-            MissionResult result, MissionResultReviewRequest request) {
-        var order = aggregate.order();
-        long orderedImages = 0, orderedVideos = 0;
-        boolean quantified = false;
-        for (var deliverable : order.getDeliverables()) {
-            var requirement = deliverable.getRequirement();
-            if (requirement == null) continue;
-            if (requirement.containsKey("imageQuantity") || requirement.containsKey("videoQuantity")) quantified = true;
-            orderedImages += quantity(requirement.get("imageQuantity"));
-            orderedVideos += quantity(requirement.get("videoQuantity"));
-        }
-        if (!quantified) return; // orders created before per-type quantities are not checked
-        var effective = aggregate.missions().stream().filter(ExecutionPlanCoverageService::effective).toList();
-        boolean lastOpenResult = effective.stream()
-                .filter(m -> !m.getId().equals(result.getMission().getId()))
-                .allMatch(m -> missionResultRepository.existsByMissionIdAndApprovalStatus(
-                        m.getId(), MissionResultApprovalStatus.APPROVED));
-        if (!lastOpenResult) return;
-        var images = new java.util.HashSet<String>();
-        var videos = new java.util.HashSet<String>();
-        for (var mission : effective) {
-            for (MediaAsset asset : mediaAssetRepository.findByMissionIdOrderByCapturedAtDesc(mission.getId())) {
-                if (asset.getMediaStatus() != MediaStatus.AVAILABLE || asset.getOrphanCleanupRequestedAt() != null
-                        || asset.getStorageStatus() != com.ondemandmonitoring.media.enums.MediaStorageStatus.AVAILABLE) continue;
-                String key = asset.getChecksumSha256() == null || asset.getChecksumSha256().isBlank()
-                        ? "id:" + asset.getId() : asset.getChecksumSha256().toLowerCase();
-                if ("IMAGE".equals(asset.getType())) images.add(key);
-                else if ("VIDEO".equals(asset.getType())) videos.add(key);
-            }
-        }
-        if (images.size() >= orderedImages && videos.size() >= orderedVideos) return;
-        String note = request == null || request.getNote() == null ? "" : request.getNote().strip();
-        if (note.length() >= 10) return;
-        throw new ApiException(ErrorCode.ORDER_MEDIA_QUANTITY_NOT_MET,
-                "Mới có " + images.size() + "/" + orderedImages + " ảnh và " + videos.size() + "/" + orderedVideos
-                        + " video so với đơn đặt. Nhập lý do (ít nhất 10 ký tự) để vẫn duyệt.");
-    }
-
-    private static long quantity(Object value) {
-        if (value instanceof Number number) return number.longValue();
-        try { return value == null ? 0 : Long.parseLong(value.toString()); }
-        catch (NumberFormatException ignored) { return 0; }
+        throw new ApiException(ErrorCode.ACCESS_DENIED);
     }
 
     @Override
@@ -238,16 +187,7 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
     @Deprecated
     @PreAuthorize("denyAll()")
     public MissionResultResponse reject(String resultId, MissionResultReviewRequest request) {
-        MissionResult result = requirePendingResult(resultId);
-        Instant now = Instant.now();
-        result.setApprovalStatus(MissionResultApprovalStatus.REJECTED);
-        result.setRejectedAt(now);
-        result.setApprovedAt(null);
-        result.setReviewedBy(currentUser.getCurrentUserId());
-        result.setReviewNote(request == null ? null : request.getNote());
-        result.getMission().setStatus(MissionStatus.IN_PROGRESS);
-        missionRepository.save(result.getMission());
-        return toResponse(missionResultRepository.save(result));
+        throw new ApiException(ErrorCode.ACCESS_DENIED);
     }
 
     @Override
@@ -279,7 +219,6 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
     private void applyRequest(MissionResult result, Mission mission, MissionResultRequest request) {
         Instant submittedAt = Instant.now();
         result.setStatus(request.getStatus() == null ? MissionResultStatus.COMPLETED : request.getStatus());
-        result.setApprovalStatus(MissionResultApprovalStatus.PENDING_MANAGER_APPROVAL);
         result.setStartedAt(request.getStartedAt() != null ? request.getStartedAt() : mission.getActualStartAt());
         result.setEndedAt(request.getEndedAt() != null ? request.getEndedAt() : mission.getActualEndAt());
         result.setCompletedAt(request.getCompletedAt() != null ? request.getCompletedAt() : submittedAt);
@@ -318,17 +257,6 @@ public class MissionResultService implements com.ondemandmonitoring.mission.serv
     private int countMedia(String missionId) {
         List<MediaAsset> media = mediaAssetRepository.findByMissionIdOrderByCapturedAtDesc(missionId);
         return media.size();
-    }
-
-    private MissionResult requirePendingResult(String resultId) {
-        String missionId = missionResultRepository.findMissionIdByResultId(resultId)
-                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-        missionRepository.findByIdForUpdate(missionId)
-                .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
-        return missionResultRepository.findById(resultId)
-                .filter(result -> result.getApprovalStatus() == MissionResultApprovalStatus.PENDING_MANAGER_APPROVAL)
-                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND,
-                        "Pending mission result not found: " + resultId));
     }
 
     private Long resolveDurationSeconds(Instant startedAt, Instant endedAt) {

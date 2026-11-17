@@ -32,6 +32,12 @@ class MissionAuthorizationServiceTest {
 
     @BeforeEach
     void setup() {
+        var handoff = mock(com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy.class);
+        when(handoff.editable(anyString())).thenReturn(true);
+        when(handoff.reviewable(anyString())).thenReturn(true);
+        when(handoff.submitted(anyString())).thenReturn(true);
+        org.springframework.test.util.ReflectionTestUtils.setField(policy, "evidenceHandoff", handoff);
+
         staff = User.builder().role(Role.builder().code(RoleCode.STAFF).active(true).build()).isActive(true).build();
         staff.setId("staff-1");
         mission = new Mission();
@@ -257,6 +263,26 @@ class MissionAuthorizationServiceTest {
     }
 
     @Test
+    void inspectorCanAssessImmediatelyAfterPostflightWithoutCrewHandoffButNotDuringCorrection() {
+        mission.setStatus(MissionStatus.IN_PROGRESS); mission.setActualEndAt(Instant.now());
+        assign(MissionStaffRole.INSPECTOR, MissionStaffAssignmentStatus.ACCEPTED);
+        var submissions = mock(com.ondemandmonitoring.mission.repository.MissionEvidenceSubmissionRepository.class);
+        var corrections = mock(com.ondemandmonitoring.mission.inspection.repository.InspectionCorrectionRepository.class);
+        var handoff = new com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy(submissions, corrections);
+        org.springframework.test.util.ReflectionTestUtils.setField(policy, "evidenceHandoff", handoff);
+        assertThat(mission.getCompletedAt()).isNull();
+        assertThat(policy.canAssessMonitoringChecklist("mission-1")).isTrue();
+        assertThat(policy.canRequestInspectionCorrection("mission-1")).isTrue();
+        assertThat(policy.canAccessMissionInspection("mission-1")).isTrue();
+        var correction = new com.ondemandmonitoring.mission.inspection.domain.InspectionCorrection();
+        correction.setStatus(com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionStatus.OPEN);
+        when(corrections.findByMission_IdOrderByRequestedAtDescIdDesc("mission-1")).thenReturn(List.of(correction));
+        assertThat(policy.canAssessMonitoringChecklist("mission-1")).isFalse();
+        correction.setStatus(com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionStatus.SUBMITTED);
+        assertThat(policy.canAssessMonitoringChecklist("mission-1")).isTrue();
+    }
+
+    @Test
     void inspectorReviewsAndSubmitsButNeverReportsOrUploadsWithoutReporterAssignment() {
         mission.setStatus(MissionStatus.IN_PROGRESS); mission.setActualEndAt(Instant.now());
         var entry = assign(MissionStaffRole.INSPECTOR, MissionStaffAssignmentStatus.ACCEPTED);
@@ -326,4 +352,16 @@ class MissionAuthorizationServiceTest {
         operator.setReleaseReason("REPLACED");
         assertThat(policy.canExecuteMonitoringChecklist("mission-1")).isFalse();
     }
+    @Test
+    void postflightClosesPilotControlWithoutRemovingInspectorAccess() {
+        mission.setStatus(MissionStatus.IN_PROGRESS);
+        assign(MissionStaffRole.PILOT, MissionStaffAssignmentStatus.ACCEPTED);
+        assertThat(policy.canControlFlight("mission-1")).isTrue();
+        mission.setActualEndAt(Instant.now());
+        assertThat(policy.canControlFlight("mission-1")).isFalse();
+        assign(MissionStaffRole.INSPECTOR, MissionStaffAssignmentStatus.ACCEPTED);
+        assertThat(policy.canAccessMissionInspection("mission-1")).isTrue();
+        assertThat(policy.canAssessMonitoringChecklist("mission-1")).isTrue();
+    }
+
 }

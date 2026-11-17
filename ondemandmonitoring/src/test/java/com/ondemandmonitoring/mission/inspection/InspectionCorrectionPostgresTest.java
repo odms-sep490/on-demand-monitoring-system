@@ -83,6 +83,7 @@ class InspectionCorrectionPostgresTest {
             + " CASCADE");
     reset(auth, evidence);
     when(auth.canAssessMonitoringChecklist(anyString())).thenReturn(true);
+    when(auth.canRequestInspectionCorrection(anyString())).thenReturn(true);
     when(auth.canAttachChecklistEvidence(anyString())).thenReturn(true);
     when(auth.canViewMission(anyString())).thenReturn(true);
     when(evidence.ready(any(), anyList(), eq(false))).thenReturn(true);
@@ -160,12 +161,90 @@ class InspectionCorrectionPostgresTest {
         });
   }
 
+  @Autowired com.ondemandmonitoring.mission.service.impl.MissionEvidenceSubmissionService submissions;
+
+  @Test
+  void evidenceHandoffPersistsSnapshotAndReplaysWithoutAnotherRevision() {
+    jdbc.update("update missions set completed_at=? where id=?", java.sql.Timestamp.from(NOW), missionId);
+    var state = submissions.get(missionId);
+    assertThat(state.canSubmit()).isTrue();
+    var command = new com.ondemandmonitoring.mission.service.impl.MissionEvidenceSubmissionService.Command(UUID.randomUUID(), state.reviewToken());
+    var sent = submissions.submit(missionId, command);
+    assertThat(sent.reviewable()).isTrue();
+    assertThat(sent.canSubmit()).isFalse();
+    assertThat(sent.history()).hasSize(1);
+    assertThat(submissions.submit(missionId, command).history()).hasSize(1);
+    assertThat(jdbc.queryForObject("select jsonb_array_length(snapshot) from mission_evidence_submissions", Integer.class)).isEqualTo(1);
+    jdbc.update("update mission_checklist_executions set observation='changed later' where id=?", executionId);
+    assertThat(jdbc.queryForObject("select snapshot::text from mission_evidence_submissions", String.class)).doesNotContain("changed later");
+  }
+
+  @Test
+  void dossierAdjustmentNeverCreatesANewFlight() {
+    var opened = service.request(missionId, request());
+    assertThatThrownBy(() -> internalMissions.create(missionId, opened.id(),
+        new com.ondemandmonitoring.mission.inspection.dto.request.InternalCorrectionMissionRequest(
+            opened.version(), UUID.randomUUID(), "Not a flight", NOW.plusSeconds(3600), NOW.plusSeconds(7200))))
+        .isInstanceOf(ApiException.class);
+    assertThat(jdbc.queryForObject("select count(*) from missions", Integer.class)).isEqualTo(1);
+  }
+
+  @Test
+  void supplementalRequestCannotBeResubmittedWithoutAcceptedFlight() {
+    var opened = service.request(missionId, flightRequest());
+    assertThatThrownBy(() -> service.resubmit(missionId, opened.id(), decision(opened))).isInstanceOf(ApiException.class);
+    assertThat(service.list(missionId).getFirst().status()).isEqualTo(InspectionCorrectionStatus.OPEN);
+  }
+
+  @Test
+  void missingOriginalDataCanEscalateToFlightWithoutLosingHistoryOrRequestReplay() {
+    var request = request();
+    var opened = service.request(missionId, request);
+    var escalated = service.requireFlight(missionId, opened.id(), decision(opened));
+    assertThat(escalated.mode()).isEqualTo(com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT);
+    assertThat(escalated.events()).hasSize(2);
+    when(auth.canAssessMonitoringChecklist(missionId)).thenReturn(false);
+    assertThat(service.request(missionId, request).id()).isEqualTo(opened.id());
+    assertThatThrownBy(() -> service.requireFlight(missionId, opened.id(), decision(escalated))).isInstanceOf(ApiException.class);
+    assertThatThrownBy(() -> service.resubmit(missionId, opened.id(), decision(escalated))).isInstanceOf(ApiException.class);
+  }
+
+  @Test
+  void concurrentHandoffsProduceExactlyOneSubmission() throws Exception {
+    jdbc.update("update missions set completed_at=? where id=?", java.sql.Timestamp.from(NOW), missionId);
+    var token = submissions.get(missionId).reviewToken();
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    var start = new CountDownLatch(1);
+    try {
+      List<Future<Boolean>> calls = new ArrayList<>();
+      for (int i = 0; i < 2; i++) calls.add(pool.submit(() -> {
+        start.await();
+        try {
+          submissions.submit(missionId, new com.ondemandmonitoring.mission.service.impl.MissionEvidenceSubmissionService.Command(UUID.randomUUID(), token));
+          return true;
+        } catch (ApiException expected) { return false; }
+      }));
+      start.countDown();
+      int accepted = 0;
+      for (var call : calls) if (call.get(30, TimeUnit.SECONDS)) accepted++;
+      assertThat(accepted).isEqualTo(1);
+      assertThat(jdbc.queryForObject("select count(*) from mission_evidence_submissions", Integer.class)).isEqualTo(1);
+    } finally { pool.shutdownNow(); }
+  }
+
   InspectionCorrectionRequest request() {
     return new InspectionCorrectionRequest(
         UUID.randomUUID(),
+        com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.DOSSIER_ADJUSTMENT,
         List.of(
             new InspectionCorrectionRequest.Item(
                 executionId, 0L, "The image is blurred", List.of())));
+  }
+
+  InspectionCorrectionRequest flightRequest() {
+    var request = request();
+    return new InspectionCorrectionRequest(request.clientRequestId(),
+        com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT, request.items());
   }
 
   InspectionCorrectionDecision decision(InspectionCorrectionResponse row) {
@@ -274,7 +353,7 @@ class InspectionCorrectionPostgresTest {
 
   @Test
   void acceptedSupplementClosesTheOriginalRequestWithoutCopyingExecutionRows() {
-    var opened = service.request(missionId, request());
+    var opened = service.request(missionId, flightRequest());
     String[] childIds = new String[2];
     tx.executeWithoutResult(
         status -> {
@@ -372,7 +451,7 @@ class InspectionCorrectionPostgresTest {
 
   @Test
   void createsInternalMissionAndAssignsFailedScopeInOneTransaction() {
-    var correction = service.request(missionId, request());
+    var correction = service.request(missionId, flightRequest());
     assertThat(correction.items().getFirst().orderChecklistItemId())
         .isEqualTo(jdbc.queryForObject("select order_checklist_item_id from mission_checklist_executions where id=?",String.class,executionId));
     var child =
@@ -401,7 +480,7 @@ class InspectionCorrectionPostgresTest {
 
   @Test
   void rollsBackNewMissionAndCorrectionLinkWhenAssignmentFails() {
-    var correction = service.request(missionId, request());
+    var correction = service.request(missionId, flightRequest());
     when(users.getCurrentUserId())
         .thenThrow(new IllegalStateException("Assignment actor unavailable"));
     try {
@@ -433,6 +512,20 @@ class InspectionCorrectionPostgresTest {
     } finally {
       doReturn("test-actor").when(users).getCurrentUserId();
     }
+  }
+
+  @Test
+  void failedInternalMissionCanBeReplacedWithoutDeletingItsHistory() {
+    var correction=service.request(missionId,flightRequest());
+    var first=internalMissions.create(missionId,correction.id(),new com.ondemandmonitoring.mission.inspection.dto.request.InternalCorrectionMissionRequest(correction.version(),UUID.randomUUID(),"Recapture fence",NOW.plusSeconds(3600),NOW.plusSeconds(7200)));
+    jdbc.update("update missions set status='FAILED' where id=?",first.getId());
+    var current=service.list(missionId).getFirst();
+    var second=internalMissions.create(missionId,current.id(),new com.ondemandmonitoring.mission.inspection.dto.request.InternalCorrectionMissionRequest(current.version(),UUID.randomUUID(),"Recapture fence",NOW.plusSeconds(10800),NOW.plusSeconds(14400)));
+    assertThat(second.getId()).isNotEqualTo(first.getId());
+    assertThat(jdbc.queryForObject("select status from missions where id=?",String.class,first.getId())).isEqualTo("FAILED");
+    assertThat(jdbc.queryForObject("select count(*) from mission_checklist_assignments where mission_id=? and removed_at is null",Integer.class,first.getId())).isEqualTo(1);
+    assertThat(service.list(missionId).getFirst().supplementalMissionId()).isEqualTo(second.getId());
+    assertThat(jdbc.queryForObject("select assignment_status from order_checklist_items where id=(select order_checklist_item_id from mission_checklist_executions where id=?)",String.class,executionId)).isEqualTo("IN_PROGRESS");
   }
 
   @Configuration
@@ -508,6 +601,41 @@ class InspectionCorrectionPostgresTest {
     @Bean
     InspectionCorrectionMapper mapper() {
       return Mappers.getMapper(InspectionCorrectionMapper.class);
+    }
+
+    @Bean
+    com.ondemandmonitoring.mission.service.impl.ChecklistEvidencePolicy eligibility() {
+      return new com.ondemandmonitoring.mission.service.impl.ChecklistEvidencePolicy();
+    }
+
+    @Bean
+    com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy handoff(
+        MissionEvidenceSubmissionRepository submissions, InspectionCorrectionRepository corrections) {
+      return new com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy(submissions, corrections);
+    }
+
+    @Bean
+    com.ondemandmonitoring.mission.service.impl.MissionEvidenceSubmissionService submissions(
+        MissionRepository missions, MissionEvidenceSubmissionRepository submissions,
+        MissionChecklistExecutionRepository executions, IChecklistEvidenceService evidence,
+        com.ondemandmonitoring.mission.service.impl.ChecklistEvidencePolicy eligibility,
+        IMissionChecklistScopeService scope, IMissionAuthorizationService authorization,
+        InspectionCorrectionRepository corrections,
+        com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy handoff,
+        AuthenticatedUserResolver users, Clock clock) {
+      return new com.ondemandmonitoring.mission.service.impl.MissionEvidenceSubmissionService(
+          missions, submissions, executions, evidence, eligibility, scope, authorization,
+          corrections, handoff, users, clock);
+    }
+
+    @Bean
+    com.ondemandmonitoring.mission.mapper.MissionChecklistExecutionMapper executionMapper() {
+      return Mappers.getMapper(com.ondemandmonitoring.mission.mapper.MissionChecklistExecutionMapper.class);
+    }
+
+    @Bean
+    IMissionResultService resultWorkflow() {
+      return mock(IMissionResultService.class);
     }
 
     @Bean

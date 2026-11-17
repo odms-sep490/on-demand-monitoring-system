@@ -211,6 +211,8 @@ public interface IMissionService {
      */
     MissionResponse completeMission(String missionId);
 
+    MissionResponse completeMissionAfterSupplement(com.ondemandmonitoring.mission.domain.Mission child);
+
     /**
      * Marks mission as failed due to technical or environmental issues.
      *

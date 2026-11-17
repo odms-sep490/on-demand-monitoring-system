@@ -46,10 +46,24 @@ public class InspectionCorrectionController {
   }
 
   @PostMapping
-  @PreAuthorize("@missionAuthorizationService.canAssessMonitoringChecklist(#missionId)")
+  @PreAuthorize("@missionAuthorizationService.canRequestInspectionCorrection(#missionId)")
   public ApiResponse<InspectionCorrectionResponse> request(
       @PathVariable String missionId, @Valid @RequestBody InspectionCorrectionRequest request) {
     return ApiResponse.ok(service.request(missionId, request));
+  }
+
+  @GetMapping("/{id}/supplement-result")
+  @PreAuthorize("@missionAuthorizationService.canRequestInspectionCorrection(#missionId)")
+  public ApiResponse<com.ondemandmonitoring.mission.inspection.dto.response.SupplementInspectionResponse> supplementResult(
+      @PathVariable String missionId, @PathVariable String id) {
+    return ApiResponse.ok(service.supplementResult(missionId, id));
+  }
+
+  @PostMapping("/{id}/synchronize-supplement")
+  @PreAuthorize("@missionAuthorizationService.canRequestInspectionCorrection(#missionId)")
+  public ApiResponse<InspectionCorrectionResponse> synchronizeSupplement(
+      @PathVariable String missionId, @PathVariable String id) {
+    return ApiResponse.ok(service.synchronizeSupplement(missionId, id));
   }
 
   @PostMapping("/{id}/resubmit")
@@ -59,6 +73,21 @@ public class InspectionCorrectionController {
       @PathVariable String id,
       @Valid @RequestBody InspectionCorrectionDecision request) {
     return ApiResponse.ok(service.resubmit(missionId, id, request));
+  }
+
+  @PostMapping("/{id}/require-flight")
+  @PreAuthorize("@missionAuthorizationService.canAttachChecklistEvidence(#missionId)")
+  public ApiResponse<InspectionCorrectionResponse> requireFlight(
+      @PathVariable String missionId, @PathVariable String id,
+      @Valid @RequestBody InspectionCorrectionDecision request) {
+    return ApiResponse.ok(service.requireFlight(missionId, id, request));
+  }
+
+  @PostMapping("/reconcile-checklist-review")
+  @PreAuthorize("@missionAuthorizationService.canAssessMonitoringChecklist(#missionId)")
+  public ApiResponse<Boolean> reconcileChecklistReview(@PathVariable String missionId) {
+    service.reconcileChecklistReview(missionId);
+    return ApiResponse.ok(true);
   }
 
   @PostMapping("/{id}/resolve")

@@ -48,6 +48,9 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
     @Autowired
     private PersistedPostDeviceCheckRepository postDeviceChecks;
 
+    @Autowired
+    private EvidenceHandoffPolicy evidenceHandoff;
+
     @Override
     public boolean canAttachChecklistEvidence(String missionId) {
         return findRuntimeMissionById(missionId).filter(this::reportingStage)
@@ -181,7 +184,9 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
     }
 
     private boolean normalOperationAllowed(String missionId) {
-        return findRuntimeMissionById(missionId).isPresent();
+        return findRuntimeMissionById(missionId)
+                .filter(mission -> mission.getActualEndAt() == null && mission.getCompletedAt() == null)
+                .isPresent();
     }
 
     @Override
@@ -203,7 +208,7 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
     }
 
     private boolean reportEditable(Mission mission) {
-        return results.findByMissionId(mission.getId()).map(result ->
+        return evidenceHandoff.editable(mission.getId()) && results.findByMissionId(mission.getId()).map(result ->
                 result.getApprovalStatus() != com.ondemandmonitoring.mission.enums.MissionResultApprovalStatus.APPROVED
                         && result.getApprovalStatus() != com.ondemandmonitoring.mission.enums.MissionResultApprovalStatus.PENDING_MANAGER_APPROVAL)
                 .orElse(true);
@@ -239,6 +244,16 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
 
     @Override
     public boolean canAssessMonitoringChecklist(String missionId) {
+        return canRequestInspectionCorrection(missionId) && evidenceHandoff.reviewable(missionId);
+    }
+
+    @Override
+    public boolean canRequestInspectionCorrection(String missionId) {
+        return canAccessMissionInspection(missionId);
+    }
+
+    @Override
+    public boolean canAccessMissionInspection(String missionId) {
         User user = currentUser.getCurrentUser();
         if (!hasRole(user, RoleCode.STAFF)) return false;
         return findRuntimeMissionById(missionId)
@@ -365,6 +380,7 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
         // The inspector owns the final acceptance package. Pilot/operator finish the flight
         // and upload data; the inspector reviews and confirms the final customer package.
         return findRuntimeMissionById(missionId)
+                .filter(mission -> evidenceHandoff.reviewable(missionId))
                 .filter(mission -> (mission.getStatus() == MissionStatus.IN_PROGRESS
                             && mission.getCompletedAt() != null)
                         || mission.getStatus() == MissionStatus.COMPLETED)

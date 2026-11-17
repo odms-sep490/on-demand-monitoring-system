@@ -46,7 +46,7 @@ public class ExecutionPlanServiceImpl implements IExecutionPlanService {
     @Transactional
     public ExecutionPlanResponse finalizePlan(String orderId, ExecutionPlanFinalizeRequest request) {
         if (request == null || request.expectedPlanRevision() == null || request.expectedPlanRevision() < 0) throw new ApiException(ErrorCode.INVALID_REQUEST);
-        var order = orders.findById(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        var order = orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
         var invoice = invoices.findByOrderId(orderId)
                 .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
         if (!paymentEligibility.isDepositSatisfied(invoice))
@@ -58,7 +58,7 @@ public class ExecutionPlanServiceImpl implements IExecutionPlanService {
         if (order.getExecutionPlan().getRevision() != request.expectedPlanRevision() || order.getExecutionPlan().getRevision() == Long.MAX_VALUE)
             throw new ApiException(ErrorCode.EXECUTION_PLAN_REVISION_CONFLICT);
         var children = missions.findIdsByOrderIdOrderById(orderId).stream().sorted()
-                .map(id -> missions.findById(id).orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND))).toList();
+                .map(id -> missions.findByIdForUpdate(id).orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND))).toList();
         var effective = children.stream().filter(ExecutionPlanCoverageService::effective).toList();
         if (effective.isEmpty()) throw new ApiException(ErrorCode.INVALID_REQUEST, "Order requires at least one Mission");
         var selected = assignments.findActiveByOrderId(orderId);

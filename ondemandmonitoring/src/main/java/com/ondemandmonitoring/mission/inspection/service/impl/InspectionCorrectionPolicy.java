@@ -53,6 +53,8 @@ public class InspectionCorrectionPolicy {
                                 MissionChecklistExecution::getOrderChecklistItemId, e -> e));
                   })
               .get(item.getExecution().getOrderChecklistItemId());
+      if (replacement == null && item.getExecution().getAssessmentStatus() == ChecklistAssessmentStatus.COMPLIANT)
+        continue;
       if (replacement == null)
         throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_INTEGRITY_INVALID);
       delegated.put(item.getExecution().getId(), replacement);
@@ -82,6 +84,7 @@ public class InspectionCorrectionPolicy {
     scope.requireMaterialized(child);
     var requested =
         items.findItems(correction.getId()).stream()
+            .filter(item -> item.getExecution().getAssessmentStatus() != ChecklistAssessmentStatus.COMPLIANT)
             .map(i -> i.getExecution().getOrderChecklistItemId())
             .collect(java.util.stream.Collectors.toSet());
     var actual = executions.findOrderedByMissionId(child.getId());

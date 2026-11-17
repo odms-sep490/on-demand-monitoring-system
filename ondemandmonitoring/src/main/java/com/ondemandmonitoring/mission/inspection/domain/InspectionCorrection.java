@@ -40,6 +40,11 @@ public class InspectionCorrection extends BaseEntity {
   @Column(nullable = false, length = 20)
   private InspectionCorrectionStatus status;
 
+  @Enumerated(EnumType.STRING)
+  @Column(nullable = false, length = 30, columnDefinition = "varchar(30) default 'SUPPLEMENTAL_FLIGHT'")
+  private com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode mode =
+      com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode.SUPPLEMENTAL_FLIGHT;
+
   @Column(name = "requested_by", nullable = false, updatable = false)
   private String requestedBy;
 

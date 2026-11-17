@@ -92,9 +92,19 @@ class MissionResultEvidencePolicyV2Test {
             return resp;
         });
 
-        evidenceService = new ChecklistEvidenceServiceImpl(
-                missions, executionRepo, evidenceRepo, mediaRepo, results, auth, resolver,
-                policy, Mappers.getMapper(ChecklistEvidenceMapper.class), storage, mock(com.ondemandmonitoring.order.repository.OrderRepository.class), mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class));
+        evidenceService = new ChecklistEvidenceServiceImpl(missions,
+                executionRepo,
+                evidenceRepo,
+                mediaRepo,
+                results,
+                auth,
+                resolver,
+                policy,
+                Mappers.getMapper(ChecklistEvidenceMapper.class),
+                storage,
+                org.mockito.Mockito.mock(com.ondemandmonitoring.media.service.impl.MediaDerivativeService.class),
+                mock(com.ondemandmonitoring.order.repository.OrderRepository.class),
+                mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class));
 
         executionService = new MissionChecklistExecutionServiceImpl(
                 missions, scope, executionRepo, results, auth, resolver,

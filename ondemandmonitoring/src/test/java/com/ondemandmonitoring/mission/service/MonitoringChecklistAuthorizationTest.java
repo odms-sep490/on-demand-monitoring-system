@@ -49,6 +49,12 @@ class MonitoringChecklistAuthorizationTest {
     }
 
     @BeforeEach void prepare() {
+        var handoff = mock(com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy.class);
+        when(handoff.editable(anyString())).thenReturn(true);
+        when(handoff.reviewable(anyString())).thenReturn(true);
+        when(handoff.submitted(anyString())).thenReturn(true);
+        org.springframework.test.util.ReflectionTestUtils.setField(policy, "evidenceHandoff", handoff);
+
         mission = new Mission(); mission.setId("m"); mission.setStatus(MissionStatus.IN_PROGRESS);
         var order = new com.ondemandmonitoring.order.domain.Order(); order.setId("o");
         order.getExecutionPlan().setStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);

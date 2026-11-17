@@ -14,6 +14,8 @@ public interface IMissionAuthorizationService {
     boolean canOperatePayload(String missionId);
     boolean canExecuteMonitoringChecklist(String missionId);
     boolean canInspectDevice(String missionId);
+    boolean canAccessMissionInspection(String missionId);
+    boolean canRequestInspectionCorrection(String missionId);
     boolean canAssessMonitoringChecklist(String missionId);
     default boolean canSelectCustomerEvidence(String missionId) { return canAssessMonitoringChecklist(missionId); }
     boolean canMaintainDevice(String missionId);

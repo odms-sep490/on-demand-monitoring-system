@@ -35,6 +35,8 @@ public class MissionResponse {
 
     String resultRevisionCaseId;
 
+    String flightPermitReusedFromMissionId;
+    boolean flightPermitReplacementRequired;
     FlightPermitStatus flightPermitStatus;
     Instant flightPermitUpdatedAt;
     String flightPermitNote;

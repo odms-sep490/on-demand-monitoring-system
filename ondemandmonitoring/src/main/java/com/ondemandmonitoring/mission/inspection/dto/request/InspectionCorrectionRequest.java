@@ -5,7 +5,8 @@ import jakarta.validation.constraints.*;
 import java.util.*;
 
 public record InspectionCorrectionRequest(
-    @NotNull UUID clientRequestId, @NotEmpty @Size(max = 100) List<@NotNull @Valid Item> items) {
+    @NotNull UUID clientRequestId,
+    @NotNull com.ondemandmonitoring.mission.inspection.enums.InspectionCorrectionMode mode, @NotEmpty @Size(max = 100) List<@NotNull @Valid Item> items) {
   public record Item(
       @NotBlank String executionId,
       @NotNull @PositiveOrZero Long expectedVersion,

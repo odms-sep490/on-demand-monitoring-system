@@ -19,4 +19,6 @@ public interface IMissionResultService {
     MissionResultResponse reject(String resultId, MissionResultReviewRequest request);
 
     void ensureCompletedResult(Mission mission);
+
+    void completeSupplementedSource(Mission child);
 }

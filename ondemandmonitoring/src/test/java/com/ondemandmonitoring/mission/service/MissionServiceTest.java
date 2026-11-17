@@ -139,7 +139,7 @@ class MissionServiceTest {
                 missionStaffAssignmentRepository,
                 resourceTimeLockRepository,
                 mock(com.ondemandmonitoring.mission.service.IMissionChecklistExecutionService.class),
-                mock(com.ondemandmonitoring.mission.service.IMissionChecklistMaterializationService.class),
+                mock(com.ondemandmonitoring.mission.service.impl.MissionPlanningActivationService.class),
                 mock(com.ondemandmonitoring.mission.service.IMissionChecklistAssignmentService.class),
                 new com.ondemandmonitoring.mission.service.impl.ResourceReservationServiceImpl(
                         mock(org.springframework.jdbc.core.JdbcTemplate.class), resourceTimeLockRepository, userScheduleRepository, authenticatedUserResolver),
@@ -283,7 +283,7 @@ class MissionServiceTest {
         device.setDevice(new com.ondemandmonitoring.device.domain.Device());
         device.setDeviceRole(com.ondemandmonitoring.mission.enums.DeviceRole.MAIN);
         device.setIsCurrent(true);
-        device.setCheckupStatus(MissionDeviceAssignmentStatus.PENDING);
+        device.setCheckupStatus(com.ondemandmonitoring.mission.enums.MissionDeviceCheckStatus.PENDING);
         when(missionRepository.findById("resource-ready")).thenReturn(Optional.of(mission));
         when(missionStaffAssignmentRepository.findAllByMissionIdAndStaffIdAndIsCurrentTrueOrderByAssignedAtDesc(
                 "resource-ready", MissionStaffRole.PILOT.name())).thenReturn(List.of(crew.getFirst()));
@@ -308,9 +308,9 @@ class MissionServiceTest {
                 .thenReturn(crew);
         when(missionRepository.save(mission)).thenReturn(mission);
 
-        MissionResponse result = missionService.startMissionWorkflow("workflow-ready");
+        MissionResponse result = missionService.startMission("workflow-ready");
 
-        assertThat(result.getStatus()).isEqualTo(MissionStatus.SCHEDULED);
+        assertThat(result.getStatus()).isEqualTo(MissionStatus.PENDING_CONFIRMATION);
         assertThat(mission.getActualStartAt()).isNotNull();
     }
 
@@ -318,12 +318,12 @@ class MissionServiceTest {
     void searchStaffMissionsMapsRepositoryPage() {
         Mission mission = new Mission();
         mission.setMissionCode("MS-001");
-        mission.setStatus(MissionStatus.SCHEDULED);
+        mission.setStatus(MissionStatus.PENDING_CONFIRMATION);
         PageRequest pageable = PageRequest.of(0, 20);
         when(missionRepository.findAll(any(Specification.class), eq(pageable)))
                 .thenReturn(new PageImpl<>(List.of(mission), pageable, 1));
 
-        var result = missionService.searchStaffMissions(MissionStatus.SCHEDULED,
+        var result = missionService.searchStaffMissions(MissionStatus.PENDING_CONFIRMATION,
                 Instant.parse("2026-09-20T17:00:00Z"),
                 Instant.parse("2026-09-27T17:00:00Z"), pageable);
 
@@ -504,7 +504,7 @@ class MissionServiceTest {
         @Test
         @DisplayName("3. acceptMission throws exception when status is invalid")
         void acceptMission_wrongStatus_throws() {
-            Mission mission = buildMission("m-1", MissionStatus.SCHEDULED);
+            Mission mission = buildMission("m-1", MissionStatus.PENDING_CONFIRMATION);
             when(missionRepository.findById("m-1")).thenReturn(Optional.of(mission));
 
             assertThatThrownBy(() -> missionService.acceptMission("m-1", "op-01"))
@@ -552,7 +552,7 @@ class MissionServiceTest {
         @Test
         @DisplayName("10. rejectMission throws exception when status is invalid")
         void rejectMission_wrongStatus_throws() {
-            Mission mission = buildMission("m-2", MissionStatus.IN_FLIGHT);
+            Mission mission = buildMission("m-2", MissionStatus.IN_PROGRESS);
             when(missionRepository.findById("m-2")).thenReturn(Optional.of(mission));
 
             assertThatThrownBy(() -> missionService.rejectMission("m-2", "op-01", "Trùng lịch"))
@@ -571,7 +571,7 @@ class MissionServiceTest {
         @Test
         @DisplayName("5. handoverControl success when READY_TO_FLY")
         void handoverControl_success() {
-            Mission mission = buildMission("m-5", MissionStatus.READY_TO_FLY);
+            Mission mission = buildMission("m-5", MissionStatus.READY);
             User staff = new User();
             staff.setId("op-new");
             MissionStaffAssignment msa = new MissionStaffAssignment();
@@ -597,7 +597,7 @@ class MissionServiceTest {
         @Test
         @DisplayName("6. handoverControl throws when status is not READY_TO_FLY")
         void handoverControl_invalidStatus_throws() {
-            Mission mission = buildMission("m-5", MissionStatus.SCHEDULED);
+            Mission mission = buildMission("m-5", MissionStatus.PENDING_CONFIRMATION);
             when(missionRepository.findById("m-5")).thenReturn(Optional.of(mission));
 
             assertThatThrownBy(() -> missionService.handoverControl("m-5", "op-new"))
@@ -616,7 +616,7 @@ class MissionServiceTest {
         @Test
         @DisplayName("startMission is blocked until the flight permit is approved")
         void startMission_withoutApprovedPermit_throws() {
-            Mission mission = buildMission("m-no-permit", MissionStatus.READY_TO_FLY);
+            Mission mission = buildMission("m-no-permit", MissionStatus.READY);
             mission.getOrder().getExecutionPlan().setStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
             mission.getOrder().getExecutionPlan().setRevision(1L);
             FlightPermit.pendingFor(mission).setStatus(FlightPermitStatus.PENDING);
@@ -630,7 +630,7 @@ class MissionServiceTest {
         @Test
         @DisplayName("startMission succeeds after permit and preflight are ready")
         void startMission_successAfterPreflight() {
-            Mission mission = buildMission("m-7", MissionStatus.SCHEDULED);
+            Mission mission = buildMission("m-7", MissionStatus.PENDING_CONFIRMATION);
             mission.getOrder().getExecutionPlan().setStatus(com.ondemandmonitoring.order.enums.ExecutionPlanStatus.FINALIZED);
             mission.getOrder().getExecutionPlan().setRevision(1L);
             Device device = buildDevice("DEV-01", DeviceStatus.PREFLIGHT);
@@ -669,19 +669,19 @@ class MissionServiceTest {
         @Test
         @DisplayName("1. startPostflightChecking success when RETURNING")
         void startPostflightChecking_success() {
-            Mission mission = buildMission("m-pf", MissionStatus.RETURNING);
+            Mission mission = buildMission("m-pf", MissionStatus.IN_PROGRESS);
             when(missionRepository.findById("m-pf")).thenReturn(Optional.of(mission));
             when(missionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
             MissionResponse result = missionService.startPostDeviceChecking("m-pf");
 
-            assertThat(result.getStatus()).isEqualTo(MissionStatus.POSTFLIGHT_CHECKING);
+            assertThat(result.getStatus()).isEqualTo(MissionStatus.IN_PROGRESS);
         }
 
         @Test
         @DisplayName("2. startPostflightChecking throws exception when status is not RETURNING")
         void startPostflightChecking_invalidStatus_throws() {
-            Mission mission = buildMission("m-pf", MissionStatus.IN_FLIGHT);
+            Mission mission = buildMission("m-pf", MissionStatus.IN_PROGRESS);
             when(missionRepository.findById("m-pf")).thenReturn(Optional.of(mission));
 
             assertThatThrownBy(() -> missionService.startPostDeviceChecking("m-pf"))
@@ -772,7 +772,7 @@ class MissionServiceTest {
         @Test
         @DisplayName("4. completeMission throws exception when status is SCHEDULED (fully invalid for completion)")
         void completeMission_invalidStatus_throws() {
-            Mission mission = buildMission("m-8", MissionStatus.SCHEDULED);
+            Mission mission = buildMission("m-8", MissionStatus.PENDING_CONFIRMATION);
             when(missionRepository.findById("m-8")).thenReturn(Optional.of(mission));
             when(missionRepository.findByIdForUpdate("m-8")).thenReturn(Optional.of(mission));
 
@@ -797,7 +797,7 @@ class MissionServiceTest {
         @Test
         @DisplayName("5. failMission rejects an airborne mission")
         void failMission_airborneMissionMustCloseFlightOperationsFirst() {
-            Mission mission = buildMission("m-9", MissionStatus.IN_FLIGHT);
+            Mission mission = buildMission("m-9", MissionStatus.IN_PROGRESS);
             Device device = buildDevice("DEV-01", DeviceStatus.ACTIVE_MISSION);
             MissionDeviceAssignment mda = new MissionDeviceAssignment();
             mda.setDevice(device);
@@ -811,7 +811,7 @@ class MissionServiceTest {
             assertThatThrownBy(() -> missionService.failMission("m-9", "GPS lost"))
                     .isInstanceOf(ApiException.class).extracting(e -> ((ApiException)e).getErrorCode())
                     .isEqualTo(com.ondemandmonitoring.common.exception.ErrorCode.MISSION_STATUS_INVALID);
-            assertThat(mission.getStatus()).isEqualTo(MissionStatus.IN_FLIGHT);
+            assertThat(mission.getStatus()).isEqualTo(MissionStatus.IN_PROGRESS);
             assertThat(device.getStatus()).isEqualTo(DeviceStatus.ACTIVE_MISSION);
             verify(resourceTimeLockRepository,never()).saveAllAndFlush(anyIterable());
         }
@@ -819,7 +819,7 @@ class MissionServiceTest {
         @Test
         @DisplayName("6. updatePostFlightStatus success updates device status and completes mission")
         void updatePostFlightStatus_success() {
-            Mission mission = buildMission("m-post", MissionStatus.POSTFLIGHT_CHECKING);
+            Mission mission = buildMission("m-post", MissionStatus.IN_PROGRESS);
             Device device = buildDevice("DEV-01", DeviceStatus.RETURNING);
             MissionDeviceAssignment mda = new MissionDeviceAssignment();
             mda.setDevice(device);
@@ -857,7 +857,7 @@ class MissionServiceTest {
         @Test
         @DisplayName("7. updatePostFlightStatus throws exception if mission has no assigned device")
         void updatePostFlightStatus_noDeviceAssigned_throws() {
-            Mission mission = buildMission("m-nodev", MissionStatus.POSTFLIGHT_CHECKING);
+            Mission mission = buildMission("m-nodev", MissionStatus.IN_PROGRESS);
             when(missionDeviceAssignmentRepository.findFirstByMissionIdOrderByCreatedAtDesc("m-nodev"))
                     .thenReturn(Optional.empty());
 
@@ -989,7 +989,7 @@ class MissionServiceTest {
 
     @Test
     void postflightAcceptanceReleaseAndNonCompliantBusinessReportRemainSeparate() {
-        var mission = buildMission("integrated", MissionStatus.POSTFLIGHT_CHECKING);
+        var mission = buildMission("integrated", MissionStatus.IN_PROGRESS);
         var order = new com.ondemandmonitoring.order.domain.Order(); order.setId("order");
         order.setOrderStatus(com.ondemandmonitoring.order.enums.OrderStatus.APPROVED); mission.setOrder(order);
         when(orderRepository.findByIdForUpdate(order.getId())).thenReturn(Optional.of(order));

@@ -178,6 +178,8 @@ class ExecutionPlanAmendmentPostgresTest extends OrderAggregateCompletionPostgre
                         .missionCode(mission.getMissionCode()).status(mission.getStatus()).build();
             });
             return new MissionService(missions,
+                    mock(com.ondemandmonitoring.missiontemplate.repository.MissionTemplateRepository.class),
+                    mock(com.ondemandmonitoring.missiontemplate.repository.MissionTemplateItemRepository.class),
                     null,
                     mapper,
                     null,

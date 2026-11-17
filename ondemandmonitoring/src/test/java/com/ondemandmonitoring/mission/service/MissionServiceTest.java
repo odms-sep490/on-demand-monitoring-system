@@ -119,6 +119,8 @@ class MissionServiceTest {
 
         missionService = new MissionService(
                 missionRepository,
+                    mock(com.ondemandmonitoring.missiontemplate.repository.MissionTemplateRepository.class),
+                    mock(com.ondemandmonitoring.missiontemplate.repository.MissionTemplateItemRepository.class),
                 deviceRepository,
                 missionMapper,
                 missionPlanRepository,

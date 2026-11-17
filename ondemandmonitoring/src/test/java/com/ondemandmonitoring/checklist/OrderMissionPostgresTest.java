@@ -247,6 +247,8 @@ class OrderMissionPostgresTest extends ChecklistPostgresTest {
             var eligibility = mock(com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService.class);
             when(eligibility.isDepositSatisfied(invoice)).thenReturn(true);
             return new MissionService(missions,
+                    mock(com.ondemandmonitoring.missiontemplate.repository.MissionTemplateRepository.class),
+                    mock(com.ondemandmonitoring.missiontemplate.repository.MissionTemplateItemRepository.class),
                     null,
                     mapper,
                     null,

@@ -66,8 +66,8 @@ public class ServiceChecklistServiceImpl implements IServiceChecklistService {
         entity.setService(service);
         entity.setChecklist(checklist);
         entity.setRequired(Boolean.TRUE.equals(request.getRequired()));
-        applyOverrides(entity, request.getBasePriceOverride(), request.getIncludedImageCountOverride(),
-                request.getIncludedVideoCountOverride(), request.getPricingProfileOverride());
+        applyOverrides(entity, request.getIncludedImageCountOverride(),
+                request.getIncludedVideoCountOverride());
         var rows = new ArrayList<>(assignments.findAllByServiceIdOrderByDisplayOrderAscIdAsc(serviceId));
         if (rows.size() >= 100) throw new ApiException(ErrorCode.INVALID_REQUEST, "At most 100 template items are allowed");
         rows.add(Math.min(request.getDisplayOrder(), rows.size()), entity);
@@ -131,15 +131,15 @@ public class ServiceChecklistServiceImpl implements IServiceChecklistService {
     }
 
     @Override
-    public ServiceChecklistResponse updatePricing(String serviceId, String checklistId,
-            com.ondemandmonitoring.checklist.dto.request.ServiceChecklistPricingRequest request) {
+    public ServiceChecklistResponse updateRequirements(String serviceId, String checklistId,
+            com.ondemandmonitoring.checklist.dto.request.ServiceChecklistRequirementsRequest request) {
         Service service = lockService(serviceId);
         ServiceChecklist entity = assignment(serviceId, checklistId);
         if (request.getExpectedVersion() != null && !Objects.equals(entity.getVersion(), request.getExpectedVersion()))
             throw new ApiException(ErrorCode.CONCURRENT_UPDATE);
         var before = audit == null ? null : audit.snapshot(entity);
-        applyOverrides(entity, request.getBasePriceOverride(), request.getIncludedImageCountOverride(),
-                request.getIncludedVideoCountOverride(), request.getPricingProfileOverride());
+        applyOverrides(entity, request.getIncludedImageCountOverride(),
+                request.getIncludedVideoCountOverride());
         if (request.getRequired() != null) entity.setRequired(request.getRequired());
         service.setChecklistDefaultsInitialized(true);
         var saved = assignments.saveAndFlush(entity);
@@ -151,7 +151,7 @@ public class ServiceChecklistServiceImpl implements IServiceChecklistService {
 
     /**
      * Gives this service its own copy of a shared checklist and points the service at it, so the copy can be edited
-     * without touching the other services that use the original. Order, "required" and the price overrides move with it;
+     * without touching the other services that use the original. Order and "required" move with it;
      * orders already placed keep their frozen snapshot.
      */
     @Override
@@ -169,18 +169,12 @@ public class ServiceChecklistServiceImpl implements IServiceChecklistService {
         copy.setExecutionSteps(source.getExecutionSteps() == null ? null : List.copyOf(source.getExecutionSteps()));
         copy.setInputRequirements(source.getInputRequirements() == null ? null : List.copyOf(source.getInputRequirements()));
         copy.setExpectedOutputs(source.getExpectedOutputs() == null ? null : List.copyOf(source.getExpectedOutputs()));
-        copy.setDifficulty(source.getDifficulty());
         copy.setBasePrice(source.getBasePrice());
+        copy.setExtraImageUnitPrice(source.getExtraImageUnitPrice());
+        copy.setExtraVideoUnitPrice(source.getExtraVideoUnitPrice());
         copy.setIncludedImageCount(source.getIncludedImageCount());
         copy.setIncludedVideoCount(source.getIncludedVideoCount());
         copy.setStandardVideoDurationSeconds(source.getStandardVideoDurationSeconds());
-        copy.setPricingProfile(source.getPricingProfile());
-        copy.setAreaPricingEnabled(source.isAreaPricingEnabled());
-        copy.setLengthPricingEnabled(source.isLengthPricingEnabled());
-        copy.setAltitudePricingEnabled(source.isAltitudePricingEnabled());
-        copy.setIncludedAreaHa(source.getIncludedAreaHa());
-        copy.setIncludedLengthKm(source.getIncludedLengthKm());
-        copy.setIncludedAltitudeM(source.getIncludedAltitudeM());
         ChecklistDefinition savedCopy = checklists.saveAndFlush(copy);
         link.setChecklist(savedCopy);
         service.setChecklistDefaultsInitialized(true);
@@ -208,14 +202,10 @@ public class ServiceChecklistServiceImpl implements IServiceChecklistService {
         if (defaultPrices != null) defaultPrices.refresh(serviceId);
     }
 
-    /** Overrides live on the association only: another Service using the same checklist is never affected. */
-    private void applyOverrides(ServiceChecklist entity, java.math.BigDecimal base, Integer images, Integer videos, String profile) {
-        if (base != null && (base.signum() < 0 || base.stripTrailingZeros().scale() > 0))
-            throw new ApiException(ErrorCode.VALIDATION_ERROR, "basePriceOverride must be a non-negative whole amount");
-        entity.setBasePriceOverride(base == null ? null : base.setScale(0));
+    /** Evidence allowances may vary by service; checklist prices are global. */
+    private void applyOverrides(ServiceChecklist entity, Integer images, Integer videos) {
         entity.setIncludedImageCountOverride(images);
         entity.setIncludedVideoCountOverride(videos);
-        entity.setPricingProfileOverride(profile == null || profile.isBlank() ? null : profile.trim().toUpperCase(java.util.Locale.ROOT));
     }
 
     private void normalize(List<ServiceChecklist> rows) {

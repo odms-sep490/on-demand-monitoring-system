@@ -8,14 +8,25 @@ import java.util.List;
 public record ChecklistPriceBreakdown(String checklistId, String content, String pricingProfile, boolean custom,
         int includedImageCount, int includedVideoCount, int requestedImageCount, int requestedVideoCount,
         int extraImageCount, int extraVideoCount, Integer standardVideoDurationSeconds,
-        List<Line> lines, BigDecimal subtotal, boolean quotePending) {
+        List<Line> lines, BigDecimal subtotal, boolean quotePending,
+        BigDecimal basePrice, BigDecimal standardAreaM2, BigDecimal actualAreaM2, String calculationDisplay) {
 
     /** Priced by the policy (nothing waits for the Manager). */
     public ChecklistPriceBreakdown(String checklistId, String content, String pricingProfile, boolean custom,
             int includedImageCount, int includedVideoCount, int requestedImageCount, int requestedVideoCount,
             int extraImageCount, int extraVideoCount, Integer standardVideoDurationSeconds, List<Line> lines, BigDecimal subtotal) {
         this(checklistId, content, pricingProfile, custom, includedImageCount, includedVideoCount, requestedImageCount,
-                requestedVideoCount, extraImageCount, extraVideoCount, standardVideoDurationSeconds, lines, subtotal, false);
+                requestedVideoCount, extraImageCount, extraVideoCount, standardVideoDurationSeconds, lines, subtotal, false,
+                null, null, null, null);
+    }
+
+    public ChecklistPriceBreakdown(String checklistId, String content, String pricingProfile, boolean custom,
+            int includedImageCount, int includedVideoCount, int requestedImageCount, int requestedVideoCount,
+            int extraImageCount, int extraVideoCount, Integer standardVideoDurationSeconds,
+            List<Line> lines, BigDecimal subtotal, boolean quotePending) {
+        this(checklistId, content, pricingProfile, custom, includedImageCount, includedVideoCount, requestedImageCount,
+                requestedVideoCount, extraImageCount, extraVideoCount, standardVideoDurationSeconds,
+                lines, subtotal, quotePending, null, null, null, null);
     }
 
     /**
@@ -33,7 +44,7 @@ public record ChecklistPriceBreakdown(String checklistId, String content, String
                 scaled, subtotal.multiply(factor), quotePending);
     }
 
-    /** @param component stable machine key: BASE, CUSTOM_BASE, DIFFICULTY, INCLUDED_IMAGE, INCLUDED_VIDEO, EXTRA_IMAGE, EXTRA_VIDEO. */
+    /** @param component stable machine key, including ROUNDING for custom checklist total adjustments. */
     public record Line(String component, PricingCategory category, String description, BigDecimal quantity,
             BigDecimal unitPrice, BigDecimal amount, Integer tierFrom, Integer tierTo, Integer blockSize, String rounding) {}
 }

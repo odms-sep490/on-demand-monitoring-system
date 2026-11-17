@@ -27,6 +27,7 @@ import com.ondemandmonitoring.pricing.enums.ChecklistDifficulty;
 import com.ondemandmonitoring.pricing.enums.MediaPricingComponent;
 import com.ondemandmonitoring.pricing.repository.PricingPolicyRepository;
 import com.ondemandmonitoring.pricing.service.ChecklistPriceCalculator;
+import com.ondemandmonitoring.pricing.service.BaseChecklistPriceCalculator;
 import com.ondemandmonitoring.pricing.service.PricingEngine;
 import com.ondemandmonitoring.pricing.service.ServicePriceResolver;
 import com.ondemandmonitoring.service.repository.ServiceRepository;
@@ -65,9 +66,15 @@ public class OrderChecklistSnapshotService implements IOrderChecklistSnapshotSer
     private final PricingPolicyRepository pricingPolicies;
     private final ChecklistPriceCalculator priceCalculator;
     private final ServicePriceResolver servicePrices;
+    private BaseChecklistPriceCalculator baseChecklistPrices = new BaseChecklistPriceCalculator();
     private PricingEngine pricingEngine;
     private OrderChecklistRevisionRepository revisionRepository;
     private OrderChecklistEditPolicy editPolicy;
+
+    @Autowired(required = false)
+    public void setBaseChecklistPrices(BaseChecklistPriceCalculator baseChecklistPrices) {
+        this.baseChecklistPrices = baseChecklistPrices;
+    }
 
     @Autowired(required = false)
     public void setPricingEngine(PricingEngine pricingEngine) {
@@ -169,39 +176,42 @@ public class OrderChecklistSnapshotService implements IOrderChecklistSnapshotSer
                 throw invalid("Requested media counts must be between 0 and 500");
             }
             // Effective configuration = association override, else the checklist definition (custom: policy allowance).
-            BigDecimal basePrice = custom ? BigDecimal.ZERO : (override != null && override.getBasePriceOverride() != null
-                    ? override.getBasePriceOverride() : source.getBasePrice());
+            BigDecimal basePrice = custom ? BigDecimal.ZERO : source.getBasePrice();
             int includedImages = custom ? (policy == null ? 0 : priceCalculator.customAllowance(policy, MediaPricingComponent.INCLUDED_IMAGE))
                     : (override != null && override.getIncludedImageCountOverride() != null
                     ? override.getIncludedImageCountOverride() : source.getIncludedImageCount());
             int includedVideos = custom ? (policy == null ? 0 : priceCalculator.customAllowance(policy, MediaPricingComponent.INCLUDED_VIDEO))
                     : (override != null && override.getIncludedVideoCountOverride() != null
                     ? override.getIncludedVideoCountOverride() : source.getIncludedVideoCount());
-            String profile = custom ? ChecklistPriceCalculator.GENERIC_CUSTOMER_ADDED_PROFILE : ChecklistPriceCalculator.normalizeProfile(
-                    override != null && override.getPricingProfileOverride() != null
-                            ? override.getPricingProfileOverride() : source.getPricingProfile());
+            String profile = custom ? ChecklistPriceCalculator.GENERIC_CUSTOMER_ADDED_PROFILE : ChecklistPriceCalculator.DEFAULT_PROFILE;
+            if (!custom && (source.getStandardAreaM2() == null || source.getStandardAreaM2().signum() <= 0)) {
+                throw new ApiException(ErrorCode.SERVICE_NOT_PRICED,
+                        "Configure a positive standard area for checklist: " + source.getContent());
+            }
             int requestedImages = item.getRequestedImageCount() == null ? includedImages : item.getRequestedImageCount();
             int requestedVideos = item.getRequestedVideoCount() == null ? includedVideos : item.getRequestedVideoCount();
             if (explicitMedia && requestedImages + requestedVideos < 1)
                 throw invalid("A checklist needs at least one image or video");
             var entity = new OrderChecklistItem();
             entity.setChecklistRevision(1);
-            entity.setPricingSnapshotVersion(1);
-            // Customer-added work is priced by policy first, then explicitly reviewed by a Manager.
-            entity.setManagerQuoteRequired(!packageChecklist);
+            entity.setPricingSnapshotVersion(custom ? 1 : 3);
+            // Every catalog checklist uses its frozen Base Checklist price. Only customer-authored work needs a Manager quote.
+            entity.setManagerQuoteRequired(custom);
             entity.setBasePriceSnapshot(basePrice == null ? BigDecimal.ZERO : basePrice);
             entity.setIncludedImageCountSnapshot(includedImages);
             entity.setIncludedVideoCountSnapshot(includedVideos);
+            entity.setExtraImageUnitPriceSnapshot(custom ? null : source.getExtraImageUnitPrice());
+            entity.setExtraVideoUnitPriceSnapshot(custom ? null : source.getExtraVideoUnitPrice());
             entity.setRequestedImageCount(requestedImages);
             entity.setRequestedVideoCount(requestedVideos);
             entity.setPricingProfileSnapshot(profile);
             entity.setStandardVideoDurationSnapshot(custom ? null : source.getStandardVideoDurationSeconds());
-            entity.setAreaPricingEnabledSnapshot(!custom && source.isAreaPricingEnabled());
-            entity.setLengthPricingEnabledSnapshot(!custom && source.isLengthPricingEnabled());
-            entity.setAltitudePricingEnabledSnapshot(!custom && source.isAltitudePricingEnabled());
-            entity.setIncludedAreaHaSnapshot(custom ? BigDecimal.ZERO : source.getIncludedAreaHa());
-            entity.setIncludedLengthKmSnapshot(custom ? BigDecimal.ZERO : source.getIncludedLengthKm());
-            entity.setIncludedAltitudeMSnapshot(custom ? BigDecimal.ZERO : source.getIncludedAltitudeM());
+            entity.setAreaPricingEnabledSnapshot(false);
+            entity.setLengthPricingEnabledSnapshot(false);
+            entity.setAltitudePricingEnabledSnapshot(false);
+            entity.setIncludedAreaHaSnapshot(BigDecimal.ZERO);
+            entity.setIncludedLengthKmSnapshot(BigDecimal.ZERO);
+            entity.setIncludedAltitudeMSnapshot(BigDecimal.ZERO);
             if (explicitMedia || (!explicitEvidence && requestedImages + requestedVideos > 0)) {
                 // Evidence policy V3: acceptance needs the requested images AND the requested videos.
                 entity.setEvidencePolicyVersion(3);
@@ -225,13 +235,12 @@ public class OrderChecklistSnapshotService implements IOrderChecklistSnapshotSer
             }
             entity.setOrder(order);
             entity.setSourceChecklist(source);
-            entity.setDifficultySnapshot(source == null || source.getDifficulty() == null
-                    ? ChecklistDifficulty.BASIC : source.getDifficulty());
+            entity.setDifficultySnapshot(ChecklistDifficulty.BASIC);
             entity.setSourceType(custom ? OrderChecklistSourceType.CUSTOMER_CUSTOM
                     : packageChecklist ? OrderChecklistSourceType.SERVICE_TEMPLATE : OrderChecklistSourceType.CUSTOMER_SELECTED);
             entity.setReviewStatus(packageChecklist ? ChecklistReviewStatus.INCLUDED : ChecklistReviewStatus.PENDING);
-            entity.setPricingStatus(packageChecklist ? ChecklistPricingStatus.AUTO_PRICED
-                    : ChecklistPricingStatus.NEEDS_MANAGER_REVIEW);
+            entity.setPricingStatus(custom ? ChecklistPricingStatus.NEEDS_MANAGER_REVIEW
+                    : ChecklistPricingStatus.AUTO_PRICED);
             String content = item.getContentOverride();
             if (content == null && source != null) {
                 content = source.getContent();
@@ -247,10 +256,23 @@ public class OrderChecklistSnapshotService implements IOrderChecklistSnapshotSer
             if (!contents.add(entity.getContent().toLowerCase(Locale.ROOT))) throw invalid("Duplicate checklist content");
             entity.setDisplayOrder(entities.size());
             // Fail fast: a selection the policy cannot price must not become a snapshot.
-            if (policy != null) pricedTotal = pricedTotal.add(priceCalculator.price(policy, new ChecklistPriceCalculator.Input(
-                    source == null ? null : source.getId(), entity.getContent(), entity.getDifficultySnapshot(), custom,
-                    entity.getBasePriceSnapshot(), custom ? null : includedImages, custom ? null : includedVideos,
-                    requestedImages, requestedVideos, profile, entity.getStandardVideoDurationSnapshot(), false)).subtotal());
+            if (policy != null) {
+                if (!custom) {
+                    var actualArea = baseChecklistPrices.measureSquareMeters(order.getTargetArea());
+                    var areaPrice = baseChecklistPrices.breakdown(entity.getSourceChecklist().getId(), entity.getContent(),
+                            baseChecklistPrices.calculate(entity.getBasePriceSnapshot(),
+                                    entity.getSourceChecklist().getStandardAreaM2(), actualArea));
+                    pricedTotal = pricedTotal.add(baseChecklistPrices.withMediaCharges(areaPrice,
+                            entity.getIncludedImageCountSnapshot(), entity.getIncludedVideoCountSnapshot(),
+                            entity.getRequestedImageCount(), entity.getRequestedVideoCount(),
+                            entity.getExtraImageUnitPriceSnapshot(), entity.getExtraVideoUnitPriceSnapshot()).subtotal());
+                } else {
+                    pricedTotal = pricedTotal.add(priceCalculator.price(policy, new ChecklistPriceCalculator.Input(
+                            null, entity.getContent(), entity.getDifficultySnapshot(), true, entity.getBasePriceSnapshot(),
+                            null, null, requestedImages, requestedVideos, profile,
+                            entity.getStandardVideoDurationSnapshot(), false)).subtotal());
+                }
+            }
             entities.add(entity);
         }
         if (entities.isEmpty()) throw invalid("Select at least one active checklist item");

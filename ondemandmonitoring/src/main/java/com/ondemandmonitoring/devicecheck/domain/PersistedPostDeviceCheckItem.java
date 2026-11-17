@@ -32,6 +32,15 @@ public class PersistedPostDeviceCheckItem extends BaseEntity {
     @Column(name = "check_name", nullable = false, length = 120)
     String checkName;
 
+    @Column(length = 500)
+    String description;
+
+    @Column(length = 80)
+    String category;
+
+    @Column
+    Boolean required;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     DeviceCheckItemStatus status = DeviceCheckItemStatus.PENDING;

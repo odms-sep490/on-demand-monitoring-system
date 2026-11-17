@@ -51,7 +51,7 @@ public class OrderChecklistItemResponse {
     private java.math.BigDecimal includedAreaHaSnapshot;
     private java.math.BigDecimal includedLengthKmSnapshot;
     private java.math.BigDecimal includedAltitudeMSnapshot;
-    /** Customer-added rows require an explicit Manager price review. */
+    /** Customer-authored rows require an explicit Manager price review. */
     private boolean managerQuoteRequired;
     private java.math.BigDecimal managerQuotedPrice;
     private java.math.BigDecimal systemCalculatedPrice;

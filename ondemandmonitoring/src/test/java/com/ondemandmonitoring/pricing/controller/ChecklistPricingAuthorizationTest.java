@@ -15,6 +15,8 @@ import com.ondemandmonitoring.common.exception.GlobalExceptionHandler;
 import com.ondemandmonitoring.config.ActiveAccountFilter;
 import com.ondemandmonitoring.config.SecurityConfig;
 import com.ondemandmonitoring.pricing.dto.ServicePricePreviewResponse;
+import com.ondemandmonitoring.pricing.dto.BaseChecklistPriceConfig;
+import com.ondemandmonitoring.pricing.service.BaseChecklistPricingService;
 import com.ondemandmonitoring.pricing.service.ChecklistPricingPreviewService;
 import com.ondemandmonitoring.role.domain.Role;
 import com.ondemandmonitoring.role.enumeration.RoleCode;
@@ -39,42 +41,45 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 
-/** API contract and authorization of the pricing preview endpoints. */
+/** API contract and authorization of the Base Checklist price and customer quote endpoints. */
 @SpringJUnitConfig(classes = {SecurityConfig.class, ActiveAccountFilter.class, ChecklistPricingController.class,
-        GlobalExceptionHandler.class, ChecklistPricingAuthorizationTest.Beans.class})
+        BaseChecklistPricingController.class, GlobalExceptionHandler.class, ChecklistPricingAuthorizationTest.Beans.class})
 @WebAppConfiguration
 class ChecklistPricingAuthorizationTest {
     @Autowired WebApplicationContext context;
     @Autowired ChecklistPricingPreviewService preview;
+    @Autowired BaseChecklistPricingService basePricing;
     @Autowired AuthenticatedUserResolver resolver;
     MockMvc mvc;
 
     @BeforeEach void setup() {
-        reset(preview, resolver);
+        reset(preview, basePricing, resolver);
         mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
         var response = new ServicePricePreviewResponse("s1", "Inspection", "VND", "p1", 3, false, "CHECKLISTS", BigDecimal.ZERO,
                 List.of(), new BigDecimal("1000000"), new BigDecimal("1000000"), true, List.of());
         when(preview.defaultPrice("s1")).thenReturn(response);
-        when(preview.adminPreview(any())).thenReturn(response);
         when(preview.customerQuote(any())).thenReturn(response);
+        when(basePricing.list()).thenReturn(List.of(new BaseChecklistPriceConfig.Row("c1", "Roof",
+                new BigDecimal("2000000"), new BigDecimal("100"), true, 1, null, null, null)));
     }
 
     @Test void anonymousIsUnauthorized() throws Exception {
         mvc.perform(get("/api/admin/pricing/services/s1/default-price")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/admin/pricing/base-checklists")).andExpect(status().isUnauthorized());
         mvc.perform(post("/api/pricing/checklist-quote").contentType(MediaType.APPLICATION_JSON).content("{\"serviceId\":\"s1\"}"))
                 .andExpect(status().isUnauthorized());
-        verifyNoInteractions(preview);
+        verifyNoInteractions(preview, basePricing);
     }
 
     @ParameterizedTest
     @EnumSource(value = RoleCode.class, names = "ADMIN", mode = EnumSource.Mode.EXCLUDE)
-    void onlyAdminsUseAdminPricingPreview(RoleCode role) throws Exception {
+    void onlyAdminsUseTheAdminDefaultPrice(RoleCode role) throws Exception {
         role(role);
         mvc.perform(get("/api/admin/pricing/services/s1/default-price").with(jwt().authorities(() -> "ROLE_" + role.name())))
                 .andExpect(status().isForbidden());
-        mvc.perform(post("/api/admin/pricing/service-preview").contentType(MediaType.APPLICATION_JSON)
-                .content("{\"serviceId\":\"s1\"}").with(jwt().authorities(() -> "ROLE_" + role.name()))).andExpect(status().isForbidden());
-        verifyNoInteractions(preview);
+        mvc.perform(get("/api/admin/pricing/base-checklists").with(jwt().authorities(() -> "ROLE_" + role.name())))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(preview, basePricing);
     }
 
     @Test void adminGetsTheBreakdownContract() throws Exception {
@@ -83,6 +88,14 @@ class ChecklistPricingAuthorizationTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.packageFee").value(0))
                 .andExpect(jsonPath("$.data.total").value(1000000)).andExpect(jsonPath("$.data.checklists").isArray())
                 .andExpect(jsonPath("$.data.complete").value(true)).andExpect(jsonPath("$.data.policyVersion").value(3));
+    }
+
+    @Test void onlyAdminGetsBaseChecklistPriceConfiguration() throws Exception {
+        role(RoleCode.ADMIN);
+        mvc.perform(get("/api/admin/pricing/base-checklists").with(jwt().authorities(() -> "ROLE_ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].basePrice").value(2000000))
+                .andExpect(jsonPath("$.data[0].standardAreaM2").value(100));
     }
 
     @ParameterizedTest
@@ -132,6 +145,7 @@ class ChecklistPricingAuthorizationTest {
     @EnableWebMvc
     static class Beans {
         @Bean ChecklistPricingPreviewService preview() { return mock(ChecklistPricingPreviewService.class); }
+        @Bean BaseChecklistPricingService basePricing() { return mock(BaseChecklistPricingService.class); }
         @Bean AuthenticatedUserResolver resolver() { return mock(AuthenticatedUserResolver.class); }
         @Bean @Qualifier("cognitoAccessTokenDecoder") JwtDecoder decoder() { return mock(JwtDecoder.class); }
     }

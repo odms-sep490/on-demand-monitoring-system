@@ -169,6 +169,16 @@ weather:
       wind-gust-kmh: 50
       visibility-meters: 1000
 
+# OpenRouter chat completion settings. Keep the API key in the local environment file.
+ai:
+  openrouter:
+    base-url: ${AI_OPENROUTER_BASE_URL:https://openrouter.ai/api/v1}
+    api-key: ${AI_OPENROUTER_API_KEY:}
+    model: ${AI_OPENROUTER_CHAT_MODEL:openrouter/free}
+    connect-timeout-ms: ${AI_OPENROUTER_CONNECT_TIMEOUT_MS:5000}
+    read-timeout-ms: ${AI_OPENROUTER_READ_TIMEOUT_MS:60000}
+    max-tokens: ${AI_OPENROUTER_MAX_TOKENS:1200}
+
 # Preliminary flight-area assessment (advisory only, rule-based; NOT legal or aviation limits).
 # External providers are configuration only; every value has a code default in FlightAreaProperties.
 flight-area-assessment:

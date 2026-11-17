@@ -20,22 +20,30 @@ public record QuoteDraftRequest(
         /** Version of the pricing policy the Manager was looking at; null skips the check. */
         Integer expectedPolicyVersion,
         /** Checklist revision the Manager was looking at; null skips the check. */
-        Long expectedChecklistRevision) {
+        Long expectedChecklistRevision,
+        Map<String, @Size(max = 1000) String> additionalUnitPriceReasons) {
+    public QuoteDraftRequest(BigDecimal packagePrice, BigDecimal discountAmount, BigDecimal adjustmentAmount,
+            String managerNote, Map<String, BigDecimal> additionalUnitPrices, String adjustmentReason,
+            PricingAdjustmentType adjustmentType, Long expectedPricingRevision, Integer expectedPolicyVersion,
+            Long expectedChecklistRevision) {
+        this(packagePrice, discountAmount, adjustmentAmount, managerNote, additionalUnitPrices, adjustmentReason,
+                adjustmentType, expectedPricingRevision, expectedPolicyVersion, expectedChecklistRevision, null);
+    }
     public QuoteDraftRequest(BigDecimal packagePrice, BigDecimal discountAmount, BigDecimal adjustmentAmount,
             String managerNote, Map<String, BigDecimal> additionalUnitPrices, String adjustmentReason,
             PricingAdjustmentType adjustmentType, Long expectedPricingRevision, Integer expectedPolicyVersion) {
         this(packagePrice, discountAmount, adjustmentAmount, managerNote, additionalUnitPrices, adjustmentReason,
-                adjustmentType, expectedPricingRevision, expectedPolicyVersion, null);
+                adjustmentType, expectedPricingRevision, expectedPolicyVersion, null, null);
     }
     public QuoteDraftRequest(BigDecimal packagePrice, BigDecimal discountAmount, BigDecimal adjustmentAmount,
             String managerNote, Map<String, BigDecimal> additionalUnitPrices, String adjustmentReason,
             PricingAdjustmentType adjustmentType, Long expectedPricingRevision) {
         this(packagePrice, discountAmount, adjustmentAmount, managerNote, additionalUnitPrices, adjustmentReason,
-                adjustmentType, expectedPricingRevision, null, null);
+                adjustmentType, expectedPricingRevision, null, null, null);
     }
     public QuoteDraftRequest(BigDecimal packagePrice, BigDecimal discountAmount, BigDecimal adjustmentAmount,
             String managerNote, Map<String, BigDecimal> additionalUnitPrices) {
         this(packagePrice, discountAmount, adjustmentAmount, managerNote, additionalUnitPrices, managerNote,
-                PricingAdjustmentType.CORRECTION, null, null, null);
+                PricingAdjustmentType.CORRECTION, null, null, null, null);
     }
 }

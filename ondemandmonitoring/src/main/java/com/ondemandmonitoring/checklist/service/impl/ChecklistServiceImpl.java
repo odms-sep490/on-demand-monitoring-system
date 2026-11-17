@@ -97,8 +97,6 @@ public class ChecklistServiceImpl implements IChecklistService {
         ChecklistDefinition entity = mapper.toEntity(request);
         entity.setContent(content);
         entity.setNormalizedContent(normalized);
-        entity.setDifficulty(request.getDifficulty() == null
-                ? com.ondemandmonitoring.pricing.enums.ChecklistDifficulty.BASIC : request.getDifficulty());
         applyPricing(entity, request, true);
         applyGuidance(entity, request);
         var created = repository.saveAndFlush(entity);
@@ -151,7 +149,6 @@ public class ChecklistServiceImpl implements IChecklistService {
         var before = audit == null ? null : audit.snapshot(entity);
         entity.setContent(content);
         entity.setNormalizedContent(normalized);
-        if (request.getDifficulty() != null) entity.setDifficulty(request.getDifficulty());
         applyPricing(entity, request, false);
         applyGuidance(entity, request);
         var saved = repository.saveAndFlush(entity);
@@ -202,22 +199,10 @@ public class ChecklistServiceImpl implements IChecklistService {
                 throw new ApiException(ErrorCode.VALIDATION_ERROR, "basePrice must be a non-negative whole amount");
             entity.setBasePrice(request.getBasePrice().setScale(0));
         } else if (create) entity.setBasePrice(java.math.BigDecimal.ZERO);
+        if (request.getStandardAreaM2() != null) entity.setStandardAreaM2(request.getStandardAreaM2());
         if (request.getIncludedImageCount() != null) entity.setIncludedImageCount(request.getIncludedImageCount());
         if (request.getIncludedVideoCount() != null) entity.setIncludedVideoCount(request.getIncludedVideoCount());
         if (request.getStandardVideoDurationSeconds() != null) entity.setStandardVideoDurationSeconds(request.getStandardVideoDurationSeconds());
-        if (request.getPricingProfile() != null) {
-            String profile = request.getPricingProfile().trim();
-            entity.setPricingProfile(profile.isEmpty() ? null : profile.toUpperCase(Locale.ROOT));
-        }
-        if (request.getAreaPricingEnabled() != null) entity.setAreaPricingEnabled(request.getAreaPricingEnabled());
-        if (request.getLengthPricingEnabled() != null) entity.setLengthPricingEnabled(request.getLengthPricingEnabled());
-        if (request.getAltitudePricingEnabled() != null) entity.setAltitudePricingEnabled(request.getAltitudePricingEnabled());
-        if (request.getIncludedAreaHa() != null) entity.setIncludedAreaHa(request.getIncludedAreaHa());
-        else if (create) entity.setIncludedAreaHa(java.math.BigDecimal.ZERO);
-        if (request.getIncludedLengthKm() != null) entity.setIncludedLengthKm(request.getIncludedLengthKm());
-        else if (create) entity.setIncludedLengthKm(java.math.BigDecimal.ZERO);
-        if (request.getIncludedAltitudeM() != null) entity.setIncludedAltitudeM(request.getIncludedAltitudeM());
-        else if (create) entity.setIncludedAltitudeM(java.math.BigDecimal.ZERO);
     }
 
     private ChecklistDefinition locked(String id) {

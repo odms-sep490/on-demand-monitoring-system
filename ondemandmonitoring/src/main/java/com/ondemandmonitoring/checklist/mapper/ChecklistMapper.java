@@ -13,6 +13,8 @@ public interface ChecklistMapper {
     @Mapping(target = "version", ignore = true)
     @Mapping(target = "normalizedContent", ignore = true)
     @Mapping(target = "seedCode", ignore = true)
+    @Mapping(target = "extraImageUnitPrice", ignore = true)
+    @Mapping(target = "extraVideoUnitPrice", ignore = true)
     @Mapping(target = "isActive", constant = "true")
     ChecklistDefinition toEntity(ChecklistRequest request);
     @Mapping(target = "deviceTypes", ignore = true)

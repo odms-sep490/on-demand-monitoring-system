@@ -94,7 +94,7 @@ ALTER TABLE public.order_execution_plans ALTER COLUMN revision SET DEFAULT 0;
 -- This also validates every constraint and refuses same-name incorrect schemas.
 DO $$ DECLARE entry record; actual text; expected text; BEGIN
     FOR entry IN SELECT * FROM (VALUES
-        ('services','ck_services_base_price_positive','CHECK (base_price > 0)'),
+        ('services','ck_services_base_price_positive','CHECK (base_price >= 0)'),
         ('order_execution_plans','ck_order_execution_plan',
          'CHECK (status IN (''DRAFT'',''FINALIZED'') AND revision >= 0 AND (status <> ''FINALIZED'' OR (revision > 0 AND finalized_at IS NOT NULL)) AND (finalized_by IS NULL OR finalized_at IS NOT NULL))'),
         ('missions','uk_mission_id_order','UNIQUE (id, order_id)'),
@@ -122,7 +122,7 @@ DO $$ DECLARE entry record; actual text; expected text; BEGIN
         ('order_checklist_items','ck_snapshot_evidence_policy',
          'CHECK ((evidence_policy_version = 0 AND minimum_evidence_count = 0 AND minimum_image_count = 0 AND minimum_video_count = 0) OR (evidence_policy_version = 1 AND minimum_evidence_count = 1 AND required_evidence_type = ''IMAGE_OR_VIDEO'' AND minimum_image_count = 0 AND minimum_video_count = 0) OR (evidence_policy_version = 2 AND minimum_evidence_count BETWEEN 1 AND 50 AND required_evidence_type IN (''IMAGE'',''VIDEO'',''IMAGE_OR_VIDEO'') AND minimum_image_count = 0 AND minimum_video_count = 0) OR (evidence_policy_version = 3 AND minimum_image_count >= 0 AND minimum_video_count >= 0 AND minimum_evidence_count = minimum_image_count + minimum_video_count AND minimum_evidence_count BETWEEN 1 AND 1000 AND required_evidence_type IN (''IMAGE'',''VIDEO'',''IMAGE_AND_VIDEO'',''IMAGE_OR_VIDEO'')))'),
         ('checklist_definitions','ck_checklist_pricing',
-         'CHECK (base_price >= 0 AND included_image_count BETWEEN 0 AND 500 AND included_video_count BETWEEN 0 AND 500 AND (standard_video_duration_seconds IS NULL OR standard_video_duration_seconds BETWEEN 1 AND 7200))'),
+         'CHECK (base_price >= 0 AND (standard_area_m2 IS NULL OR standard_area_m2 > 0) AND included_image_count BETWEEN 0 AND 500 AND included_video_count BETWEEN 0 AND 500 AND (standard_video_duration_seconds IS NULL OR standard_video_duration_seconds BETWEEN 1 AND 7200))'),
         ('checklist_device_requirements','uk_checklist_device_requirement',
          'UNIQUE (checklist_definition_id,device_type_id)'),
         ('checklist_device_requirements','fk_checklist_device_requirement_checklist',
@@ -138,7 +138,7 @@ DO $$ DECLARE entry record; actual text; expected text; BEGIN
         ('mission_template_items','fk_mission_template_item_checklist',
          'FOREIGN KEY (checklist_definition_id) REFERENCES public.checklist_definitions(id)'),
         ('service_checklists','ck_service_checklist_overrides',
-         'CHECK ((base_price_override IS NULL OR base_price_override >= 0) AND (included_image_count_override IS NULL OR included_image_count_override BETWEEN 0 AND 500) AND (included_video_count_override IS NULL OR included_video_count_override BETWEEN 0 AND 500))'),
+         'CHECK ((included_image_count_override IS NULL OR included_image_count_override BETWEEN 0 AND 500) AND (included_video_count_override IS NULL OR included_video_count_override BETWEEN 0 AND 500))'),
         ('pricing_rules','ck_pricing_rule_media',
          'CHECK ((category = ''MEDIA'' AND pricing_profile IS NOT NULL AND media_component IS NOT NULL AND fixed_amount IS NOT NULL AND fixed_amount >= 0 AND (included_quantity IS NULL OR included_quantity BETWEEN 0 AND 500) AND (media_component NOT IN (''EXTRA_IMAGE'',''EXTRA_VIDEO'') OR (unit_size >= 1 AND COALESCE(min_value,0) >= 0 AND (max_value IS NULL OR max_value > COALESCE(min_value,0))))) OR (category <> ''MEDIA'' AND pricing_profile IS NULL AND media_component IS NULL AND included_quantity IS NULL AND rounding_mode IS NULL))'),
         ('services','ck_services_default_price',
@@ -146,7 +146,7 @@ DO $$ DECLARE entry record; actual text; expected text; BEGIN
         ('order_checklist_items','ck_order_checklist_manager_quote',
          'CHECK (manager_quoted_price IS NULL OR (manager_quote_required AND manager_quoted_price >= 0))'),
         ('order_checklist_items','ck_order_checklist_pricing_snapshot',
-         'CHECK (pricing_snapshot_version IN (0, 1) AND base_price_snapshot >= 0 AND included_image_count_snapshot BETWEEN 0 AND 500 AND included_video_count_snapshot BETWEEN 0 AND 500 AND requested_image_count BETWEEN 0 AND 500 AND requested_video_count BETWEEN 0 AND 500 AND (pricing_snapshot_version = 1 OR (base_price_snapshot = 0 AND included_image_count_snapshot = 0 AND included_video_count_snapshot = 0 AND requested_image_count = 0 AND requested_video_count = 0)))'),
+         'CHECK (pricing_snapshot_version IN (0, 1, 2) AND base_price_snapshot >= 0 AND included_image_count_snapshot BETWEEN 0 AND 500 AND included_video_count_snapshot BETWEEN 0 AND 500 AND requested_image_count BETWEEN 0 AND 500 AND requested_video_count BETWEEN 0 AND 500 AND (pricing_snapshot_version IN (1, 2) OR (base_price_snapshot = 0 AND included_image_count_snapshot = 0 AND included_video_count_snapshot = 0 AND requested_image_count = 0 AND requested_video_count = 0)))'),
         ('mission_checklist_executions','uk_execution_id_mission','UNIQUE(id,mission_id)'),
         ('drone_media','uk_media_id_mission','UNIQUE(id,mission_id)'),
         ('mission_checklist_evidence','fk_evidence_execution_mission',

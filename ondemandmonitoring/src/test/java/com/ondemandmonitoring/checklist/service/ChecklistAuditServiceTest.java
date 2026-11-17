@@ -77,13 +77,13 @@ class ChecklistAuditServiceTest {
     @Test void serviceLinkChangesKeepTheServiceName() {
         var link = new ServiceChecklist(); link.setService(service); link.setChecklist(checklist);
         var before = audit.snapshot(link);
-        link.setRequired(true); link.setBasePriceOverride(new BigDecimal("700000"));
+        link.setRequired(true); link.setIncludedImageCountOverride(7);
         audit.record(ChecklistConfigAuditAction.SERVICE_CHECKLIST_UPDATED, checklist, service, before, audit.snapshot(link));
         var entry = saved();
         assertEquals("s1", entry.getServiceId());
         assertEquals("Kiểm tra nhà xưởng", entry.getServiceName());
         assertTrue(entry.getChanges().contains("required"));
-        assertTrue(entry.getChanges().contains("basePriceOverride"));
+        assertTrue(entry.getChanges().contains("includedImageCountOverride"));
     }
 
     @Test void eventsWithoutFieldsAreStillRecorded() {

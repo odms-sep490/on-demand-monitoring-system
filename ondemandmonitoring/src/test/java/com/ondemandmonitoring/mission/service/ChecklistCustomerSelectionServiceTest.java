@@ -34,9 +34,19 @@ class ChecklistCustomerSelectionServiceTest {
     final MissionResultRepository results = mock(MissionResultRepository.class);
     final IMissionAuthorizationService auth = mock(IMissionAuthorizationService.class);
     final AuthenticatedUserResolver actor = mock(AuthenticatedUserResolver.class);
-    final ChecklistEvidenceServiceImpl service = new ChecklistEvidenceServiceImpl(missions, executions, evidence, media,
-            results, auth, actor, new ChecklistEvidencePolicy(),
-            org.mapstruct.factory.Mappers.getMapper(ChecklistEvidenceMapper.class), mock(IMediaObjectStorage.class), orders, publishedEvidence);
+    final ChecklistEvidenceServiceImpl service = new ChecklistEvidenceServiceImpl(missions,
+                executions,
+                evidence,
+                media,
+                results,
+                auth,
+                actor,
+                new ChecklistEvidencePolicy(),
+                org.mapstruct.factory.Mappers.getMapper(ChecklistEvidenceMapper.class),
+                mock(IMediaObjectStorage.class),
+                org.mockito.Mockito.mock(com.ondemandmonitoring.media.service.impl.MediaDerivativeService.class),
+                orders,
+                publishedEvidence);
     final List<MissionChecklistEvidence> links = new ArrayList<>();
     Mission mission;
     MissionChecklistExecution execution;

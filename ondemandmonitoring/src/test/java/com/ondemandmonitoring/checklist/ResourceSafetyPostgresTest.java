@@ -80,7 +80,7 @@ class ResourceSafetyPostgresTest extends ExecutionPlanAmendmentPostgresTest {
                 repository(entityManagerFactory, UserScheduleRepository.class),
                 repository(entityManagerFactory, MissionDeviceAssignmentRepository.class),repository(entityManagerFactory, MissionStaffAssignmentRepository.class),
                 repository(entityManagerFactory, ResourceTimeLockRepository.class),runtime,
-                mock(com.ondemandmonitoring.mission.service.IMissionChecklistMaterializationService.class),
+                mock(com.ondemandmonitoring.mission.service.impl.MissionPlanningActivationService.class),
                 mock(com.ondemandmonitoring.mission.service.IMissionChecklistAssignmentService.class),
                 reservations,
                 repository(entityManagerFactory, com.ondemandmonitoring.device.repository.DeviceTelemetryRepository.class),

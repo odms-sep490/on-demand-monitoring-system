@@ -89,14 +89,14 @@ class MissionCreationServiceTest {
     }
     @Test void planningMissionCannotEnterLifecycleOrTelemetryEvenWithForcedRuntimeState() {
         var mission=new Mission(); mission.setId("m");
-        mission.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.IN_FLIGHT);
+        mission.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.IN_PROGRESS);
         when(fixture.missionRepository.findById("m")).thenReturn(Optional.of(mission));
         error(ErrorCode.CHECKLIST_ASSIGNMENT_NOT_FINALIZED,()->fixture.missionService.completeMission("m"));
         verifyNoInteractions(fixture.missionDeviceAssignmentRepository,fixture.missionStaffAssignmentRepository);
     }
     @Test void crewMayReadTheirPlanningMissionButCannotGainOperationalPermissions() {
         var mission=new Mission();mission.setId("m");
-        mission.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.IN_FLIGHT);
+        mission.setStatus(com.ondemandmonitoring.mission.enums.MissionStatus.IN_PROGRESS);
         var caller=com.ondemandmonitoring.user.domain.User.builder().isActive(true).role(com.ondemandmonitoring.role.domain.Role.builder().code(RoleCode.STAFF).active(true).build()).build();caller.setId("crew");
         when(fixture.authenticatedUserResolver.getCurrentUser()).thenReturn(caller);
         when(fixture.missionRepository.findById("m")).thenReturn(Optional.of(mission));

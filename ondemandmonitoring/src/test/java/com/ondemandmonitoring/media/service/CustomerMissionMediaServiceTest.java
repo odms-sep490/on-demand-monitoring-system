@@ -21,9 +21,12 @@ class CustomerMissionMediaServiceTest {
     final IMissionMediaAccessService access = mock(IMissionMediaAccessService.class);
     final MediaAssetRepository media = mock(MediaAssetRepository.class);
     final IMediaObjectStorage storage = mock(IMediaObjectStorage.class);
-    final ICustomerMediaService service = new CustomerMediaServiceImpl(access, media, storage,
-            org.mapstruct.factory.Mappers.getMapper(MediaWorkflowMapper.class),
-            mock(IResultRetentionAccessService.class));
+    final ICustomerMediaService service = new CustomerMediaServiceImpl(access,
+                media,
+                storage,
+                org.mockito.Mockito.mock(com.ondemandmonitoring.media.service.impl.MediaDerivativeService.class),
+                org.mapstruct.factory.Mappers.getMapper(MediaWorkflowMapper.class),
+                mock(IResultRetentionAccessService.class));
 
     @BeforeEach
     void setup() {

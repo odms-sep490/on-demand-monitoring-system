@@ -177,11 +177,36 @@ class ExecutionPlanAmendmentPostgresTest extends OrderAggregateCompletionPostgre
                 return com.ondemandmonitoring.mission.dto.response.MissionResponse.builder().id(mission.getId())
                         .missionCode(mission.getMissionCode()).status(mission.getStatus()).build();
             });
-            return new MissionService(missions, null, mapper, null, null, null, null, null, null,
-                    orders, null, OrderMissionPostgresTest.paidInvoices(), OrderMissionPostgresTest.paidEligibility(),
-                    null, null, null, null, null, actor,
-                    mock(com.ondemandmonitoring.userschedule.repository.UserScheduleRepository.class), devices, staff,
-                    mock(ResourceTimeLockRepository.class), executions, selection, mock(IResourceReservationService.class), null);
+            return new MissionService(missions,
+                    null,
+                    mapper,
+                    null,
+                    null,
+                    null,
+                    null,
+                    orders,
+                    null,
+                    OrderMissionPostgresTest.paidInvoices(),
+                    OrderMissionPostgresTest.paidEligibility(),
+                    null,
+                    null,
+                    null,
+                    null,
+                    actor,
+                    mock(com.ondemandmonitoring.userschedule.repository.UserScheduleRepository.class),
+                    devices,
+                    staff,
+                    mock(ResourceTimeLockRepository.class),
+                    executions,
+                    mock(com.ondemandmonitoring.mission.service.impl.MissionPlanningActivationService.class),
+                    selection,
+                    mock(IResourceReservationService.class),
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null);
         }
         @Bean IMissionCancellationService cancellation(OrderRepository orders, MissionRepository missions,
                 MissionResultRepository results, AuthenticatedUserResolver actor) {

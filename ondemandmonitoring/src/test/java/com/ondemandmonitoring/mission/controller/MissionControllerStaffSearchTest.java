@@ -25,8 +25,10 @@ import static org.mockito.Mockito.when;
 class MissionControllerStaffSearchTest {
 
     private final IMissionService missionService = mock(IMissionService.class);
-    private final MissionController controller = new MissionController(
-            missionService, mock(IMissionMediaUploadService.class), mock(MediaAssetMapper.class));
+    private final MissionController controller = new MissionController(missionService,
+                org.mockito.Mockito.mock(com.ondemandmonitoring.flightpermit.service.IFlightPermitService.class),
+                mock(IMissionMediaUploadService.class),
+                mock(MediaAssetMapper.class));
 
     @Test
     void searchStaffMissionsConvertsInclusiveVietnameseDatesToUtcInterval() {
@@ -34,14 +36,14 @@ class MissionControllerStaffSearchTest {
                 .items(List.of()).page(0).size(50).totalPages(0).build();
         Instant start = Instant.parse("2026-09-20T17:00:00Z");
         Instant endExclusive = Instant.parse("2026-09-27T17:00:00Z");
-        when(missionService.searchStaffMissions(eq(MissionStatus.SCHEDULED), eq(start),
+        when(missionService.searchStaffMissions(eq(MissionStatus.PENDING_CONFIRMATION), eq(start),
                 eq(endExclusive), any(Pageable.class))).thenReturn(page);
 
-        var result = controller.searchStaffMissions(MissionStatus.SCHEDULED,
+        var result = controller.searchStaffMissions(MissionStatus.PENDING_CONFIRMATION,
                 LocalDate.parse("2026-09-21"), LocalDate.parse("2026-09-27"), 0, 50);
 
         assertEquals(page, result.getBody().getData());
-        verify(missionService).searchStaffMissions(eq(MissionStatus.SCHEDULED), eq(start),
+        verify(missionService).searchStaffMissions(eq(MissionStatus.PENDING_CONFIRMATION), eq(start),
                 eq(endExclusive), any(Pageable.class));
     }
 

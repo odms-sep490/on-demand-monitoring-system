@@ -60,7 +60,7 @@ class CustomerMissionHistoryServiceTest {
     @Test
     void activeMissionIsNotHistory() {
         when(missions.findByIdAndOrder_Customer_Id("mission", "customer"))
-                .thenReturn(Optional.of(mission(MissionStatus.IN_FLIGHT)));
+                .thenReturn(Optional.of(mission(MissionStatus.IN_PROGRESS)));
         assertThatThrownBy(() -> service.getHistory("mission")).isInstanceOf(ApiException.class);
     }
 

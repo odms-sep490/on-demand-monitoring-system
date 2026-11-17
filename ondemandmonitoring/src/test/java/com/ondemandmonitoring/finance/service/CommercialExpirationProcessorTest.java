@@ -97,7 +97,7 @@ class CommercialExpirationProcessorTest {
     }
 
     @Test void executingMissionPreventsAutomaticCancellation() {
-        mission.setStatus(MissionStatus.IN_FLIGHT);
+        mission.setStatus(MissionStatus.IN_PROGRESS);
         assertThat(processor.expireQuote("q1")).isFalse();
         assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.APPROVED);
     }

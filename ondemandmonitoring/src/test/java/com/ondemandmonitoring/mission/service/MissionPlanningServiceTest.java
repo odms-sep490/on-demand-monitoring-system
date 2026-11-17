@@ -83,12 +83,12 @@ class MissionPlanningServiceTest {
     }
 
     @Test void confirmsAdditionalMissionWithoutChangingExistingRuntimeMissions() {
-        var sibling = new Mission(); sibling.setId("sibling"); sibling.setOrder(order); sibling.setStatus(MissionStatus.IN_FLIGHT);
+        var sibling = new Mission(); sibling.setId("sibling"); sibling.setOrder(order); sibling.setStatus(MissionStatus.IN_PROGRESS);
         when(missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc("o")).thenReturn(List.of(mission, sibling));
         service.confirmMissionPlanning("m");
         verify(materializer).materialize(mission);
         assertEquals(MissionStatus.PENDING_CONFIRMATION, mission.getStatus());
-        assertEquals(MissionStatus.IN_FLIGHT, sibling.getStatus());
+        assertEquals(MissionStatus.IN_PROGRESS, sibling.getStatus());
         assertEquals(ExecutionPlanStatus.FINALIZED, order.getExecutionPlan().getStatus());
         assertEquals(6, order.getExecutionPlan().getRevision());
     }
@@ -120,7 +120,7 @@ class MissionPlanningServiceTest {
         var missionSchedule = UserSchedule.builder().scheduleType(UserScheduleType.MISSION).build();
         var leave = UserSchedule.builder().scheduleType(UserScheduleType.LEAVE).build();
         when(schedules.findByReferenceId("m")).thenReturn(List.of(missionSchedule, leave));
-        service.deleteDraftMission("m");
+        service.cancelDraftMission("m");
         assertEquals(ChecklistAssignmentStatus.UNASSIGNED, assignment.getOrderChecklistItem().getAssignmentStatus());
         assertEquals(6, order.getExecutionPlan().getRevision());
         var sequence = inOrder(resources, assignments, schedules, locks, staff, devices, missions);
@@ -133,12 +133,12 @@ class MissionPlanningServiceTest {
     }
 
     @Test void cannotDeleteFinalizedOrExecutedMission() {
-        error(ErrorCode.EXECUTION_PLAN_NOT_DRAFT, () -> service.deleteDraftMission("m"));
-        order.getExecutionPlan().setStatus(ExecutionPlanStatus.DRAFT); mission.setStatus(MissionStatus.IN_FLIGHT);
-        error(ErrorCode.MISSION_STATUS_INVALID, () -> service.deleteDraftMission("m"));
+        error(ErrorCode.EXECUTION_PLAN_NOT_DRAFT, () -> service.cancelDraftMission("m"));
+        order.getExecutionPlan().setStatus(ExecutionPlanStatus.DRAFT); mission.setStatus(MissionStatus.IN_PROGRESS);
+        error(ErrorCode.MISSION_STATUS_INVALID, () -> service.cancelDraftMission("m"));
         mission.setStatus(MissionStatus.PLANNING);
         when(executions.findOrderedByMissionId("m")).thenReturn(List.of(new MissionChecklistExecution()));
-        error(ErrorCode.MISSION_STATUS_INVALID, () -> service.deleteDraftMission("m"));
+        error(ErrorCode.MISSION_STATUS_INVALID, () -> service.cancelDraftMission("m"));
         verify(missions, never()).delete(any(Mission.class)); verifyNoInteractions(resources);
     }
 }

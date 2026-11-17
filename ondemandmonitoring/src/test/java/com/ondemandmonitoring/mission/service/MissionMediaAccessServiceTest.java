@@ -38,7 +38,7 @@ class MissionMediaAccessServiceTest {
     void setup() {
         mission = new Mission();
         mission.setId("mission-id");
-        mission.setStatus(MissionStatus.IN_FLIGHT);
+        mission.setStatus(MissionStatus.IN_PROGRESS);
         when(missions.findById("mission-id")).thenReturn(Optional.of(mission));
         when(currentUser.getCurrentUserId()).thenReturn("operator-id");
         authenticate(List.of());
@@ -70,7 +70,7 @@ class MissionMediaAccessServiceTest {
 
     @Test
     void readyToFlyAllowsPilotMediaUploadWhenAuthorized() {
-        mission.setStatus(MissionStatus.READY_TO_FLY);
+        mission.setStatus(MissionStatus.READY);
         when(authorization.canViewMissionMedia("mission-id")).thenReturn(true);
         when(authorization.canUploadMissionMedia("mission-id")).thenReturn(true);
 

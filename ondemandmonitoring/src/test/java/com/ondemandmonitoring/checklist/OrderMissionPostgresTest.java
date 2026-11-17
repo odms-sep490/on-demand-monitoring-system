@@ -113,7 +113,10 @@ class OrderMissionPostgresTest extends ChecklistPostgresTest {
 
     @Test void creationControllerCreatesDistinctMissions() {
         String id = order(OrderStatus.APPROVED);
-        var general = new MissionController(missionService, null, null);
+        var general = new MissionController(missionService,
+                org.mockito.Mockito.mock(com.ondemandmonitoring.flightpermit.service.IFlightPermitService.class),
+                null,
+                null);
         var first = general.createMission(id, request(id)).getBody().getData();
         var next = request(id);
         var second = general.createMission(id, next).getBody().getData();
@@ -243,11 +246,36 @@ class OrderMissionPostgresTest extends ChecklistPostgresTest {
             when(invoiceRepository.findByOrderId(anyString())).thenReturn(java.util.Optional.of(invoice));
             var eligibility = mock(com.ondemandmonitoring.finance.service.IMissionPaymentEligibilityService.class);
             when(eligibility.isDepositSatisfied(invoice)).thenReturn(true);
-            return new MissionService(missions, null, mapper,
-                    null, null, null, null, null,
-                    orders, null, invoiceRepository, eligibility, null, null, null, null, null, null, null, null, null, null, executions,
-                    org.mockito.Mockito.mock(com.ondemandmonitoring.mission.service.IMissionChecklistAssignmentService.class),
-                    org.mockito.Mockito.mock(com.ondemandmonitoring.mission.service.IResourceReservationService.class), null);
+            return new MissionService(missions,
+                    null,
+                    mapper,
+                    null,
+                    null,
+                    null,
+                    null,
+                    orders,
+                    null,
+                    invoiceRepository,
+                    eligibility,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    executions,
+                    mock(com.ondemandmonitoring.mission.service.impl.MissionPlanningActivationService.class),
+                    mock(com.ondemandmonitoring.mission.service.IMissionChecklistAssignmentService.class),
+                    mock(com.ondemandmonitoring.mission.service.IResourceReservationService.class),
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null);
         }
         @Bean com.ondemandmonitoring.mission.repository.MissionChecklistExecutionRepository executions(EntityManagerFactory factory) {
             return new JpaRepositoryFactory(SharedEntityManagerCreator.createSharedEntityManager(factory))
@@ -299,9 +327,19 @@ class OrderMissionPostgresTest extends ChecklistPostgresTest {
                 com.ondemandmonitoring.mission.service.IMissionAuthorizationService auth,
                 com.ondemandmonitoring.user.service.AuthenticatedUserResolver resolver,
                 com.ondemandmonitoring.media.service.IMediaObjectStorage storage) {
-            return new com.ondemandmonitoring.mission.service.impl.ChecklistEvidenceServiceImpl(missions, executions, evidence, media, results,
-                    auth, resolver, new com.ondemandmonitoring.mission.service.impl.ChecklistEvidencePolicy(),
-                    org.mapstruct.factory.Mappers.getMapper(com.ondemandmonitoring.mission.mapper.ChecklistEvidenceMapper.class), storage, mock(com.ondemandmonitoring.order.repository.OrderRepository.class), mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class));
+            return new com.ondemandmonitoring.mission.service.impl.ChecklistEvidenceServiceImpl(missions,
+                executions,
+                evidence,
+                media,
+                results,
+                auth,
+                resolver,
+                new com.ondemandmonitoring.mission.service.impl.ChecklistEvidencePolicy(),
+                org.mapstruct.factory.Mappers.getMapper(com.ondemandmonitoring.mission.mapper.ChecklistEvidenceMapper.class),
+                storage,
+                org.mockito.Mockito.mock(com.ondemandmonitoring.media.service.impl.MediaDerivativeService.class),
+                mock(com.ondemandmonitoring.order.repository.OrderRepository.class),
+                mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class));
         }
     }
 }

@@ -26,4 +26,9 @@ public class UserProfileResponse {
     List<IdentityProvider> linkedProviders;
     String avatarUrl;
     CustomerProfileResponse customerProfile;
+    String phoneNumber;
+    Boolean emailVerified;
+    Boolean active;
+    java.time.Instant createdAt;
+    java.time.OffsetDateTime lastLoginAt;
 }

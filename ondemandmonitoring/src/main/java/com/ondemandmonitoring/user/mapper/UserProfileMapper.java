@@ -16,6 +16,11 @@ public interface UserProfileMapper {
     @Mapping(source = "user.email", target = "email")
     @Mapping(source = "user.role.code", target = "role")
     @Mapping(source = "customerProfile", target = "customerProfile")
+    @Mapping(source = "user.phoneNumber", target = "phoneNumber")
+    @Mapping(source = "user.emailVerified", target = "emailVerified")
+    @Mapping(source = "user.isActive", target = "active")
+    @Mapping(source = "user.createdAt", target = "createdAt")
+    @Mapping(source = "user.lastLoginAt", target = "lastLoginAt")
     @Mapping(target = "avatarUrl", ignore = true)
     @Mapping(target = "linkedProviders", ignore = true)
     UserProfileResponse toResponse(User user, CustomerProfile customerProfile);

@@ -324,6 +324,14 @@ DO $$ DECLARE e record; actual text; keys text[]; predicate text; meta record; B
         AND conname='ck_inspection_correction_state' AND contype='c' AND convalidated) THEN
         RAISE EXCEPTION 'Inspection correction active-request invariant missing';
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='public.missions'::regclass
+        AND attname='scheduled_start_at' AND NOT attisdropped AND NOT attnotnull
+        AND format_type(atttypid, NULL)='timestamp with time zone')
+       OR NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='public.missions'::regclass
+        AND attname='scheduled_end_at' AND NOT attisdropped AND NOT attnotnull
+        AND format_type(atttypid, NULL)='timestamp with time zone') THEN
+        RAISE EXCEPTION 'Mission schedule columns must exist and allow NULL for unscheduled draft missions';
+    END IF;
     RAISE NOTICE 'Current Order/Mission schema verification PASS';
 END $$;
 SELECT extname,extversion FROM pg_extension WHERE extname IN ('postgis','vector','btree_gist') ORDER BY extname;

@@ -461,6 +461,37 @@ class InspectionCorrectionPostgresTest {
     assertThat(service.list(missionId).getFirst().supplementalMissionId()).isEqualTo(child.getId());
   }
 
+  @Test
+  void schemaUpgradeFromNotNullSchedulePreservesExistingMissionsAndAllowsUnscheduledDraftsWhileBlockingFinalizationWithoutSchedule()
+      throws Exception {
+    jdbc.execute(
+        "ALTER TABLE missions ALTER COLUMN scheduled_start_at SET NOT NULL, ALTER COLUMN"
+            + " scheduled_end_at SET NOT NULL");
+    new com.ondemandmonitoring.mission.config.MissionScheduleSchemaUpdater(dataSource).run();
+    assertThat(
+            jdbc.queryForObject(
+                "select scheduled_start_at from missions where id=?",
+                java.sql.Timestamp.class,
+                missionId))
+        .isNotNull();
+    var correction = service.request(missionId, flightRequest());
+    var child = internalMissions.ensureDraft(missionId, correction.id(), false);
+    assertThat(
+            jdbc.queryForObject(
+                "select scheduled_start_at from missions where id=?",
+                java.sql.Timestamp.class,
+                child.getId()))
+        .isNull();
+    assertThatThrownBy(
+            () ->
+                internalMissions.finalizePlan(
+                    missionId,
+                    correction.id(),
+                    new com.ondemandmonitoring.mission.dto.request
+                        .ExecutionPlanFinalizeRequest(2L, false)))
+        .isInstanceOf(ApiException.class);
+  }
+
   @Autowired AuthenticatedUserResolver users;
 
   @Test

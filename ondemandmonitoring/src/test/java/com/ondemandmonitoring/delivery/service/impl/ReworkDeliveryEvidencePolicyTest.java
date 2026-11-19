@@ -48,4 +48,31 @@ class ReworkDeliveryEvidencePolicyTest {
         assertThat(ReworkDeliveryEvidencePolicy.allows(item, originals, java.util.List.of(link))).isTrue();
         assertThat(ReworkDeliveryEvidencePolicy.allows(item, accepted, java.util.List.of(link))).isFalse();
     }
+
+    @Test
+    void eligibilityRejectsNonCompliantUnfinishedDetachedAndDelegatedExecutions() {
+        var execution = new com.ondemandmonitoring.mission.domain.MissionChecklistExecution();
+        execution.setId("exec-1");
+        execution.setExecutionStatus(com.ondemandmonitoring.mission.enums.ChecklistExecutionStatus.COMPLETED);
+        execution.setAssessmentStatus(com.ondemandmonitoring.mission.enums.ChecklistAssessmentStatus.COMPLIANT);
+        var asset = new com.ondemandmonitoring.media.domain.MediaAsset();
+        asset.setId("media-1");
+        var link = new com.ondemandmonitoring.mission.domain.MissionChecklistEvidence();
+        link.setMissionChecklistExecution(execution);
+        link.setMediaAsset(asset);
+
+        assertThat(ReworkDeliveryEvidencePolicy.isEligibleChecklistEvidence(link, java.util.Set.of())).isTrue();
+        assertThat(ReworkDeliveryEvidencePolicy.isEligibleChecklistEvidence(link, java.util.Set.of("exec-1"))).isFalse();
+
+        execution.setAssessmentStatus(com.ondemandmonitoring.mission.enums.ChecklistAssessmentStatus.NON_COMPLIANT);
+        assertThat(ReworkDeliveryEvidencePolicy.isEligibleChecklistEvidence(link, java.util.Set.of())).isFalse();
+
+        execution.setAssessmentStatus(com.ondemandmonitoring.mission.enums.ChecklistAssessmentStatus.COMPLIANT);
+        execution.setExecutionStatus(com.ondemandmonitoring.mission.enums.ChecklistExecutionStatus.IN_PROGRESS);
+        assertThat(ReworkDeliveryEvidencePolicy.isEligibleChecklistEvidence(link, java.util.Set.of())).isFalse();
+
+        execution.setExecutionStatus(com.ondemandmonitoring.mission.enums.ChecklistExecutionStatus.COMPLETED);
+        link.setDetachedAt(java.time.Instant.now());
+        assertThat(ReworkDeliveryEvidencePolicy.isEligibleChecklistEvidence(link, java.util.Set.of())).isFalse();
+    }
 }

@@ -211,6 +211,139 @@ class InspectorPublicationTest {
         assertThat(item.getStatus()).isEqualTo(ResultRevisionCaseItemStatus.WAITING_CUSTOMER);
     }
 
+    @Test
+    void queryAndManualPublishExcludeNonCompliantAndDelegatedEvidenceWhileAllowingReworkSupplementsAndReplacingIneligiblePriorFiles() {
+        var storage = mock(IMediaObjectStorage.class);
+        when(storage.presignedUrlExpiresSeconds()).thenReturn(900L);
+        when(storage.createPresignedGetUrl(any(), any())).thenReturn("https://signed.example/get");
+        var queryService = new ChecklistDeliveryQueryService(
+                orders, cases, caseItems, items, missions, results, evidence, deliveries, rounds, roundItems,
+                roundEvidence, new ChecklistEvidencePolicy(), mock(IResultRetentionAccessService.class),
+                storage, mock(MediaDerivativeService.class));
+        org.springframework.test.util.ReflectionTestUtils.setField(queryService, "missionScope", scope);
+        org.springframework.test.util.ReflectionTestUtils.setField(queryService, "inspectionCorrections", corrections);
+
+        when(orders.findById("order")).thenReturn(Optional.of(order));
+        when(scope.find("order", "first", false)).thenReturn(Optional.of(delivery));
+
+        // Checklist 'a' on mission 'first':
+        // - 'bad-non-compliant' has NON_COMPLIANT assessment
+        // - 'delegated-old' has COMPLIANT assessment but its execution is in delegatedExecutions
+        // - 'supp-valid' comes from accepted supplemental mission 'supp-a'
+        var badLink = link("bad-non-compliant", first, a, false);
+        badLink.getMissionChecklistExecution().setId("exec-bad");
+        badLink.getMissionChecklistExecution().setAssessmentStatus(ChecklistAssessmentStatus.NON_COMPLIANT);
+
+        var delegatedLink = link("delegated-old", first, a, false);
+        delegatedLink.getMissionChecklistExecution().setId("exec-delegated");
+
+        var suppA = mission("supp-a", MissionPurpose.REWORK);
+        suppA.setMissionCode("MS-SUPP-A");
+        children.add(suppA);
+        packages.add(approved(suppA));
+        var suppValidLink = link("supp-valid", suppA, a, true);
+        var suppReserveLink = link("supp-reserve", suppA, a, false);
+
+        when(evidence.findActiveByMissionId("first")).thenReturn(List.of(badLink, delegatedLink));
+        when(evidence.findActiveByMissionId("supp-a")).thenReturn(List.of(suppValidLink, suppReserveLink));
+        when(corrections.delegatedExecutions("first")).thenReturn(Map.of("exec-delegated", delegatedLink.getMissionChecklistExecution()));
+
+        var queryResult = queryService.get("order", "first");
+        assertThat(queryResult.checklists()).hasSize(1);
+        assertThat(queryResult.checklists().getFirst().eligibleMedia())
+                .extracting(com.ondemandmonitoring.delivery.dto.response.ManagerDeliveryChecklistsResponse.Asset::mediaAssetId)
+                .containsExactlyInAnyOrder("supp-valid", "supp-reserve")
+                .doesNotContain("bad-non-compliant", "delegated-old");
+
+        // Now set up a Round 1 delivery containing an old file 'expired-old' that is no longer eligible,
+        // and an active revision case on checklist 'a' with REWORK mission 'rework-a' supplemented by 'supp-rework-a'.
+        delivery.setStatus(DeliveryStatus.REVISION_REQUESTED);
+        delivery.setCurrentReviewRoundId("round-1");
+        var round1 = new ResultReviewRound();
+        round1.setId("round-1");
+        round1.setVersion(1L);
+        when(rounds.findById("round-1")).thenReturn(Optional.of(round1));
+        when(rounds.findByIdForUpdate("round-1")).thenReturn(Optional.of(round1));
+
+        var riA = new ResultReviewRoundItem();
+        riA.setId("ri-a");
+        riA.setOrderChecklistItem(a);
+        when(roundItems.findByRoundIdOrderByDisplayOrderAsc("round-1")).thenReturn(List.of(riA));
+
+        var priorIneligibleAsset = new MediaAsset();
+        priorIneligibleAsset.setId("expired-old");
+        priorIneligibleAsset.setMission(first);
+        priorIneligibleAsset.setType("IMAGE");
+        var priorRoundEvidence = new ResultReviewRoundEvidence();
+        priorRoundEvidence.setId("re-old");
+        priorRoundEvidence.setRoundItem(riA);
+        priorRoundEvidence.setMediaAsset(priorIneligibleAsset);
+        when(roundEvidence.findByRoundItemIdInOrderByRoundItemIdAscCreatedAtAsc(List.of("ri-a")))
+                .thenReturn(List.of(priorRoundEvidence));
+
+        var revisionCase = new ResultRevisionCase();
+        revisionCase.setId("case-1");
+        revisionCase.setOrder(order);
+        when(cases.findByOrderIdAndActiveTrue("order")).thenReturn(Optional.of(revisionCase));
+        when(cases.findByOrderIdAndActiveTrueForUpdate("order")).thenReturn(Optional.of(revisionCase));
+
+        var reworkA = mission("rework-a", MissionPurpose.REWORK);
+        reworkA.setResultRevisionCaseId("case-1");
+        reworkA.setMissionCode("MS-RW-A");
+        var suppReworkA = mission("supp-rework-a", MissionPurpose.REWORK);
+        suppReworkA.setMissionCode("MS-SUPP-RW-A");
+        children.addAll(List.of(reworkA, suppReworkA));
+        packages.addAll(List.of(approved(reworkA), approved(suppReworkA)));
+        when(missions.findById("rework-a")).thenReturn(Optional.of(reworkA));
+
+        var reworkCaseItem = new ResultRevisionCaseItem();
+        reworkCaseItem.setOrderChecklistItem(a);
+        reworkCaseItem.setScopeDecision(ResultRevisionScope.IN_SCOPE);
+        reworkCaseItem.setStrategy(ResultRevisionStrategy.REWORK);
+        reworkCaseItem.setStatus(ResultRevisionCaseItemStatus.IN_PROGRESS);
+        reworkCaseItem.setAssignedReworkMissionId("rework-a");
+        when(caseItems.findByResultRevisionCaseIdOrderByCreatedAtAsc("case-1")).thenReturn(List.of(reworkCaseItem));
+        when(caseItems.findByResultRevisionCaseIdAndOrderChecklistItemIdInOrderByCreatedAtAsc(eq("case-1"), anyCollection()))
+                .thenReturn(List.of(reworkCaseItem));
+
+        var reworkFailedLink = link("rework-failed", reworkA, a, false);
+        reworkFailedLink.getMissionChecklistExecution().setId("exec-rw-failed");
+        reworkFailedLink.getMissionChecklistExecution().setAssessmentStatus(ChecklistAssessmentStatus.NON_COMPLIANT);
+        var reworkSuppAcceptedLink = link("rework-supp-accepted", suppReworkA, a, true);
+
+        when(evidence.findActiveByMissionId("rework-a")).thenReturn(List.of(reworkFailedLink));
+        when(evidence.findActiveByMissionId("supp-rework-a")).thenReturn(List.of(reworkSuppAcceptedLink));
+        when(corrections.delegatedExecutions("rework-a")).thenReturn(Map.of("exec-rw-failed", reworkFailedLink.getMissionChecklistExecution()));
+        when(corrections.selectedSupplementalEvidence("rework-a")).thenReturn(List.of(reworkSuppAcceptedLink));
+
+        // 1) Query service returns ONLY the accepted supplemental evidence for the rework checklist
+        var reworkQuery = queryService.get("order", "first");
+        assertThat(reworkQuery.checklists().getFirst().eligibleMedia())
+                .extracting(com.ondemandmonitoring.delivery.dto.response.ManagerDeliveryChecklistsResponse.Asset::mediaAssetId)
+                .containsExactly("rework-supp-accepted");
+
+        // 2) Direct publish attempt with NON_COMPLIANT or pre-rework media is rejected with MEDIA_ACCESS_DENIED
+        var rejectBadAttempt = new com.ondemandmonitoring.delivery.dto.request.ChecklistDeliveryPublishRequest(
+                UUID.randomUUID(), 1L, "round-1", 1L, "Try bad media", false, null,
+                List.of(new com.ondemandmonitoring.delivery.dto.request.ChecklistDeliveryPublishRequest.ChecklistSelection(
+                        "a", List.of(), List.of(),
+                        List.of(new com.ondemandmonitoring.delivery.dto.request.ChecklistDeliveryPublishRequest.Replacement("re-old", "bad-non-compliant")))));
+        assertThatThrownBy(() -> service.releaseChecklistPreview("order", rejectBadAttempt, "first"))
+                .isInstanceOf(com.ondemandmonitoring.common.exception.ApiException.class)
+                .extracting("errorCode")
+                .isEqualTo(com.ondemandmonitoring.common.exception.ErrorCode.MEDIA_ACCESS_DENIED);
+
+        // 3) Replacing the no-longer-eligible prior file 're-old' ('expired-old') with 'rework-supp-accepted' succeeds!
+        var validReplace = new com.ondemandmonitoring.delivery.dto.request.ChecklistDeliveryPublishRequest(
+                UUID.randomUUID(), 1L, "round-1", 1L, "Replace with accepted rework supplement", false, null,
+                List.of(new com.ondemandmonitoring.delivery.dto.request.ChecklistDeliveryPublishRequest.ChecklistSelection(
+                        "a", List.of(), List.of(),
+                        List.of(new com.ondemandmonitoring.delivery.dto.request.ChecklistDeliveryPublishRequest.Replacement("re-old", "rework-supp-accepted")))));
+        var published = service.releaseChecklistPreview("order", validReplace, "first");
+        assertThat(published.deliveryStatus()).isEqualTo(DeliveryStatus.CUSTOMER_REVIEW);
+        assertThat(reworkCaseItem.getStatus()).isEqualTo(ResultRevisionCaseItemStatus.WAITING_CUSTOMER);
+    }
+
     private Mission mission(String id, MissionPurpose purpose) {
         var m = new Mission(); m.setId(id); m.setOrder(order); m.setStatus(MissionStatus.COMPLETED); m.setPurpose(purpose); return m;
     }
@@ -225,7 +358,11 @@ class InspectorPublicationTest {
         var asset = new MediaAsset(); asset.setId(id); asset.setMission(mission); asset.setType("IMAGE");
         asset.setStorageStatus(MediaStorageStatus.AVAILABLE); asset.setMediaStatus(MediaStatus.AVAILABLE);
         asset.setValidatedAt(Instant.now()); asset.setSourceType("DRONE_CAMERA");
-        var execution = new MissionChecklistExecution(); execution.setOrderChecklistItemId(item.getId());
+        var execution = new MissionChecklistExecution();
+        execution.setId(mission.getId() + "-" + item.getId());
+        execution.setOrderChecklistItemId(item.getId());
+        execution.setExecutionStatus(ChecklistExecutionStatus.COMPLETED);
+        execution.setAssessmentStatus(ChecklistAssessmentStatus.COMPLIANT);
         var link = new MissionChecklistEvidence(); link.setMissionId(mission.getId()); link.setMissionChecklistExecution(execution);
         link.setMediaAsset(asset); link.setSelectedForCustomer(selected); return link;
     }

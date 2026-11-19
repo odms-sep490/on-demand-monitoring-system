@@ -182,7 +182,10 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         for (var mission : effective) {
             if (mission.getStatus() != MissionStatus.COMPLETED || !approved.contains(mission.getId())) continue;
             if (revisionCase == null && mission.getPurpose() == com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK) continue;
+            Set<String> delegated = inspectionCorrections == null ? Set.of()
+                    : inspectionCorrections.delegatedExecutions(mission.getId()).keySet();
             for (var link : missionEvidence.findActiveByMissionId(mission.getId())) {
+                if (!ReworkDeliveryEvidencePolicy.isEligibleChecklistEvidence(link, delegated)) continue;
                 String itemId = link.getMissionChecklistExecution().getOrderChecklistItemId();
                 if (!link.isSelectedForCustomer() || link.getDetachedAt() != null) continue;
                 if (revisionCase != null && (!reworkByItem.containsKey(itemId)
@@ -190,20 +193,23 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                 selected.computeIfAbsent(itemId, ignored -> new ArrayList<>()).add(link);
             }
         }
-        if(revisionCase==null) {
+        if(revisionCase==null && inspectionCorrections != null) {
             for(var original:originals) {
                 inspectionCorrections.requireResolved(original.getId());
                 var delegated=inspectionCorrections.delegatedExecutions(original.getId());
                 for(var replacement:delegated.values())selected.put(replacement.getOrderChecklistItemId(),new ArrayList<>());
-                for(var link:inspectionCorrections.selectedSupplementalEvidence(original.getId()))
+                for(var link:inspectionCorrections.selectedSupplementalEvidence(original.getId())) {
+                    if (!ReworkDeliveryEvidencePolicy.isEligibleChecklistEvidence(link, Set.of())) continue;
                     selected.computeIfAbsent(link.getMissionChecklistExecution().getOrderChecklistItemId(),ignored->new ArrayList<>()).add(link);
+                }
             }
         }
-        if (revisionCase != null) {
+        if (revisionCase != null && inspectionCorrections != null) {
             for (var caseItem : reworkByItem.values()) {
                 String assignedId = caseItem.getAssignedReworkMissionId();
                 inspectionCorrections.requireResolved(assignedId);
                 var supplements = inspectionCorrections.selectedSupplementalEvidence(assignedId).stream()
+                        .filter(link -> ReworkDeliveryEvidencePolicy.isEligibleChecklistEvidence(link, Set.of()))
                         .filter(link -> caseItem.getOrderChecklistItem().getId().equals(
                                 link.getMissionChecklistExecution().getOrderChecklistItemId())).toList();
                 if (!supplements.isEmpty())
@@ -389,14 +395,12 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
             Set<String> candidate = new LinkedHashSet<>();
             for (var prior : priorEvidence) {
                 String mediaId = prior.getMediaAsset().getId();
-                if (!eligibleByChecklist.getOrDefault(itemId, Map.of()).containsKey(mediaId))
-                    throw new ApiException(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED,
-                            "A previously delivered file is no longer eligible; replace it or refresh the delivery");
                 candidate.add(mediaId);
-                    sourceEvidenceByMedia.put(provenanceKey(itemId, mediaId), prior.getId());
+                sourceEvidenceByMedia.put(provenanceKey(itemId, mediaId), prior.getId());
                 selectedAssetsById.put(mediaId, prior.getMediaAsset());
             }
             var operation = operations.get(itemId);
+            Map<String, MissionChecklistEvidence> eligible = eligibleByChecklist.getOrDefault(itemId, Map.of());
             if (operation != null) {
                 Set<String> replacedEvidenceIds = new HashSet<>();
                 Set<String> removedEvidenceIds = new HashSet<>();
@@ -416,7 +420,6 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                         throw new ApiException(ErrorCode.RESULT_REVIEW_ITEM_INVALID);
                     var old = priorEvidence.stream().filter(row -> row.getId().equals(replacement.sourceRoundEvidenceId())).findFirst()
                             .orElseThrow(() -> new ApiException(ErrorCode.RESULT_REVIEW_ITEM_INVALID));
-                    Map<String, MissionChecklistEvidence> eligible = eligibleByChecklist.getOrDefault(itemId, Map.of());
                     MissionChecklistEvidence newLink = eligible.get(replacement.newMediaAssetId());
                     if (newLink == null || candidate.contains(replacement.newMediaAssetId()))
                         throw new ApiException(ErrorCode.MEDIA_ACCESS_DENIED);
@@ -434,12 +437,19 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                 for (String mediaId : additions) {
                     if (!addedIds.add(mediaId) || candidate.contains(mediaId))
                         throw new ApiException(ErrorCode.RESULT_REVIEW_ITEM_INVALID);
-                    MissionChecklistEvidence link = eligibleByChecklist.getOrDefault(itemId, Map.of()).get(mediaId);
+                    MissionChecklistEvidence link = eligible.get(mediaId);
                     if (link == null) throw new ApiException(ErrorCode.MEDIA_ACCESS_DENIED);
                     candidate.add(mediaId);
                     selectedAssetsById.put(mediaId, link.getMediaAsset());
                     changedChecklistIds.add(itemId);
                 }
+            }
+            for (String mediaId : candidate) {
+                MissionChecklistEvidence link = eligible.get(mediaId);
+                if (link == null)
+                    throw new ApiException(ErrorCode.RESULT_REVIEW_REFRESH_REQUIRED,
+                            "A previously delivered file is no longer eligible; replace it or refresh the delivery");
+                selectedAssetsById.put(mediaId, link.getMediaAsset());
             }
             candidateByChecklist.put(itemId, candidate);
         }
@@ -464,10 +474,13 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                             || !activeRevisionCase.getId().equals(rework.getResultRevisionCaseId())
                             || rework.getStatus() != MissionStatus.COMPLETED || !isMissionResultApproved(rework))
                         throw new ApiException(ErrorCode.INVALID_DELIVERY_STATE);
+                    List<MissionChecklistEvidence> supplementalEvidence = inspectionCorrections == null ? List.of()
+                            : inspectionCorrections.selectedSupplementalEvidence(rework.getId()).stream()
+                                    .filter(link -> ReworkDeliveryEvidencePolicy.isEligibleChecklistEvidence(link, Set.of()))
+                                    .toList();
                     for (String mediaId : candidateByChecklist.getOrDefault(changedChecklistId, Set.of())) {
                         MediaAsset asset = selectedAssetsById.get(mediaId);
-                        if (asset == null || !ReworkDeliveryEvidencePolicy.allows(caseItem, asset,
-                                inspectionCorrections.selectedSupplementalEvidence(rework.getId())))
+                        if (asset == null || !ReworkDeliveryEvidencePolicy.allows(caseItem, asset, supplementalEvidence))
                             throw new ApiException(ErrorCode.MEDIA_ACCESS_DENIED,
                                     "Rework delivery requires newly accepted media from its assigned rework Mission");
                     }
@@ -916,7 +929,10 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         Map<String, Map<String, MissionChecklistEvidence>> byChecklist = new HashMap<>();
         Set<String> currentItemIds = items.stream().map(OrderChecklistItem::getId).collect(Collectors.toSet());
         for (Mission mission : effective) {
+            Set<String> delegated = inspectionCorrections == null ? Set.of()
+                    : inspectionCorrections.delegatedExecutions(mission.getId()).keySet();
             for (MissionChecklistEvidence link : missionEvidence.findActiveByMissionId(mission.getId())) {
+                if (!ReworkDeliveryEvidencePolicy.isEligibleChecklistEvidence(link, delegated)) continue;
                 String itemId = link.getMissionChecklistExecution().getOrderChecklistItemId();
                 if (!currentItemIds.contains(itemId) || link.getMediaAsset().getMediaStatus() != MediaStatus.AVAILABLE
                         || evidencePolicy.ineligibilityReason(link.getMediaAsset(), true) != null) continue;
@@ -928,8 +944,11 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                 }
                 OrderChecklistItem item = items.stream().filter(row -> row.getId().equals(itemId)).findFirst().orElse(null);
                 if (item == null || !evidencePolicy.mediaTypeMatches(item.getRequiredEvidenceType(), link.getMediaAsset().getType())) continue;
+                if (link.getMediaAsset().getMissionId() == null && link.getMissionId() != null) {
+                    link.getMediaAsset().setMissionId(link.getMissionId());
+                }
                 byChecklist.computeIfAbsent(itemId, ignored -> new LinkedHashMap<>())
-                        .putIfAbsent(link.getMediaAsset().getId(), link);
+                        .put(link.getMediaAsset().getId(), link);
             }
         }
         return byChecklist;

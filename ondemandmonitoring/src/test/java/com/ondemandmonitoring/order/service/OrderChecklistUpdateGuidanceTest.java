@@ -104,6 +104,24 @@ class OrderChecklistUpdateGuidanceTest {
         assertFalse(added.isGuidanceReady());
     }
 
+    @Test void rejectsRenamingDefaultChecklistBeforePersistingAnyRevision() {
+        original.setSourceType(OrderChecklistSourceType.SERVICE_TEMPLATE);
+        var item = inherit();
+        item.setContentOverride("Different work");
+        assertThrows(com.ondemandmonitoring.common.exception.ApiException.class, () -> update(List.of(item)));
+        verify(snapshots, never()).saveAllAndFlush(anyList());
+        assertEquals("Inspect roof", original.getContent());
+    }
+
+    @Test void defaultChecklistStillAllowsEvidenceCountChanges() {
+        original.setSourceType(OrderChecklistSourceType.SERVICE_TEMPLATE);
+        var item = inherit();
+        item.setRequestedImageCount(3);
+        update(List.of(item));
+        assertEquals("Inspect roof", saved.getFirst().getContent());
+        assertEquals(3, saved.getFirst().getRequestedImageCount());
+    }
+
     @Test void contentEditRetainsGuidanceButClearsConfirmationWithoutTouchingHistory() {
         var item = inherit();
         item.setContentOverride("Inspect south roof");

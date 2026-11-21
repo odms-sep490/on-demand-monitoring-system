@@ -245,7 +245,9 @@ public class OrderChecklistSnapshotService implements IOrderChecklistSnapshotSer
             if (content == null && source != null) {
                 content = source.getContent();
             }
-            entity.setContent(ChecklistContentNormalizer.content(content));
+            entity.setContent(packageChecklist
+                    ? ChecklistContentNormalizer.serviceTemplateContent(source.getContent(), item.getContentOverride())
+                    : ChecklistContentNormalizer.content(content));
             if (source != null && !custom) {
                 // Customer-edited text may no longer match the catalog wording, but the guidance still describes the work.
                 entity.setDescriptionSnapshot(source.getDescription());

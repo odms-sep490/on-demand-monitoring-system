@@ -47,6 +47,8 @@ class CustomerMediaServiceTest {
         verifyNoInteractions(storage);
     }
     @Test void explicitDownloadChecksGateAndRetentionBeforeSigning() {
+        when(storage.inspect("bucket", "original")).thenReturn(
+                new IMediaObjectStorage.StoredObjectInfo(12L, "image/jpeg", Map.of()));
         when(storage.createPresignedDownloadUrl("bucket", "original", "image.jpg")).thenReturn("signed");
         when(storage.presignedUrlExpiresSeconds()).thenReturn(600L);
         var result = service.createOriginalDownload("a");
@@ -240,9 +242,41 @@ class CustomerMediaServiceTest {
         when(storage.inspect("bucket", "derived/preview.jpg")).thenThrow(
                 software.amazon.awssdk.services.s3.model.S3Exception.builder().statusCode(503).build());
         assertThatThrownBy(() -> service.createViewingFallback("a"))
-                .isInstanceOf(software.amazon.awssdk.services.s3.model.S3Exception.class);
+                .isInstanceOf(ApiException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.MEDIA_STORAGE_UNAVAILABLE);
         verify(storage, never()).inspect("bucket", "original");
         verify(storage, never()).createPresignedGetUrl(anyString(), anyString());
+    }
+
+    @Test void forbiddenPreviewStorageBecomesASafeServiceUnavailableError() {
+        when(derivatives.viewingDerivativeKeys(asset)).thenReturn(List.of("derived/preview.jpg"));
+        when(storage.inspect("bucket", "derived/preview.jpg")).thenThrow(
+                software.amazon.awssdk.services.s3.model.S3Exception.builder()
+                        .statusCode(403).message("private bucket details").build());
+        assertThatThrownBy(() -> service.createViewingFallback("a"))
+                .isInstanceOfSatisfying(ApiException.class, failure -> {
+                    assertThat(failure.getErrorCode()).isEqualTo(ErrorCode.MEDIA_STORAGE_UNAVAILABLE);
+                    assertThat(failure.getStatus().value()).isEqualTo(503);
+                    assertThat(failure.getMessage()).doesNotContain("private bucket details");
+                });
+        verify(storage, never()).createPresignedGetUrl(anyString(), anyString());
+        verify(storage, never()).inspect("bucket", "original");
+    }
+
+    @Test void networkAndSigningFailuresUseTheSameSafeError() {
+        when(derivatives.viewingDerivativeKeys(asset)).thenReturn(List.of("derived/preview.jpg"));
+        when(storage.inspect("bucket", "derived/preview.jpg")).thenThrow(
+                software.amazon.awssdk.core.exception.SdkClientException.create("private connection details"));
+        assertThatThrownBy(() -> service.createViewingFallback("a"))
+                .isInstanceOf(ApiException.class).extracting("errorCode")
+                .isEqualTo(ErrorCode.MEDIA_STORAGE_UNAVAILABLE);
+        doReturn(new IMediaObjectStorage.StoredObjectInfo(100L, "image/jpeg", Map.of()))
+                .when(storage).inspect("bucket", "derived/preview.jpg");
+        when(storage.createPresignedGetUrl("bucket", "derived/preview.jpg")).thenThrow(
+                software.amazon.awssdk.core.exception.SdkClientException.create("private credentials details"));
+        assertThatThrownBy(() -> service.createViewingFallback("a"))
+                .isInstanceOf(ApiException.class).extracting("errorCode")
+                .isEqualTo(ErrorCode.MEDIA_STORAGE_UNAVAILABLE);
     }
 
     @Test void refreshStillRejectsReserveAndOtherCustomers() {

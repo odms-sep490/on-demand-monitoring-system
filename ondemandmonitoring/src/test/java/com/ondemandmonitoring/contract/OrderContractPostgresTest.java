@@ -375,6 +375,25 @@ class OrderContractPostgresTest {
   }
 
   @Test
+  void customerCancellationKeepsDepositAndDoesNotCreateRefundOnRetry() {
+    var issued = issue();
+    paidDeposit();
+    var command = new ContractCancellationRequest(
+        UUID.randomUUID(), issued.version(), CancellationResponsibility.CUSTOMER,
+        "Customer declined the contract", "Documented responsibility and retention agreement", true);
+
+    var cancellation = cancellations.request(orderId, command);
+    assertThat(cancellation.status()).isEqualTo(ContractCancellationStatus.DEPOSIT_RETAINED);
+    assertThat(cancellations.request(orderId, command).id()).isEqualTo(cancellation.id());
+    assertThat(jdbc.queryForObject("select count(*) from contract_cancellations", Integer.class)).isEqualTo(1);
+    assertThat(jdbc.queryForObject("select count(*) from deposit_refunds", Integer.class)).isZero();
+    assertThat(jdbc.queryForObject("select paid_amount from invoices where id=?", BigDecimal.class, invoiceId))
+        .isEqualByComparingTo("120");
+    assertThat(jdbc.queryForObject("select order_status from orders where id=?", String.class, orderId))
+        .isEqualTo("CANCELLED");
+  }
+
+  @Test
   void aTransactionRollbackDoesNotLeaveARefundOrCancelledContract() {
     var issued=issue(); paidDeposit();
     assertThatThrownBy(() -> tx.executeWithoutResult(status -> {

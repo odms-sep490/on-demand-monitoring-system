@@ -54,6 +54,8 @@ async def lifespan(app):
 
 
 app = FastAPI(lifespan=lifespan)
+from quality_api import router as quality_router
+app.include_router(quality_router)
 
 
 @app.get("/health")

@@ -429,7 +429,9 @@ public class OrderChecklistUpdateService implements IOrderChecklistUpdateService
                 : ChecklistPricingStatus.NEEDS_MANAGER_REVIEW);
 
         String content = item.getContentOverride() != null ? item.getContentOverride() : existing.getContent();
-        entity.setContent(ChecklistContentNormalizer.content(content));
+        entity.setContent(templateItem
+                ? ChecklistContentNormalizer.serviceTemplateContent(existing.getContent(), item.getContentOverride())
+                : ChecklistContentNormalizer.content(content));
 
         if (!explicitMedia && !explicitEvidence) {
             entity.setRequestedImageCount(existing.getRequestedImageCount());
@@ -527,7 +529,9 @@ public class OrderChecklistUpdateService implements IOrderChecklistUpdateService
         if (content == null && source != null) {
             content = source.getContent();
         }
-        entity.setContent(ChecklistContentNormalizer.content(content));
+        entity.setContent(packageChecklist
+                ? ChecklistContentNormalizer.serviceTemplateContent(source.getContent(), item.getContentOverride())
+                : ChecklistContentNormalizer.content(content));
         if (source != null && !custom) {
             entity.setDescriptionSnapshot(source.getDescription());
             entity.setExecutionStepsSnapshot(source.getExecutionSteps());

@@ -16,4 +16,13 @@ public final class ChecklistContentNormalizer {
             throw new ApiException(ErrorCode.VALIDATION_ERROR, "Checklist content must contain 1 to 500 characters");
         return value;
     }
+
+    public static String serviceTemplateContent(String original, String override) {
+        String value = content(original);
+        if (override != null && !value.equals(content(override))) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR,
+                    "Service default checklist content cannot be changed; only evidence requirements can be edited");
+        }
+        return value;
+    }
 }

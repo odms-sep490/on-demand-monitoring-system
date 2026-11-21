@@ -84,6 +84,9 @@ ALTER TABLE public.services ALTER COLUMN checklist_defaults_initialized SET DEFA
 ALTER TABLE public.order_checklist_items ALTER COLUMN evidence_policy_version SET DEFAULT 0;
 ALTER TABLE public.order_checklist_items ALTER COLUMN minimum_evidence_count SET DEFAULT 0;
 ALTER TABLE public.order_checklist_items ALTER COLUMN required_evidence_type SET DEFAULT 'IMAGE_OR_VIDEO';
+ALTER TABLE public.missions
+    ALTER COLUMN scheduled_start_at DROP NOT NULL,
+    ALTER COLUMN scheduled_end_at DROP NOT NULL;
 
 -- SECTION 1: Current multi-Mission identity and planning invariants.
 ALTER TABLE public.order_execution_plans ALTER COLUMN status SET DEFAULT 'DRAFT';

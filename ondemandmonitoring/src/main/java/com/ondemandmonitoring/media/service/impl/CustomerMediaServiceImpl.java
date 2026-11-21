@@ -31,6 +31,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@lombok.extern.slf4j.Slf4j
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class CustomerMediaServiceImpl implements ICustomerMediaService {
@@ -141,7 +142,7 @@ public class CustomerMediaServiceImpl implements ICustomerMediaService {
         retentionAccess.requireAccessible(asset);
         requireStoredObject(asset);
         return new OriginalMediaDownloadResponse(asset.getId(), asset.getOriginalFileName(),
-                storage.createPresignedDownloadUrl(asset.getS3Bucket(), asset.getS3Key(), asset.getOriginalFileName()),
+                signOriginalDownload(asset),
                 Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds()));
     }
 
@@ -162,11 +163,11 @@ public class CustomerMediaServiceImpl implements ICustomerMediaService {
         retentionAccess.requireAccessible(asset);
 
         for (String derivativeKey : derivatives.viewingDerivativeKeys(asset)) {
-            var derivative = inspectDerivative(asset, derivativeKey);
+            var derivative = inspectStoredObject(asset, derivativeKey);
             if (derivative != null) {
                 long size = derivative.contentLength() == null ? 0L : derivative.contentLength();
                 return new MediaViewingResponse(mediaId,
-                        storage.createPresignedGetUrl(asset.getS3Bucket(), derivativeKey),
+                        signViewingUrl(asset, derivativeKey),
                         Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds()), size);
             }
         }
@@ -181,13 +182,41 @@ public class CustomerMediaServiceImpl implements ICustomerMediaService {
         throw new ApiException(ErrorCode.MEDIA_DERIVATIVE_UNAVAILABLE);
     }
 
-    private IMediaObjectStorage.StoredObjectInfo inspectDerivative(MediaAsset asset, String key) {
+    private IMediaObjectStorage.StoredObjectInfo inspectStoredObject(MediaAsset asset, String key) {
         try {
             return storage.inspect(asset.getS3Bucket(), key);
         } catch (software.amazon.awssdk.services.s3.model.S3Exception failure) {
             if (failure.statusCode() == 404) return null;
-            throw failure;
+            throw storageUnavailable(failure);
+        } catch (software.amazon.awssdk.core.exception.SdkException failure) {
+            throw storageUnavailable(failure);
         }
+    }
+
+    private String signViewingUrl(MediaAsset asset, String key) {
+        try {
+            return storage.createPresignedGetUrl(asset.getS3Bucket(), key);
+        } catch (software.amazon.awssdk.core.exception.SdkException failure) {
+            throw storageUnavailable(failure);
+        }
+    }
+
+    private String signOriginalDownload(MediaAsset asset) {
+        try {
+            return storage.createPresignedDownloadUrl(asset.getS3Bucket(), asset.getS3Key(), asset.getOriginalFileName());
+        } catch (software.amazon.awssdk.core.exception.SdkException failure) {
+            throw storageUnavailable(failure);
+        }
+    }
+
+    private ApiException storageUnavailable(software.amazon.awssdk.core.exception.SdkException failure) {
+        if (failure instanceof software.amazon.awssdk.services.s3.model.S3Exception s3Failure) {
+            log.warn("Customer media storage request failed. status={}, requestId={}",
+                    s3Failure.statusCode(), s3Failure.requestId());
+        } else {
+            log.warn("Customer media storage request failed. reason={}", failure.getClass().getSimpleName());
+        }
+        return new ApiException(ErrorCode.MEDIA_STORAGE_UNAVAILABLE);
     }
 
     private IMediaObjectStorage.StoredObjectInfo requireStoredObject(MediaAsset asset) {
@@ -195,12 +224,9 @@ public class CustomerMediaServiceImpl implements ICustomerMediaService {
                 || asset.getS3Bucket() == null || asset.getS3Bucket().isBlank()
                 || asset.getS3Key() == null || asset.getS3Key().isBlank())
             throw new ApiException(ErrorCode.MEDIA_NOT_FOUND);
-        try {
-            return storage.inspect(asset.getS3Bucket(), asset.getS3Key());
-        } catch (software.amazon.awssdk.services.s3.model.S3Exception failure) {
-            if (failure.statusCode() == 404) throw new ApiException(ErrorCode.MEDIA_NOT_FOUND);
-            throw failure;
-        }
+        var stored = inspectStoredObject(asset, asset.getS3Key());
+        if (stored == null) throw new ApiException(ErrorCode.MEDIA_NOT_FOUND);
+        return stored;
     }
 
     private List<String> deliveredMissionIds(List<String> missionIds) {

@@ -63,6 +63,7 @@ public class ChecklistDeliveryQueryService {
     private final IMediaObjectStorage storage;
     private final MediaDerivativeService derivatives;
     @Autowired private DeliveryMissionScope missionScope;
+    @Autowired private com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionPolicy inspectionCorrections;
 
     public ManagerDeliveryChecklistsResponse get(String orderId) { return get(orderId, null); }
     public ManagerDeliveryChecklistsResponse get(String orderId, String missionId) {
@@ -71,22 +72,39 @@ public class ChecklistDeliveryQueryService {
         var scopedIds = missionId == null ? null : missionScope.checklistIds(orderId, missionId);
         List<OrderChecklistItem> items = checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId).stream()
                 .filter(item -> scopedIds == null || scopedIds.contains(item.getId())).toList();
-        List<Mission> effectiveMissions = missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc(orderId).stream()
+        List<Mission> allEffectiveMissions = missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc(orderId).stream()
                 .filter(ExecutionPlanCoverageService::effective).toList();
+        List<Mission> scopedMissions = (missionId == null || missionScope == null) ? List.of() : missionScope.missions(orderId, missionId);
+        List<Mission> effectiveMissions = !scopedMissions.isEmpty() ? scopedMissions
+                : allEffectiveMissions.stream()
+                        .filter(m -> missionId == null || missionId.equals(m.getId())
+                                || m.getPurpose() == com.ondemandmonitoring.mission.enums.MissionPurpose.REWORK)
+                        .toList();
         List<String> effectiveMissionIds = effectiveMissions.stream().map(Mission::getId).toList();
         Set<String> approvedMissionIds = effectiveMissionIds.isEmpty() ? Set.of() : missionResults.findByMissionIds(effectiveMissionIds)
                 .stream().filter(result -> result.getApprovalStatus() == MissionResultApprovalStatus.APPROVED
                         && result.getStatus() != com.ondemandmonitoring.mission.enums.MissionResultStatus.FAILED)
                 .map(result -> result.getMission().getId()).collect(Collectors.toSet());
-        Map<String, String> missionCodes = effectiveMissions.stream().collect(Collectors.toMap(Mission::getId, Mission::getMissionCode));
+        Map<String, String> missionCodes = new HashMap<>();
+        for (Mission mission : effectiveMissions) {
+            if (mission.getId() != null && mission.getMissionCode() != null) {
+                missionCodes.put(mission.getId(), mission.getMissionCode());
+            }
+        }
 
         Map<String, Map<String, MissionChecklistEvidence>> attachedByChecklist = new LinkedHashMap<>();
         for (Mission mission : effectiveMissions) {
             if (mission.getStatus() != MissionStatus.COMPLETED || !approvedMissionIds.contains(mission.getId())) continue;
+            Set<String> delegated = inspectionCorrections == null ? Set.of()
+                    : inspectionCorrections.delegatedExecutions(mission.getId()).keySet();
             for (MissionChecklistEvidence link : missionEvidence.findActiveByMissionId(mission.getId())) {
+                if (!ReworkDeliveryEvidencePolicy.isEligibleChecklistEvidence(link, delegated)) continue;
                 String checklistItemId = link.getMissionChecklistExecution().getOrderChecklistItemId();
+                if (link.getMediaAsset().getMissionId() == null && link.getMissionId() != null) {
+                    link.getMediaAsset().setMissionId(link.getMissionId());
+                }
                 attachedByChecklist.computeIfAbsent(checklistItemId, ignored -> new LinkedHashMap<>())
-                        .putIfAbsent(link.getMediaAsset().getId(), link);
+                        .put(link.getMediaAsset().getId(), link);
             }
         }
 
@@ -105,19 +123,34 @@ public class ChecklistDeliveryQueryService {
         var activeCase = revisionCases.findByOrderIdAndActiveTrue(orderId).orElse(null);
         Map<String, com.ondemandmonitoring.delivery.domain.ResultRevisionCaseItem> remediation = activeCase == null
                 ? Map.of() : revisionCaseItems.findByResultRevisionCaseIdOrderByCreatedAtAsc(activeCase.getId()).stream()
-                        .collect(Collectors.toMap(row -> row.getOrderChecklistItem().getId(), row -> row));
+                        .collect(Collectors.toMap(row -> row.getOrderChecklistItem().getId(), row -> row, (first, ignored) -> first));
+        Map<String, List<MissionChecklistEvidence>> supplementalByReworkMission = new HashMap<>();
         Instant expiresAt = Instant.now().plusSeconds(storage.presignedUrlExpiresSeconds());
         List<ManagerDeliveryChecklistsResponse.Checklist> mapped = items.stream().map(item -> {
             Map<String, MissionChecklistEvidence> attached = attachedByChecklist.getOrDefault(item.getId(), Map.of());
             Map<String, ResultReviewRoundEvidence> currentByMedia = currentEvidenceByChecklist
                     .getOrDefault(item.getId(), List.of()).stream()
                     .collect(Collectors.toMap(evidence -> evidence.getMediaAsset().getId(), evidence -> evidence, (left, right) -> left));
+            var caseItem = remediation.get(item.getId());
+            List<MissionChecklistEvidence> supplements = caseItem == null
+                    || caseItem.getAssignedReworkMissionId() == null
+                    || inspectionCorrections == null
+                    || !approvedMissionIds.contains(caseItem.getAssignedReworkMissionId())
+                    ? List.of()
+                    : supplementalByReworkMission.computeIfAbsent(
+                            caseItem.getAssignedReworkMissionId(),
+                            reworkId -> inspectionCorrections.selectedSupplementalEvidence(reworkId).stream()
+                                    .filter(link -> ReworkDeliveryEvidencePolicy.isEligibleChecklistEvidence(link, Set.of()))
+                                    .toList());
             List<ManagerDeliveryChecklistsResponse.Asset> candidates = attached.values().stream()
-                    .filter(link -> ReworkDeliveryEvidencePolicy.allows(remediation.get(item.getId()), link.getMissionId()))
+                    .filter(link -> ReworkDeliveryEvidencePolicy.allows(caseItem, link.getMediaAsset(), supplements))
                     .filter(link -> evidencePolicy.mediaTypeMatches(item.getRequiredEvidenceType(), link.getMediaAsset().getType()))
                     .filter(link -> evidencePolicy.ineligibilityReason(link.getMediaAsset(), true) == null)
-                    .map(link -> mapAsset(link.getMediaAsset(), link.getMissionId(), missionCodes.get(link.getMissionId()),
-                            currentByMedia.get(link.getMediaAsset().getId()), expiresAt))
+                    .map(link -> {
+                        String sourceMissionId = link.getMissionId() != null ? link.getMissionId() : link.getMediaAsset().getMissionId();
+                        return mapAsset(link.getMediaAsset(), sourceMissionId, missionCodes.get(sourceMissionId),
+                                currentByMedia.get(link.getMediaAsset().getId()), expiresAt);
+                    })
                     .toList();
             List<ManagerDeliveryChecklistsResponse.Asset> current = currentEvidenceByChecklist
                     .getOrDefault(item.getId(), List.of()).stream()

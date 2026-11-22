@@ -108,9 +108,9 @@ class OrderChecklistSnapshotServiceTest {
         assertThrows(ApiException.class, () -> useCase.capture(order, List.of(invalid)));
     }
 
-    @Test void supportsSubsetEditedAndCustomWithoutChangingCatalog() {
-        var result = useCase.capture(order, List.of(item("c1", " Edited  exits "), item(null, "Customer custom")));
-        assertEquals("Edited exits", result.getFirst().getContent());
+    @Test void supportsSubsetAndCustomWithoutChangingDefaultContent() {
+        var result = useCase.capture(order, List.of(item("c1", " Check  exits "), item(null, "Customer custom")));
+        assertEquals("Check exits", result.getFirst().getContent());
         assertEquals(OrderChecklistSourceType.SERVICE_TEMPLATE, result.getFirst().getSourceType());
         assertNull(result.get(1).getSourceChecklistId());
         assertEquals(OrderChecklistSourceType.CUSTOMER_CUSTOM, result.get(1).getSourceType());

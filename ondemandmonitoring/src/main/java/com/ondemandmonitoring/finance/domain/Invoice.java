@@ -53,10 +53,10 @@ public class Invoice extends BaseEntity {
     private Instant contractConfirmedAt;
     @Column(name="contract_submitted_at")
     private Instant contractSubmittedAt;
-    public boolean isContractPaymentReady() { return !contractRequired || contractSubmittedAt != null || contractConfirmedAt != null; }
+    public boolean isContractPaymentReady() { return !contractRequired || contractConfirmedAt != null; }
     public boolean isContractReady() { return !contractRequired || contractConfirmedAt != null; }
 
-    /** New invoices start this deadline on the first signed submission. Legacy deadlines stay unchanged. */
+    /** The deposit deadline starts when the manager confirms the contract. */
     @Column(name = "deposit_expires_at")
     private Instant depositExpiresAt;
 

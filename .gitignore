@@ -1,6 +1,9 @@
 ondemandmonitoring/.env
 *.env
 *.env.*
+!Python/change-detection/.env.example
+!ondemandmonitoring/image-quality.env.example
+/.ai-runtime/
 ondemandmonitoring/.env
 ondemandmonitoring/uploads/
 .codegraph/
@@ -52,3 +55,7 @@ bin/
 !.env.example
 evd/
 ondemandmonitoring/src/main/resources/application-local.yaml
+
+# Safe public templates (after generic *.example rule)
+!Python/change-detection/.env.example
+!ondemandmonitoring/image-quality.env.example

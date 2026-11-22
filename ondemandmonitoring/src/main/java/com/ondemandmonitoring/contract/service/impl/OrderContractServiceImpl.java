@@ -155,8 +155,7 @@ public class OrderContractServiceImpl implements IOrderContractService {
     contract.setSubmissionRevision(Math.incrementExact(contract.getSubmissionRevision()));
     if (invoice.getContractSubmittedAt() == null) {
       invoice.setContractSubmittedAt(Instant.now(clock));
-      if (invoice.getDepositExpiresAt() == null)
-        invoice.setDepositExpiresAt(Instant.now(clock).plus(expirationSettings.current().depositPaymentTimeout()));
+
     }
     contracts.saveAndFlush(contract);
     return response(invoice, contract);
@@ -187,7 +186,7 @@ public class OrderContractServiceImpl implements IOrderContractService {
     contract.setConfirmedAt(now);
     contract.setConfirmedBy(users.getCurrentUserId());
     invoice.setContractConfirmedAt(now);
-    if (invoice.getDepositExpiresAt() == null)
+    if (invoice.effectiveDepositStatus() != com.ondemandmonitoring.finance.enums.DepositStatus.DEPOSIT_PAID)
       invoice.setDepositExpiresAt(now.plus(expirationSettings.current().depositPaymentTimeout()));
     submissions.saveAndFlush(latest);
     contracts.saveAndFlush(contract);

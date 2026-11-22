@@ -79,6 +79,6 @@ public interface InvoiceRepository extends JpaRepository<Invoice, String> {
     List<Invoice> findOrdersReadyToPlan(Pageable pageable);
 
     @EntityGraph(attributePaths = "order")
-    @Query("select i from Invoice i where i.order.customer.id = :customerId and i.order.orderStatus = 'APPROVED' and i.status in ('ISSUED','PARTIALLY_PAID') and i.paidAmount < i.depositAmount and (i.contractRequired = false or i.contractSubmittedAt is not null or i.contractConfirmedAt is not null) and (i.depositExpiresAt is null or i.depositExpiresAt > :now) order by i.issuedAt desc")
+    @Query("select i from Invoice i where i.order.customer.id = :customerId and i.order.orderStatus = 'APPROVED' and i.status in ('ISSUED','PARTIALLY_PAID') and i.paidAmount < i.depositAmount and (i.contractRequired = false or i.contractConfirmedAt is not null) and (i.depositExpiresAt is null or i.depositExpiresAt > :now) order by i.issuedAt desc")
     List<Invoice> findCustomerDepositsRequired(@Param("customerId") String customerId, @Param("now") Instant now, Pageable pageable);
 }

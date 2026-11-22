@@ -1,0 +1,17 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Start Quote AI" type="ShConfigurationType">
+    <option name="SCRIPT_TEXT" value="$script = Join-Path &quot;$PROJECT_DIR$&quot; &quot;scripts\start-quote-assistant.ps1&quot;; if (-not (Test-Path $script)) { $script = Join-Path &quot;$PROJECT_DIR$&quot; &quot;on-demand-monitoring-system\scripts\start-quote-assistant.ps1&quot; }; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script" />
+    <option name="INDEPENDENT_SCRIPT_PATH" value="false" />
+    <option name="SCRIPT_PATH" value="" />
+    <option name="SCRIPT_OPTIONS" value="" />
+    <option name="INDEPENDENT_SCRIPT_WORKING_DIRECTORY" value="true" />
+    <option name="SCRIPT_WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <option name="INDEPENDENT_INTERPRETER_PATH" value="true" />
+    <option name="INTERPRETER_PATH" value="C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" />
+    <option name="INTERPRETER_OPTIONS" value="-NoProfile -ExecutionPolicy Bypass -Command" />
+    <option name="EXECUTE_IN_TERMINAL" value="true" />
+    <option name="EXECUTE_SCRIPT_FILE" value="false" />
+    <envs />
+    <method v="2" />
+  </configuration>
+</component>

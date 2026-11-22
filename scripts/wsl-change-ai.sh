@@ -1,18 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
 project="${1:?Project path required}"
-runtime="$HOME/.local/share/ondemand-change-ai"
-mkdir -p "$runtime"
-if [[ ! -x "$HOME/.local/bin/uv" ]]; then
-  curl -fsSL https://astral.sh/uv/install.sh -o "$runtime/install-uv.sh"
-  sh "$runtime/install-uv.sh"
+runtime="$project/.ai-runtime/change-ai"
+legacy="$HOME/.local/share/ondemand-change-ai"
+if [[ ! -x "$runtime/venv/bin/python" && -x "$legacy/venv/bin/python" && -s "$legacy/changer.pth" && -d "$legacy/open-cd/.git" ]] &&
+   "$legacy/venv/bin/python" -c 'import torch, mmcv, mmseg, fastapi, uvicorn' >/dev/null 2>&1; then
+  runtime="$legacy"
+  echo "Reusing the existing AI environment: $runtime"
 fi
-uv="$HOME/.local/bin/uv"
+mkdir -p "$runtime"
+export UV_CACHE_DIR="$runtime/cache"
+export UV_PYTHON_INSTALL_DIR="$runtime/python"
+if ! command -v curl >/dev/null || ! command -v git >/dev/null; then
+  echo 'Installing curl, git and certificate tools for AI Worker.'
+  sudo apt-get update
+  sudo apt-get install -y curl git ca-certificates
+fi
+uv="$runtime/bin/uv"
+if [[ ! -x "$uv" && -x "$HOME/.local/bin/uv" ]]; then
+  uv="$HOME/.local/bin/uv"
+elif [[ ! -x "$uv" ]] && command -v uv >/dev/null; then
+  uv="$(command -v uv)"
+fi
+if [[ ! -x "$uv" ]]; then
+  curl -fsSL https://astral.sh/uv/install.sh -o "$runtime/install-uv.sh"
+  UV_INSTALL_DIR="$runtime/bin" UV_NO_MODIFY_PATH=1 sh "$runtime/install-uv.sh"
+fi
 if [[ ! -x "$runtime/venv/bin/python" ]]; then
-  "$uv" venv --python 3.11 "$runtime/venv"
+  if command -v python3.11 >/dev/null; then
+    "$uv" venv --python "$(command -v python3.11)" "$runtime/venv"
+  else
+    "$uv" venv --python 3.11 "$runtime/venv"
+  fi
 fi
 python="$runtime/venv/bin/python"
-if [[ ! -f "$runtime/dependencies-v2.ready" ]]; then
+if ! "$python" -c 'import torch, torchvision, mmcv, mmseg, fastapi, uvicorn, cv2, PIL' >/dev/null 2>&1; then
   "$uv" pip install --python "$python" torch==2.0.0 torchvision==0.15.1 --index-url https://download.pytorch.org/whl/cpu
   "$uv" pip install --python "$python" -r "$project/Python/change-detection/requirements.txt" gdown --find-links https://download.openmmlab.com/mmcv/dist/cpu/torch2.0/index.html --only-binary mmcv
   touch "$runtime/dependencies-v2.ready"

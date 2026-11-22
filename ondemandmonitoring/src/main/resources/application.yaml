@@ -168,7 +168,7 @@ weather:
       wind-speed-kmh: 35
       wind-gust-kmh: 50
       visibility-meters: 1000
-
+                                                                                                                  
 # OpenRouter chat completion settings. Keep the API key in the local environment file.
 ai:
   openrouter:

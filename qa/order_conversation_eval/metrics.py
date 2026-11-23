@@ -16,9 +16,10 @@ from deepeval.metrics import (KnowledgeRetentionMetric,ConversationCompletenessM
 from cases import CASES,THRESHOLDS,freeze
 from environment import OUTPUT
 from report import fingerprint
+from runner_support import resumable_metrics
 
 class LocalJudge(DeepEvalBaseLLM):
-    def __init__(self):self.calls=0;super().__init__(model=os.getenv('DEEPEVAL_JUDGE_MODEL','qwen3:4b'))
+    def __init__(self):self.calls=0;super().__init__(model=os.getenv('DEEPEVAL_JUDGE_MODEL','qwen3:8b'))
     def load_model(self):return self.name
     def get_model_name(self):return self.name
     def supports_structured_outputs(self):return True
@@ -114,7 +115,7 @@ def main():
         result=source['cases'][case['id']]
         if result['status']=='NOT_RUN':continue
         previous=scores.get(case['id'],{})
-        reuse=previous.get('metrics',{}) if args.resume and previous.get('evidenceHash')==fingerprint(result) and previous.get('judgeModel')==judge.name else {}
+        reuse=resumable_metrics(previous,fingerprint(result),judge.name,args.resume)
         if case['id'] in scores:
             with (OUTPUT/'score-history.jsonl').open('a',encoding='utf-8') as history:history.write(json.dumps({'id':case['id'],**scores[case['id']]},ensure_ascii=False)+'\n')
         def checkpoint(values):
@@ -125,3 +126,4 @@ def main():
         target.write_text(json.dumps(scores,ensure_ascii=False,indent=2),encoding='utf-8')
     return 1 if any(m.get('status')=='BLOCKED' or m.get('passed') is False for s in scores.values() for m in s.get('metrics',{}).values()) else 0
 if __name__=='__main__':raise SystemExit(main())
+

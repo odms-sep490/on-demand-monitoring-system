@@ -2,6 +2,7 @@
 import json,os,subprocess,sys,time
 from pathlib import Path
 from environment import ROOT,OUTPUT
+from runner_support import playwright_command
 
 def main():
     environment=json.loads((OUTPUT/'environment.json').read_text())
@@ -16,7 +17,7 @@ def main():
     # stops a developer's unrelated application process.
     commands=[('supplementary-regression',[sys.executable,'qa/order_conversation_eval/supplementary.py'],ROOT),
         ('real-api',[sys.executable,'qa/order_conversation_eval/run.py'],ROOT),
-        ('browser',['powershell.exe','-NoProfile','-Command','npx playwright test --config playwright.deepeval.config.ts'],frontend),
+        ('browser',playwright_command(os.name),frontend),
         ('native-metrics',[sys.executable,'qa/order_conversation_eval/metrics.py','--resume'],ROOT),
         ('report',[sys.executable,'qa/order_conversation_eval/report.py'],ROOT)]
     outcomes=[]
@@ -30,3 +31,4 @@ def main():
     report=json.loads((OUTPUT/'final-qa-report.json').read_text(encoding='utf-8'))
     return 0 if report['status']=='VERIFIED_100_OF_100' and all(o['exitCode']==0 for o in outcomes) else 1
 if __name__=='__main__':raise SystemExit(main())
+

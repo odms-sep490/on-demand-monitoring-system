@@ -39,7 +39,8 @@ class ChecklistEvidencePosterTest {
                 media, mock(MissionResultRepository.class), auth, mock(AuthenticatedUserResolver.class),
                 mock(ChecklistEvidencePolicy.class), mock(ChecklistEvidenceMapper.class), mock(IMediaObjectStorage.class),
                 derivatives, mock(com.ondemandmonitoring.order.repository.OrderRepository.class),
-                mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class));
+                mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class),
+                mock(ChecklistDeliverySuggestionPolicy.class));
         var result = service.candidates("m", 0, 10).getFirst();
         assertThat(result.previewUrl()).endsWith(".mp4");
         assertThat(result.thumbnailUrl()).isEqualTo(hasPoster ? "https://example.test/poster.jpg" : null);

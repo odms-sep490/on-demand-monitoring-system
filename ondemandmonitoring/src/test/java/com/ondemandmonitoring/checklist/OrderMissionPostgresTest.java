@@ -341,7 +341,8 @@ class OrderMissionPostgresTest extends ChecklistPostgresTest {
                 storage,
                 org.mockito.Mockito.mock(com.ondemandmonitoring.media.service.impl.MediaDerivativeService.class),
                 mock(com.ondemandmonitoring.order.repository.OrderRepository.class),
-                mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class));
+                mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class),
+                mock(com.ondemandmonitoring.mission.service.impl.ChecklistDeliverySuggestionPolicy.class));
         }
     }
 }

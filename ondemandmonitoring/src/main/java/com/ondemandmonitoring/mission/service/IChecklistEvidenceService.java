@@ -5,6 +5,9 @@ import com.ondemandmonitoring.mission.dto.response.*;
 import java.util.List;
 public interface IChecklistEvidenceService {
     List<ChecklistEvidenceResponse> selectForCustomer(String missionId, String executionId, ChecklistCustomerSelectionRequest request);
+    ChecklistDeliverySuggestionResponse getDeliverySuggestion(String missionId, String executionId);
+    ChecklistImageAssessmentTarget resolveContentAssessment(
+            String missionId, String executionId, String evidenceId, ChecklistImageContentAssessmentRequest request);
     List<ChecklistEvidenceResponse> attach(String missionId, BatchChecklistEvidenceRequest request);
     void detach(String missionId, String executionId, String evidenceId, long expectedVersion, String reason);
     List<ChecklistEvidenceCandidate> candidates(String missionId, int page, int size);

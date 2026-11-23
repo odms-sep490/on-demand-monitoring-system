@@ -178,6 +178,13 @@ ai:
     connect-timeout-ms: ${AI_OPENROUTER_CONNECT_TIMEOUT_MS:5000}
     read-timeout-ms: ${AI_OPENROUTER_READ_TIMEOUT_MS:60000}
     max-tokens: ${AI_OPENROUTER_MAX_TOKENS:1200}
+  checklist-vision:
+    enabled: ${AI_CHECKLIST_VISION_ENABLED:false}
+    # Select a specific model that accepts base64 JPEG and strict JSON schema on a ZDR endpoint.
+    # Set the OpenRouter account or guardrail to ZDR Only and keep input/output logging disabled.
+    model: ${AI_CHECKLIST_VISION_MODEL:}
+    base-url: ${AI_CHECKLIST_VISION_BASE_URL:}
+    api-key: ${AI_CHECKLIST_VISION_API_KEY:}
 
 # Preliminary flight-area assessment (advisory only, rule-based; NOT legal or aviation limits).
 # External providers are configuration only; every value has a code default in FlightAreaProperties.

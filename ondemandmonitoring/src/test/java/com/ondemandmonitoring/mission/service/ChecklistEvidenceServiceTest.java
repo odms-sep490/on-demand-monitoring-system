@@ -33,7 +33,11 @@ class ChecklistEvidenceServiceTest {
     IMediaObjectStorage storage = mock(IMediaObjectStorage.class);
     ChecklistEvidencePolicy policy = new ChecklistEvidencePolicy();
     ChecklistEvidenceServiceImpl service = new ChecklistEvidenceServiceImpl(missions, executions, links, media, results, auth, actor,
-            policy, org.mapstruct.factory.Mappers.getMapper(ChecklistEvidenceMapper.class), storage, mock(com.ondemandmonitoring.media.service.impl.MediaDerivativeService.class), mock(com.ondemandmonitoring.order.repository.OrderRepository.class), mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class));
+            policy, org.mapstruct.factory.Mappers.getMapper(ChecklistEvidenceMapper.class), storage,
+            mock(com.ondemandmonitoring.media.service.impl.MediaDerivativeService.class),
+            mock(com.ondemandmonitoring.order.repository.OrderRepository.class),
+            mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class),
+            mock(ChecklistDeliverySuggestionPolicy.class));
     Mission mission; MissionChecklistExecution execution; MediaAsset asset;
     @BeforeEach void setup() {
         org.springframework.test.util.ReflectionTestUtils.setField(service,"inspectionMutation",mock(com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionMutationGuard.class));

@@ -1,7 +1,9 @@
 package com.ondemandmonitoring.mission.service.impl;
 
 import com.ondemandmonitoring.common.exception.*;
+import com.ondemandmonitoring.ai.client.ChecklistImageVisionClient;
 import com.ondemandmonitoring.media.domain.*;
+import com.ondemandmonitoring.media.enums.MediaDerivativeStatus;
 import com.ondemandmonitoring.media.enums.MediaStatus;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
 import com.ondemandmonitoring.media.service.IMediaObjectStorage;
@@ -42,6 +44,7 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
     private final MediaDerivativeService derivatives;
     private final com.ondemandmonitoring.order.repository.OrderRepository orders;
     private final com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository publishedEvidence;
+    private final ChecklistDeliverySuggestionPolicy deliverySuggestions;
     @Autowired(required = false)
     private com.ondemandmonitoring.media.service.IMediaOrphanCleanupService orphanCleanup;
 
@@ -56,8 +59,7 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
         orders.findByIdForUpdate(orderId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
         Mission mission = mission(missionId, true);
         if (!orderId.equals(mission.getOrder().getId())) throw new ApiException(ErrorCode.CONCURRENT_UPDATE);
-        if (!authorization.canSelectCustomerEvidence(missionId)) throw new ApiException(ErrorCode.ACCESS_DENIED);
-        boolean approvedCorrection = editableSelection(missionId);
+        boolean approvedCorrection = requireEditableSelection(missionId);
         if (request == null || request.expectedVersion() == null || request.expectedVersion() < 0
                 || request.evidenceIds() == null || request.evidenceIds().size() > 1000
                 || request.evidenceIds().stream().anyMatch(id -> id == null || id.isBlank()))
@@ -69,23 +71,19 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
         // Reuse the same assignment/order integrity validation as attachment mutations.
         MissionChecklistExecution execution = validateExecution(mission, locked);
         version(execution, request.expectedVersion());
-        if (execution.getAssessmentStatus() != ChecklistAssessmentStatus.COMPLIANT)
-            throw new ApiException(ErrorCode.CHECKLIST_NOT_READY,
-                    "Only a compliant checklist can select evidence for Customer delivery");
-        var applicable = active(missionId).stream()
-                .filter(link -> link.getDetachedAt() == null && executionId.equals(link.getMissionChecklistExecution().getId())).toList();
+        requireCompliantSelection(execution);
+        var applicable = activeForExecution(missionId, executionId);
         var requested = new HashSet<>(request.evidenceIds());
         var selected = applicable.stream().filter(link -> requested.contains(link.getId())).toList();
         if (selected.size() != requested.size())
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Evidence must be active and belong to this mission and execution");
         var item = execution.getOrderChecklistItem();
-        var type = item.getEvidencePolicyVersion() == 1 ? RequiredEvidenceType.IMAGE_OR_VIDEO : item.getRequiredEvidenceType();
+        var type = selectionType(item);
         // Lock media in stable order before validating its current approval and storage state.
         for (var link : selected.stream().sorted(Comparator.comparing(e -> e.getMediaAsset().getId())).toList()) {
             var asset = media.findByIdForUpdate(link.getMediaAsset().getId())
                     .orElseThrow(() -> new ApiException(ErrorCode.MEDIA_NOT_FOUND));
-            if (!missionId.equals(asset.getMissionId()) || !policy.mediaTypeMatches(type, asset.getType())
-                    || policy.ineligibilityReason(asset, true) != null)
+            if (!eligibleForSelection(missionId, type, asset))
                 throw new ApiException(ErrorCode.EVIDENCE_NOT_ELIGIBLE,
                         "Only validated, approved evidence of the saved checklist type can be selected");
         }
@@ -115,6 +113,100 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
             touch(execution, false);
         }
         return applicable.stream().map(this::toResponse).toList();
+    }
+
+    @Override
+    public ChecklistDeliverySuggestionResponse getDeliverySuggestion(String missionId, String executionId) {
+        Mission mission = mission(missionId, false);
+        requireEditableSelection(missionId);
+        var execution = execution(mission, executionId);
+        requireCompliantSelection(execution);
+        var item = execution.getOrderChecklistItem();
+        var type = selectionType(item);
+        var applicable = activeForExecution(missionId, executionId);
+        var images = applicable.stream()
+                .filter(link -> "IMAGE".equals(link.getMediaAsset().getType()))
+                .filter(link -> eligibleForSelection(missionId, type, link.getMediaAsset()))
+                .toList();
+        var suggestion = deliverySuggestions.suggest(execution, images, requiredSuggestionImages(execution, type, applicable));
+        return suggestion.withContentAssessmentAvailable(
+                !ChecklistImageRubrics.forChecklist(item).isEmpty()
+                && images.stream().map(MissionChecklistEvidence::getMediaAsset).anyMatch(ChecklistEvidenceServiceImpl::hasAssessmentPreview));
+    }
+
+    @Override
+    public ChecklistImageAssessmentTarget resolveContentAssessment(String missionId, String executionId,
+            String evidenceId, ChecklistImageContentAssessmentRequest request) {
+        var mission = mission(missionId, false);
+        requireEditableSelection(missionId);
+        var execution = execution(mission, executionId);
+        version(execution, request.expectedVersion());
+        requireCompliantSelection(execution);
+        var link = evidence.findById(evidenceId)
+                .filter(candidate -> candidate.getDetachedAt() == null && missionId.equals(candidate.getMissionId())
+                        && executionId.equals(candidate.getMissionChecklistExecution().getId()))
+                .orElseThrow(() -> new ApiException(ErrorCode.MEDIA_NOT_FOUND));
+
+        var item = execution.getOrderChecklistItem();
+        var asset = link.getMediaAsset();
+        if (!"IMAGE".equals(asset.getType()) || !eligibleForSelection(missionId, selectionType(item), asset))
+            throw new ApiException(ErrorCode.EVIDENCE_NOT_ELIGIBLE);
+        var criteria = ChecklistImageRubrics.forChecklist(item).stream()
+                .map(criterion -> criterion.input(request.language())).toList();
+        if (criteria.isEmpty())
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "This checklist does not have a visual assessment rubric");
+        if (!hasAssessmentPreview(asset))
+            throw new ApiException(ErrorCode.MEDIA_DERIVATIVE_UNAVAILABLE);
+        return new ChecklistImageAssessmentTarget(execution.getVersion(), link.getId(), asset.getS3Bucket(),
+                asset.getPreviewKey(), criteria);
+    }
+
+    private static boolean hasAssessmentPreview(MediaAsset asset) {
+        String preview = asset.getPreviewKey();
+        Long size = asset.getPreviewSizeBytes();
+        return asset.getDerivativeStatus() == MediaDerivativeStatus.READY
+                && asset.getS3Bucket() != null && !asset.getS3Bucket().isBlank()
+                && preview != null && !preview.isBlank() && !preview.equals(asset.getS3Key())
+                && (size == null || size > 0 && size <= ChecklistImageVisionClient.MAX_JPEG_BYTES);
+    }
+
+    private int requiredSuggestionImages(MissionChecklistExecution execution, RequiredEvidenceType type,
+            List<MissionChecklistEvidence> applicable) {
+        var item = execution.getOrderChecklistItem();
+        if (!policy.mediaTypeMatches(type, "IMAGE")) return 0;
+        if (item.getEvidencePolicyVersion() == 3) return Math.max(0, item.getMinimumImageCount());
+        int savedMinimum = item.getMinimumEvidenceCount();
+        int minimum = switch (item.getEvidencePolicyVersion()) {
+            case 1 -> savedMinimum == 1 ? 1 : 0;
+            case 2 -> savedMinimum >= 1 && savedMinimum <= 50 ? savedMinimum : 0;
+            default -> 0;
+        };
+        if (minimum == 0 || type == RequiredEvidenceType.IMAGE) return minimum;
+        int selectedVideos = policy.eligibleDistinctCount(
+                applicable.stream().filter(MissionChecklistEvidence::isSelectedForCustomer).toList(),
+                execution.getId(), RequiredEvidenceType.VIDEO, true);
+        return Math.max(type == RequiredEvidenceType.IMAGE_AND_VIDEO ? 1 : 0, minimum - selectedVideos);
+    }
+
+    private List<MissionChecklistEvidence> activeForExecution(String missionId, String executionId) {
+        return active(missionId).stream()
+                .filter(link -> link.getDetachedAt() == null && executionId.equals(link.getMissionChecklistExecution().getId()))
+                .toList();
+    }
+
+    private static RequiredEvidenceType selectionType(OrderChecklistItem item) {
+        return item.getEvidencePolicyVersion() == 1 ? RequiredEvidenceType.IMAGE_OR_VIDEO : item.getRequiredEvidenceType();
+    }
+
+    private boolean eligibleForSelection(String missionId, RequiredEvidenceType type, MediaAsset asset) {
+        return missionId.equals(asset.getMissionId())
+                && policy.mediaTypeMatches(type, asset.getType()) && policy.ineligibilityReason(asset, true) == null;
+    }
+
+    private static void requireCompliantSelection(MissionChecklistExecution execution) {
+        if (execution.getAssessmentStatus() != ChecklistAssessmentStatus.COMPLIANT)
+            throw new ApiException(ErrorCode.CHECKLIST_NOT_READY,
+                    "Only a compliant checklist can select evidence for Customer delivery");
     }
 
     @Override
@@ -395,7 +487,8 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
             throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_INTEGRITY_INVALID);
         return execution;
     }
-    private boolean editableSelection(String missionId) {
+    private boolean requireEditableSelection(String missionId) {
+        if (!authorization.canSelectCustomerEvidence(missionId)) throw new ApiException(ErrorCode.ACCESS_DENIED);
         if (publishedEvidence.existsByMediaAsset_Mission_Id(missionId))
             throw new ApiException(ErrorCode.CHECKLIST_EXECUTION_LOCKED, "Published customer evidence cannot be changed");
         var result = results.findByMissionId(missionId);

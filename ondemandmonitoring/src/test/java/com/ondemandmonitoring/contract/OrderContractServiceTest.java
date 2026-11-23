@@ -208,16 +208,16 @@ class OrderContractServiceTest {
   }
 
   @Test
-  void newSubmissionOpensPaymentButDoesNotConfirmInspectionOrExecution() {
+  void signedSubmissionWaitsForVerificationBeforeOpeningDeposit() {
     ContractResponse result = service.submit("order", 1, ContractTestFiles.pdf());
     assertThat(result.status()).isEqualTo(ContractStatus.PENDING_VERIFICATION);
     assertThat(result.submissions()).hasSize(1);
     assertThat(result.submissions().getFirst().submittedBy()).isEqualTo("customer");
     assertThat(invoice.isContractReady()).isFalse();
     assertThat(invoice.getContractConfirmedAt()).isNull();
-    assertThat(invoice.isContractPaymentReady()).isTrue();
+    assertThat(invoice.isContractPaymentReady()).isFalse();
     assertThat(invoice.getContractSubmittedAt()).isEqualTo(now);
-    assertThat(invoice.getDepositExpiresAt()).isEqualTo(now.plus(Duration.ofHours(12)));
+    assertThat(invoice.getDepositExpiresAt()).isNull();
   }
 
   @Test
@@ -423,8 +423,11 @@ class OrderContractServiceTest {
 
   @Test void paidDepositDoesNotPreventSignedFileCorrectionOrVerification() {
     submit();
-    invoice.setPaidAmount(new BigDecimal("300")); invoice.setStatus(InvoiceStatus.PARTIALLY_PAID);
-    var deadline=invoice.getDepositExpiresAt();
+    invoice.setDepositAmount(new BigDecimal("300"));
+    invoice.setPaidAmount(new BigDecimal("300"));
+    invoice.setStatus(InvoiceStatus.PARTIALLY_PAID);
+    var deadline = now.plus(Duration.ofHours(6));
+    invoice.setDepositExpiresAt(deadline);
     actor(manager);
     service.requestChanges("order",new ContractReviewRequest(contract.getVersion(),"s1","Missing a signed page"));
     actor(owner); service.submit("order",contract.getVersion(),ContractTestFiles.pdf());

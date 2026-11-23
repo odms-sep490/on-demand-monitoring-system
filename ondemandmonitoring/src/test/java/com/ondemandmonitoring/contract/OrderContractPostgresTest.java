@@ -302,13 +302,18 @@ class OrderContractPostgresTest {
         .isInstanceOf(IllegalStateException.class);
     assertThat(
             jdbc.queryForObject(
-                "select contract_confirmed_at is null and contract_submitted_at is not null and deposit_expires_at = contract_submitted_at + interval '12 hours' from invoices"
+                "select contract_confirmed_at is null and contract_submitted_at is not null and deposit_expires_at is null from invoices"
                     + " where id=?",
                 Boolean.class,
                 invoiceId))
         .isTrue();
     assertThat(contracts.get(orderId).status()).isEqualTo(ContractStatus.PENDING_VERIFICATION);
     assertThat(OBJECTS).hasSize(2);
+
+    contracts.confirm(orderId, new ContractReviewRequest(pending.version(), pending.submissions().getFirst().id(), null));
+    assertThat(jdbc.queryForObject(
+        "select contract_confirmed_at is not null and deposit_expires_at = contract_confirmed_at + interval '12 hours' from invoices where id=?",
+        Boolean.class, invoiceId)).isTrue();
   }
 
   @Test
@@ -434,10 +439,11 @@ class OrderContractPostgresTest {
   }
 
   @Test
-  void paidContractCorrectionKeepsDepositAndFirstSubmissionDeadline() {
+  void paidLegacyContractCorrectionKeepsDepositAndExistingDeadline() {
     var issued=issue(); actor(customer);
     var pending=contracts.submit(orderId,issued.version(),ContractTestFiles.pdf());
     paidDeposit();
+    jdbc.update("update invoices set deposit_expires_at=contract_submitted_at + interval '12 hours' where id=?", invoiceId);
     var changes=contracts.requestChanges(orderId,new ContractReviewRequest(pending.version(),pending.submissions().getFirst().id(),"Please include all signed pages"));
     actor(customer); var resubmitted=contracts.submit(orderId,changes.version(),ContractTestFiles.pdf());
     actor(manager); contracts.confirm(orderId,new ContractReviewRequest(resubmitted.version(),resubmitted.submissions().getFirst().id(),null));

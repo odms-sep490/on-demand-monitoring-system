@@ -232,11 +232,11 @@ public class ImageQualityService {
     @SuppressWarnings("unchecked")
     void addDuplicates(Map<String,Object> result,String missionId,String mediaId) {
         var metrics=(Map<String,Object>)result.get("metrics");
-        String hash=(String)metrics.get("perceptualHash"); if(hash==null) return;
+        Long hash=ImagePerceptualHash.parse((String)metrics.get("perceptualHash")); if(hash==null) return;
         var candidates=db.queryForList("select distinct on(media_id) media_id,result->'metrics'->>'perceptualHash' as hash from image_quality_check where mission_id=? and media_id<>? and status='COMPLETED' order by media_id,created_at desc limit 500",missionId,mediaId);
         List<String> near=new ArrayList<>();
-        for(var row:candidates) if(row.get("hash") instanceof String other && other.matches("[a-f0-9]{16}")
-                && Long.bitCount(Long.parseUnsignedLong(hash,16)^Long.parseUnsignedLong(other,16))<=5) near.add((String)row.get("media_id"));
+        for(var row:candidates) if(ImagePerceptualHash.similar(hash,ImagePerceptualHash.parse((String)row.get("hash"))))
+            near.add((String)row.get("media_id"));
         metrics.put("similarMediaIds",near);
         metrics.put("duplicateComparedImages",candidates.size());
         ((List<Map<String,Object>>)result.get("criteria")).add(Map.of("code","DUPLICATE",

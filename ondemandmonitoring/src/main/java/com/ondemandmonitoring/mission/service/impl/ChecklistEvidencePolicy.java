@@ -27,7 +27,7 @@ public class ChecklistEvidencePolicy {
     }
 
     /** Identical files count once, however many times they were uploaded. */
-    private static String contentKey(MediaAsset media) {
+    static String contentKey(MediaAsset media) {
         String checksum = media.getChecksumSha256();
         return checksum == null || checksum.isBlank() ? "id:" + media.getId() : "sha:" + checksum.toLowerCase();
     }

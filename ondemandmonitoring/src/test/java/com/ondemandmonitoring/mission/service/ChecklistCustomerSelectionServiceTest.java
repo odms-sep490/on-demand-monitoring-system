@@ -1,6 +1,10 @@
 package com.ondemandmonitoring.mission.service;
 
+import com.ondemandmonitoring.checklist.config.ChecklistDefaults;
+import com.ondemandmonitoring.checklist.domain.ChecklistDefinition;
 import com.ondemandmonitoring.common.exception.*;
+import com.ondemandmonitoring.imagequality.DeliveryImageQualityReader;
+import com.ondemandmonitoring.imagequality.DeliveryImageQualityReader.Signal;
 import com.ondemandmonitoring.media.domain.MediaAsset;
 import com.ondemandmonitoring.media.enums.*;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
@@ -9,6 +13,8 @@ import com.ondemandmonitoring.mission.domain.*;
 import com.ondemandmonitoring.mission.dto.request.*;
 import com.ondemandmonitoring.mission.dto.response.ChecklistExecutionResponse;
 import com.ondemandmonitoring.mission.enums.*;
+import com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionMutationGuard;
+import com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionPolicy;
 import com.ondemandmonitoring.mission.mapper.ChecklistEvidenceMapper;
 import com.ondemandmonitoring.mission.repository.*;
 import com.ondemandmonitoring.mission.service.impl.*;
@@ -21,6 +27,7 @@ import java.util.*;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.springframework.test.util.ReflectionTestUtils;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -33,6 +40,7 @@ class ChecklistCustomerSelectionServiceTest {
     final MediaAssetRepository media = mock(MediaAssetRepository.class);
     final MissionResultRepository results = mock(MissionResultRepository.class);
     final IMissionAuthorizationService auth = mock(IMissionAuthorizationService.class);
+    final DeliveryImageQualityReader quality = mock(DeliveryImageQualityReader.class);
     final AuthenticatedUserResolver actor = mock(AuthenticatedUserResolver.class);
     final ChecklistEvidenceServiceImpl service = new ChecklistEvidenceServiceImpl(missions,
                 executions,
@@ -46,7 +54,8 @@ class ChecklistCustomerSelectionServiceTest {
                 mock(IMediaObjectStorage.class),
                 org.mockito.Mockito.mock(com.ondemandmonitoring.media.service.impl.MediaDerivativeService.class),
                 orders,
-                publishedEvidence);
+                publishedEvidence,
+                new ChecklistDeliverySuggestionPolicy(quality));
     final List<MissionChecklistEvidence> links = new ArrayList<>();
     Mission mission;
     MissionChecklistExecution execution;
@@ -65,7 +74,9 @@ class ChecklistCustomerSelectionServiceTest {
         execution.setAssessmentStatus(ChecklistAssessmentStatus.COMPLIANT); execution.setAssessmentNote("Reviewed");
         execution.setAssessedBy("inspector"); execution.setAssessedAt(Instant.now());
         ScopeTestFixture.link(execution, mission);
+        ReflectionTestUtils.setField(service, "inspectionMutation", mock(InspectionCorrectionMutationGuard.class));
         when(missions.findOrderIdByMissionId("m")).thenReturn(Optional.of("o"));
+        when(missions.findById("m")).thenReturn(Optional.of(mission));
         when(orders.findByIdForUpdate("o")).thenReturn(Optional.of(order));
         when(missions.findByIdForUpdate("m")).thenReturn(Optional.of(mission));
         when(executions.findByIdForUpdate("e")).thenReturn(Optional.of(execution));
@@ -94,6 +105,108 @@ class ChecklistCustomerSelectionServiceTest {
         return service.selectForCustomer("m", "e", new ChecklistCustomerSelectionRequest(execution.getVersion(), List.of(ids), surplus));
     }
     void error(ErrorCode code, Runnable action) { assertEquals(code, assertThrows(ApiException.class, action::run).getErrorCode()); }
+
+    @Test void resolvesOnlyCurrentApprovedLinkedImagePreviewForSupportedSnapshot() {
+        var definition = new ChecklistDefinition();
+        definition.setSeedCode(ChecklistDefaults.code(8));
+        item.setSourceChecklist(definition);
+        item.setContent(ChecklistDefaults.CONTENTS.get(7));
+        var image = link("roof", "IMAGE").getMediaAsset();
+        image.setS3Bucket("private-bucket");
+        image.setS3Key("original.jpg");
+        image.setPreviewKey("preview.jpg");
+        image.setDerivativeStatus(MediaDerivativeStatus.READY);
+        var request = new ChecklistImageContentAssessmentRequest(0L, "en");
+
+        var target = service.resolveContentAssessment("m", "e", "roof", request);
+        assertEquals("preview.jpg", target.previewKey());
+        assertEquals(List.of("ROOF_VISIBLE", "ROOF_INSPECTABLE"),
+                target.criteria().stream().map(criterion -> criterion.code()).toList());
+        assertTrue(service.getDeliverySuggestion("m", "e").contentAssessmentAvailable());
+        image.setPreviewKey(image.getS3Key());
+        assertFalse(service.getDeliverySuggestion("m", "e").contentAssessmentAvailable());
+        error(ErrorCode.MEDIA_DERIVATIVE_UNAVAILABLE,
+                () -> service.resolveContentAssessment("m", "e", "roof", request));
+        image.setPreviewKey("preview.jpg");
+        item.setContent("Different accepted checklist");
+        error(ErrorCode.INVALID_REQUEST, () -> service.resolveContentAssessment("m", "e", "roof", request));
+        error(ErrorCode.CONCURRENT_UPDATE, () -> service.resolveContentAssessment("m", "e", "roof",
+                new ChecklistImageContentAssessmentRequest(1L, "en")));
+        when(auth.canSelectCustomerEvidence("m")).thenReturn(false);
+        error(ErrorCode.ACCESS_DENIED, () -> service.resolveContentAssessment("m", "e", "roof", request));
+        verify(evidence, never()).saveAllAndFlush(any());
+    }
+
+    @Test void suggestionReadsOnlyEligibleImagesFromCurrentExecutionAndDoesNotChangeSelection() {
+        var image = link("image", "IMAGE");
+        var selected = link("video", "VIDEO"); selected.setSelectedForCustomer(true);
+        link("rejected", "IMAGE").getMediaAsset().setMediaStatus(MediaStatus.REJECTED);
+        link("detached", "IMAGE").setDetachedAt(Instant.now());
+        var sibling = new MissionChecklistExecution(); sibling.setId("sibling"); sibling.setMissionId("m");
+        link("sibling", "IMAGE").setMissionChecklistExecution(sibling);
+        item.setEvidencePolicyVersion(3); item.setRequiredEvidenceType(RequiredEvidenceType.IMAGE_AND_VIDEO);
+        item.setMinimumImageCount(2); item.setMinimumVideoCount(1); item.setMinimumEvidenceCount(3);
+        execution.setVersion(7L);
+        when(quality.read("m", List.of(image.getMediaAsset())))
+                .thenReturn(Map.of("media-image", new Signal("check", null, "PASS", 0L)));
+
+        var suggestion = service.getDeliverySuggestion("m", "e");
+
+        assertEquals(7L, suggestion.executionVersion());
+        assertEquals(2, suggestion.requiredImageCount());
+        assertEquals(1, suggestion.suggestedImageCount());
+        assertEquals(List.of("image"), suggestion.suggestedImageEvidenceIds());
+        assertEquals(List.of("image"), suggestion.candidates().stream().map(candidate -> candidate.evidenceId()).toList());
+        assertEquals(List.of("INSUFFICIENT_RECOMMENDABLE_IMAGES"), suggestion.warnings());
+        assertFalse(image.isSelectedForCustomer());
+        assertTrue(selected.isSelectedForCustomer());
+        assertEquals(7L, execution.getVersion());
+        verify(executions, never()).findByIdForUpdate(anyString());
+        verify(executions, never()).saveAndFlush(any());
+        verify(evidence, never()).saveAllAndFlush(any());
+        verifyNoInteractions(media, orders);
+    }
+
+    @Test void suggestionUsesDistinctEligibleSelectedVideosForLegacyMixedQuotas() {
+        item.setRequiredEvidenceType(RequiredEvidenceType.IMAGE_OR_VIDEO);
+        var first = link("first", "VIDEO"); first.setSelectedForCustomer(true);
+        var copy = link("copy", "VIDEO"); copy.setSelectedForCustomer(true);
+        copy.getMediaAsset().setChecksumSha256("FIRST");
+        var rejected = link("rejected", "VIDEO"); rejected.setSelectedForCustomer(true);
+        rejected.getMediaAsset().setMediaStatus(MediaStatus.REJECTED);
+        link("unselected", "VIDEO");
+        assertEquals(1, service.getDeliverySuggestion("m", "e").requiredImageCount());
+
+        item.setEvidencePolicyVersion(1); item.setMinimumEvidenceCount(1);
+        assertEquals(0, service.getDeliverySuggestion("m", "e").requiredImageCount());
+
+        item.setEvidencePolicyVersion(2); item.setRequiredEvidenceType(RequiredEvidenceType.IMAGE_AND_VIDEO);
+        assertEquals(1, service.getDeliverySuggestion("m", "e").requiredImageCount());
+
+        item.setRequiredEvidenceType(RequiredEvidenceType.VIDEO);
+        link("image", "IMAGE");
+        var videoOnly = service.getDeliverySuggestion("m", "e");
+        assertEquals(0, videoOnly.requiredImageCount());
+        assertTrue(videoOnly.candidates().isEmpty());
+        assertTrue(videoOnly.warnings().isEmpty());
+    }
+
+    @Test void suggestionSharesSelectionPermissionPublicationAndExecutionGuards() {
+        when(auth.canSelectCustomerEvidence("m")).thenReturn(false);
+        error(ErrorCode.ACCESS_DENIED, () -> service.getDeliverySuggestion("m", "e"));
+        when(auth.canSelectCustomerEvidence("m")).thenReturn(true);
+        when(publishedEvidence.existsByMediaAsset_Mission_Id("m")).thenReturn(true);
+        error(ErrorCode.CHECKLIST_EXECUTION_LOCKED, () -> service.getDeliverySuggestion("m", "e"));
+        when(publishedEvidence.existsByMediaAsset_Mission_Id("m")).thenReturn(false);
+        execution.setAssessmentStatus(ChecklistAssessmentStatus.NON_COMPLIANT);
+        error(ErrorCode.CHECKLIST_NOT_READY, () -> service.getDeliverySuggestion("m", "e"));
+        execution.setMissionId("other");
+        error(ErrorCode.CHECKLIST_EXECUTION_PARENT_MISMATCH, () -> service.getDeliverySuggestion("m", "e"));
+        execution.setMissionId("m");
+        execution.getMissionChecklistAssignment().setRemovedAt(Instant.now());
+        error(ErrorCode.CHECKLIST_EXECUTION_INTEGRITY_INVALID, () -> service.getDeliverySuggestion("m", "e"));
+        verifyNoInteractions(quality);
+    }
 
     @Test void draftBelowMinimumIsSavedAndSelectionDoesNotChangeAssessment() {
         var one = link("one", "IMAGE"); var reserve = link("reserve", "IMAGE");
@@ -234,6 +347,7 @@ class ChecklistCustomerSelectionServiceTest {
                 executions, results, auth, actor,
                 org.mapstruct.factory.Mappers.getMapper(com.ondemandmonitoring.mission.mapper.MissionChecklistExecutionMapper.class),
                 service, mock(com.ondemandmonitoring.finance.service.IAcceptedChecklistGuidanceService.class));
+        ReflectionTestUtils.setField(checklist, "inspectionCorrections", mock(InspectionCorrectionPolicy.class));
 
         assertTrue(checklist.isReadyForSubmission(mission), "Reserve media cannot block the operational minimum");
         assertTrue(checklist.isReadyForInspectorApproval(mission));

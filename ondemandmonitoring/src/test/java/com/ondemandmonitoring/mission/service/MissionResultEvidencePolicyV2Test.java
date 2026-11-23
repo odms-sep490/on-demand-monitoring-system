@@ -26,6 +26,7 @@ import com.ondemandmonitoring.mission.repository.MissionChecklistEvidenceReposit
 import com.ondemandmonitoring.mission.repository.MissionChecklistExecutionRepository;
 import com.ondemandmonitoring.mission.repository.MissionRepository;
 import com.ondemandmonitoring.mission.repository.MissionResultRepository;
+import com.ondemandmonitoring.mission.service.impl.ChecklistDeliverySuggestionPolicy;
 import com.ondemandmonitoring.mission.service.impl.ChecklistEvidencePolicy;
 import com.ondemandmonitoring.mission.service.impl.ChecklistEvidenceServiceImpl;
 import com.ondemandmonitoring.mission.service.impl.MissionChecklistExecutionServiceImpl;
@@ -104,7 +105,8 @@ class MissionResultEvidencePolicyV2Test {
                 storage,
                 org.mockito.Mockito.mock(com.ondemandmonitoring.media.service.impl.MediaDerivativeService.class),
                 mock(com.ondemandmonitoring.order.repository.OrderRepository.class),
-                mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class));
+                mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class),
+                mock(ChecklistDeliverySuggestionPolicy.class));
 
         executionService = new MissionChecklistExecutionServiceImpl(
                 missions, scope, executionRepo, results, auth, resolver,

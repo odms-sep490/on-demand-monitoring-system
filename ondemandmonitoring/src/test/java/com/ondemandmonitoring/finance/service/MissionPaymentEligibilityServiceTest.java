@@ -107,7 +107,7 @@ class MissionPaymentEligibilityServiceTest {
     @Test void signedAndPaidIsNotEnoughForMissionExecutionWithoutConfirmation() {
         invoice.setContractRequired(true);
         invoice.setContractSubmittedAt(Instant.parse("2026-11-14T00:00:00Z"));
-        assertThat(invoice.isContractPaymentReady()).isTrue();
+        assertThat(invoice.isContractPaymentReady()).isFalse();
         assertThat(service.isDepositSatisfied(invoice)).isFalse();
         assertThat(service.isMissionExecutionEligible(invoice)).isFalse();
         invoice.setContractConfirmedAt(Instant.parse("2026-11-14T01:00:00Z"));

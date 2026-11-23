@@ -3,6 +3,7 @@ import com.ondemandmonitoring.common.api.ApiResponse;
 import com.ondemandmonitoring.mission.dto.request.*;
 import com.ondemandmonitoring.mission.dto.response.*;
 import com.ondemandmonitoring.mission.service.IChecklistEvidenceService;
+import com.ondemandmonitoring.mission.service.impl.ChecklistImageContentAssessmentService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import java.util.List;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 @Validated
 public class ChecklistEvidenceController {
     private final IChecklistEvidenceService service;
+    private final ChecklistImageContentAssessmentService contentAssessment;
     @GetMapping("/checklist-evidence/candidates")
     public ApiResponse<List<ChecklistEvidenceCandidate>> candidates(@PathVariable String missionId,
             @RequestParam(defaultValue="0") @Min(0) int page, @RequestParam(defaultValue="50") @Min(1) @Max(100) int size) {
@@ -33,6 +35,20 @@ public class ChecklistEvidenceController {
     public ApiResponse<List<ChecklistEvidenceResponse>> selectForCustomer(@PathVariable String missionId,
             @PathVariable String executionId, @Valid @RequestBody ChecklistCustomerSelectionRequest request) {
         return ApiResponse.ok(service.selectForCustomer(missionId, executionId, request));
+    }
+    @GetMapping("/checklist-executions/{executionId}/delivery-suggestion")
+    public ApiResponse<ChecklistDeliverySuggestionResponse> getDeliverySuggestion(@PathVariable String missionId,
+            @PathVariable String executionId) {
+        var suggestion = service.getDeliverySuggestion(missionId, executionId);
+        if (suggestion.contentAssessmentAvailable() && !contentAssessment.available())
+            suggestion = suggestion.withContentAssessmentAvailable(false);
+        return ApiResponse.ok(suggestion);
+    }
+    @PostMapping("/checklist-executions/{executionId}/evidence/{evidenceId}/content-assessment")
+    public ApiResponse<ChecklistImageContentAssessmentResponse> assessImageContent(@PathVariable String missionId,
+            @PathVariable String executionId, @PathVariable String evidenceId,
+            @Valid @RequestBody ChecklistImageContentAssessmentRequest request) {
+        return ApiResponse.ok(contentAssessment.assess(missionId, executionId, evidenceId, request));
     }
     @PostMapping("/checklist-evidence/batch")
     public ApiResponse<List<ChecklistEvidenceResponse>> batch(@PathVariable String missionId, @Valid @RequestBody BatchChecklistEvidenceRequest request) {

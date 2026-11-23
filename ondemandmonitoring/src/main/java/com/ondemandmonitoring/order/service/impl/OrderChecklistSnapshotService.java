@@ -94,6 +94,43 @@ public class OrderChecklistSnapshotService implements IOrderChecklistSnapshotSer
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public List<CustomerOrderChecklistItemResponse> capture(Order order, List<OrderChecklistItemRequest> requested) {
+        PreparedSelection selection = prepareSelection(order, requested);
+        var entities = selection.items();
+        var requiredChecklistIds = selection.requiredIds();
+        List<OrderChecklistItem> saved = snapshots.saveAllAndFlush(entities);
+        applySystemPrices(order, saved);
+        order.setChecklistSnapshotAt(Instant.now());
+        order.setChecklistRevision(1);
+        if (revisionRepository != null) {
+            OrderChecklistRevision rev = new OrderChecklistRevision();
+            rev.setOrder(order);
+            rev.setRevision(1);
+            rev.setActor(order.getCustomer());
+            rev.setChangeSummary("Initial checklist snapshot (" + saved.size() + " items)");
+            rev.setPayloadFingerprint(fingerprint(saved));
+            revisionRepository.save(rev);
+        }
+        return saved.stream().map(row -> {
+            CustomerOrderChecklistItemResponse dto = mapper.toCustomerResponse(row);
+            if (dto.getSourceChecklistId() != null && requiredChecklistIds.contains(dto.getSourceChecklistId())) {
+                dto.setRequired(true);
+            }
+            return dto;
+        }).toList();
+    }
+
+    private record PreparedSelection(List<OrderChecklistItem> items, Set<String> requiredIds) {}
+
+    @Override
+    // Expected draft errors are caught by the caller and returned as field errors.
+    // This read-only preparation must not poison the caller's session transaction.
+    @Transactional(propagation = Propagation.MANDATORY, noRollbackFor = ApiException.class)
+    public void validateSelection(Order transientOrder, List<OrderChecklistItemRequest> requested) {
+        if (transientOrder.getId() != null) throw invalid("Draft validation requires an unsaved order");
+        prepareSelection(transientOrder, requested);
+    }
+
+    private PreparedSelection prepareSelection(Order order, List<OrderChecklistItemRequest> requested) {
         if (order.getChecklistSnapshotAt() != null || order.getOrderStatus() != OrderStatus.PENDING) {
             throw new ApiException(ErrorCode.ORDER_CHECKLIST_LOCKED);
         }
@@ -285,26 +322,7 @@ public class OrderChecklistSnapshotService implements IOrderChecklistSnapshotSer
                 && ServicePriceResolver.UNPRICED.equals(servicePrices.resolveOrLegacy(service).source())
                 && entities.stream().noneMatch(e -> e.getSourceType() == OrderChecklistSourceType.CUSTOMER_CUSTOM))
             throw new ApiException(ErrorCode.SERVICE_NOT_PRICED);
-        List<OrderChecklistItem> saved = snapshots.saveAllAndFlush(entities);
-        applySystemPrices(order, saved);
-        order.setChecklistSnapshotAt(Instant.now());
-        order.setChecklistRevision(1);
-        if (revisionRepository != null) {
-            OrderChecklistRevision rev = new OrderChecklistRevision();
-            rev.setOrder(order);
-            rev.setRevision(1);
-            rev.setActor(order.getCustomer());
-            rev.setChangeSummary("Initial checklist snapshot (" + saved.size() + " items)");
-            rev.setPayloadFingerprint(fingerprint(saved));
-            revisionRepository.save(rev);
-        }
-        return saved.stream().map(row -> {
-            CustomerOrderChecklistItemResponse dto = mapper.toCustomerResponse(row);
-            if (dto.getSourceChecklistId() != null && requiredChecklistIds.contains(dto.getSourceChecklistId())) {
-                dto.setRequired(true);
-            }
-            return dto;
-        }).toList();
+        return new PreparedSelection(entities, requiredChecklistIds);
     }
 
     @Override

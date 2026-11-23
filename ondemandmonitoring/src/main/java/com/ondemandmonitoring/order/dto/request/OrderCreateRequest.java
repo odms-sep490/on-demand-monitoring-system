@@ -99,6 +99,9 @@ public class OrderCreateRequest {
     @Schema(description = "Detailed description of the monitoring request")
     String description;
 
+    @Size(max=255)
+    String descriptionAssistantSessionId;
+
     @Schema(description = "Address of the monitoring target location")
     String address;
 

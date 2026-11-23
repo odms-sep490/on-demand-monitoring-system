@@ -1,0 +1,505 @@
+
+> ondemand-monitoring-web@0.0.0 test
+> vitest run
+
+
+ RUN  v5.0.5 C:/Users/ACER/Documents/GitHub/doan/ondemand-monitoring-web
+
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+stderr | src/features/mission/components/ChecklistEvidencePicker.test.tsx > multi-select evidence picker > retains selections across pages and adds all files with one confirmation
+Warning: [antd: Select] `popupClassName` is deprecated. Please use `classNames.popup.root` instead.
+Warning: [antd: Select] `popupClassName` is deprecated. Please use `classNames.popup.root` instead.
+
+stderr | src/features/mission/components/ChecklistEvidencePicker.test.tsx > multi-select evidence picker > retains selections across pages and adds all files with one confirmation
+Warning: [antd: Select] `popupClassName` is deprecated. Please use `classNames.popup.root` instead.
+
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/manager/pages/Schedule/tests/SchedulePage.test.tsx (5 tests | 2 failed) 39071ms
+   ❯ SchedulePage (5)
+     × renders the office workspace and fallback areas after data loads 20236ms
+     × selects an office area from the fallback view 5196ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/drone-operator/pages/Flight/tests/InFlightControl.test.tsx (6 tests | 1 failed) 19238ms
+   ❯ InFlightControl (6)
+     × renders Vietnamese text by default 3336ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/customer/CustomerApp.test.tsx (3 tests | 2 failed) 25078ms
+   ❯ CustomerApp (3)
+     × renders the Vietnamese dashboard breadcrumb 14633ms
+     × renders the English dashboard breadcrumb when language is switched 6739ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+stderr | src/features/customer/tests/i18n.en.test.tsx > Customer portal i18n (vi -> en) > OrderDetail has no Vietnamese left after switching to English
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+stderr | src/features/customer/tests/i18n.en.test.tsx > Customer portal i18n (vi -> en) > CreateOrder has no Vietnamese left after switching to English
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ ❯ src/features/mission/components/ChecklistEvidencePicker.test.tsx (9 tests | 1 failed) 42513ms
+   ❯ multi-select evidence picker (2)
+     × retains selections across pages and adds all files with one confirmation 17898ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/admin/pages/Catalog/tests/TimeslotsTab.test.tsx (4 tests | 1 failed) 8319ms
+   ❯ TimeslotsTab (4)
+     × creates a timeslot through the modal 5710ms
+ ❯ src/features/manager/components/common/tests/OrderResourceAssignmentWizard.test.tsx (13 tests | 2 failed) 48912ms
+   × reuses the staff/device/confirmation screens for M1 then M2 and returns to the same Order selector 16902ms
+   × scoped submit returns to its origin and never mutates Order/Mission completion 6114ms
+ ❯ src/features/customer/pages/Dashboard/tests/DashboardPage.test.tsx (7 tests | 7 failed) 45249ms
+   ❯ DashboardPage (7)
+     × renders the Vietnamese title 11361ms
+     × renders the English title when language is switched 5890ms
+     × computes the KPIs from /api/orders/mine 5764ms
+     × lists the 5 most recent orders with status badges and a by-status breakdown 5741ms
+     × does not show or load mission history on the customer dashboard 5710ms
+     × shows the empty state when there are no orders 5417ms
+     × shows an order error with retry and recovers 5358ms
+stderr | src/features/customer/tests/i18n.en.test.tsx > Customer portal i18n (vi -> en) > MediaLibrary has no Vietnamese left after switching to English
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ ❯ src/features/customer/pages/CustomerCreateRequest/tests/CustomerCreateRequestPage.test.tsx (4 tests | 1 failed) 38118ms
+   ❯ CustomerCreateRequestPage (4)
+     × validates required fields before opening the confirm dialog 7391ms
+ ❯ src/features/manager/pages/MissionDetail/tests/MissionDetailPage.test.tsx (18 tests | 3 failed) 35606ms
+   ❯ Manager Mission Detail monitoring review (18)
+     × restores a selected tab from the URL and keeps the media gallery mounted after first visit 5332ms
+     × uses the satellite mission map on result review 5267ms
+     × shows an honest location state instead of a default map when coordinates are missing 5221ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/customer/lib/createOrder/payload.test.ts (9 tests | 1 failed) 169ms
+   ❯ buildOrderPayload (6)
+     × maps the form to the BE OrderCreateRequest shape 68ms
+ ❯ src/features/drone-operator/pages/Preflight/tests/PreflightChecklistPanel.replacement.test.tsx (1 test | 1 failed) 6396ms
+   ❯ PreflightChecklistPanel replacement request state (1)
+     × clears an old request for the replaced assignment and allows a new request 6392ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/drone-operator/omss/screens/ManualUpload.test.tsx (2 tests | 1 failed) 5375ms
+   ❯ ManualUpload (2)
+     × renders Vietnamese text by default 5286ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/customer/lib/createOrder/validators.test.ts (19 tests | 3 failed) 337ms
+   ❯ validateStep (19)
+     × step 1 requires a service and a title 140ms
+     × step 2 accepts a confirmed coordinate-only location and requires a valid area 26ms
+     × step 4 validates a permit only when the customer declares one 33ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/customer/pages/Orders/tests/OrdersPage.test.tsx (16 tests | 3 failed) 63240ms
+   ❯ OrdersPage (16)
+     × calls out the required customer action for an approved order 845ms
+     × shows the paid state instead of a payment warning after the deposit is received 5497ms
+     × shows summary stats for the seeded orders and counts on the status filter options 6591ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/drone-operator/pages/UploadMedia/tests/UploadMediaWorkspace.test.tsx (23 tests | 1 failed) 63298ms
+   ❯ Upload media and monitoring workspace (20)
+     × uploads then attaches using backend media id and recovers attach failure without another upload 15229ms
+ ❯ src/app/router.test.tsx (12 tests | 3 failed) 96185ms
+   ❯ Router - manager routes (#portal/manager*) (4)
+     × allows authenticated Admin into Manager planning without granting crew authority 10431ms
+   ❯ Router - customer support navigation (2)
+     × marks Help & FAQ active instead of Dashboard on the help page 18902ms
+     × marks Support tickets active instead of Dashboard on the tickets page 5804ms
+stderr | src/features/customer/tests/i18n.en.test.tsx > Customer portal i18n (vi -> en) > CustomerApp shell (sidebar, chatbot) is English
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ ❯ src/features/manager/pages/Dashboard/tests/DashboardPage.test.tsx (13 tests | 11 failed) 67234ms
+   ❯ DashboardPage (13)
+     × renders all KPI values and useful navigation 11705ms
+     × reloads period analytics when the date-range preset changes 9988ms
+     × renders null assignments safely and all operational sections 2634ms
+     × places dashboard widgets in a balanced two-column grid 1995ms
+     × shows the Vietnamese label for an order under review 3659ms
+     × renders professional empty states 3382ms
+     × distinguishes omitted dashboard fields from real zero values 3422ms
+     × keeps one-order dashboards compact when missions and activity are empty 5362ms
+     × shows a running mission beside its order when activity is empty 5383ms
+     × caps recent lists while preserving long text when data is uneven 5543ms
+     × caps long dashboard lists and lets managers expand all action items 1198ms
+stderr | src/features/customer/tests/i18n.en.test.tsx > Customer portal i18n (vi -> en) > CreateOrder wizard: every step is English
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/finance/ManagerPricing/tests/ManagerPricingPanel.test.tsx (15 tests | 4 failed) 37420ms
+   ❯ ManagerPricingPanel (15)
+     × shows analysis before a quote exists, saves explicitly and opens the saved quote without approving it 5259ms
+     × keeps the save-and-analyze action blocked by the same readiness conditions as contract preparation 5064ms
+     × approves pending legacy package requirements without sending a review mutation 6381ms
+     × shows success and locks the approval button immediately after approval 6660ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/customer/pages/CreateOrder/components/RequestSummaryCard.test.tsx (2 tests | 1 failed) 2877ms
+   ❯ RequestSummaryCard (2)
+     × presents the request title as labelled content and only links to earlier steps 2577ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/manager/pages/OrderQueue/tests/OrderQueuePage.test.tsx (9 tests | 1 failed) 32904ms
+   ❯ QueuePage (9)
+     × keeps every order reachable under "Tất cả đơn hàng" with a status filter 7736ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/customer/pages/Media/tests/MediaPage.test.tsx (7 tests | 1 failed) 14234ms
+   ❯ MediaPage (7)
+     × opens the preview modal for a file 4019ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+stderr | src/features/customer/tests/i18n.en.test.tsx > Support pages i18n (vi -> en) > context help widget on order and mission pages is English
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ ❯ src/features/customer/tests/i18n.en.test.tsx (32 tests | 8 failed) 124503ms
+   ❯ Customer portal i18n (vi -> en) (25)
+     × Dashboard has no Vietnamese left after switching to English 12754ms
+     × OrderDetail has no Vietnamese left after switching to English 5654ms
+     × CreateOrder has no Vietnamese left after switching to English 5939ms
+     × MediaLibrary has no Vietnamese left after switching to English 2262ms
+     × Dashboard shows no English UI words in Vietnamese 5915ms
+     × CustomerApp shell (sidebar, chatbot) is English 1379ms
+     × CreateOrder wizard: every step is English 7796ms
+   ❯ Support pages i18n (vi -> en) (7)
+     × context help widget on order and mission pages is English 10527ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/drone-operator/pages/MissionList/tests/MissionListTable.test.tsx (9 tests | 1 failed) 3265ms
+   ❯ MissionListTable (9)
+     × shows a new replacement request instead of the prior completed badge 121ms
+ ❯ src/features/drone-operator/pages/Handover/tests/HandoverBanners.test.tsx (4 tests | 1 failed) 706ms
+   ❯ ConfirmedBanner (2)
+     × renders vietnamese text 70ms
+ ❯ src/features/drone-operator/components/common/tests/MissionResultActions.test.tsx (12 tests | 1 failed) 2016ms
+   ❯ Exact Mission result actions (12)
+     × reports a localized incomplete-checklist count and blocks submit 75ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/admin/pages/Catalog/tests/ServicesTab.test.tsx (7 tests | 2 failed) 10793ms
+   ❯ ServicesTab (7)
+     × creates a service through the modal 1012ms
+     × prefills the edit modal from the BE and saves 1083ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/customer/pages/CreateOrder/components/ScheduleStep.test.tsx (2 tests | 1 failed) 6368ms
+   ❯ ScheduleStep (2)
+     × keeps step 5 focused on schedule details without showing an estimated cost 5246ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/finance/CustomerFinance/tests/ContractDepositFlow.test.tsx (4 tests | 4 failed) 23112ms
+   × refreshes invoice eligibility after signing and creates a deposit without manager confirmation 7486ms
+   × does not show deposit checkout until a required signed copy has been submitted 5292ms
+   × keeps demo deposit payments aligned with the signed-submission rule 5169ms
+   × shows paid but pending verification without offering a second deposit 5159ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/customer/pages/OrderDetail/components/OrderHeader.test.ts (2 tests | 1 failed) 110ms
+   ❯ getDisplayTitle (2)
+     × keeps meaningful short titles and falls back to localized copy when context is absent 73ms
+ ❯ src/features/contract/ContractDepositGate.test.tsx (4 tests | 1 failed) 1059ms
+   × allows deposit after signed submission while the contract remains unconfirmed 990ms
+ ❯ src/features/customer/pages/CreateOrder/tests/CreateOrderFlow.test.tsx (18 tests | 14 failed) 208993ms
+   ❯ CreateOrderPage wizard (18)
+     × handles the mixed checklist according to validation 20476ms
+     × handles the empty checklist according to validation 15600ms
+     × continues with the selected service without requiring a removed title field 10051ms
+     × continues from location to schedule after a valid coordinate and custom area 13898ms
+     × draws a suggested polygon by tapping points and closing the first point 15026ms
+     × shows the chosen service price and defers the estimate until the checklist is priced 9814ms
+     × walks through all steps and submits via the confirm dialog 12215ms
+     × shows stale recovery after creation fails, without auto retry 10344ms
+     × shows the API error inside the dialog and stays on the form 11088ms
+     × routes a backend preferredDateFrom error back to the schedule field 15704ms
+     × asks the customer to choose a time window instead of picking one for them 14262ms
+     × blocks submit until the terms and security commitment are accepted 15946ms
+     × sends fixed download delivery, retention and formats derived from the checklist 14215ms
+     × closes the confirm dialog with Escape without submitting 15957ms
+ ❯ src/features/manager/pages/OrderReview/tests/planning.test.tsx (12 tests | 1 failed) 27188ms
+   ❯ Manager multi-Mission planning (12)
+     × keeps a completed Order Mission card historical with no operational actions 1465ms
+ ❯ src/features/customer/components/reports/reports.test.tsx (16 tests | 2 failed) 29871ms
+   ❯ Customer aggregate/report publication (16)
+     × keeps canonical Order IN_PROGRESS and shows the monitoring time 8107ms
+     × keeps canonical Order COMPLETED and shows the monitoring time 3611ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/manager/ManagerApp.test.tsx (6 tests | 1 failed) 46612ms
+   ❯ ManagerApp (6)
+     × feeds the pending-orders nav badge from summary.pendingOrderCount 17203ms
+ ❯ src/features/customer/lib/checklist/checklistPricing.test.tsx (25 tests | 2 failed) 17490ms
+   ❯ ChecklistEditor media inputs (1)
+     × shows included, requested and extra media and cannot drop a mandatory row 6561ms
+   ❯ Cost shown where the customer chooses (4)
+     × puts the price on each selected row and shows the exact explanation 1381ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/contract/OrderContractPanel.test.tsx (16 tests | 1 failed) 22844ms
+   × a change request needs a reason and targets the exact current submission 1322ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/admin/pages/OperatingConfig/components/BaseChecklistPricingTab.test.tsx (2 tests | 1 failed) 7556ms
+   ❯ BaseChecklistPricingTab (2)
+     × saves base price and standard area through the Admin pricing API 7225ms
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+ ❯ src/features/manager/pages/OrderReview/tests/OrderReviewPage.test.tsx (19 tests | 2 failed) 67551ms
+   ❯ OrderReviewPage (19)
+     × keeps an unresolved contract cancellation actionable after a full page reload 9002ms
+     × renders English labels and the uppercase English verdict after switching language 6256ms
+stderr | src/features/manager/pages/OrderReview/tests/OrderReviewPage.test.tsx > OrderReviewPage > renders English labels and the uppercase English verdict after switching language
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements

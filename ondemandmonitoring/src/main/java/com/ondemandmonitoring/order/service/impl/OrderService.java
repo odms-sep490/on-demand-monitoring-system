@@ -64,6 +64,10 @@ import org.springframework.security.access.prepost.PreAuthorize;
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class OrderService implements IOrderService {
+    @org.springframework.beans.factory.annotation.Autowired
+    @lombok.experimental.NonFinal
+    private com.ondemandmonitoring.description.DescriptionAssistantService descriptionAssistant;
+
 
     private static final DateTimeFormatter ORDER_CODE_DATE_FORMATTER = DateTimeFormatter.BASIC_ISO_DATE;
     private static final int MINIMUM_FLIGHT_NOTICE_DAYS = 7;
@@ -236,6 +240,23 @@ public class OrderService implements IOrderService {
     @PreAuthorize("hasRole('CUSTOMER')")
     public OrderCreateResponse createOrder(OrderCreateRequest request) {
 
+        Order order = prepareOrder(request);
+        Order savedOrder = orderRepository.save(order);
+        if (request.getDescriptionAssistantSessionId() != null) {
+            descriptionAssistant.bindToOrder(request.getDescriptionAssistantSessionId(), savedOrder, request);
+        }
+        var items = checklistSnapshots.capture(savedOrder, request.getChecklistItems());
+        reviewRecords.initialize(savedOrder);
+        orderRepository.flush();
+        OrderCreateResponse response = orderMapper.toResponse(savedOrder);
+        enrichCustomerProfile(response, savedOrder);
+        response.setChecklistItems(items);
+        checklistSnapshots.enrichOrderResponse(savedOrder, response, false);
+        return response;
+    }
+
+    /** Same preparation as submission, with no order/snapshot writes. */
+    private Order prepareOrder(OrderCreateRequest request) {
         // 1. Resolve Customer from logged-in user session
         User customer = authenticatedUserResolver.getCurrentUser();
 
@@ -279,11 +300,11 @@ public class OrderService implements IOrderService {
 
         // 4c. Delivery options and terms
         if (!Boolean.TRUE.equals(request.getTermsAccepted())) {
-            throw new ApiException(ErrorCode.INVALID_REQUEST,
+            throw new OrderFieldValidationException("termsAccepted",
                     "Terms and data-security commitment must be accepted");
         }
         if (!Boolean.TRUE.equals(request.getMonitoringAuthorizationConfirmed())) {
-            throw new ApiException(ErrorCode.INVALID_REQUEST,
+            throw new OrderFieldValidationException("monitoringAuthorizationConfirmed",
                     "Monitoring authorization must be confirmed");
         }
         List<OrderAuthorizationDocument> authorizationDocuments =
@@ -361,7 +382,13 @@ public class OrderService implements IOrderService {
         order.getFlightCompliance().setPermitRequired(permitStatus != OrderPermitStatus.NONE);
         order.getFlightCompliance().setPermitZoneName(null);
         order.getFlightCompliance().setMonitoringAuthorizationConfirmed(true);
+        order.getFlightCompliance().setMonitoringRelationship(request.getMonitoringRelationship());
         order.getFlightCompliance().setMonitoringAuthorizationDocuments(authorizationDocuments);
+        if (permitStatus == OrderPermitStatus.HAVE_PERMIT) {
+            order.getFlightCompliance().setPermitNumber(request.getPermitNumber().strip());
+            order.getFlightCompliance().setPermitExpiresOn(request.getPermitExpiresOn());
+            order.getFlightCompliance().setPermitDocuments(List.copyOf(request.getPermitDocuments()));
+        }
         if (permitStatus != OrderPermitStatus.HAVE_PERMIT) {
             order.getFlightCompliance().setPermitNumber(null);
         }
@@ -392,15 +419,49 @@ public class OrderService implements IOrderService {
         }
         order.setDeliverables(orderDeliverables);
 
-        Order savedOrder = orderRepository.save(order);
-        var items = checklistSnapshots.capture(savedOrder, request.getChecklistItems());
-        reviewRecords.initialize(savedOrder);
-        orderRepository.flush();
-        OrderCreateResponse response = orderMapper.toResponse(savedOrder);
-        enrichCustomerProfile(response, savedOrder);
-        response.setChecklistItems(items);
-        checklistSnapshots.enrichOrderResponse(savedOrder, response, false);
-        return response;
+        return order;
+    }
+
+    private static final class OrderFieldValidationException extends ApiException {
+        private final String field;
+        private OrderFieldValidationException(String field,String message) {
+            super(ErrorCode.INVALID_REQUEST,message);this.field=field;
+        }
+    }
+
+    @Override
+    @Transactional
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public com.ondemandmonitoring.order.dto.response.OrderDraftValidationResponse validateDraftForReview(OrderCreateRequest request) {
+        var errors = new java.util.LinkedHashMap<String,String>();
+        try (var factory = jakarta.validation.Validation.buildDefaultValidatorFactory()) {
+            factory.getValidator().validate(request).forEach(v -> errors.put(v.getPropertyPath().toString(), v.getMessage()));
+        }
+        // Review readiness includes the existing customer's six-step form gates.
+        // Submission's legacy defaults remain available to existing API clients.
+        if(request.getFlightPurpose()==null) errors.put("flightPurpose","Vui lòng chọn mục đích chuyến bay.");
+        if(request.getSiteContactName()==null || request.getSiteContactName().isBlank()) errors.put("siteContactName","Vui lòng nhập người liên hệ tại hiện trường.");
+        if(request.getSiteContactPhone()==null || request.getSiteContactPhone().isBlank()) errors.put("siteContactPhone","Vui lòng nhập số điện thoại liên hệ.");
+        if(request.getAccessNotes()==null || request.getAccessNotes().isBlank()) errors.put("accessNotes","Vui lòng bổ sung điều kiện ra vào.");
+        if(request.getChecklistItems()==null || request.getChecklistItems().isEmpty()) errors.put("checklistItems","Vui lòng xác nhận nội dung giám sát.");
+        if (errors.isEmpty()) {
+            String validationField="business";
+            try {
+                Order transientOrder = prepareOrder(request);
+                validationField="checklistItems";
+                checklistSnapshots.validateSelection(transientOrder, request.getChecklistItems());
+            } catch (ApiException exception) {
+                String message=exception.getMessage();
+                String code=exception.getErrorCode().name();
+                String field=exception instanceof OrderFieldValidationException fieldError?fieldError.field:
+                    code.startsWith("ORDER_CHECKLIST")?"checklistItems":code.startsWith("SERVICE_")?"serviceId":code.startsWith("DELIVERABLE")?"deliverables":validationField;
+                for(String candidate:List.of("preferredDateFrom","preferredDateTo","resultDeadline","recurrenceOccurrences","permitNumber","permitExpiresOn","permitDocuments"))
+                    if(message!=null && message.contains(candidate)){field=candidate;break;}
+                errors.put(field, message);
+            }
+        }
+        return new com.ondemandmonitoring.order.dto.response.OrderDraftValidationResponse(errors.isEmpty(),
+                errors.isEmpty() ? request : null, errors);
     }
 
     private static List<OrderAuthorizationDocument> validateAuthorizationDocuments(
@@ -584,7 +645,14 @@ public class OrderService implements IOrderService {
         }
 
 
-        if (request.description() != null) order.setDescription(request.description().strip());
+        if (request.description() != null) {
+            if (!java.util.Objects.equals(order.getDescription(), request.description().strip())) {
+                order.setCustomerFlightPurposeDraft(null);
+                order.setPurposeCustomerConfirmedAt(null);
+                order.setDescriptionAssistantSessionId(null);
+            }
+            order.setDescription(request.description().strip());
+        }
         if (request.address() != null) order.setAddress(request.address().strip());
         if (request.longitude() != null || request.latitude() != null || request.coverageArea() != null) {
             if (request.longitude() == null || request.latitude() == null || request.coverageArea() == null) {

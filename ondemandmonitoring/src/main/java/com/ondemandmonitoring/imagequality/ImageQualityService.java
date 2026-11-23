@@ -34,7 +34,7 @@ public class ImageQualityService {
     private final AuthenticatedUserResolver user;
     private final ObjectMapper json;
     @Value("${IMAGE_QUALITY_ENABLED:false}") boolean enabled;
-    @Value("${IMAGE_QUALITY_WORKER_URL:http://127.0.0.1:8000}") String worker;
+    @Value("${IMAGE_QUALITY_WORKER_URL:http://localhost:8000}") String worker;
     @Value("${IMAGE_QUALITY_INTERNAL_TOKEN:}") String token;
     @Value("${IMAGE_QUALITY_MAX_BATCH_SIZE:20}") int batchLimit;
     @Value("${IMAGE_QUALITY_MAX_IMAGE_SIZE:8388608}") int maxBytes;

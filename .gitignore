@@ -4,6 +4,8 @@ ondemandmonitoring/.env
 !Python/change-detection/.env.example
 !ondemandmonitoring/image-quality.env.example
 /.ai-runtime/
+ondemandmonitoring/.ai-runtime/
+ondemandmonitoring/.description-check.pom.xml
 ondemandmonitoring/.env
 ondemandmonitoring/uploads/
 .codegraph/
@@ -14,6 +16,7 @@ drone-controller/.venv/
 drone-controller/__pycache__/
 drone-controller/*.pyc
 Python/.venv/
+Python/voice-order/.venv/
 
 
 ### IntelliJ IDEA ###

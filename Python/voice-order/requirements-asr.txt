@@ -1,0 +1,4 @@
+# Optional Qwen3-ASR runtime. Use its supported Python environment and local model weights.
+# Kept separate from the lightweight text consultant so ASR cannot break manual/text creation.
+qwen-asr==0.0.6
+python-multipart

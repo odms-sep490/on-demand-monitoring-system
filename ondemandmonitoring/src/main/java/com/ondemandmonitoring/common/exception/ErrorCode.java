@@ -16,7 +16,7 @@ public enum ErrorCode {
     CONTRACT_STATE_CONFLICT("Contract action is not allowed in the current state", HttpStatus.CONFLICT),
     CONTRACT_SUBMISSION_REPLACED("This signed copy was replaced; refresh the latest submission", HttpStatus.CONFLICT),
     CONTRACT_VERSION_CONFLICT("Contract was changed; refresh before continuing", HttpStatus.CONFLICT),
-    CONTRACT_NOT_CONFIRMED("Submit the signed contract before paying the deposit", HttpStatus.CONFLICT),
+    CONTRACT_NOT_CONFIRMED("The manager must confirm the contract before you can pay the deposit", HttpStatus.CONFLICT),
     CONTRACT_FILE_INVALID("Upload a valid, unencrypted PDF of at most 10 MB and 500 pages", HttpStatus.BAD_REQUEST),
     CONTRACT_CANCELLATION_PENDING_PAYMENT("Reconcile pending payments before cancelling", HttpStatus.CONFLICT),
     CONTRACT_FINANCIAL_REVIEW_REQUIRED("Payment records require review before this decision", HttpStatus.CONFLICT),

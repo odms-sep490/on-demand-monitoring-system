@@ -54,15 +54,7 @@ class PaymentPersistenceServiceTest {
         when(payments.saveAndFlush(any())).thenAnswer(call -> call.getArgument(0));
     }
 
-    @Test void signedSubmissionAllowsDepositBeforeManagerConfirmation() {
-        invoice.setContractRequired(true);
-        invoice.setContractSubmittedAt(java.time.Instant.parse("2026-11-16T00:00:00Z"));
-        when(eligibility.isDepositSatisfied(invoice)).thenReturn(false);
-        assertThat(invoice.getContractConfirmedAt()).isNull();
-        assertThat(service.prepareDeposit("i1").amount()).isEqualByComparingTo("300");
-    }
-
-    @Test void requiredContractMustBeSubmittedBeforeDeposit() {
+    @Test void missingSignedContractBlocksDeposit() {
         invoice.setContractRequired(true);
         assertThatThrownBy(() -> service.prepareDeposit("i1")).isInstanceOf(ApiException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.CONTRACT_NOT_CONFIRMED);
@@ -149,18 +141,13 @@ class PaymentPersistenceServiceTest {
 
     @Test void newDepositCannotBypassContractConfirmation() {
         invoice.setContractRequired(true);
+        invoice.setContractSubmittedAt(java.time.Instant.parse("2026-11-16T00:00:00Z"));
         when(eligibility.isDepositSatisfied(invoice)).thenReturn(false);
         assertThatThrownBy(() -> service.prepareDeposit("i1")).isInstanceOf(ApiException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.CONTRACT_NOT_CONFIRMED);
-        verify(payments,never()).saveAndFlush(any());
+        verify(payments, never()).saveAndFlush(any());
         invoice.setContractConfirmedAt(java.time.Instant.now());
         assertThat(service.prepareDeposit("i1").amount()).isEqualByComparingTo("300");
-    }
-    @Test void aSignedSubmissionAllowsDepositButDoesNotConfirmTheContract() {
-        invoice.setContractRequired(true); invoice.setContractSubmittedAt(java.time.Instant.now());
-        assertThat(invoice.isContractReady()).isFalse();
-        assertThat(service.prepareDeposit("i1").amount()).isEqualByComparingTo("300");
-        assertThat(invoice.getContractConfirmedAt()).isNull();
     }
     @Test void aCancelledOrderCannotCreateAnotherDepositLink() {
         invoice.setContractSubmittedAt(java.time.Instant.now());

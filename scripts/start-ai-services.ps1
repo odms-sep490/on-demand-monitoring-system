@@ -17,7 +17,9 @@ try {
     $lastProgress = Get-Date
     while ($true) {
         foreach ($job in $jobs) {
-            Receive-Job -Job $job
+            # Native tools (uvicorn, pip, WSL) also write normal logs to stderr.
+            # Report those logs without treating every stderr line as a launcher failure.
+            Receive-Job -Job $job -ErrorAction Continue
             if ($job.State -eq 'Failed') { throw "AI service failed: $($job.Name)" }
         }
         if (@($jobs | Where-Object { $_.State -eq 'Running' }).Count -eq 0) { break }

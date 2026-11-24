@@ -29,8 +29,7 @@ if (-not (Select-String -LiteralPath $config -Pattern '^ORDER_AGENT_MODEL=' -Qui
 Set-Location (Join-Path $repo 'Python/voice-order')
 $modelLine = Get-Content -LiteralPath $config | Where-Object { $_ -match '^DESCRIPTION_LLM_MODEL=' } | Select-Object -Last 1
 $model = ($modelLine -split '=',2)[1].Trim().Trim('"')
-try { $models = Invoke-RestMethod 'http://localhost:11434/api/tags' -TimeoutSec 5 }
-catch { throw 'Ollama is not running. Start Ollama, then run Start Description AI again.' }
+$models = & (Join-Path $PSScriptRoot 'ensure-ollama.ps1')
 $agentLine = Get-Content -LiteralPath $config | Where-Object { $_ -match '^ORDER_AGENT_MODEL=' } | Select-Object -Last 1
 $agentModel = if ($agentLine) { ($agentLine -split '=',2)[1].Trim().Trim('"') } else { $model }
 foreach ($neededModel in @($model, $agentModel) | Select-Object -Unique) {

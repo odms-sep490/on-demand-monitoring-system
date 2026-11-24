@@ -52,16 +52,7 @@ if (-not $ollama) {
     $ollama = Find-LocalTool 'ollama' (Join-Path $env:LOCALAPPDATA 'Programs/Ollama/ollama.exe')
     if (-not $ollama) { throw 'Cannot find Ollama after installation.' }
 }
-try { Invoke-RestMethod 'http://localhost:11434/api/tags' -TimeoutSec 3 | Out-Null }
-catch {
-    Write-Host '[Setup] Starting Ollama...'
-    Start-Process -FilePath $ollama -ArgumentList 'serve' -WindowStyle Hidden | Out-Null
-    $ready = $false
-    for ($i = 0; $i -lt 30; $i++) {
-        try { Invoke-RestMethod 'http://localhost:11434/api/tags' -TimeoutSec 2 | Out-Null; $ready = $true; break } catch { Start-Sleep -Seconds 1 }
-    }
-    if (-not $ready) { throw 'Ollama did not become ready.' }
-}
+& (Join-Path $PSScriptRoot 'ensure-ollama.ps1') | Out-Null
 Write-Host '[Setup] Checking local ZeroTTS files; downloading only missing files...'
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'install-zerotts-tts.ps1')
 if ($LASTEXITCODE) { throw 'TTS setup failed.' }

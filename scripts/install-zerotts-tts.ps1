@@ -7,13 +7,27 @@ if (!(Test-Path -LiteralPath $python)) {
 
 $env:HF_HUB_DISABLE_XET = '1'
 $env:PYTHONUTF8 = '1'
-& $python -m pip install -r (Join-Path $repo 'Python/voice-order/requirements-zerotts.txt')
-if ($LASTEXITCODE -ne 0) { throw 'ZeroTTS package installation failed.' }
+$ErrorActionPreference = 'Continue'
+@'
+import importlib.util
+import sys
+sys.exit(0 if importlib.util.find_spec('zerotts') else 1)
+'@ | & $python - 2>$null
+$needsInstall = $LASTEXITCODE -ne 0
+$ErrorActionPreference = 'Stop'
+if ($needsInstall) {
+    Write-Host '[Setup] ZeroTTS is missing; installing...'
+    & $python -m pip install -r (Join-Path $repo 'Python/voice-order/requirements-zerotts.txt')
+    if ($LASTEXITCODE -ne 0) { throw 'ZeroTTS package installation failed.' }
+} else {
+    Write-Host '[Setup] ZeroTTS is already installed; skipping package installation.'
+}
 
 $env:ZEROTTS_MODEL_REVISION = '18d6681518a4becaed3c125ceb3c7db59905fe86'
 @'
 import os
-from huggingface_hub import hf_hub_download
+from huggingface_hub import hf_hub_download, try_to_load_from_cache
+from pathlib import Path
 
 repo_id = "zeroweight-ai/ZeroTTS"
 revision = os.environ["ZEROTTS_MODEL_REVISION"]
@@ -32,6 +46,11 @@ files = (
     "voices/maichi/voice.npz",
 )
 for filename in files:
+    cached = try_to_load_from_cache(repo_id=repo_id, filename=filename, revision=revision)
+    if isinstance(cached, str) and Path(cached).is_file() and Path(cached).stat().st_size > 0:
+        print(f"[Reuse] {filename}", flush=True)
+        continue
+    print(f"[Download] Missing ZeroTTS file: {filename}", flush=True)
     path = hf_hub_download(repo_id=repo_id, filename=filename, revision=revision)
     print(f"Cached {filename} at {path}")
 '@ | & $python -

@@ -196,6 +196,9 @@ public class Order extends BaseEntity {
     @Column(name = "cancellation_reason", length = 40)
     private OrderCancellationReason cancellationReason;
 
+    @Column(name = "cancellation_note", columnDefinition = "TEXT")
+    private String cancellationNote;
+
     @Column(name = "cancelled_at")
     private Instant cancelledAt;
 

@@ -5,6 +5,7 @@ import com.ondemandmonitoring.order.enums.OrderPermitStatus;
 import com.ondemandmonitoring.order.enums.OrderRecurrenceType;
 import com.ondemandmonitoring.order.enums.OrderResultFormat;
 import com.ondemandmonitoring.order.enums.OrderStatus;
+import com.ondemandmonitoring.order.enums.OrderCancellationReason;
 import com.ondemandmonitoring.order.enums.ExecutionPlanStatus;
 import com.ondemandmonitoring.order.enums.OrderUsagePurpose;
 import com.ondemandmonitoring.order.enums.LegalReviewStatus;
@@ -90,6 +91,8 @@ public class OrderCreateResponse {
 
     // Status & Review Info
     OrderStatus orderStatus;
+    OrderCancellationReason cancellationReason;
+    String cancellationNote;
     long executionPlanRevision;
     ExecutionPlanStatus executionPlanStatus;
     String rejectReason;

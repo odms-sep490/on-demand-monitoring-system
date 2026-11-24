@@ -82,6 +82,14 @@ public class OrderService implements IOrderService {
     QuoteRepository quoteRepository;
     InvoiceRepository invoiceRepository;
 
+    @lombok.experimental.NonFinal
+    @org.springframework.beans.factory.annotation.Autowired
+    com.ondemandmonitoring.refund.service.RefundService refunds;
+
+    @lombok.experimental.NonFinal
+    @org.springframework.beans.factory.annotation.Autowired
+    com.ondemandmonitoring.finance.repository.PaymentRepository payments;
+
     @Override
     @Transactional
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
@@ -100,20 +108,53 @@ public class OrderService implements IOrderService {
 
     @Override
     @Transactional
-    @PreAuthorize("hasRole('CUSTOMER')")
+    @PreAuthorize("hasAnyAuthority('ROLE_CUSTOMER','ROLE_MANAGER','ROLE_ADMIN')")
     public OrderCreateResponse cancelBeforeReview(String orderId) {
+        return cancelBeforeReview(orderId, null);
+    }
+
+    @Override
+    @Transactional
+    @PreAuthorize("hasAnyAuthority('ROLE_CUSTOMER','ROLE_MANAGER','ROLE_ADMIN')")
+    public OrderCreateResponse cancelBeforeReview(String orderId, String reason) {
         Order order = orderRepository.findByIdForUpdate(orderId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found: " + orderId));
-        User customer = authenticatedUserResolver.getCurrentUser();
-        if (order.getCustomer() == null || !order.getCustomer().getId().equals(customer.getId())) {
+        var authentication = org.springframework.security.core.context.SecurityContextHolder
+                .getContext().getAuthentication();
+        boolean manager = authentication != null && authentication.getAuthorities().stream()
+                .anyMatch(authority -> authority.getAuthority().equals("ROLE_MANAGER")
+                        || authority.getAuthority().equals("ROLE_ADMIN"));
+        String cancellationNote = trimToNull(reason);
+        if (manager && cancellationNote == null) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "A cancellation reason is required");
+        }
+        if (cancellationNote != null && cancellationNote.length() > 1000) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Cancellation reason cannot exceed 1000 characters");
+        }
+        User customer = manager ? null : authenticatedUserResolver.getCurrentUser();
+        if (!manager && (order.getCustomer() == null || !order.getCustomer().getId().equals(customer.getId()))) {
             throw new ApiException(ErrorCode.ACCESS_DENIED, "This order does not belong to the current customer");
         }
-        if (order.getOrderStatus() != OrderStatus.PENDING) {
-            throw new ApiException(ErrorCode.INVALID_REQUEST,
-                    "Chỉ có thể hủy đơn trước khi quản lý bắt đầu duyệt.");
+        boolean managerCanCancel = manager
+                && order.getOrderStatus() != OrderStatus.CANCELLED
+                && order.getOrderStatus() != OrderStatus.COMPLETED
+                && order.getOrderStatus() != OrderStatus.REJECTED;
+        if (order.getOrderStatus() != OrderStatus.PENDING && !managerCanCancel) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST, "Order cannot be cancelled in its current state");
         }
         order.setOrderStatus(OrderStatus.CANCELLED);
+        order.setCancellationReason(manager
+                ? com.ondemandmonitoring.order.enums.OrderCancellationReason.MANAGER_REQUEST
+                : com.ondemandmonitoring.order.enums.OrderCancellationReason.CUSTOMER_REQUEST);
+        order.setCancellationNote(cancellationNote);
         order.setCancelledAt(Instant.now());
+        if (manager && invoiceRepository.findByOrderId(orderId)
+                .filter(invoice -> payments.existsByInvoiceIdAndPaymentTypeAndStatus(invoice.getId(),
+                        com.ondemandmonitoring.finance.enums.PaymentType.DEPOSIT,
+                        com.ondemandmonitoring.finance.enums.PaymentStatus.SUCCESS)).isPresent()) {
+            refunds.requestDepositRefund(orderId,
+                    new com.ondemandmonitoring.refund.dto.RequestDepositRefundRequest(cancellationNote));
+        }
         return toResponse(orderRepository.save(order));
     }
 

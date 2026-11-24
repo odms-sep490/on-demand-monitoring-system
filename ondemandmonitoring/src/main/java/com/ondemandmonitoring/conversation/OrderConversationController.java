@@ -19,6 +19,7 @@ public class OrderConversationController {
     public ApiResponse<java.util.Map<String,Object>> transcribe(@RequestParam("audio") org.springframework.web.multipart.MultipartFile audio) {return ApiResponse.ok(service.transcribe(audio));}
     @PostMapping public ApiResponse<OrderConversationService.View> create() {return ApiResponse.ok(service.create());}
     @GetMapping("/{id}") public ApiResponse<OrderConversationService.View> read(@PathVariable String id) {return ApiResponse.ok(service.read(id));}
+    @PostMapping("/{id}/description-review") public ApiResponse<OrderConversationService.View> descriptionReview(@PathVariable String id,@Valid @RequestBody OrderConversationService.DescriptionReview input) {return ApiResponse.ok(service.reviewDescription(id,input));}
     @DeleteMapping("/{id}") public ApiResponse<Void> delete(@PathVariable String id) {service.delete(id);return ApiResponse.ok("Conversation deleted",null);}
     @PostMapping("/{id}/messages") public ApiResponse<OrderConversationService.View> message(@PathVariable String id,@Valid @RequestBody OrderConversationService.Message input) {return ApiResponse.ok(service.message(id,input));}
     @PostMapping("/{id}/confirm") public ApiResponse<OrderConversationService.View> confirm(@PathVariable String id,@Valid @RequestBody OrderConversationService.Revision input) {return ApiResponse.ok(service.confirm(id,input.revision()));}

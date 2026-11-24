@@ -27,12 +27,14 @@ class DescriptionTests(unittest.TestCase):
         q=dict(questionId='monitoringTarget',questionText='Khu vực nào?',questionType='TEXT',options=[],relatedField='monitoringTarget',required=False)
         with self.assertRaises(ValidationError):agent.Draft.model_validate(READY|{'followUpQuestions':[q]*4})
     def test_auth_before_inference(self):
-        with patch.dict('os.environ',{'DESCRIPTION_AI_TOKEN':'internal'}),patch.object(agent,'generate') as generate:
-            self.assertEqual(TestClient(agent.app).post('/description/generate',json=self.request().model_dump()).status_code,401)
-            generate.assert_not_called()
+        payload={'service':{'id':'s1','name':'Kiểm tra nhà xưởng'},'originalText':'Kiểm tra mái','statements':['Kiểm tra mái'],'action':'review'}
+        with patch.dict('os.environ',{'DESCRIPTION_AI_TOKEN':'internal'}),patch('description_intelligence.review_description') as review:
+            self.assertEqual(TestClient(agent.app).post('/conversation/description-review',json=payload).status_code,401)
+            review.assert_not_called()
     def test_failure_is_unavailable_not_mock(self):
-        with patch.dict('os.environ',{'DESCRIPTION_AI_TOKEN':'internal'}),patch.object(agent,'generate',side_effect=RuntimeError()):
-            response=TestClient(agent.app).post('/description/generate',headers={'X-Internal-Token':'internal'},json=self.request().model_dump())
+        payload={'service':{'id':'s1','name':'Kiểm tra nhà xưởng'},'originalText':'Kiểm tra mái','statements':['Kiểm tra mái'],'action':'review'}
+        with patch.dict('os.environ',{'DESCRIPTION_AI_TOKEN':'internal'}),patch('description_intelligence.review_description',side_effect=RuntimeError()):
+            response=TestClient(agent.app).post('/conversation/description-review',headers={'X-Internal-Token':'internal'},json=payload)
             self.assertEqual(response.status_code,503)
     def test_retry_is_bounded(self):
         class BadAgent:

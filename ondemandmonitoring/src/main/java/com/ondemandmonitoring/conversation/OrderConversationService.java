@@ -35,6 +35,9 @@ public class OrderConversationService {
     @Value("${DESCRIPTION_AI_URL:http://localhost:8002}") private String workerUrl;
     @Value("${DESCRIPTION_AI_TOKEN:}") private String workerToken;
     public record Revision(@Min(0) long revision) {}
+    public record DescriptionReview(@Min(0) long revision, @NotBlank String serviceId,
+            @NotBlank @Size(max=2000) String originalText,
+            @Size(max=2000) String answer, @NotBlank @Pattern(regexp="review|generate|restart") String action) {}
     public record Message(@Min(0) long revision,@NotBlank @Size(max=80) String requestId,@NotBlank @Size(max=2000) String text,
             @Size(max=20) Map<String,Object> customerContext) {
         public Message(long revision,String requestId,String text){this(revision,requestId,text,Map.of());}
@@ -74,6 +77,46 @@ public class OrderConversationService {
         sessions.delete(s);
     }
     @Transactional(readOnly=true) public View read(String id) {return view(owned(id));}
+    @SuppressWarnings("unchecked")
+    @Transactional public View reviewDescription(String id, DescriptionReview input) {
+        var session=owned(id); revision(session,input.revision());
+        Map<String,Object> service=((List<Map<String,Object>>)catalog().get("services")).stream()
+                .filter(row->input.serviceId().equals(row.get("id"))).findFirst()
+                .orElseThrow(()->new ApiException(ErrorCode.SERVICE_NOT_FOUND));
+        Map<String,Object> previous=(Map<String,Object>)session.getState().getOrDefault("descriptionReview",Map.of());
+        boolean restart=input.action().equals("restart") || !input.serviceId().equals(previous.get("serviceId"))
+                || !input.originalText().equals(previous.get("originalText"));
+        List<String> statements=new ArrayList<>();
+        if(!restart && previous.get("statements") instanceof List<?> saved) {
+            for(Object statement:saved) statements.add(Objects.toString(statement,""));
+        } else statements.add(input.originalText());
+        if(input.answer()!=null && !input.answer().isBlank()) statements.add(input.answer().strip());
+        if(statements.size()>25) throw new ApiException(ErrorCode.INVALID_REQUEST,"Cuộc tư vấn đã đủ dài. Hãy xem và áp dụng mô tả hiện tại.");
+        if(workerToken.isBlank()) throw new ApiException(ErrorCode.INVALID_REQUEST,"Chưa cấu hình kết nối AI.");
+        if(!inferenceSlots.tryAcquire()) throw new ApiException(ErrorCode.INVALID_REQUEST,"Trợ lý đang bận. Vui lòng thử lại.");
+        try {
+            var payload=Map.of("service",service,"originalText",input.originalText(),"statements",statements,
+                    "action",input.action().equals("generate")?"generate":"review");
+            var request=HttpRequest.newBuilder(URI.create(workerUrl+"/conversation/description-review"))
+                    .timeout(Duration.ofSeconds(85)).header("Content-Type","application/json")
+                    .header("X-Internal-Token",workerToken)
+                    .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(payload))).build();
+            var response=HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(3)).build()
+                    .send(request,HttpResponse.BodyHandlers.ofString());
+            if(response.statusCode()!=200 || response.body().length()>60000)
+                throw new ApiException(ErrorCode.INVALID_REQUEST,"Chưa đánh giá được mô tả. Câu trả lời trước vẫn được giữ.");
+            Map<String,Object> result=json.readValue(response.body(),new com.fasterxml.jackson.core.type.TypeReference<Map<String,Object>>(){});
+            result.put("serviceId",input.serviceId());
+            session.getState().put("descriptionReview",result);
+            // Description consultation never mutates canonical fields or creates an Order.
+            return save(session);
+        } catch(InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new ApiException(ErrorCode.INVALID_REQUEST,"Đã dừng đánh giá mô tả.");
+        } catch(ApiException error) {throw error;}
+        catch(Exception error) {throw new ApiException(ErrorCode.INVALID_REQUEST,"Chưa kết nối được trợ lý mô tả. Hãy thử lại.");}
+        finally {inferenceSlots.release();}
+    }
     @Transactional(readOnly=true) public byte[] speech(String id,String text) {
         owned(id);
         try {
@@ -81,7 +124,8 @@ public class OrderConversationService {
                 .timeout(Duration.ofSeconds(245)).header("Content-Type","application/json")
                 .header("X-Internal-Token",workerToken)
                 .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(Map.of("text",text)))).build();
-            var response=HttpClient.newHttpClient().send(request,HttpResponse.BodyHandlers.ofByteArray());
+            var response=HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(3)).build()
+                    .send(request,HttpResponse.BodyHandlers.ofByteArray());
             var audio=response.body();
             if(response.statusCode()!=200 || audio.length<44 || audio.length>20*1024*1024
                 || audio[0]!='R' || audio[1]!='I' || audio[2]!='F' || audio[3]!='F')

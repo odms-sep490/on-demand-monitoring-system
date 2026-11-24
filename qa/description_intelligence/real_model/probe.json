@@ -1,0 +1,542 @@
+[
+  {
+    "seconds": 11.925229200000103,
+    "result": {
+      "originalText": "4 hướng đông tây nam bắc",
+      "statements": [
+        "4 hướng đông tây nam bắc",
+        "Nhà xưởng A, tôi muốn kiểm tra phần mái bị bong và rỉ sét.",
+        "Quan sát toàn bộ mái, tập trung phía Đông cạnh cổng số 2, cần ảnh rõ các vị trí hư hỏng."
+      ],
+      "facts": {},
+      "unknownInformation": [
+        "đối tượng cụ thể",
+        "phần cần phủ"
+      ],
+      "optionalImprovements": [],
+      "sourceReferences": [
+        {
+          "sourceId": "checklist:1b2bd91f-3df7-4c33-806f-e35338db259c",
+          "version": 3,
+          "excerpt": "Kiểm tra mái nhà xưởng",
+          "kind": "checklist",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 0
+        },
+        {
+          "sourceId": "checklist:2fec7cb2-5430-4de6-aa28-8020ebcadf1a",
+          "version": 3,
+          "excerpt": "Kiểm tra bề mặt và kết cấu phía trên",
+          "kind": "checklist",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 0
+        },
+        {
+          "sourceId": "checklist:8472cac3-5eaf-442f-9c00-15eabfa48102",
+          "version": 3,
+          "excerpt": "Ghi nhận hiện trạng sau khi hoàn tất kiểm tra",
+          "kind": "checklist",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 0
+        },
+        {
+          "sourceId": "checklist:9052d60e-cd50-4bd6-9c4c-5674c702eb08",
+          "version": 3,
+          "excerpt": "Kiểm tra tình trạng tổng thể nhà xưởng",
+          "kind": "checklist",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 0
+        },
+        {
+          "sourceId": "checklist:d1edba36-a894-47dc-b9fc-f4e5020b908b",
+          "version": 3,
+          "excerpt": "Quan sát khu vực khó tiếp cận",
+          "kind": "checklist",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 0
+        },
+        {
+          "sourceId": "checklist:ea75238a-c75f-487c-acc8-0f530ad4131d",
+          "version": 3,
+          "excerpt": "Chụp ảnh các vị trí bất thường",
+          "kind": "checklist",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 0
+        },
+        {
+          "sourceId": "deliverable:1a6c9b12-5315-4367-9cfe-20d0e32f9564",
+          "version": null,
+          "excerpt": "Báo cáo kết quả",
+          "kind": "deliverable",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 0
+        },
+        {
+          "sourceId": "deliverable:3c0e23e7-c2dd-4d39-a00a-30c3e103c3c7",
+          "version": null,
+          "excerpt": "Ảnh chụp",
+          "kind": "deliverable",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 0
+        },
+        {
+          "sourceId": "deliverable:c727cdde-bbcc-4c60-af5b-09d3af657fa5",
+          "version": null,
+          "excerpt": "Video",
+          "kind": "deliverable",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 0
+        },
+        {
+          "sourceId": "service:3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "version": null,
+          "excerpt": "Kiểm tra mái, kết cấu bên ngoài và các vị trí khó tiếp cận bằng drone.",
+          "kind": "service",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 0
+        }
+      ],
+      "readiness": "NEEDS_CLARIFICATION",
+      "nextQuestionField": null,
+      "nextQuestion": "",
+      "quickReplies": [],
+      "generatedDescription": "",
+      "paragraphTrace": [],
+      "contradictions": [],
+      "unsupportedRequests": [],
+      "rejectedFacts": [],
+      "dimensions": {
+        "objective": {
+          "score": 0,
+          "maximum": 15,
+          "evidence": []
+        },
+        "subject": {
+          "score": 0,
+          "maximum": 15,
+          "evidence": []
+        },
+        "scope": {
+          "score": 0,
+          "maximum": 15,
+          "evidence": []
+        },
+        "concerns": {
+          "score": 0,
+          "maximum": 15,
+          "evidence": []
+        },
+        "outputs": {
+          "score": 0,
+          "maximum": 15,
+          "evidence": []
+        },
+        "handoff": {
+          "score": null,
+          "maximum": 10,
+          "evidence": []
+        },
+        "consistency": {
+          "score": null,
+          "maximum": 10,
+          "evidence": []
+        },
+        "readability": {
+          "score": null,
+          "maximum": 5,
+          "evidence": []
+        }
+      },
+      "score": null,
+      "calibrationStatus": "UNVERIFIED",
+      "hardChecks": {
+        "NO_FABRICATED_FACTS": true,
+        "NO_CRITICAL_CONTRADICTIONS": true,
+        "NO_UNVERIFIED_CAPABILITY_PROMISES": true,
+        "CUSTOMER_CONFIRMED_SCOPE": false
+      },
+      "evidenceHash": "0acc36d0ce35ddd0092d1a4bb6d59b62ff0a8361246027869769abcafbaaa25e"
+    }
+  },
+  {
+    "seconds": 1.2283391000000847,
+    "result": {
+      "originalText": "4 hướng đông tây nam bắc",
+      "statements": [
+        "4 hướng đông tây nam bắc",
+        "Nhà xưởng A, tôi muốn kiểm tra phần mái bị bong và rỉ sét.",
+        "Quan sát toàn bộ mái, tập trung phía Đông cạnh cổng số 2, cần ảnh rõ các vị trí hư hỏng."
+      ],
+      "facts": {},
+      "unknownInformation": [
+        "đội vận hành cần hiểu để xác định nhiệm vụ",
+        "địa điểm cần kiểm tra",
+        "các hướng cần kiểm tra bằng drone"
+      ],
+      "optionalImprovements": [],
+      "sourceReferences": [
+        {
+          "sourceId": "checklist:1b2bd91f-3df7-4c33-806f-e35338db259c",
+          "version": 3,
+          "excerpt": "Kiểm tra mái nhà xưởng",
+          "kind": "checklist",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 5
+        },
+        {
+          "sourceId": "checklist:9052d60e-cd50-4bd6-9c4c-5674c702eb08",
+          "version": 3,
+          "excerpt": "Kiểm tra tình trạng tổng thể nhà xưởng",
+          "kind": "checklist",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 4
+        },
+        {
+          "sourceId": "service:3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "version": null,
+          "excerpt": "Kiểm tra mái, kết cấu bên ngoài và các vị trí khó tiếp cận bằng drone.",
+          "kind": "service",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 4
+        },
+        {
+          "sourceId": "checklist:2fec7cb2-5430-4de6-aa28-8020ebcadf1a",
+          "version": 3,
+          "excerpt": "Kiểm tra bề mặt và kết cấu phía trên",
+          "kind": "checklist",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 3
+        },
+        {
+          "sourceId": "checklist:8472cac3-5eaf-442f-9c00-15eabfa48102",
+          "version": 3,
+          "excerpt": "Ghi nhận hiện trạng sau khi hoàn tất kiểm tra",
+          "kind": "checklist",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 2
+        },
+        {
+          "sourceId": "checklist:d1edba36-a894-47dc-b9fc-f4e5020b908b",
+          "version": 3,
+          "excerpt": "Quan sát khu vực khó tiếp cận",
+          "kind": "checklist",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 0
+        },
+        {
+          "sourceId": "checklist:ea75238a-c75f-487c-acc8-0f530ad4131d",
+          "version": 3,
+          "excerpt": "Chụp ảnh các vị trí bất thường",
+          "kind": "checklist",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 0
+        },
+        {
+          "sourceId": "deliverable:1a6c9b12-5315-4367-9cfe-20d0e32f9564",
+          "version": null,
+          "excerpt": "Báo cáo kết quả",
+          "kind": "deliverable",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 0
+        },
+        {
+          "sourceId": "deliverable:3c0e23e7-c2dd-4d39-a00a-30c3e103c3c7",
+          "version": null,
+          "excerpt": "Ảnh chụp",
+          "kind": "deliverable",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 0
+        },
+        {
+          "sourceId": "deliverable:c727cdde-bbcc-4c60-af5b-09d3af657fa5",
+          "version": null,
+          "excerpt": "Video",
+          "kind": "deliverable",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 0
+        }
+      ],
+      "readiness": "NEEDS_CLARIFICATION",
+      "nextQuestionField": null,
+      "nextQuestion": "",
+      "quickReplies": [],
+      "generatedDescription": "",
+      "paragraphTrace": [],
+      "contradictions": [],
+      "unsupportedRequests": [],
+      "rejectedFacts": [],
+      "dimensions": {
+        "objective": {
+          "score": 0,
+          "maximum": 15,
+          "evidence": []
+        },
+        "subject": {
+          "score": 0,
+          "maximum": 15,
+          "evidence": []
+        },
+        "scope": {
+          "score": 0,
+          "maximum": 15,
+          "evidence": []
+        },
+        "concerns": {
+          "score": 0,
+          "maximum": 15,
+          "evidence": []
+        },
+        "outputs": {
+          "score": 0,
+          "maximum": 15,
+          "evidence": []
+        },
+        "handoff": {
+          "score": null,
+          "maximum": 10,
+          "evidence": []
+        },
+        "consistency": {
+          "score": null,
+          "maximum": 10,
+          "evidence": []
+        },
+        "readability": {
+          "score": null,
+          "maximum": 5,
+          "evidence": []
+        }
+      },
+      "score": null,
+      "calibrationStatus": "UNVERIFIED",
+      "hardChecks": {
+        "NO_FABRICATED_FACTS": true,
+        "NO_CRITICAL_CONTRADICTIONS": true,
+        "NO_UNVERIFIED_CAPABILITY_PROMISES": true,
+        "CUSTOMER_CONFIRMED_SCOPE": false
+      },
+      "evidenceHash": "1c82069a1b37ad4bd369c900474c298f2d542327f3da5ae8f71505d3b4dda0ad"
+    }
+  },
+  {
+    "seconds": 1.6696742999993148,
+    "result": {
+      "originalText": "4 hướng đông tây nam bắc",
+      "statements": [
+        "4 hướng đông tây nam bắc",
+        "Nhà xưởng A, tôi muốn kiểm tra phần mái bị bong và rỉ sét.",
+        "Quan sát toàn bộ mái, tập trung phía Đông cạnh cổng số 2, cần ảnh rõ các vị trí hư hỏng."
+      ],
+      "facts": {},
+      "unknownInformation": [
+        "Nội dung chi tiết về hướng cần quan sát bằng drone",
+        "Địa điểm cụ thể cần quan sát bằng drone",
+        "Đối tượng cần quan sát bằng drone (mái nhà xưởng A)",
+        "Các vị trí hư hỏng cần chụp ảnh rõ ràng"
+      ],
+      "optionalImprovements": [],
+      "sourceReferences": [
+        {
+          "sourceId": "service:3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "version": null,
+          "excerpt": "Kiểm tra mái, kết cấu bên ngoài và các vị trí khó tiếp cận bằng drone.",
+          "kind": "service",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 7
+        },
+        {
+          "sourceId": "checklist:1b2bd91f-3df7-4c33-806f-e35338db259c",
+          "version": 3,
+          "excerpt": "Kiểm tra mái nhà xưởng",
+          "kind": "checklist",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 5
+        },
+        {
+          "sourceId": "checklist:2fec7cb2-5430-4de6-aa28-8020ebcadf1a",
+          "version": 3,
+          "excerpt": "Kiểm tra bề mặt và kết cấu phía trên",
+          "kind": "checklist",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 4
+        },
+        {
+          "sourceId": "checklist:9052d60e-cd50-4bd6-9c4c-5674c702eb08",
+          "version": 3,
+          "excerpt": "Kiểm tra tình trạng tổng thể nhà xưởng",
+          "kind": "checklist",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 4
+        },
+        {
+          "sourceId": "checklist:ea75238a-c75f-487c-acc8-0f530ad4131d",
+          "version": 3,
+          "excerpt": "Chụp ảnh các vị trí bất thường",
+          "kind": "checklist",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 4
+        },
+        {
+          "sourceId": "checklist:8472cac3-5eaf-442f-9c00-15eabfa48102",
+          "version": 3,
+          "excerpt": "Ghi nhận hiện trạng sau khi hoàn tất kiểm tra",
+          "kind": "checklist",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 2
+        },
+        {
+          "sourceId": "checklist:d1edba36-a894-47dc-b9fc-f4e5020b908b",
+          "version": 3,
+          "excerpt": "Quan sát khu vực khó tiếp cận",
+          "kind": "checklist",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 2
+        },
+        {
+          "sourceId": "deliverable:3c0e23e7-c2dd-4d39-a00a-30c3e103c3c7",
+          "version": null,
+          "excerpt": "Ảnh chụp",
+          "kind": "deliverable",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 1
+        },
+        {
+          "sourceId": "deliverable:1a6c9b12-5315-4367-9cfe-20d0e32f9564",
+          "version": null,
+          "excerpt": "Báo cáo kết quả",
+          "kind": "deliverable",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 0
+        },
+        {
+          "sourceId": "deliverable:c727cdde-bbcc-4c60-af5b-09d3af657fa5",
+          "version": null,
+          "excerpt": "Video",
+          "kind": "deliverable",
+          "serviceId": "3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+          "verified": true,
+          "provenance": "authenticated-live-catalog",
+          "relevance": 0
+        }
+      ],
+      "readiness": "NEEDS_CLARIFICATION",
+      "nextQuestionField": null,
+      "nextQuestion": "",
+      "quickReplies": [],
+      "generatedDescription": "",
+      "paragraphTrace": [],
+      "contradictions": [],
+      "unsupportedRequests": [],
+      "rejectedFacts": [],
+      "dimensions": {
+        "objective": {
+          "score": 0,
+          "maximum": 15,
+          "evidence": []
+        },
+        "subject": {
+          "score": 0,
+          "maximum": 15,
+          "evidence": []
+        },
+        "scope": {
+          "score": 0,
+          "maximum": 15,
+          "evidence": []
+        },
+        "concerns": {
+          "score": 0,
+          "maximum": 15,
+          "evidence": []
+        },
+        "outputs": {
+          "score": 0,
+          "maximum": 15,
+          "evidence": []
+        },
+        "handoff": {
+          "score": null,
+          "maximum": 10,
+          "evidence": []
+        },
+        "consistency": {
+          "score": null,
+          "maximum": 10,
+          "evidence": []
+        },
+        "readability": {
+          "score": null,
+          "maximum": 5,
+          "evidence": []
+        }
+      },
+      "score": null,
+      "calibrationStatus": "UNVERIFIED",
+      "hardChecks": {
+        "NO_FABRICATED_FACTS": true,
+        "NO_CRITICAL_CONTRADICTIONS": true,
+        "NO_UNVERIFIED_CAPABILITY_PROMISES": true,
+        "CUSTOMER_CONFIRMED_SCOPE": false
+      },
+      "evidenceHash": "2c2a9a77d9bc7f1755332f14030958e3f46543d6ff9b6c85c7f2f28681938bf9"
+    }
+  }
+]

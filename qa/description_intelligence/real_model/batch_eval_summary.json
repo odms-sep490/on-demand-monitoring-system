@@ -1,0 +1,29 @@
+{
+  "model": "qwen2.5:3b",
+  "REAL_MODEL_CASES_EXECUTED": 200,
+  "REAL_MODEL_CALLS": 200,
+  "PASS": 167,
+  "FAIL": 33,
+  "BLOCKED": 0,
+  "GROUNDING_CLEAN_RATE": 0.855,
+  "GUARDRAIL_BLOCKED_CASES": 29,
+  "AVG_LATENCY_SECONDS": 1.9,
+  "BY_SERVICE": {
+    "Giám sát công trình": {
+      "PASS": 48,
+      "FAIL": 8
+    },
+    "Giám sát khu vực": {
+      "FAIL": 7,
+      "PASS": 41
+    },
+    "Giám sát rừng": {
+      "PASS": 40,
+      "FAIL": 8
+    },
+    "Kiểm tra nhà xưởng": {
+      "PASS": 38,
+      "FAIL": 10
+    }
+  }
+}

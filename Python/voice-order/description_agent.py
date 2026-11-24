@@ -196,6 +196,27 @@ def conversation_endpoint(request: TurnInput, x_internal_token: str = Header(def
         raise HTTPException(503, 'ORDER_AGENT_UNAVAILABLE')
 
 
+class MissionDescriptionReview(BaseModel):
+    service: dict
+    originalText: str = Field(min_length=1, max_length=2000)
+    statements: list[str] = Field(max_length=25)
+    action: Literal['review', 'generate'] = 'review'
+
+
+@app.post('/conversation/description-review')
+def mission_description_review(body: MissionDescriptionReview, x_internal_token: str = Header(default='')):
+    token = os.getenv('DESCRIPTION_AI_TOKEN', '')
+    if not token or not secrets.compare_digest(token, x_internal_token):
+        raise HTTPException(401)
+    from description_intelligence import review_description
+    try:
+        return review_description(body.service, body.originalText, body.statements, body.action)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+    except Exception as error:
+        raise HTTPException(503, 'Description intelligence unavailable') from error
+
+
 @app.get('/description/health')
 def health():
     import urllib.request

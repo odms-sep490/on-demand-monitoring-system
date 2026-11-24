@@ -1,0 +1,1440 @@
+{
+  "model": "qwen2.5:3b",
+  "RETEST_33_BATCH": {
+    "PASS": 29,
+    "FAIL": 4
+  },
+  "RETEST_3_MT": {
+    "FAIL": 2,
+    "PASS": 1
+  },
+  "HELD_OUT_50": {
+    "PASS": 45,
+    "FAIL": 5
+  },
+  "HELD_OUT_GROUNDING_CLEAN_RATE": 0.9,
+  "batchRetest": [
+    {
+      "caseId": "SCEN-00004",
+      "split": "train_eval",
+      "serviceName": "Giám sát công trình",
+      "completeness": "extremely_short",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "subject": "công trình"
+      },
+      "durationSeconds": 12.19
+    },
+    {
+      "caseId": "SCEN-00100",
+      "split": "train_eval",
+      "serviceName": "Giám sát công trình",
+      "completeness": "long_but_vague",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "giám sát công trình"
+      },
+      "durationSeconds": 13.66
+    },
+    {
+      "caseId": "SCEN-00172",
+      "split": "train_eval",
+      "serviceName": "Giám sát công trình",
+      "completeness": "missing_one_material_detail",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kiểm tra điểm nứt bề mặt và sạt lở và xuất Ảnh chụp",
+        "scope": "điểm nứt bề mặt và sạt lở",
+        "concerns": "kiểm định kết cấu chuyên sâu và cấp phép bay",
+        "outputs": "ảnh chụp"
+      },
+      "durationSeconds": 14.96
+    },
+    {
+      "caseId": "SCEN-00147",
+      "split": "train_eval",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "excessively_technical",
+      "status": "FAIL",
+      "noFabricated": false,
+      "rejectedFacts": [
+        {
+          "field": "scope",
+          "value": "tuyến đường tiền đường thi công hàng mục, ra video",
+          "reason": "not_grounded_in_statement"
+        }
+      ],
+      "facts": {
+        "objective": "giám sát khu vực cho khu công nghiệp phía Đông (Phần Mai và Kêt Ca Mát Ngõi)",
+        "subject": "khu công nghiệp phía Đông (Phần Mai và Kêt Ca Mát Ngõi)",
+        "outputs": "video"
+      },
+      "durationSeconds": 16.57
+    },
+    {
+      "caseId": "SCEN-00003",
+      "split": "train_eval",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "extremely_short",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "scope": "khu vực"
+      },
+      "durationSeconds": 1.07
+    },
+    {
+      "caseId": "SCEN-00002",
+      "split": "train_eval",
+      "serviceName": "Giám sát rừng",
+      "completeness": "extremely_short",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "subject": "rừng"
+      },
+      "durationSeconds": 1.04
+    },
+    {
+      "caseId": "SCEN-00073",
+      "split": "train_eval",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "fully_detailed",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kiểm tra nhà xưởng cho kho số 2",
+        "subject": "nhà xưởng cho kho số 2",
+        "scope": "phủ khu vực phía Đông cạnh cổng chính",
+        "directions": "tập trung tiến độ thi công hạng mục chính",
+        "concerns": "cần nhận Báo cáo kết quả",
+        "outputs": "Báo cáo kết quả"
+      },
+      "durationSeconds": 1.85
+    },
+    {
+      "caseId": "SCEN-00169",
+      "split": "train_eval",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "missing_one_material_detail",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "concerns": "quá trình ghi rõ đối tượng cụ thể",
+        "outputs": "Ảnh chụp"
+      },
+      "durationSeconds": 1.24
+    },
+    {
+      "caseId": "SCEN-00128",
+      "split": "train_eval",
+      "serviceName": "Giám sát công trình",
+      "completeness": "internally_contradictory",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "chụp đúng cổng chính của công trình cầu vượt",
+        "subject": "công trình cầu vượt",
+        "scope": "ranh giới phía Nam và lối ra vào",
+        "directions": "bao phủ toàn bộ",
+        "concerns": "không bỏ sót góc nào"
+      },
+      "durationSeconds": 1.62
+    },
+    {
+      "caseId": "SCEN-00179",
+      "split": "train_eval",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "missing_one_material_detail",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kiểm tra dấu hiệu rỉ sét và bong tróc và xuất Ảnh chụp nhưng chưa ghi rõ đối tượng cụ thể. ngoài ra cần cam kết kiểm định kết cấu chuyên sâu và cấp phép bay ngay",
+        "scope": "khu vực cần kiểm tra dấu hiệu rỉ sét và bong tróc và xuất Ảnh chụp. ngoài ra cần kiểm định kết cấu chuyên sâu và cấp phép bay ngay",
+        "concerns": "dấu hiệu rỉ sét và bong tróc, cần kiểm định kết cấu chuyên sâu và cấp phép bay ngay",
+        "outputs": "Ảnh chụp, kết quả kiểm định kết cấu"
+      },
+      "durationSeconds": 2.76
+    },
+    {
+      "caseId": "SCEN-00054",
+      "split": "train_eval",
+      "serviceName": "Giám sát rừng",
+      "completeness": "partially_complete",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "giám sát rừng tại tiểu khu 4 rừng thông",
+        "subject": "rừng thông",
+        "scope": "tiểu khu 4",
+        "directions": "giám sát",
+        "concerns": "giới hạn tiến độ thi công hạng mục chính"
+      },
+      "durationSeconds": 1.5
+    },
+    {
+      "caseId": "SCEN-00149",
+      "split": "train_eval",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "excessively_technical",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kiểm tra nhà xưởng cho nhà máy dệt",
+        "subject": "nhà máy dệt",
+        "scope": "khu vực phía Đông cạnh cổng chính",
+        "directions": "chú ý điểm nứt bề mặt và sạt lở",
+        "outputs": "Báo cáo kết quả"
+      },
+      "durationSeconds": 1.66
+    },
+    {
+      "caseId": "SCEN-00132",
+      "split": "train_eval",
+      "serviceName": "Giám sát công trình",
+      "completeness": "internally_contradictory",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "chụp đúng cổng chính của dự án chung cư block B, nhưng cũng phải bao phủ toàn bộ khu vực phía Đông cạnh cổng chính không bỏ sót góc nào.",
+        "subject": "cổng chính của dự án chung cư block B và khu vực phía Đông cạnh cổng chính",
+        "scope": "khu vực phía Đông cạnh cổng chính của dự án chung cư block B",
+        "directions": "chụp đúng cổng chính và bao phủ toàn bộ khu vực phía Đông cạnh cổng chính"
+      },
+      "durationSeconds": 2.6
+    },
+    {
+      "caseId": "SCEN-00159",
+      "split": "train_eval",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "excessively_technical",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "giám sát khu vực ven sông phía Đông cạnh cổng chính",
+        "subject": "khu vực ven sông phía Đông cạnh cổng chính",
+        "scope": "điểm nứt bề mặt và sạt lở",
+        "directions": "Video",
+        "outputs": "Video"
+      },
+      "durationSeconds": 1.74
+    },
+    {
+      "caseId": "SCEN-00130",
+      "split": "train_eval",
+      "serviceName": "Giám sát rừng",
+      "completeness": "internally_contradictory",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "chụp đúng cổng chính của vùng đồi cây xanh, bao phủ toàn bộ phần mái và kết cấu mặt ngoài",
+        "subject": "cổng chính của vùng đồi cây xanh, phần mái và kết cấu mặt ngoài",
+        "scope": "vùng đồi cây xanh",
+        "directions": "chụp đúng và bao phủ toàn bộ",
+        "concerns": "không bỏ sót góc nào"
+      },
+      "durationSeconds": 2.29
+    },
+    {
+      "caseId": "SCEN-00133",
+      "split": "train_eval",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "internally_contradictory",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "chụp đúng cổng chính của mái tôn dãy C, bao phủ toàn bộ hai phân khu đang ưu tiên",
+        "subject": "cổng chính của mái tôn dãy C",
+        "scope": "hai phân khu đang ưu tiên",
+        "directions": "chụp đúng, bao phủ toàn bộ",
+        "concerns": "không bỏ sót góc nào"
+      },
+      "durationSeconds": 2.13
+    },
+    {
+      "caseId": "SCEN-00037",
+      "split": "train_eval",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "short_but_meaningful",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kt nx cho nx A",
+        "subject": "nx A",
+        "scope": "hai phân khu đang ưu tiên"
+      },
+      "durationSeconds": 1.34
+    },
+    {
+      "caseId": "SCEN-00139",
+      "split": "train_eval",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "internally_contradictory",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "chụp đúng cổng chính của khu đô thị mới, bao phủ toàn bộ hai phân khu đang ưu tiên không bỏ sót góc nào",
+        "subject": "cổng chính của khu đô thị mới, hai phân khu đang ưu tiên",
+        "scope": "khu đô thị mới, hai phân khu đang ưu tiên",
+        "directions": "chụp đúng, bao phủ toàn bộ, không bỏ sót góc nào",
+        "concerns": "không bỏ sót góc nào"
+      },
+      "durationSeconds": 2.43
+    },
+    {
+      "caseId": "SCEN-00065",
+      "split": "train_eval",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "partially_complete",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kiểm tra nhà xưởng tại mái tôn dãy C",
+        "subject": "nhà xưởng tại mái tôn dãy C",
+        "directions": "kiểm tra",
+        "concerns": "dấu hiệu rỉ sét và bong tróc"
+      },
+      "durationSeconds": 1.78
+    },
+    {
+      "caseId": "SCEN-00388",
+      "split": "train_eval",
+      "serviceName": "Giám sát công trình",
+      "completeness": "extremely_short",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "giám sát công trình",
+        "subject": "công trình",
+        "concerns": "cam kết kiểm định kết cấu chuyên sâu và cấp phép bay"
+      },
+      "durationSeconds": 1.46
+    },
+    {
+      "caseId": "SCEN-00188",
+      "split": "train_eval",
+      "serviceName": "Giám sát công trình",
+      "completeness": "missing_one_material_detail",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kiểm tra tiến độ thi công hạng mục chính",
+        "scope": "hạng mục chính",
+        "concerns": "chưa ghi rõ đối tượng cụ thể",
+        "outputs": "Ảnh chụp"
+      },
+      "durationSeconds": 1.57
+    },
+    {
+      "caseId": "SCEN-00143",
+      "split": "train_eval",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "internally_contradictory",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "chi can chup dung cong chinh cua khu cong nghiep phia Dong",
+        "subject": "khu cong nghiep phia Dong",
+        "concerns": "bao phu toan bo phan mai va ket cau mat ngoai khong bo sot goc nao"
+      },
+      "durationSeconds": 1.93
+    },
+    {
+      "caseId": "SCEN-00363",
+      "split": "train_eval",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "missing_one_material_detail",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kiểm tra tiến độ thi công hạng mục chính",
+        "scope": "hạng mục chính",
+        "concerns": "chưa ghi rõ đối tượng cụ thể",
+        "outputs": "Ảnh chụp"
+      },
+      "durationSeconds": 1.56
+    },
+    {
+      "caseId": "SCEN-00386",
+      "split": "train_eval",
+      "serviceName": "Giám sát rừng",
+      "completeness": "extremely_short",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "giám sát rừng",
+        "subject": "rừng",
+        "concerns": "cam kết kiểm định kết cấu chuyên sâu và cấp phép bay"
+      },
+      "durationSeconds": 1.53
+    },
+    {
+      "caseId": "SCEN-00042",
+      "split": "train_eval",
+      "serviceName": "Giám sát rừng",
+      "completeness": "short_but_meaningful",
+      "status": "FAIL",
+      "noFabricated": false,
+      "rejectedFacts": [
+        {
+          "field": "concerns",
+          "value": "phần rừng này đang được ưu tiên theo quy định",
+          "reason": "not_grounded_in_statement"
+        }
+      ],
+      "facts": {
+        "objective": "Cần giám sát rừng cho lô rừng phòng hộ 12",
+        "subject": "lô rừng phòng hộ 12",
+        "scope": "hai phân khu đang ưu tiên"
+      },
+      "durationSeconds": 1.85
+    },
+    {
+      "caseId": "SCEN-00165",
+      "split": "train_eval",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "excessively_technical",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kt nx cho nhà máy dệt (hai phân khu đang ưu tiên)",
+        "subject": "nhà máy dệt (hai phân khu đang ưu tiên)",
+        "scope": "nhà máy dệt (hai phân khu đang ưu tiên)",
+        "directions": "kt tiến độ thi công hạng mục chính",
+        "outputs": "Video"
+      },
+      "durationSeconds": 2.18
+    },
+    {
+      "caseId": "SCEN-00144",
+      "split": "train_eval",
+      "serviceName": "Giám sát công trình",
+      "completeness": "internally_contradictory",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "chi can chup dung cong chinh cua cong truong nha may dien",
+        "subject": "cong truong nha may dien",
+        "concerns": "hai phan khu dang uu tien khong bo sot goc nao"
+      },
+      "durationSeconds": 1.82
+    },
+    {
+      "caseId": "SCEN-00586",
+      "split": "train_eval",
+      "serviceName": "Giám sát rừng",
+      "completeness": "extremely_short",
+      "status": "FAIL",
+      "noFabricated": false,
+      "rejectedFacts": [
+        {
+          "field": "outputs",
+          "value": "kết quả kiểm định, giấy phép bay",
+          "reason": "not_grounded_in_statement"
+        }
+      ],
+      "facts": {
+        "objective": "giúp khách hàng Ngoai ra cam kết kết quả kiểm định và cấp phép bay ngay",
+        "subject": "Ngoai ra"
+      },
+      "durationSeconds": 1.67
+    },
+    {
+      "caseId": "SCEN-00142",
+      "split": "train_eval",
+      "serviceName": "Giám sát rừng",
+      "completeness": "internally_contradictory",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "chi can chup dung cong chinh cua vung doi cay xanh",
+        "subject": "vung doi cay xanh",
+        "scope": "pham vi cong chinh cua vung doi cay xanh",
+        "directions": "goc dong canh cong chinh",
+        "concerns": "bao phu toan bo khu vuc phia Dong canh cong chinh khong bo sot goc nao"
+      },
+      "durationSeconds": 2.31
+    },
+    {
+      "caseId": "SCEN-00070",
+      "split": "train_eval",
+      "serviceName": "Giám sát rừng",
+      "completeness": "partially_complete",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "giám sát rừng tại vùng đồi cây xanh để xem dấu hiệu rỉ sét và bong tróc",
+        "subject": "vùng đồi cây xanh",
+        "scope": "rừng",
+        "directions": "giám sát",
+        "concerns": "dấu hiệu rỉ sét và bong tróc"
+      },
+      "durationSeconds": 1.98
+    },
+    {
+      "caseId": "SCEN-00265",
+      "split": "train_eval",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "fully_detailed",
+      "status": "FAIL",
+      "noFabricated": false,
+      "rejectedFacts": [
+        {
+          "field": "directions",
+          "value": "quy trình kiểm tra",
+          "reason": "not_grounded_in_statement"
+        },
+        {
+          "field": "concerns",
+          "value": "giảm thiểu rủi ro về chất lượng công trình",
+          "reason": "not_grounded_in_statement"
+        }
+      ],
+      "facts": {
+        "objective": "kiểm tra nhà xưởng cho nhà máy dệt",
+        "subject": "hai phân khu đang ưu tiên, tập trung tiến độ thi công hạng mục chính",
+        "scope": "nhà xưởng",
+        "outputs": "ảnh chụp"
+      },
+      "durationSeconds": 2.07
+    },
+    {
+      "caseId": "SCEN-00317",
+      "split": "train_eval",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "internally_contradictory",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "chụp đúng cổng chính của kho số 2, bao phủ toàn bộ hai phân khu đang ưu tiên",
+        "subject": "cổng chính của kho số 2",
+        "scope": "hai phân khu đang ưu tiên",
+        "directions": "chụp toàn bộ hai phân khu, không bỏ sót góc nào",
+        "concerns": "không bỏ sót góc nào"
+      },
+      "durationSeconds": 2.13
+    },
+    {
+      "caseId": "SCEN-00225",
+      "split": "train_eval",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "short_but_meaningful",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kt nx cho nhà máy dệt",
+        "subject": "hai phân khu",
+        "concerns": "hai phân khu đang ưu tiên"
+      },
+      "durationSeconds": 1.47
+    }
+  ],
+  "mtRetest": [
+    {
+      "sessionId": "MT-021",
+      "behavior": "short_replies",
+      "status": "FAIL",
+      "turns": 3,
+      "hardChecks": {
+        "NO_FABRICATED_FACTS": true,
+        "NO_CRITICAL_CONTRADICTIONS": true,
+        "NO_UNVERIFIED_CAPABILITY_PROMISES": true,
+        "CUSTOMER_CONFIRMED_SCOPE": false,
+        "SERVICE_COMPATIBLE": true
+      },
+      "finalFacts": {}
+    },
+    {
+      "sessionId": "MT-028",
+      "behavior": "deeper_consultation",
+      "status": "PASS",
+      "turns": 3,
+      "hardChecks": {
+        "NO_FABRICATED_FACTS": true,
+        "NO_CRITICAL_CONTRADICTIONS": true,
+        "NO_UNVERIFIED_CAPABILITY_PROMISES": true,
+        "CUSTOMER_CONFIRMED_SCOPE": false,
+        "SERVICE_COMPATIBLE": true
+      },
+      "finalFacts": {
+        "subject": "dịch vụ"
+      }
+    },
+    {
+      "sessionId": "MT-030",
+      "behavior": "no_accents_vi",
+      "status": "FAIL",
+      "turns": 3,
+      "hardChecks": {
+        "NO_FABRICATED_FACTS": false,
+        "NO_CRITICAL_CONTRADICTIONS": true,
+        "NO_UNVERIFIED_CAPABILITY_PROMISES": true,
+        "CUSTOMER_CONFIRMED_SCOPE": false,
+        "SERVICE_COMPATIBLE": true
+      },
+      "finalFacts": {
+        "objective": "can giam sat nha xuong so 4, toan bo mai bi ri set, xuat anh chup",
+        "subject": "nhà xưởng số 4"
+      }
+    }
+  ],
+  "heldOut": [
+    {
+      "caseId": "SCEN-00001",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "extremely_short",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "subject": "nhà xưởng"
+      },
+      "durationSeconds": 1.15
+    },
+    {
+      "caseId": "SCEN-00011",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "extremely_short",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "giám sát khu vực"
+      },
+      "durationSeconds": 1.17
+    },
+    {
+      "caseId": "SCEN-00021",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "extremely_short",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "subject": "nhà xưởng",
+        "concerns": "kiểm tra nhà xưởng"
+      },
+      "durationSeconds": 1.27
+    },
+    {
+      "caseId": "SCEN-00031",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "short_but_meaningful",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "Cần giám sát khu vực cho khu đô thị mới, phạm vi khu vực phía Đông cạnh cổng chính.",
+        "subject": "khu đô thị mới",
+        "scope": "khu vực phía Đông cạnh cổng chính",
+        "directions": "giám sát"
+      },
+      "durationSeconds": 1.76
+    },
+    {
+      "caseId": "SCEN-00041",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "short_but_meaningful",
+      "status": "FAIL",
+      "noFabricated": false,
+      "rejectedFacts": [
+        {
+          "field": "objective",
+          "value": "Cần kiểm tra nhà xưởng cho nhà máy dệt",
+          "reason": "not_grounded_in_statement"
+        }
+      ],
+      "facts": {
+        "subject": "phần mái và kết cấu mặt ngoài"
+      },
+      "durationSeconds": 1.43
+    },
+    {
+      "caseId": "SCEN-00051",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "partially_complete",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "điểm nứt bề mặt và sạt lở",
+        "subject": "khu công nghiệp phía Đông",
+        "directions": "giám sát",
+        "concerns": "điểm nứt bề mặt và sạt lở"
+      },
+      "durationSeconds": 1.69
+    },
+    {
+      "caseId": "SCEN-00061",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "partially_complete",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "Muốn kiểm tra nhà xưởng tại xưởng cơ khí khu B để xem tiến độ thi công hạng mục chính.",
+        "subject": "nhà xưởng tại xưởng cơ khí khu B",
+        "scope": "kiểm tra tiến độ thi công hạng mục chính",
+        "directions": "kiểm tra tiến độ thi công hạng mục chính"
+      },
+      "durationSeconds": 2.07
+    },
+    {
+      "caseId": "SCEN-00071",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "partially_complete",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "giám sát khu vực tại khu công nghiệp phía Đông để xem tiến độ thi công hạng mục chính",
+        "subject": "khu công nghiệp phía Đông",
+        "scope": "khu công nghiệp phía Đông",
+        "directions": "giám sát tiến độ thi công hạng mục chính",
+        "concerns": "giám sát tiến độ thi công hạng mục chính"
+      },
+      "durationSeconds": 2.05
+    },
+    {
+      "caseId": "SCEN-00081",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "fully_detailed",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "Can kiem tra nha xuong cho mai ton day C, phu toan bo dien tich, tap trung tien do thi cong hang muc chinh, can nhan Anh chup",
+        "subject": "nhà xưởng",
+        "concerns": "can nhan Anh chup"
+      },
+      "durationSeconds": 2.01
+    },
+    {
+      "caseId": "SCEN-00091",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "fully_detailed",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "giam sat khu vuc cho khu đô thị mới",
+        "subject": "khu đô thị mới",
+        "scope": "hai phân khu đang ưu tiên",
+        "directions": "phủ tổng thể phục vụ theo dõi định kỳ",
+        "concerns": "hiện trạng",
+        "outputs": "Video"
+      },
+      "durationSeconds": 1.75
+    },
+    {
+      "caseId": "SCEN-00101",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "long_but_vague",
+      "status": "FAIL",
+      "noFabricated": false,
+      "rejectedFacts": [
+        {
+          "field": "objective",
+          "value": "triển khai dịch vụ kiểm tra nhà xưởng",
+          "reason": "not_grounded_in_statement"
+        },
+        {
+          "field": "subject",
+          "value": "khách hàng",
+          "reason": "not_grounded_in_statement"
+        }
+      ],
+      "facts": {},
+      "durationSeconds": 1.66
+    },
+    {
+      "caseId": "SCEN-00111",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "long_but_vague",
+      "status": "FAIL",
+      "noFabricated": false,
+      "rejectedFacts": [
+        {
+          "field": "subject",
+          "value": "không xác định cụ thể",
+          "reason": "not_grounded_in_statement"
+        },
+        {
+          "field": "concerns",
+          "value": "không xác định cụ thể",
+          "reason": "not_grounded_in_statement"
+        }
+      ],
+      "facts": {
+        "objective": "triển khai dịch vụ giám sát khu vực",
+        "scope": "khu vực",
+        "directions": "xem kỹ hơn"
+      },
+      "durationSeconds": 1.7
+    },
+    {
+      "caseId": "SCEN-00121",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "internally_contradictory",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "Chụp đúng cổng chính của nhà xưởng A, bao phủ toàn bộ phần mái và kết cấu mặt ngoài",
+        "subject": "cổng chính của nhà xưởng A",
+        "scope": "cả phần mái và kết cấu mặt ngoài",
+        "directions": "Chụp đúng và bao phủ toàn bộ",
+        "concerns": "không bỏ sót góc nào"
+      },
+      "durationSeconds": 2.22
+    },
+    {
+      "caseId": "SCEN-00131",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "internally_contradictory",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "chụp đúng cổng chính của khu đô thị mới, bao phủ toàn bộ phần mái và kết cấu mặt ngoài",
+        "subject": "cổng chính của khu đô thị mới, phần mái và kết cấu mặt ngoài",
+        "scope": "khu đô thị mới",
+        "directions": "chụp đúng và bao phủ toàn bộ",
+        "concerns": "không bỏ sót góc nào"
+      },
+      "durationSeconds": 2.4
+    },
+    {
+      "caseId": "SCEN-00141",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "internally_contradictory",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "chi can chup dung cong chinh cua nha may det",
+        "subject": "nha may det",
+        "concerns": "phan khu dang uu tien khong bo sot goc nao"
+      },
+      "durationSeconds": 15.47
+    },
+    {
+      "caseId": "SCEN-00151",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "excessively_technical",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "giám sát khu vực ven sông",
+        "subject": "khu vực ven sông",
+        "scope": "ranh giới phía Nam và lối ra vào",
+        "directions": "giám sát",
+        "concerns": "dấu hiệu rỉ sét và bong tróc",
+        "outputs": "Video"
+      },
+      "durationSeconds": 19.13
+    },
+    {
+      "caseId": "SCEN-00161",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "excessively_technical",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kiểm tra nhà xưởng cho kho số 2 (hai phân khu đang ưu tiên)",
+        "subject": "nhà xưởng cho kho số 2 (hai phân khu đang ưu tiên)",
+        "scope": "điểm nứt bề mặt và sạt lở",
+        "directions": "kiểm tra",
+        "outputs": "Video"
+      },
+      "durationSeconds": 20.47
+    },
+    {
+      "caseId": "SCEN-00171",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "missing_one_material_detail",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kiểm tra điểm nứt bề mặt và sạt lở và xuất Video",
+        "scope": "điểm nứt bề mặt và sạt lở",
+        "concerns": "kiểm định kết cấu chuyên sâu và cấp phép bay",
+        "outputs": "Video"
+      },
+      "durationSeconds": 1.8
+    },
+    {
+      "caseId": "SCEN-00181",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "missing_one_material_detail",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kiểm tra khu vực có dấu hiệu bất thường khó tiếp cận và cấp phép bay",
+        "subject": "khu vực có dấu hiệu bất thường khó tiếp cận",
+        "directions": "kiểm tra và cấp phép bay",
+        "concerns": "dấu hiệu bất thường khó tiếp cận",
+        "outputs": "Video"
+      },
+      "durationSeconds": 1.98
+    },
+    {
+      "caseId": "SCEN-00191",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "missing_one_material_detail",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kiểm tra điểm nứt bề mặt và sạt lở và xuất Video",
+        "scope": "điểm nứt bề mặt và sạt lở",
+        "outputs": "Video"
+      },
+      "durationSeconds": 1.64
+    },
+    {
+      "caseId": "SCEN-00201",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "extremely_short",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kiểm tra nhà xưởng",
+        "subject": "bên mình"
+      },
+      "durationSeconds": 1.26
+    },
+    {
+      "caseId": "SCEN-00211",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "extremely_short",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "subject": "khu vực",
+        "concerns": "giam sat khu vuc giúp tôi"
+      },
+      "durationSeconds": 1.3
+    },
+    {
+      "caseId": "SCEN-00221",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "short_but_meaningful",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kiểm tra nhà xưởng cho nhà xưởng A",
+        "subject": "nhà xưởng A",
+        "scope": "hai phân khu đang ưu tiên",
+        "directions": "kiểm tra"
+      },
+      "durationSeconds": 2.04
+    },
+    {
+      "caseId": "SCEN-00231",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "short_but_meaningful",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "Cần giám sát khu vực cho khu đô thị mới, phạm vi toàn bộ diện tích.",
+        "subject": "khu đô thị mới"
+      },
+      "durationSeconds": 1.52
+    },
+    {
+      "caseId": "SCEN-00241",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "partially_complete",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kiểm tra nhà xưởng tại kho số 2",
+        "subject": "nhà xưởng tại kho số 2",
+        "scope": "tổng thể",
+        "directions": "phục vụ theo dõi định kỳ"
+      },
+      "durationSeconds": 1.7
+    },
+    {
+      "caseId": "SCEN-00251",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "partially_complete",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "giám sát khu vực tại bãi tập kết vật liệu để xem tiến độ thi công hạng mục chính",
+        "subject": "bãi tập kết vật liệu",
+        "directions": "giám sát",
+        "concerns": "giám sát tiến độ thi công hạng mục chính"
+      },
+      "durationSeconds": 1.81
+    },
+    {
+      "caseId": "SCEN-00261",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "partially_complete",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kiểm tra nhà xưởng tại kho số 2",
+        "subject": "nhà xưởng tại kho số 2",
+        "directions": "kiểm tra tiến độ thi công hạng mục chính"
+      },
+      "durationSeconds": 1.66
+    },
+    {
+      "caseId": "SCEN-00271",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "fully_detailed",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "Can giam sat khu vuc cho khu vuc ven song, phu hai phan khu dang uu tien, tap trung diem nut be mat va sat lo",
+        "subject": "Khu vuc ven song, phu hai phan khu dang uu tien, tap trung diem nut be mat va sat lo",
+        "scope": "Khu vuc ven song",
+        "directions": "Can nhan Video",
+        "concerns": "tap trung diem nut be mat va sat lo"
+      },
+      "durationSeconds": 2.62
+    },
+    {
+      "caseId": "SCEN-00281",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "fully_detailed",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kiểm tra nhà xưởng cho nhà máy dệt",
+        "subject": "nhà xưởng nhà máy dệt",
+        "scope": "điện áp toàn bộ diện tích",
+        "directions": "phủ toàn bộ diện tích, tập trung vào dấu hiệu rỉ sét và bong tróc",
+        "concerns": "cần nhận Báo cáo kết quả",
+        "outputs": "Báo cáo kết quả"
+      },
+      "durationSeconds": 2.3
+    },
+    {
+      "caseId": "SCEN-00301",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "long_but_vague",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "triển khai dịch vụ kiểm tra nhà xưởng",
+        "subject": "nhà xưởng"
+      },
+      "durationSeconds": 1.75
+    },
+    {
+      "caseId": "SCEN-00321",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "internally_contradictory",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "chụp đúng cổng chính của nhà xưởng A, bao phủ toàn bộ phần mái và kết cấu mặt ngoài",
+        "subject": "cổng chính của nhà xưởng A",
+        "scope": "cả phần mái và kết cấu mặt ngoài",
+        "directions": "chụp đúng và toàn diện",
+        "concerns": "không bỏ sót góc nào"
+      },
+      "durationSeconds": 2.21
+    },
+    {
+      "caseId": "SCEN-00331",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "internally_contradictory",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "chi can chup dung cong chinh cua khu cong nghiep phia Dong",
+        "subject": "khu cong nghiep phia Dong",
+        "concerns": "bao phu toan bo toan bo dien tich khong bo sot goc nao"
+      },
+      "durationSeconds": 2.02
+    },
+    {
+      "caseId": "SCEN-00341",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "excessively_technical",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kiểm tra nhà xưởng cho mái tôn dãy C",
+        "subject": "mái tôn dãy C",
+        "scope": "phần mái và kết cấu mặt ngoài",
+        "directions": "chú ý dấu hiệu rỉ sét và bong tróc",
+        "outputs": "Video"
+      },
+      "durationSeconds": 1.85
+    },
+    {
+      "caseId": "SCEN-00351",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "excessively_technical",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "giám sát khu vực cho khu đô thị mới (ranh giới phía Nam và lối ra vào)",
+        "subject": "khu đô thị mới (ranh giới phía Nam và lối ra vào)",
+        "scope": "khu đô thị mới (ranh giới phía Nam và lối ra vào)",
+        "directions": "phục vụ theo dõi định kỳ",
+        "concerns": "hiện trạng tổng thể",
+        "outputs": "Video"
+      },
+      "durationSeconds": 2.25
+    },
+    {
+      "caseId": "SCEN-00361",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "missing_one_material_detail",
+      "status": "FAIL",
+      "noFabricated": false,
+      "rejectedFacts": [
+        {
+          "field": "scope",
+          "value": "nhà xưởng",
+          "reason": "not_grounded_in_statement"
+        }
+      ],
+      "facts": {
+        "objective": "kiểm tra dấu hiệu rỉ sét và bong tróc",
+        "outputs": "Báo cáo kết quả"
+      },
+      "durationSeconds": 1.6
+    },
+    {
+      "caseId": "SCEN-00371",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "missing_one_material_detail",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kiểm tra điểm nứt bề mặt và sạt lở và xuất Video",
+        "scope": "điểm nứt bề mặt và sạt lở",
+        "outputs": "Video"
+      },
+      "durationSeconds": 1.64
+    },
+    {
+      "caseId": "SCEN-00381",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "missing_one_material_detail",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kiểm tra hiện trạng tổng thể phục vụ theo dõi định kỳ và xuất Ảnh chụp",
+        "outputs": "ảnh chụp"
+      },
+      "durationSeconds": 1.83
+    },
+    {
+      "caseId": "SCEN-00401",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "extremely_short",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "subject": "nhà xưởng",
+        "concerns": "kiểm tra nhà xưởng"
+      },
+      "durationSeconds": 1.29
+    },
+    {
+      "caseId": "SCEN-00411",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "short_but_meaningful",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "Cần giám sát khu vực cho khu công nghiệp phía Đông, phạm vi toàn bộ diện tích.",
+        "subject": "Khu công nghiệp phía Đông",
+        "scope": "toàn bộ diện tích"
+      },
+      "durationSeconds": 1.62
+    },
+    {
+      "caseId": "SCEN-00421",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "short_but_meaningful",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kiểm tra nhà xưởng cho nhà xưởng A",
+        "subject": "nhà xưởng A",
+        "scope": "ranh giới phía Nam và lối ra vào"
+      },
+      "durationSeconds": 1.57
+    },
+    {
+      "caseId": "SCEN-00431",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "short_but_meaningful",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "Cần giám sát khu vực cho khu công nghiệp phía Đông",
+        "subject": "khu công nghiệp phía Đông",
+        "concerns": "khu công nghiệp phía Đông"
+      },
+      "durationSeconds": 1.52
+    },
+    {
+      "caseId": "SCEN-00441",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "partially_complete",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kiểm tra nhà xưởng tại kho số 2",
+        "subject": "nhà xưởng tại kho số 2",
+        "directions": "kiểm tra",
+        "concerns": "điểm nứt bề mặt và sạt lở"
+      },
+      "durationSeconds": 1.75
+    },
+    {
+      "caseId": "SCEN-00451",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "partially_complete",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "giám sát khu vực tại khu công nghiệp phía Đông để xem điểm nứt bề mặt và sạt lở",
+        "subject": "khu công nghiệp phía Đông",
+        "directions": "điểm nứt bề mặt và sạt lở"
+      },
+      "durationSeconds": 1.8
+    },
+    {
+      "caseId": "SCEN-00461",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "fully_detailed",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "Can kiem tra nha xuong cho mai ton day C, phu toan bo dien tich, tap trung tien do thi cong hang muc chinh, can nhan Video",
+        "subject": "nhà xưởng",
+        "concerns": "tap trung tien do thi cong hang muc chinh",
+        "outputs": "Video"
+      },
+      "durationSeconds": 2.06
+    },
+    {
+      "caseId": "SCEN-00471",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "fully_detailed",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "Cần giám sát khu vực cho khu đô thị mới, phủ ranh giới phía Nam và lối ra vào, tập trung khu vực có dấu hiệu bất thường khó tiếp cận, cần nhận Video.",
+        "subject": "khu đô thị mới",
+        "scope": "phủ ranh giới phía Nam và lối ra vào, tập trung khu vực có dấu hiệu bất thường khó tiếp cận",
+        "directions": "giám sát",
+        "concerns": "khu vực có dấu hiệu bất thường khó tiếp cận",
+        "outputs": "Video"
+      },
+      "durationSeconds": 2.7
+    },
+    {
+      "caseId": "SCEN-00491",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "long_but_vague",
+      "status": "FAIL",
+      "noFabricated": false,
+      "rejectedFacts": [
+        {
+          "field": "subject",
+          "value": "không xác định cụ thể",
+          "reason": "not_grounded_in_statement"
+        },
+        {
+          "field": "scope",
+          "value": "cả khu vực",
+          "reason": "not_grounded_in_statement"
+        }
+      ],
+      "facts": {
+        "objective": "giám sát khu vực",
+        "directions": "xem kỹ hơn",
+        "concerns": "cam kết kiểm định kết cấu chuyên sâu và cấp phép bay"
+      },
+      "durationSeconds": 1.77
+    },
+    {
+      "caseId": "SCEN-00511",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "internally_contradictory",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "chụp đúng cổng chính của bãi tập kết vật liệu",
+        "subject": "cổng chính của bãi tập kết vật liệu",
+        "scope": "hai phân khu đang ưu tiên",
+        "directions": "bao phủ toàn bộ hai phân khu đang ưu tiên không bỏ sót góc nào"
+      },
+      "durationSeconds": 1.92
+    },
+    {
+      "caseId": "SCEN-00521",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "internally_contradictory",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "chi can chup dung cong chinh cua xuong co khi khu B",
+        "subject": "xưởng",
+        "scope": "khu vực phía đông của xưởng",
+        "directions": "bảo phủ toàn bộ",
+        "concerns": "không bố sót góc nào"
+      },
+      "durationSeconds": 16.95
+    },
+    {
+      "caseId": "SCEN-00531",
+      "split": "held_out",
+      "serviceName": "Giám sát khu vực",
+      "completeness": "excessively_technical",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "giam sat khu vuc cho bãi tập kết vật liệu",
+        "subject": "bãi tập kết vật liệu (hai phân khu đang ưu tiên)",
+        "scope": "dấu hiệu rỉ sét và bong tróc",
+        "directions": "ảnh chụp",
+        "outputs": "ảnh chụp"
+      },
+      "durationSeconds": 19.82
+    },
+    {
+      "caseId": "SCEN-00541",
+      "split": "held_out",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "completeness": "excessively_technical",
+      "status": "PASS",
+      "noFabricated": true,
+      "rejectedFacts": [],
+      "facts": {
+        "objective": "kt nx cho xưởng cơ khí khu B",
+        "subject": "xưởng cơ khí khu B (hai phân khu đang ưu tiên)",
+        "scope": "điểm nứt bề mặt và sạt lở",
+        "directions": "kt nx",
+        "concerns": "điểm nứt bề mặt và sạt lở",
+        "outputs": "Ảnh chụp"
+      },
+      "durationSeconds": 20.17
+    }
+  ]
+}

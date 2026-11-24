@@ -1956,7 +1956,7 @@ async def wait_for_grpc_port(timeout_seconds: float = 12.0) -> bool:
     deadline = asyncio.get_running_loop().time() + timeout_seconds
     while asyncio.get_running_loop().time() < deadline:
         try:
-            with socket.create_connection(("127.0.0.1", MAVSDK_CONTROL_GRPC_PORT), timeout=0.5):
+            with socket.create_connection(("localhost", MAVSDK_CONTROL_GRPC_PORT), timeout=0.5):
                 return True
         except OSError:
             await asyncio.sleep(0.5)

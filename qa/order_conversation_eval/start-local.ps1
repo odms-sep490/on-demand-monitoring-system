@@ -5,7 +5,7 @@ Set-Location (Join-Path $repo 'ondemandmonitoring')
 $env:SPRING_DATASOURCE_URL=$qa.jdbcUrl
 $env:SPRING_PROFILES_ACTIVE='deepeval-local'
 $env:SERVER_PORT='8081'
-$env:CORS_ADDRESS='http://localhost:5174,http://127.0.0.1:5174'
+$env:CORS_ADDRESS='http://localhost:5174'
 Get-Content (Join-Path $repo '.env') | ForEach-Object {
  if($_ -match '^(VNPAY_[A-Z0-9_]+)=(.*)$'){[Environment]::SetEnvironmentVariable($Matches[1],$Matches[2].Trim().Trim('"'),'Process')}
 }

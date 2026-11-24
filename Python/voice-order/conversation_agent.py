@@ -137,6 +137,55 @@ def unmatched_service_query(request,text):
     catalog=' '.join(s['name']+' '+s.get('description','') for s in request.catalog.get('services',[])).lower()
     return bool(terms and not any(term in catalog for term in terms))
 
+GUIDED_PROMPT_MARKER='\n\n[ONDEMAND_GUIDED_PROMPT]\n'
+
+def visible_customer_text(content):
+    return str(content).split(GUIDED_PROMPT_MARKER,1)[0].strip()
+
+def guided_step_from_message(content):
+    _,marker,instructions=str(content).partition(GUIDED_PROMPT_MARKER)
+    if not marker:return None
+    match=re.search(r'\[ONDEMAND_GUIDED_STEP:([1-6])\]',instructions)
+    return int(match.group(1)) if match else None
+
+def is_consultation_question(text):
+    return bool(re.search(
+        r'[?？]|\b(?:giá|chi phí|bao nhiêu|giải thích|tư vấn|so sánh|khác nhau|'
+        r'bao gồm|gồm những gì|là gì|tại sao|vì sao|như thế nào|cho tôi hỏi|'
+        r'cho em hỏi|giới thiệu|nói rõ)\b',text,re.I)
+        or re.search(r'\b(?:có thể|có|được|phải|nên)\b.{0,80}\bkhông\b',text,re.I))
+
+def guided_order_response(step,request,turn,customer_message):
+    changes=turn.proposedChanges.model_dump(exclude_none=True)
+    known={**request.confirmedFields,**request.pendingChanges,**request.customerContext,**changes}
+    service_id=changes.get('serviceId') or known.get('serviceId')
+    service=next((item for item in request.catalog.get('services',[]) if item['id']==service_id),None)
+    selected_service=bool(re.search(r'^\s*(?:tôi chọn dịch vụ|chọn dịch vụ)\b',customer_message,re.I))
+    purpose_supplied=bool(re.search(r'mục đích chuyến bay',customer_message,re.I) or changes.get('flightPurpose'))
+
+    if step==1:
+        if selected_service and not purpose_supplied:
+            name=service.get('name') if service else 'đã chọn'
+            return f'Em đã ghi nhận dịch vụ {name}. Chọn mục đích chuyến bay bên dưới. Nếu không có mục phù hợp, chọn “Mục đích khác” rồi nhập mục đích cụ thể. Sau đó bấm Xác nhận mục đích nhé.'
+        if purpose_supplied:
+            return 'Em đã ghi nhận mục đích chuyến bay. Anh/chị mô tả khu vực cần giám sát và những gì muốn ghi nhận trong biểu mẫu bên dưới nhé.'
+        if not known.get('serviceId'):
+            return 'Anh/chị chọn một dịch vụ phù hợp trong danh sách bên dưới hoặc mô tả ngắn nhu cầu để em hỗ trợ nhé.'
+        if not known.get('flightPurpose'):
+            return 'Chọn mục đích chuyến bay bên dưới. Nếu không có mục phù hợp, chọn “Mục đích khác” rồi nhập mục đích cụ thể. Sau đó bấm Xác nhận mục đích nhé.'
+        if not known.get('description'):
+            return 'Anh/chị mô tả khu vực cần giám sát và những gì muốn ghi nhận trong biểu mẫu bên dưới nhé.'
+        return 'Tiếp theo, anh/chị chọn vị trí trên bản đồ và khoanh vùng cần giám sát nhé.'
+    if step==2:
+        return 'Tiếp theo, anh/chị chọn vị trí trên bản đồ, khoanh vùng cần giám sát rồi xác nhận giúp em nhé.'
+    if step==3:
+        return 'Mời anh/chị chọn các hạng mục cần thực hiện. Có thể mở từng hạng mục để xem và chỉnh số ảnh, video nhé.'
+    if step==4:
+        return 'Tiếp theo, mình bổ sung thông tin liên hệ tại hiện trường, điều kiện ra vào và quyền giám sát trong biểu mẫu nhé.'
+    if step==5:
+        return 'Mời anh/chị chọn ngày bắt đầu, ngày kết thúc và khung giờ mong muốn trong biểu mẫu nhé.'
+    return 'Mình đang ở bước xem lại. Anh/chị kiểm tra thông tin, chọn sản phẩm bàn giao, thời hạn lưu trữ và đọc điều khoản trước khi tự gửi yêu cầu nhé.'
+
 def allocate_explicit_total(items,field,total,catalog):
     """Normalize a confirmable suggestion to the customer's explicit total.
 
@@ -155,15 +204,22 @@ def allocate_explicit_total(items,field,total,catalog):
     for index in order[:total-sum(values)]:values[index]+=1
     for item,value in zip(items,values):setattr(item,field,value)
 
-def validate_turn(raw,request):
+def validate_turn(raw,request,guided_step=None):
     raw=re.sub(r'<think>.*?</think>','',raw,flags=re.S).strip()
     if raw.startswith('```'):raw=re.sub(r'^```(?:json)?\s*|\s*```$','',raw)
     turn=Turn.model_validate_json(raw)
+    user_messages=[visible_customer_text(m.get('content','')) for m in request.messages if m.get('role')=='user']
+    latest_message=user_messages[-1] if user_messages else ''
+    if guided_step is not None:
+        turn.assistantMessage=guided_order_response(guided_step,request,turn,latest_message)
+    removed_schedule_fields={'resultDeadline','recurrenceType','recurrenceOccurrences','weatherFallback'}
+    if removed_schedule_fields.intersection(turn.proposedChanges.model_fields_set):
+        raise ValueError('Do not propose removed schedule options; only collect preferred dates and time.')
     # A proposed change is never a customer confirmation. Normalize this wording
     # without changing the proposed facts or bypassing the confirmation button.
     if turn.proposedChanges.model_dump(exclude_none=True):
         turn.assistantMessage=re.sub(r'Bạn đã xác nhận', 'Mình ghi nhận', turn.assistantMessage, flags=re.I)
-    latest=next((str(m.get('content','')).lower() for m in reversed(request.messages) if m.get('role')=='user'),'')
+    latest=latest_message.lower()
     if turn.assistantMessage.strip().casefold()==latest.strip().casefold():
         raise ValueError('Answer the customer question using the retrieved catalog; never repeat the question as the answer.')
     if re.search(r'\bgiá\b|chi phí|bao nhiêu tiền',latest):
@@ -179,7 +235,7 @@ def validate_turn(raw,request):
     if not request.confirmedFields.get('description') and not turn.proposedChanges.description and re.search(r'tôi (?:muốn|cần)',latest) and re.search(r'giám sát|theo dõi|kiểm tra|quan sát|ghi nhận|chụp|quay',latest) and not re.search(r'chọn dịch vụ|đổi sang|chuyển sang',latest):
         # Capture the customer's own goal verbatim as a proposal, never a
         # fabricated model summary. The customer still explicitly confirms it.
-        turn.proposedChanges.description=next(str(m.get('content','')) for m in reversed(request.messages) if m.get('role')=='user')[:2000]
+        turn.proposedChanges.description=latest_message[:2000]
     image_count=re.search(r'(\d+)\s*(?:ảnh|hình)',latest)
     video_count=re.search(r'(\d+)\s*video',latest)
     # Several per-item quantities are not one total. Leave their allocation to
@@ -189,7 +245,7 @@ def validate_turn(raw,request):
     no_video=bool(re.search(r'(?:không (?:cần |muốn |lấy )?(?:bất kỳ )?(?:quay |có )?video|bỏ video)',latest))
     no_images=bool(re.search(r'không (?:cần |muốn |lấy )?(?:ảnh|hình)',latest))
     if re.search(r'(?:video|quay).*?\d+\s*(?:phút|giây)',latest) or (no_video and request.confirmedFields.get('description')):
-        original=next(str(m.get('content','')) for m in reversed(request.messages) if m.get('role')=='user')
+        original=latest_message
         previous_description=str(request.confirmedFields.get('description',''))
         turn.proposedChanges.description=(previous_description+'\nBổ sung/điều chỉnh mới nhất: '+original).strip()[-2000:]
     # Quantities explicitly spoken by the customer outrank package defaults.
@@ -236,15 +292,11 @@ def validate_turn(raw,request):
             selected=[item for item in selected if item.requestedImageCount or item.requestedVideoCount or allowed[item.sourceChecklistId].get('required',False)]
             turn.proposedChanges.checklistItems=selected
     changes=turn.proposedChanges.model_dump(exclude_none=True)
-    customer_text=' '.join(str(message.get('content','')) for message in request.messages if message.get('role')=='user').lower()
+    customer_text=' '.join(user_messages).lower()
     cues={
         'monitoringRelationship':r'chủ (?:đất|sở hữu|đầu tư)|ủy quyền|uỷ quyền|nhà thầu|đơn vị (?:quản lý|thi công)|tư vấn giám sát',
-        'weatherFallback':r'hủy|huỷ|dời lịch|đổi lịch|liên hệ.*(?:thời tiết|không bay)|(?:thời tiết|không bay).*liên hệ',
         'preferredDateFrom':r'ngày|thứ|tuần|tháng|hôm|mai|\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}',
         'preferredDateTo':r'ngày|thứ|tuần|tháng|hôm|mai|\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}',
-        'resultDeadline':r'nhận|kết quả|hạn|bàn giao',
-        'recurrenceType':r'lặp|hàng tuần|hằng tuần|hàng tháng|hằng tháng|mỗi tuần|mỗi tháng|một lần',
-        'recurrenceOccurrences':r'lần|đợt|chuyến',
         'altitudeM':r'độ cao|cao.*\d|\d.*(?:mét|\bm\b)',
         'estimatedLengthM':r'chiều dài|dài.*\d',
         'accessNotes':r'cổng|ra vào|đăng ký|dẫn đường|giờ làm việc|liên hệ bảo vệ',
@@ -286,7 +338,7 @@ def validate_turn(raw,request):
         if re.search(r'không (?:cần |muốn )?(?:quay |có )?video',latest) and any(item['requestedVideoCount'] for item in changes['checklistItems']):
             raise ValueError('Customer explicitly requested no video')
     from datetime import date
-    for key in ['preferredDateFrom','preferredDateTo','resultDeadline']:
+    for key in ['preferredDateFrom','preferredDateTo']:
         if key in changes:date.fromisoformat(changes[key])
     earliest=request.catalog.get('earliestDate',request.today)
     for key in ['preferredDateFrom','preferredDateTo']:
@@ -311,8 +363,18 @@ def validate_turn(raw,request):
 def converse(request:TurnInput):
     deadline=time.monotonic()+float(os.getenv('ORDER_AGENT_TOTAL_TIMEOUT_SECONDS','85'))
     trace=[]
-    latest_input=next((str(m.get('content','')) for m in reversed(request.messages) if m.get('role')=='user'),'')
+    latest_full_message=next((str(m.get('content','')) for m in reversed(request.messages) if m.get('role')=='user'),'')
+    latest_input=visible_customer_text(latest_full_message)
     protected=protected_request(latest_input)
+    guided_step=guided_step_from_message(latest_full_message)
+    description_review='[ONDEMAND_DESCRIPTION_REVIEW]' in latest_full_message
+    if protected or is_consultation_question(latest_input) or description_review:guided_step=None
+    if description_review and not protected:
+        description=re.sub(r'^Đánh giá mô tả nhiệm vụ:\s*','',latest_input,flags=re.I).strip()
+        # Short descriptions need clarification, not catalog extraction or draft mutation.
+        if len(description.split())<8:
+            return {'assistantMessage':f'Em đã đọc mô tả “{description[:180]}”. Anh/chị bổ sung tên công trình hoặc khu vực cần giám sát và việc cần kiểm tra nhé. Nếu muốn chụp 4 hướng, hãy ghi rõ chụp đối tượng nào và cần thấy toàn cảnh hay chi tiết nào.',
+                'proposedChanges':{},'requestedUiAction':'','toolCalls':[],'missingFields':['description']}
     known={**request.confirmedFields,**request.customerContext}
     missing=[]
     for field in request.catalog.get('requiredFields',[]):
@@ -367,7 +429,6 @@ def converse(request:TurnInput):
     customer_words=' '.join(str(message.get('content','')).lower() for message in request.messages if message.get('role')=='user')
     evidence_patterns={
         'monitoringRelationship':r'chủ (?:đất|sở hữu|đầu tư)|ủy quyền|uỷ quyền|nhà thầu|đơn vị (?:quản lý|thi công)|tư vấn giám sát',
-        'weatherFallback':r'hủy|huỷ|dời lịch|đổi lịch|thời tiết|không bay',
         'preferredDateFrom':r'ngày|thứ|tuần|tháng|hôm|mai|\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}',
         'preferredDateTo':r'ngày|thứ|tuần|tháng|hôm|mai|\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}',
         'preferredTimeId':r'buổi|khung giờ|sáng|chiều|tối|\d{1,2}[h:]',
@@ -376,11 +437,12 @@ def converse(request:TurnInput):
         'accessNotes':r'cổng|ra vào|đăng ký|dẫn đường|giờ làm việc|liên hệ bảo vệ',
         'altitudeM':r'độ cao|cao.*\d|\d.*(?:mét|\bm\b)',
         'estimatedLengthM':r'chiều dài|dài.*\d',
-        'recurrenceType':r'lặp|hàng tuần|hằng tuần|hàng tháng|hằng tháng|mỗi tuần|mỗi tháng|một lần',
-        'recurrenceOccurrences':r'lần|đợt|chuyến',
-        'resultDeadline':r'nhận|kết quả|hạn|bàn giao',
     }
     properties=schema['$defs']['Changes']['properties']
+    # These options are no longer part of the customer schedule flow.
+    # Keep the DTO fields for old sessions, but never ask the model to extract them.
+    for field in ('resultDeadline','recurrenceType','recurrenceOccurrences','weatherFallback'):
+        properties.pop(field,None)
     for field,pattern in evidence_patterns.items():
         if not re.search(pattern,customer_words):
             supplied=request.customerContext.get(field) or request.confirmedFields.get(field)
@@ -443,8 +505,6 @@ def converse(request:TurnInput):
         'monitoringRelationship':r'tôi (?:là|thuộc|nói nhầm).*(?:chủ|ủy quyền|uỷ quyền|nhà thầu|đơn vị quản lý|tư vấn giám sát)',
         'flightPurpose':r'mục đích chuyến bay (?:là|đổi)',
         'altitudeM':r'(?:độ cao|cao xuống).*\d+',
-        'weatherFallback':r'(?:thời tiết xấu|không bay).*(?:liên hệ|dời lịch|hủy|huỷ)',
-        'recurrenceType':r'(?:một lần|không lặp|hàng tuần|hằng tuần|hàng tháng|hằng tháng)',
         'description':r'^mô tả (?:nhu cầu|yêu cầu)\s*:',
     }
     for field,pattern in explicit_fields.items():
@@ -538,10 +598,6 @@ def converse(request:TurnInput):
         matches={value for label,value in labels.items() if label in purpose_text}
         if len(matches)==1 and not re.search(r'không phải|chưa chọn',purpose_text):
             properties['flightPurpose']={'type':'string','const':matches.pop()}
-    if 'weatherFallback' in properties and re.search(r'thời tiết|không bay',latest):
-        labels=[(r'liên hệ','CONTACT_CUSTOMER'),(r'dời lịch|đổi lịch','AUTO_RESCHEDULE'),(r'hủy đơn|huỷ đơn','CANCEL_ORDER')]
-        matches={value for pattern,value in labels if re.search(pattern,latest)}
-        if len(matches)==1:properties['weatherFallback']={'type':'string','const':matches.pop()}
     if recalling:
         schema['$defs']['Changes']['properties']={}
         schema['$defs']['Changes']['required']=[]
@@ -561,7 +617,8 @@ def converse(request:TurnInput):
         'Khi khách chỉ muốn kiểm tra một phần như mái, chỉ đề xuất hạng mục có nội dung phù hợp trong catalog, không tự chọn cả gói. '
         'Số lượng khách yêu cầu là TỔNG trên toàn bộ checklist, không phải số cho từng hạng mục. Không nhân đôi video ở nhiều hạng mục. Không cần ảnh nghĩa là tổng ảnh bằng 0. Số lượng âm hoặc trên 500 chưa hợp lệ: hỏi khách sửa số lượng, không tự đổi thành một số khác. Không tự chọn quan hệ chủ đất/nhà thầu, lịch, liên hệ hay cách xử lý hủy đơn khi khách chưa nói. '
         'Nếu khách nêu thời lượng video, ghi chính xác yêu cầu thời lượng vào description; không chuyển số phút thành số lượng video và không hỏi lại thời lượng đã nêu. '
-        'Khi khách cung cấp liên hệ, quan hệ, độ cao, mục đích, lịch hoặc cách xử lý thời tiết, BẮT BUỘC ghi trường tương ứng trong proposedChanges; chỉ nói đã ghi nhận mà không cập nhật đề xuất là sai. Không hỏi lại thông tin trong confirmedFields hay history. Khách có thể sửa thông tin trước đó. '
+        'Ở phần lịch, chỉ hỏi và ghi nhận ngày bắt đầu, ngày kết thúc, khung giờ mong muốn. Không hỏi hoặc gợi ý lịch lặp, hạn nhận kết quả hay cách xử lý khi không thể bay vì biểu mẫu không có các lựa chọn này. '
+        'Khi khách cung cấp liên hệ, quan hệ, độ cao, mục đích, ngày hoặc khung giờ, BẮT BUỘC ghi trường tương ứng trong proposedChanges; chỉ nói đã ghi nhận mà không cập nhật đề xuất là sai. Không hỏi lại thông tin trong confirmedFields hay history. Khách có thể sửa thông tin trước đó. '
         'Tập trung trả lời currentCustomerMessage, không lặp lại câu trả lời cũ. Khi khách cung cấp thông tin, ghi nhận giá trị cụ thể và hỏi một mục còn thiếu trong missingInformation. '
         'Khi khách yêu cầu nhắc lại, đọc confirmedFields và nêu chính xác thông tin đã có; không trả lời chung chung đã ghi nhận hoặc mời tìm hiểu dịch vụ. '
         'Nếu khách đã chọn dịch vụ, không lặp lại câu hỏi có muốn biết thêm về dịch vụ không, trừ khi khách đang hỏi về dịch vụ. '
@@ -613,13 +670,28 @@ def converse(request:TurnInput):
         if selected_service:display['Dịch vụ']=selected_service['name']
         messages=[{'role':'user','content':json.dumps({'customerRequest':latest_input,'confirmedDraftFacts':display},ensure_ascii=False)+
             '\nKhách yêu cầu nhắc lại thông tin đã xác nhận. Trả lời bằng lời tự nhiên và nêu các GIÁ TRỊ cụ thể trong confirmedDraftFacts. Không lặp lại câu hỏi của khách. Không hỏi lịch hoặc thông tin khác, không in mã nội bộ. proposedChanges phải là object rỗng; requestedUiAction là chuỗi rỗng.'}]
+    if description_review and not protected:
+        messages=[{'role':'user','content':json.dumps({
+            'description':latest_input,
+            'instruction':'Đánh giá mô tả nhiệm vụ để đội thực hiện hiểu đúng: đối tượng và phạm vi, hạng mục, vị trí ưu tiên, góc ghi hình, đầu ra và giới hạn nếu có. Nêu ngắn điều đã rõ, hỏi tối đa hai chi tiết còn mơ hồ quan trọng nhất. Không hỏi lại thông tin đã có, không tự bịa, không bắt khách biết thông số kỹ thuật. Nếu đủ rõ, nói có thể tiếp tục. Không hỏi lịch hay chuyển bản đồ. proposedChanges là object rỗng và requestedUiAction là chuỗi rỗng.'
+        },ensure_ascii=False)}]
+        schema['$defs']['Changes']['properties']={}
+        schema['$defs']['Changes']['required']=[]
+        schema['properties']['requestedUiAction']={'type':'string','const':''}
     for attempt in range(2):
         writer.remaining_calls=1
         final=[]
         for chunk in writer.run(messages=messages,max_llm_calls=1):final=chunk
         raw=next((m.get('content','') for m in reversed(final) if m.get('role')=='assistant'),'')
         try:
-            turn=validate_turn(raw,request)
+            if description_review and not protected:
+                cleaned=re.sub(r'<think>.*?</think>','',raw,flags=re.S).strip()
+                cleaned=re.sub(r'^```(?:json)?\s*|\s*```$','',cleaned)
+                turn=Turn.model_validate_json(cleaned)
+                turn.proposedChanges=Changes()
+                turn.requestedUiAction=''
+            else:
+                turn=validate_turn(raw,request,guided_step)
             result=turn.model_dump(exclude_none=True)
             result['toolCalls']=trace
             result['missingFields']=missing

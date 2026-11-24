@@ -119,8 +119,6 @@ public class Order extends BaseEntity {
     private String description;
     @Column(name = "customer_flight_purpose_draft", length = 1500)
     private String customerFlightPurposeDraft;
-    @Column(name = "description_assistant_session_id")
-    private String descriptionAssistantSessionId;
     @Column(name = "purpose_customer_confirmed_at")
     private Instant purposeCustomerConfirmedAt;
     @Column(name = "staff_reviewed_flight_purpose", length = 1500)

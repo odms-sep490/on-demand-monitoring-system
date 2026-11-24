@@ -210,15 +210,21 @@ def health():
         ready = False
     return JSONResponse({'status': 'ready' if ready else 'unavailable', 'model': model}, status_code=200 if ready else 503)
 
+class ConversationSpeech(BaseModel):
+    text: str = Field(min_length=1, max_length=1500)
 
-@app.post('/description/generate', response_model=Draft)
-def endpoint(request: Generate, x_internal_token: str = Header(default='')):
+@app.post('/conversation/speech')
+def conversation_speech(body: ConversationSpeech, x_internal_token: str = Header(default='')):
+    import urllib.request
+    from fastapi.responses import Response
     token = os.getenv('DESCRIPTION_AI_TOKEN', '')
     if not token or not secrets.compare_digest(token, x_internal_token):
         raise HTTPException(401)
+    request = urllib.request.Request('http://localhost:8001/speech',
+        json.dumps({'text': body.text}, ensure_ascii=False).encode('utf-8'),
+        {'Content-Type':'application/json', 'X-Internal-Token':token})
     try:
-        return generate(request)
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(503, 'AI_UNAVAILABLE')
+        with urllib.request.urlopen(request, timeout=240) as response:
+            return Response(response.read(), media_type='audio/wav')
+    except Exception as error:
+        raise HTTPException(503, 'TTS_UNAVAILABLE') from error

@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+& (Join-Path $PSScriptRoot 'start-vieneu-tts.ps1')
 $env:PYTHONUTF8 = '1'
 $repo = Split-Path $PSScriptRoot -Parent
 $config = Join-Path $repo '.env'
@@ -49,3 +50,4 @@ foreach ($neededModel in @($model, $agentModel) | Select-Object -Unique) {
 Write-Host "Starting Description AI ($model) and Order Consultant ($agentModel) at http://localhost:8002."
 & $python -m uvicorn description_agent:app --host 127.0.0.1 --port 8002 --env-file $config
 exit $LASTEXITCODE
+

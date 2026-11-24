@@ -64,9 +64,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class OrderService implements IOrderService {
-    @org.springframework.beans.factory.annotation.Autowired
-    @lombok.experimental.NonFinal
-    private com.ondemandmonitoring.description.DescriptionAssistantService descriptionAssistant;
 
 
     private static final DateTimeFormatter ORDER_CODE_DATE_FORMATTER = DateTimeFormatter.BASIC_ISO_DATE;
@@ -242,9 +239,6 @@ public class OrderService implements IOrderService {
 
         Order order = prepareOrder(request);
         Order savedOrder = orderRepository.save(order);
-        if (request.getDescriptionAssistantSessionId() != null) {
-            descriptionAssistant.bindToOrder(request.getDescriptionAssistantSessionId(), savedOrder, request);
-        }
         var items = checklistSnapshots.capture(savedOrder, request.getChecklistItems());
         reviewRecords.initialize(savedOrder);
         orderRepository.flush();
@@ -649,7 +643,6 @@ public class OrderService implements IOrderService {
             if (!java.util.Objects.equals(order.getDescription(), request.description().strip())) {
                 order.setCustomerFlightPurposeDraft(null);
                 order.setPurposeCustomerConfirmedAt(null);
-                order.setDescriptionAssistantSessionId(null);
             }
             order.setDescription(request.description().strip());
         }

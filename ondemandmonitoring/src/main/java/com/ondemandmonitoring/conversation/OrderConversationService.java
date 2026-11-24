@@ -68,7 +68,29 @@ public class OrderConversationService {
         s.setState(new LinkedHashMap<>(Map.of("messages",List.of(),"confirmedFields",Map.of(),"pendingChanges",Map.of(),"readyForReview",false)));
         return view(sessions.saveAndFlush(s));
     }
+    @Transactional public void delete(String id) {
+        var s=sessions.findById(id).orElseThrow(()->new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        if(!s.getOwnerId().equals(users.getCurrentUserId())) throw new ApiException(ErrorCode.ACCESS_DENIED);
+        sessions.delete(s);
+    }
     @Transactional(readOnly=true) public View read(String id) {return view(owned(id));}
+    @Transactional(readOnly=true) public byte[] speech(String id,String text) {
+        owned(id);
+        try {
+            var request=HttpRequest.newBuilder(URI.create(workerUrl+"/conversation/speech"))
+                .timeout(Duration.ofSeconds(245)).header("Content-Type","application/json")
+                .header("X-Internal-Token",workerToken)
+                .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(Map.of("text",text)))).build();
+            var response=HttpClient.newHttpClient().send(request,HttpResponse.BodyHandlers.ofByteArray());
+            var audio=response.body();
+            if(response.statusCode()!=200 || audio.length<44 || audio.length>20*1024*1024
+                || audio[0]!='R' || audio[1]!='I' || audio[2]!='F' || audio[3]!='F')
+                throw new ApiException(ErrorCode.INVALID_REQUEST,"Dịch vụ giọng nói đang bận. Hãy thử nghe lại.");
+            return audio;
+        } catch(InterruptedException e) { Thread.currentThread().interrupt(); throw new ApiException(ErrorCode.INVALID_REQUEST,"Đã dừng giọng nói."); }
+        catch(ApiException e) { throw e; }
+        catch(Exception e) { throw new ApiException(ErrorCode.INVALID_REQUEST,"Chưa kết nối được giọng đọc tiếng Việt."); }
+    }
     @SuppressWarnings("unchecked")
     @Transactional public View message(String id,Message input) {
         var s=owned(id); var state=s.getState();

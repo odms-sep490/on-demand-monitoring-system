@@ -66,5 +66,5 @@ export IMAGE_QUALITY_INTERNAL_TOKEN
 IMAGE_QUALITY_INTERNAL_TOKEN=$(sed -n 's/^IMAGE_QUALITY_INTERNAL_TOKEN=//p' "$project/.env" | tail -1 | tr -d '\r')
 export IMAGE_QUALITY_MAX_IMAGE_SIZE=8388608
 cd "$project/Python/change-detection"
-echo 'Starting AI worker on 127.0.0.1:8000 (CPU). Stop with Ctrl+C.'
-exec "$python" -m uvicorn app:app --host 127.0.0.1 --port 8000 --workers 1
+echo 'Starting AI worker at http://localhost:8000 (CPU). Stop with Ctrl+C.'
+exec "$python" -m uvicorn app:app --host localhost --port 8000 --workers 1

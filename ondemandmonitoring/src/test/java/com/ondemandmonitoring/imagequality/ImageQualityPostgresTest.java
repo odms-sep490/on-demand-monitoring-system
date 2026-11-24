@@ -55,7 +55,7 @@ class ImageQualityPostgresTest {
             when(user.getCurrentUser().getId()).thenReturn("manager");when(user.getCurrentUser().getRole().getCode()).thenReturn(RoleCode.MANAGER);
             var service=new ImageQualityService(db,new TransactionTemplate(new DataSourceTransactionManager(source)),media,
                 mock(ICustomerMediaService.class),storage,mock(IResultRetentionAccessService.class),authorization,user,new ObjectMapper());
-            service.enabled=true;service.token=System.getenv("IMAGE_QUALITY_INTERNAL_TOKEN");service.worker="http://127.0.0.1:8000";service.maxBytes=8388608;service.batchLimit=20;
+            service.enabled=true;service.token=System.getenv("IMAGE_QUALITY_INTERNAL_TOKEN");service.worker="http://localhost:8000";service.maxBytes=8388608;service.batchLimit=20;
             UUID key=UUID.randomUUID();var job=service.request("image",key,"DETAIL",false);UUID id=(UUID)job.get("id");
             assertEquals(id,service.request("image",key,"DETAIL",false).get("id"));
             assertThrows(Exception.class,()->service.request("image",key,"MAPPING",false));

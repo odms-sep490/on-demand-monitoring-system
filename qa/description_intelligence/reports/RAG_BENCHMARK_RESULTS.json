@@ -1,0 +1,247 @@
+{
+  "TOTAL_QUERIES": 13,
+  "RECALL_AT_1": 0.7692,
+  "RECALL_AT_3": 1.0,
+  "RECALL_AT_5": 1.0,
+  "PRECISION_AT_3": 0.5385,
+  "MRR": 0.8846,
+  "SERVICE_ISOLATION_RATE": 1.0,
+  "VERIFIED_SOURCE_RATE": 1.0,
+  "AVG_LATENCY_MS": 1.278,
+  "details": [
+    {
+      "id": "RAG-01",
+      "category": "paraphrase",
+      "service": "Kiểm tra nhà xưởng",
+      "latencyMs": 1.518,
+      "recall@1": 0,
+      "recall@3": 1,
+      "recall@5": 1,
+      "precision@3": 0.667,
+      "rr": 0.5,
+      "serviceIsolationOk": true,
+      "verifiedOnlyOk": true,
+      "top3Sources": [
+        "rule:staff-only-boundary",
+        "service:3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+        "checklist:9052d60e-cd50-4bd6-9c4c-5674c702eb08"
+      ]
+    },
+    {
+      "id": "RAG-02",
+      "category": "paraphrase",
+      "service": "Giám sát rừng",
+      "latencyMs": 1.533,
+      "recall@1": 1,
+      "recall@3": 1,
+      "recall@5": 1,
+      "precision@3": 0.667,
+      "rr": 1.0,
+      "serviceIsolationOk": true,
+      "verifiedOnlyOk": true,
+      "top3Sources": [
+        "service:8aa5a565-296b-4fbc-9ecb-c8298a811d07",
+        "checklist:bd017b44-9428-4cf2-88ed-231bd03cf543",
+        "rule:staff-only-boundary"
+      ]
+    },
+    {
+      "id": "RAG-03",
+      "category": "synonym",
+      "service": "Giám sát công trình",
+      "latencyMs": 2.523,
+      "recall@1": 1,
+      "recall@3": 1,
+      "recall@5": 1,
+      "precision@3": 0.667,
+      "rr": 1.0,
+      "serviceIsolationOk": true,
+      "verifiedOnlyOk": true,
+      "top3Sources": [
+        "service:b55861a3-c346-4205-b17f-b596f29f6bc2",
+        "deliverable:3c0e23e7-c2dd-4d39-a00a-30c3e103c3c7",
+        "checklist:1a857b6d-bd67-40e0-8266-73785596a18e"
+      ]
+    },
+    {
+      "id": "RAG-04",
+      "category": "no_accents",
+      "service": "Kiểm tra nhà xưởng",
+      "latencyMs": 1.789,
+      "recall@1": 1,
+      "recall@3": 1,
+      "recall@5": 1,
+      "precision@3": 1.0,
+      "rr": 1.0,
+      "serviceIsolationOk": true,
+      "verifiedOnlyOk": true,
+      "top3Sources": [
+        "service:3bd21dde-e2b0-43f0-b32d-ac51941a8e2e",
+        "checklist:1b2bd91f-3df7-4c33-806f-e35338db259c",
+        "checklist:9052d60e-cd50-4bd6-9c4c-5674c702eb08"
+      ]
+    },
+    {
+      "id": "RAG-05",
+      "category": "no_accents",
+      "service": "Giám sát khu vực",
+      "latencyMs": 1.47,
+      "recall@1": 1,
+      "recall@3": 1,
+      "recall@5": 1,
+      "precision@3": 0.333,
+      "rr": 1.0,
+      "serviceIsolationOk": true,
+      "verifiedOnlyOk": true,
+      "top3Sources": [
+        "service:ad42ddf3-72f4-4c1b-bf45-5a8f40b5bae4",
+        "checklist:441612d9-a464-445a-9e7b-13175fa2655b",
+        "rule:handoff-core-scope"
+      ]
+    },
+    {
+      "id": "RAG-06",
+      "category": "slang",
+      "service": "Giám sát khu vực",
+      "latencyMs": 1.118,
+      "recall@1": 0,
+      "recall@3": 1,
+      "recall@5": 1,
+      "precision@3": 0.333,
+      "rr": 0.5,
+      "serviceIsolationOk": true,
+      "verifiedOnlyOk": true,
+      "top3Sources": [
+        "checklist:441612d9-a464-445a-9e7b-13175fa2655b",
+        "service:ad42ddf3-72f4-4c1b-bf45-5a8f40b5bae4",
+        "checklist:d1edba36-a894-47dc-b9fc-f4e5020b908b"
+      ]
+    },
+    {
+      "id": "RAG-07",
+      "category": "boundary_rule",
+      "service": "Kiểm tra nhà xưởng",
+      "latencyMs": 1.108,
+      "recall@1": 1,
+      "recall@3": 1,
+      "recall@5": 1,
+      "precision@3": 0.333,
+      "rr": 1.0,
+      "serviceIsolationOk": true,
+      "verifiedOnlyOk": true,
+      "top3Sources": [
+        "rule:staff-only-boundary",
+        "rule:no-unverified-promises",
+        "rule:separate-form-fields"
+      ]
+    },
+    {
+      "id": "RAG-08",
+      "category": "boundary_rule",
+      "service": "Giám sát công trình",
+      "latencyMs": 0.859,
+      "recall@1": 1,
+      "recall@3": 1,
+      "recall@5": 1,
+      "precision@3": 0.333,
+      "rr": 1.0,
+      "serviceIsolationOk": true,
+      "verifiedOnlyOk": true,
+      "top3Sources": [
+        "rule:separate-form-fields",
+        "rule:staff-only-boundary",
+        "service:b55861a3-c346-4205-b17f-b596f29f6bc2"
+      ]
+    },
+    {
+      "id": "RAG-09",
+      "category": "unsupported_promise",
+      "service": "Giám sát khu vực",
+      "latencyMs": 0.97,
+      "recall@1": 1,
+      "recall@3": 1,
+      "recall@5": 1,
+      "precision@3": 0.333,
+      "rr": 1.0,
+      "serviceIsolationOk": true,
+      "verifiedOnlyOk": true,
+      "top3Sources": [
+        "rule:no-unverified-promises",
+        "rule:separate-form-fields",
+        "rule:staff-only-boundary"
+      ]
+    },
+    {
+      "id": "RAG-10",
+      "category": "multi_topic",
+      "service": "Giám sát rừng",
+      "latencyMs": 1.103,
+      "recall@1": 0,
+      "recall@3": 1,
+      "recall@5": 1,
+      "precision@3": 0.667,
+      "rr": 0.5,
+      "serviceIsolationOk": true,
+      "verifiedOnlyOk": true,
+      "top3Sources": [
+        "checklist:079e219e-0b81-46e1-852c-2209d5a18391",
+        "rule:staff-only-boundary",
+        "service:8aa5a565-296b-4fbc-9ecb-c8298a811d07"
+      ]
+    },
+    {
+      "id": "RAG-11",
+      "category": "cross_service",
+      "service": "Giám sát khu vực",
+      "latencyMs": 0.877,
+      "recall@1": 1,
+      "recall@3": 1,
+      "recall@5": 1,
+      "precision@3": 0.333,
+      "rr": 1.0,
+      "serviceIsolationOk": true,
+      "verifiedOnlyOk": true,
+      "top3Sources": [
+        "deliverable:3c0e23e7-c2dd-4d39-a00a-30c3e103c3c7",
+        "checklist:17c4db4b-99c7-4d1e-a249-b8da3d425b5b",
+        "rule:no-unverified-promises"
+      ]
+    },
+    {
+      "id": "RAG-12",
+      "category": "cross_service",
+      "service": "Kiểm tra nhà xưởng",
+      "latencyMs": 0.94,
+      "recall@1": 1,
+      "recall@3": 1,
+      "recall@5": 1,
+      "precision@3": 0.667,
+      "rr": 1.0,
+      "serviceIsolationOk": true,
+      "verifiedOnlyOk": true,
+      "top3Sources": [
+        "deliverable:1a6c9b12-5315-4367-9cfe-20d0e32f9564",
+        "deliverable:3c0e23e7-c2dd-4d39-a00a-30c3e103c3c7",
+        "checklist:ea75238a-c75f-487c-acc8-0f530ad4131d"
+      ]
+    },
+    {
+      "id": "RAG-13",
+      "category": "unknown_domain",
+      "service": "Giám sát công trình",
+      "latencyMs": 0.81,
+      "recall@1": 1,
+      "recall@3": 1,
+      "recall@5": 1,
+      "precision@3": 0.667,
+      "rr": 1.0,
+      "serviceIsolationOk": true,
+      "verifiedOnlyOk": true,
+      "top3Sources": [
+        "service:b55861a3-c346-4205-b17f-b596f29f6bc2",
+        "rule:staff-only-boundary",
+        "deliverable:1a6c9b12-5315-4367-9cfe-20d0e32f9564"
+      ]
+    }
+  ]
+}

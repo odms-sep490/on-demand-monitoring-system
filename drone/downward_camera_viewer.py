@@ -317,7 +317,7 @@ def read_control_speed_state() -> dict[str, float]:
 
 
 def backend_url_candidates() -> list[str]:
-    candidates = [BACKEND_BASE_URL, "http://localhost:8080", "http://127.0.0.1:8080"]
+    candidates = [BACKEND_BASE_URL, "http://localhost:8080"]
     try:
         output = subprocess.check_output(
             ["sh", "-lc", "ip route | awk '/default/ {print $3; exit}'"],
@@ -433,7 +433,7 @@ async def wait_for_grpc_port(port: int, timeout_s: float) -> bool:
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.4):
+            with socket.create_connection(("localhost", port), timeout=0.4):
                 return True
         except OSError:
             await asyncio.sleep(0.5)

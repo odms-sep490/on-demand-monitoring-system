@@ -117,6 +117,18 @@ public class Order extends BaseEntity {
 
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
+    @Column(name = "customer_flight_purpose_draft", length = 1500)
+    private String customerFlightPurposeDraft;
+    @Column(name = "purpose_customer_confirmed_at")
+    private Instant purposeCustomerConfirmedAt;
+    @Column(name = "staff_reviewed_flight_purpose", length = 1500)
+    private String staffReviewedFlightPurpose;
+    @Column(name = "purpose_staff_reviewed_at")
+    private Instant purposeStaffReviewedAt;
+    @Column(name = "purpose_staff_reviewed_by")
+    private String purposeStaffReviewedBy;
+
+
 
     @Column(name = "address", columnDefinition = "TEXT")
     private String address;
@@ -183,6 +195,9 @@ public class Order extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "cancellation_reason", length = 40)
     private OrderCancellationReason cancellationReason;
+
+    @Column(name = "cancellation_note", columnDefinition = "TEXT")
+    private String cancellationNote;
 
     @Column(name = "cancelled_at")
     private Instant cancelledAt;

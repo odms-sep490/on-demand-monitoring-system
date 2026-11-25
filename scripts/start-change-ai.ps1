@@ -27,9 +27,10 @@ foreach ($key in @('OPENCD_TOKEN', 'IMAGE_QUALITY_INTERNAL_TOKEN')) {
 }
 [IO.File]::WriteAllText($envPath, $envText, (New-Object Text.UTF8Encoding($false)))
 try {
-    $ready = Invoke-RestMethod 'http://127.0.0.1:8000/ready' -TimeoutSec 3
-    if ($ready.status -eq 'READY') {
-        Write-Host 'AI worker is already READY at http://127.0.0.1:8000. Reusing the running worker.' -ForegroundColor Green
+    $ready = Invoke-RestMethod 'http://localhost:8000/ready' -TimeoutSec 3
+    $qualityReady = Invoke-RestMethod 'http://localhost:8000/quality/ready' -TimeoutSec 3
+    if ($ready.status -eq 'READY' -and $qualityReady.status -eq 'READY') {
+        Write-Host 'Image comparison and image quality workers are READY at http://localhost:8000. Reusing the running worker.' -ForegroundColor Green
         exit 0
     }
 } catch { }

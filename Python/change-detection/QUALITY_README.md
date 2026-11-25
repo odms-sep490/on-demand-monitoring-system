@@ -7,7 +7,7 @@
 ## Local hiện tại
 
 1. Chạy migration `ondemandmonitoring/src/main/resources/seeddata/migrations/add_image_quality.sql` bằng tài khoản DB có quyền schema trên môi trường local/test. Đã áp dụng tại localhost trong phiên triển khai, không chạy production.
-2. `.env` project: `IMAGE_QUALITY_ENABLED=true`, `IMAGE_QUALITY_WORKER_URL=http://127.0.0.1:8000`, `IMAGE_QUALITY_INTERNAL_TOKEN` là secret khớp worker; giới hạn batch mặc định 20, ảnh 8 MB. Không commit `.env`.
+2. `.env` project: `IMAGE_QUALITY_ENABLED=true`, `IMAGE_QUALITY_WORKER_URL=http://localhost:8000`, `IMAGE_QUALITY_INTERNAL_TOKEN` là secret khớp worker; giới hạn batch mặc định 20, ảnh 8 MB. Không commit `.env`.
 3. Run **Start AI Worker** (WSL Ubuntu-24.04) và restart Spring Boot. Worker hiện có thêm `/quality/ready` và `/quality/analyze` riêng, dùng cùng cổng Open-CD. Thư viện metrics đã có trong môi trường WSL.
 4. CUSTOMER: mở ảnh đã được bàn giao bản gốc trong Thư viện kết quả, chọn **Kiểm tra chất lượng AI**. Có thể chọn ảnh tiếp/trước trong viewer. Trang chi tiết ảnh cũng có panel.
 5. STAFF/MANAGER: gallery **Media nhiệm vụ → Hỗ trợ kiểm duyệt chất lượng ảnh**. Mở bảng, kiểm tra hàng loạt hoặc từng ảnh, lọc, xem lịch sử, chọn quyết định nhân viên và ghi chú. Quyền STAFF phụ thuộc inspector/review stage hiện có; backend là nơi quyết định quyền.

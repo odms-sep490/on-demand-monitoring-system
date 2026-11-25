@@ -15,8 +15,11 @@ public interface IOrderService {
 
     OrderCreateResponse createOrder(OrderCreateRequest request);
 
+    com.ondemandmonitoring.order.dto.response.OrderDraftValidationResponse validateDraftForReview(OrderCreateRequest request);
+
     OrderCreateResponse startReview(String orderId);
     OrderCreateResponse cancelBeforeReview(String orderId);
+    OrderCreateResponse cancelBeforeReview(String orderId, String reason);
 
     OrderCreateResponse approveOrder(String orderId);
 

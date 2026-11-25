@@ -12,7 +12,7 @@ Chọn **Start AI Worker**. Launcher `scripts/start-change-ai.ps1` chạy WSL di
 
 Worker đọc `OPENCD_TOKEN` từ `.env` project, dùng config trong checkout Open-CD đã pin và CPU; không cần nhập đường dẫn `/models` của Docker. SHA-256 được lưu sau download để phát hiện thay đổi tệp ở các lần chạy sau; đây không phải checksum do tác giả model công bố. Model dùng thử local, quyền checkpoint/dataset cho triển khai thương mại cần xác minh riêng.
 
-Kiểm tra `http://127.0.0.1:8000/ready` phải trả `READY`. Đã smoke-test trên WSL với một cặp ảnh tổng hợp giống nhau: endpoint `/infer` trả 200, tỷ lệ thay đổi 0; không phải đánh giá độ chính xác trên ảnh công trình thực.
+Kiểm tra `http://localhost:8000/ready` phải trả `READY`. Đã smoke-test trên WSL với một cặp ảnh tổng hợp giống nhau: endpoint `/infer` trả 200, tỷ lệ thay đổi 0; không phải đánh giá độ chính xác trên ảnh công trình thực.
 
 - Model ứng viên: ChangerEx ResNet-18, 512 × 512, LEVIR-CD theo [hướng dẫn Open-CD](https://github.com/likyoo/open-cd/blob/main/docs/inference.md). Source Open-CD tại commit 790a1972b538baaaffd4c3022a4d9afaa3f861e5 có giấy phép Apache-2.0. Cần xác minh quyền với checkpoint, dataset và gói phụ thuộc trước khi dùng với dữ liệu khách hàng.
 - Gắn checkpoint và config đã phê duyệt bằng ổ đọc riêng. Chỉ dùng checkpoint đáng tin cậy vì PyTorch có thể giải tuần tự mã khi nạp file. Kiểm tra SHA-256 từ nguồn đáng tin cậy.
@@ -28,7 +28,7 @@ Với GPU, build lại bằng TORCH_INDEX và MMCV_INDEX cho cùng phiên bản 
 
 ## Chạy local
 
-Dùng môi trường Linux x86-64 với Python 3.11. Cài Torch 2.0.0 và torchvision 0.15.1 từ kho wheel CPU PyTorch cùng wheel MMCV 2.0.1 theo lệnh trong Dockerfile. Cài requirements.txt, clone Open-CD tại commit đã ghi và đặt PYTHONPATH trỏ tới thư mục clone. Sau khi đặt các biến môi trường, chạy `uvicorn app:app --host 127.0.0.1 --port 8000 --workers 1`. Đặt CHANGE_ANALYSIS_WORKER_URL=http://127.0.0.1:8000 cho Spring và khởi động Spring cùng React bằng lệnh phát triển của từng repo.
+Dùng môi trường Linux x86-64 với Python 3.11. Cài Torch 2.0.0 và torchvision 0.15.1 từ kho wheel CPU PyTorch cùng wheel MMCV 2.0.1 theo lệnh trong Dockerfile. Cài requirements.txt, clone Open-CD tại commit đã ghi và đặt PYTHONPATH trỏ tới thư mục clone. Sau khi đặt các biến môi trường, chạy `uvicorn app:app --host localhost --port 8000 --workers 1`. Đặt CHANGE_ANALYSIS_WORKER_URL=http://localhost:8000 cho Spring và khởi động Spring cùng React bằng lệnh phát triển của từng repo.
 
 ## Kiểm tra bằng ảnh drone
 

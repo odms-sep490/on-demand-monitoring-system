@@ -85,7 +85,7 @@ public class RefundService {
     @Value("${app.refund.receipt-max-image-bytes:5242880}")
     private long maxReceiptBytes = 5 * 1024 * 1024;
 
-    @PreAuthorize("hasRole('MANAGER')")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     @Transactional
     public RefundResponse requestDepositRefund(String orderId, RequestDepositRefundRequest request) {
         Order order = orders.findByIdForUpdate(orderId)
@@ -415,6 +415,15 @@ public class RefundService {
 
     private void ensureEligibleOrder(Order order) {
         OrderStatus status = order.getOrderStatus();
+        if (status == OrderStatus.CANCELLED
+                && order.getCancellationReason() == OrderCancellationReason.MANAGER_REQUEST) {
+            boolean executionStarted = missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc(order.getId())
+                    .stream().anyMatch(mission -> mission.getActualStartAt() != null
+                            || mission.getCompletedAt() != null
+                            || EXECUTION_STARTED_STATUSES.contains(mission.getStatus()));
+            if (executionStarted) throw invalid("A Deposit refund cannot be requested after Order execution has started");
+            return;
+        }
         if (isContractSystemCancellation(order)) {
             if (!missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc(order.getId()).isEmpty())
                 throw invalid("Contract cancellation refunds are only available before Mission planning");

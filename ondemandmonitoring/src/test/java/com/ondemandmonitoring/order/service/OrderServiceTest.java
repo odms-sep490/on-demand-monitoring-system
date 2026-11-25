@@ -253,7 +253,7 @@ class OrderServiceTest {
         // Assert
         assertNotNull(response);
         assertEquals("ord-123", response.getId());
-        assertEquals("Survey Forest", response.getTitle());
+        assertEquals("", response.getTitle()); // Current Create Order has no customer-supplied title.
         assertEquals(OrderStatus.PENDING, response.getOrderStatus());
         assertEquals(106.7005, response.getLongitude());
         assertEquals(10.7765, response.getLatitude());

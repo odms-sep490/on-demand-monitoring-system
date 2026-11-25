@@ -9,6 +9,7 @@ import com.ondemandmonitoring.order.dto.request.OrderAdditionalInformationReques
 import com.ondemandmonitoring.order.dto.request.OrderChecklistUpdateRequest;
 import com.ondemandmonitoring.order.dto.request.OrderCreateRequest;
 import com.ondemandmonitoring.order.dto.request.OrderCustomerUpdateRequest;
+import com.ondemandmonitoring.order.dto.request.OrderCancellationRequest;
 import com.ondemandmonitoring.order.dto.request.PermitCancellationProposalRequest;
 import com.ondemandmonitoring.order.dto.response.OrderCreateResponse;
 import com.ondemandmonitoring.order.enums.OrderStatus;
@@ -101,9 +102,12 @@ public class OrderController {
     }
 
     @PostMapping("/{orderId}/cancel")
-    @PreAuthorize("hasRole('CUSTOMER')")
-    public ResponseEntity<ApiResponse<OrderCreateResponse>> cancelBeforeReview(@PathVariable String orderId) {
-        return ResponseEntity.ok(ApiResponse.ok("Order cancelled", orderService.cancelBeforeReview(orderId)));
+    @PreAuthorize("hasAnyAuthority('ROLE_CUSTOMER','ROLE_MANAGER','ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<OrderCreateResponse>> cancelBeforeReview(
+            @PathVariable String orderId,
+            @Valid @RequestBody(required = false) OrderCancellationRequest request) {
+        String reason = request == null ? null : request.reason();
+        return ResponseEntity.ok(ApiResponse.ok("Order cancelled", orderService.cancelBeforeReview(orderId, reason)));
     }
 
     @Operation(summary = "Start reviewing an order", description = "Locks customer editing while the manager reviews order conditions.")

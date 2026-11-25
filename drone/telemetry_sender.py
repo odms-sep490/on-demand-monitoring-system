@@ -46,7 +46,7 @@ MAVSDK_TELEMETRY_COMPID = int(os.getenv("MAVSDK_TELEMETRY_COMPID", "191"))
 BACKEND_BASE_URL = os.getenv("BACKEND_BASE_URL", "http://localhost:8080").rstrip("/")
 DRONE_TELEMETRY_SECRET = os.getenv("DRONE_TELEMETRY_SECRET", "").strip()
 FLIGHT_CONTROL_API_PORT = int(os.getenv("FLIGHT_CONTROL_API_PORT", "8090"))
-FLIGHT_CONTROL_STATUS_URL = f"http://127.0.0.1:{FLIGHT_CONTROL_API_PORT}/api/control/status"
+FLIGHT_CONTROL_STATUS_URL = f"http://localhost:{FLIGHT_CONTROL_API_PORT}/api/control/status"
 TELEMETRY_INTERVAL_SECONDS = float(os.getenv("TELEMETRY_INTERVAL_SECONDS", "5"))
 MAVSDK_GRPC_READY_TIMEOUT_S = float(os.getenv("MAVSDK_GRPC_READY_TIMEOUT_S", "10.0"))
 MAVSDK_PX4_DISCOVERY_TIMEOUT_S = float(os.getenv("MAVSDK_PX4_DISCOVERY_TIMEOUT_S", "20.0"))
@@ -270,7 +270,7 @@ async def wait_for_grpc_port(timeout_seconds: float = 60.0) -> bool:
     deadline = asyncio.get_running_loop().time() + timeout_seconds
     while asyncio.get_running_loop().time() < deadline:
         try:
-            with socket.create_connection(("127.0.0.1", MAVSDK_TELEMETRY_GRPC_PORT), timeout=0.5):
+            with socket.create_connection(("localhost", MAVSDK_TELEMETRY_GRPC_PORT), timeout=0.5):
                 return True
         except OSError:
             await asyncio.sleep(0.5)
@@ -300,9 +300,9 @@ async def run_stream(name: str, stream: Callable[[], Any], handler: Callable[[An
 
 
 async def connect_px4(drone: System, generation: int) -> None:
-    LOGGER.info("[MAVSDK-TELEMETRY] waiting for server 127.0.0.1:%s", MAVSDK_TELEMETRY_GRPC_PORT)
+    LOGGER.info("[MAVSDK-TELEMETRY] waiting for server localhost:%s", MAVSDK_TELEMETRY_GRPC_PORT)
     while not await wait_for_grpc_port(MAVSDK_GRPC_READY_TIMEOUT_S):
-        LOGGER.warning("[MAVSDK-TELEMETRY] server unavailable on 127.0.0.1:%s", MAVSDK_TELEMETRY_GRPC_PORT)
+        LOGGER.warning("[MAVSDK-TELEMETRY] server unavailable on localhost:%s", MAVSDK_TELEMETRY_GRPC_PORT)
 
     LOGGER.info("[MAVSDK-TELEMETRY] server available")
     await drone.connect()

@@ -22,7 +22,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Unable to start the PostgreSQL test container' }
     $ready = $false
     for ($attempt = 0; $attempt -lt 30; $attempt++) {
-        docker exec $container pg_isready -h 127.0.0.1 -U odms_verify -d $database | Out-Null
+        docker exec $container pg_isready -h localhost -U odms_verify -d $database | Out-Null
         if ($LASTEXITCODE -eq 0) { $ready = $true; break }
         Start-Sleep -Seconds 1
     }
@@ -30,7 +30,7 @@ try {
     $binding = docker port $container 5432
     if ($LASTEXITCODE -ne 0 -or $binding -notmatch '^127\.0\.0\.1:(\d+)$') { throw 'Expected a loopback PostgreSQL binding' }
     $values = @{
-        ODMS_CONTRACT_TEST_JDBC_URL = "jdbc:postgresql://127.0.0.1:$($Matches[1])/$database"
+        ODMS_CONTRACT_TEST_JDBC_URL = "jdbc:postgresql://localhost:$($Matches[1])/$database"
         ODMS_CONTRACT_TEST_DB_USER = 'odms_verify'
         ODMS_CONTRACT_TEST_DB_PASSWORD = $password
     }

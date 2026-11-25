@@ -1,0 +1,252 @@
+{
+  "model": "qwen2.5:3b",
+  "SCENARIOS_EXECUTED": 4,
+  "REAL_MODEL_SESSIONS": 4,
+  "REAL_MODEL_CALLS": 7,
+  "PASS": 0,
+  "FAIL": 4,
+  "BLOCKED": 0,
+  "NOT_VERIFIED": 0,
+  "sessions": [
+    {
+      "status": "FAIL",
+      "serviceName": "Kiểm tra nhà xưởng",
+      "turns": 3,
+      "durationSeconds": 17.3,
+      "finalReadinessState": "NEEDS_OPERATIONAL_REVIEW",
+      "finalFacts": {
+        "objective": "Kiểm tra nhà xưởng A",
+        "subject": "Nhà xưởng A",
+        "scope": "Toàn bộ mái nhà xưởng",
+        "directions": "Khu vực phía Đông",
+        "concerns": "Khu vực phía Đông bị rỉ sét và bong tróc"
+      },
+      "generatedDescription": "Yêu cầu dịch vụ Kiểm tra nhà xưởng:\nMục tiêu giám sát: Kiểm tra nhà xưởng A.\nĐối tượng giám sát: Nhà xưởng A.\nPhạm vi thực hiện: Toàn bộ mái nhà xưởng.\nHướng / góc quan sát: Khu vực phía Đông.\nĐiểm cần chú ý và ưu tiên: Khu vực phía Đông bị rỉ sét và bong tróc.",
+      "hardChecks": {
+        "NO_FABRICATED_FACTS": false,
+        "NO_CRITICAL_CONTRADICTIONS": true,
+        "NO_UNVERIFIED_CAPABILITY_PROMISES": true,
+        "CUSTOMER_CONFIRMED_SCOPE": true,
+        "SERVICE_COMPATIBLE": true
+      },
+      "transcript": [
+        {
+          "turn": 0,
+          "statements": [
+            "Tôi cần kiểm tra nhà xưởng giúp."
+          ],
+          "readinessState": "NEEDS_OPERATIONAL_REVIEW",
+          "facts": {
+            "objective": "Kiểm tra nhà xưởng"
+          },
+          "nextQuestion": "Bạn muốn kiểm tra nhà xưởng nhà xưởng A hay nhà xưởng B? Nếu không, tôi cần thêm thông tin về nhà xưởng cụ thể bạn muốn kiểm tra. Bạn muốn kiểm tra toàn bộ mái hay chỉ một phần? Bạn muốn chú ý đến các điểm bất thường nào",
+          "nextQuestionField": "subject",
+          "hardChecks": {
+            "NO_FABRICATED_FACTS": false,
+            "NO_CRITICAL_CONTRADICTIONS": true,
+            "NO_UNVERIFIED_CAPABILITY_PROMISES": true,
+            "CUSTOMER_CONFIRMED_SCOPE": false,
+            "SERVICE_COMPATIBLE": true
+          }
+        },
+        {
+          "turn": 1,
+          "statements": [
+            "Tôi cần kiểm tra nhà xưởng giúp.",
+            "Nhà xưởng A ở khu công nghiệp."
+          ],
+          "readinessState": "NEEDS_OPERATIONAL_REVIEW",
+          "facts": {
+            "objective": "Kiểm tra nhà xưởng A",
+            "subject": "Nhà xưởng A"
+          },
+          "nextQuestion": "Bạn muốn quan sát toàn bộ mái nhà xưởng A hay chỉ một phần?",
+          "nextQuestionField": "scope",
+          "hardChecks": {
+            "NO_FABRICATED_FACTS": false,
+            "NO_CRITICAL_CONTRADICTIONS": true,
+            "NO_UNVERIFIED_CAPABILITY_PROMISES": true,
+            "CUSTOMER_CONFIRMED_SCOPE": false,
+            "SERVICE_COMPATIBLE": true
+          }
+        },
+        {
+          "turn": 2,
+          "statements": [
+            "Tôi cần kiểm tra nhà xưởng giúp.",
+            "Nhà xưởng A ở khu công nghiệp.",
+            "Quan sát toàn bộ mái nhà xưởng, tập trung khu vực phía Đông bị rỉ sét và bong tróc."
+          ],
+          "readinessState": "NEEDS_OPERATIONAL_REVIEW",
+          "facts": {
+            "objective": "Kiểm tra nhà xưởng A",
+            "subject": "Nhà xưởng A",
+            "scope": "Toàn bộ mái nhà xưởng",
+            "directions": "Khu vực phía Đông",
+            "concerns": "Khu vực phía Đông bị rỉ sét và bong tróc"
+          },
+          "nextQuestion": "",
+          "nextQuestionField": null,
+          "hardChecks": {
+            "NO_FABRICATED_FACTS": false,
+            "NO_CRITICAL_CONTRADICTIONS": true,
+            "NO_UNVERIFIED_CAPABILITY_PROMISES": true,
+            "CUSTOMER_CONFIRMED_SCOPE": true,
+            "SERVICE_COMPATIBLE": true
+          }
+        }
+      ]
+    },
+    {
+      "status": "FAIL",
+      "serviceName": "Giám sát rừng",
+      "turns": 1,
+      "durationSeconds": 3.96,
+      "finalReadinessState": "NEEDS_OPERATIONAL_REVIEW",
+      "finalFacts": {
+        "objective": "giám sát lô rừng phòng hộ 12",
+        "subject": "lô rừng phòng hộ 12",
+        "scope": "khu vực rừng",
+        "concerns": "điểm cây suy giảm"
+      },
+      "generatedDescription": "",
+      "hardChecks": {
+        "NO_FABRICATED_FACTS": false,
+        "NO_CRITICAL_CONTRADICTIONS": true,
+        "NO_UNVERIFIED_CAPABILITY_PROMISES": true,
+        "CUSTOMER_CONFIRMED_SCOPE": true,
+        "SERVICE_COMPATIBLE": true
+      },
+      "transcript": [
+        {
+          "turn": 0,
+          "statements": [
+            "Muốn giám sát lô rừng phòng hộ 12, ghi nhận toàn cảnh khu vực rừng và điểm cây suy giảm."
+          ],
+          "readinessState": "NEEDS_OPERATIONAL_REVIEW",
+          "facts": {
+            "objective": "giám sát lô rừng phòng hộ 12",
+            "subject": "lô rừng phòng hộ 12",
+            "scope": "khu vực rừng",
+            "concerns": "điểm cây suy giảm"
+          },
+          "nextQuestion": "",
+          "nextQuestionField": null,
+          "hardChecks": {
+            "NO_FABRICATED_FACTS": false,
+            "NO_CRITICAL_CONTRADICTIONS": true,
+            "NO_UNVERIFIED_CAPABILITY_PROMISES": true,
+            "CUSTOMER_CONFIRMED_SCOPE": true,
+            "SERVICE_COMPATIBLE": true
+          }
+        }
+      ]
+    },
+    {
+      "status": "FAIL",
+      "serviceName": "Giám sát khu vực",
+      "turns": 1,
+      "durationSeconds": 2.52,
+      "finalReadinessState": "NEEDS_OPERATIONAL_REVIEW",
+      "finalFacts": {
+        "objective": "giám sát khu công nghiệp phía Đông",
+        "outputs": "báo cáo kết quả"
+      },
+      "generatedDescription": "Yêu cầu dịch vụ Giám sát khu vực:\nMục tiêu giám sát: giám sát khu công nghiệp phía Đông.\nKết quả đầu ra mong muốn: báo cáo kết quả.\nThông tin cần đội vận hành trao đổi thêm: Đối tượng giám sát, Phạm vi thực hiện.",
+      "hardChecks": {
+        "NO_FABRICATED_FACTS": false,
+        "NO_CRITICAL_CONTRADICTIONS": true,
+        "NO_UNVERIFIED_CAPABILITY_PROMISES": false,
+        "CUSTOMER_CONFIRMED_SCOPE": false,
+        "SERVICE_COMPATIBLE": false
+      },
+      "transcript": [
+        {
+          "turn": 0,
+          "statements": [
+            "Giám sát khu công nghiệp phía Đông, toàn bộ khu vực, cần xuất Báo cáo kết quả."
+          ],
+          "readinessState": "NEEDS_OPERATIONAL_REVIEW",
+          "facts": {
+            "objective": "giám sát khu công nghiệp phía Đông",
+            "outputs": "báo cáo kết quả"
+          },
+          "nextQuestion": "Bạn có thể cung cấp thêm thông tin về phạm vi cần giám sát không? Ví dụ, toàn bộ khu vực hay chỉ một phần cụ thể?",
+          "nextQuestionField": "subject",
+          "hardChecks": {
+            "NO_FABRICATED_FACTS": false,
+            "NO_CRITICAL_CONTRADICTIONS": true,
+            "NO_UNVERIFIED_CAPABILITY_PROMISES": false,
+            "CUSTOMER_CONFIRMED_SCOPE": false,
+            "SERVICE_COMPATIBLE": false
+          }
+        }
+      ]
+    },
+    {
+      "status": "FAIL",
+      "serviceName": "Giám sát công trình",
+      "turns": 2,
+      "durationSeconds": 6.28,
+      "finalReadinessState": "NEEDS_OPERATIONAL_REVIEW",
+      "finalFacts": {
+        "objective": "giám sát công trình cầu vượt",
+        "subject": "công trình cầu vượt",
+        "outputs": "ảnh chụp"
+      },
+      "generatedDescription": "Yêu cầu dịch vụ Giám sát công trình:\nMục tiêu giám sát: giám sát công trình cầu vượt.\nĐối tượng giám sát: công trình cầu vượt.\nKết quả đầu ra mong muốn: ảnh chụp.\nThông tin cần đội vận hành trao đổi thêm: Phạm vi thực hiện.",
+      "hardChecks": {
+        "NO_FABRICATED_FACTS": false,
+        "NO_CRITICAL_CONTRADICTIONS": true,
+        "NO_UNVERIFIED_CAPABILITY_PROMISES": true,
+        "CUSTOMER_CONFIRMED_SCOPE": false,
+        "SERVICE_COMPATIBLE": true
+      },
+      "transcript": [
+        {
+          "turn": 0,
+          "statements": [
+            "Cần giám sát công trình cầu vượt, theo dõi toàn bộ tiến độ thi công các hạng mục chính, cần ảnh chụp."
+          ],
+          "readinessState": "NEEDS_OPERATIONAL_REVIEW",
+          "facts": {
+            "objective": "giám sát công trình cầu vượt",
+            "subject": "công trình cầu vượt",
+            "outputs": "ảnh chụp"
+          },
+          "nextQuestion": "Bạn có thể cung cấp thêm thông tin về phạm vi cần giám sát không? Ví dụ, nếu có các hạng mục cụ thể nào cần quan tâm hơn?",
+          "nextQuestionField": "scope",
+          "hardChecks": {
+            "NO_FABRICATED_FACTS": false,
+            "NO_CRITICAL_CONTRADICTIONS": false,
+            "NO_UNVERIFIED_CAPABILITY_PROMISES": false,
+            "CUSTOMER_CONFIRMED_SCOPE": false,
+            "SERVICE_COMPATIBLE": false
+          }
+        },
+        {
+          "turn": 1,
+          "statements": [
+            "Cần giám sát công trình cầu vượt, theo dõi toàn bộ tiến độ thi công các hạng mục chính, cần ảnh chụp.",
+            "Tôi chưa rõ chi tiết này, nhờ đội vận hành tư vấn thêm."
+          ],
+          "readinessState": "NEEDS_OPERATIONAL_REVIEW",
+          "facts": {
+            "objective": "giám sát công trình cầu vượt",
+            "subject": "công trình cầu vượt",
+            "outputs": "ảnh chụp"
+          },
+          "nextQuestion": "Bạn có thể cung cấp chi tiết về phạm vi cần giám sát cụ thể không? (ví dụ: toàn bộ công trình cầu vượt, các hạng mục chính, các khu vực cụ thể...)",
+          "nextQuestionField": "scope",
+          "hardChecks": {
+            "NO_FABRICATED_FACTS": false,
+            "NO_CRITICAL_CONTRADICTIONS": true,
+            "NO_UNVERIFIED_CAPABILITY_PROMISES": true,
+            "CUSTOMER_CONFIRMED_SCOPE": false,
+            "SERVICE_COMPATIBLE": true
+          }
+        }
+      ]
+    }
+  ]
+}

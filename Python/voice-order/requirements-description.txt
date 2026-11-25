@@ -1,0 +1,6 @@
+# Reuses Python/.venv; no Instructor dependency: Qwen-Agent output is validated by Pydantic.
+qwen-agent
+fastapi
+uvicorn
+pydantic>=2,<3
+python-dotenv

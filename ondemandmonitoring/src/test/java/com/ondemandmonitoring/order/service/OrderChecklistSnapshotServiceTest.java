@@ -55,7 +55,8 @@ class OrderChecklistSnapshotServiceTest {
                 new com.ondemandmonitoring.pricing.service.ServicePriceResolver(assignments));
     }
     ChecklistDefinition definition(String id, String content) {
-        var c = new ChecklistDefinition(); c.setId(id); c.setContent(content); c.setVersion(2L); return c;
+        var c = new ChecklistDefinition(); c.setId(id); c.setContent(content); c.setVersion(2L);
+        c.setStandardAreaM2(new java.math.BigDecimal("500")); return c;
     }
     OrderChecklistItemRequest item(String id, String content) {
         var r = new OrderChecklistItemRequest(); r.setSourceChecklistId(id); r.setContentOverride(content);
@@ -68,6 +69,15 @@ class OrderChecklistSnapshotServiceTest {
         var locks = inOrder(services, definitions);
         locks.verify(services).findByIdForUpdate("s1");
         locks.verify(definitions).findByIdForUpdate("c1"); locks.verify(definitions).findByIdForUpdate("c2");
+    }
+    @Test void validationPreparesTheSameSelectionWithoutSavingSnapshots() {
+        order.setId(null);
+        useCase.validateSelection(order, null);
+        verifyNoInteractions(snapshots);
+        assertNull(order.getChecklistSnapshotAt());
+        var stale = item("c1", "Check exits");stale.setExpectedChecklistVersion(1L);
+        assertThrows(ApiException.class, () -> useCase.validateSelection(order, List.of(stale)));
+        verifyNoInteractions(snapshots);
     }
     @Test void guidanceIsFrozenAtOrderTimeAndSurvivesLaterCatalogEdits() {
         c1.setDescription("Covers the roof"); c1.setExecutionSteps(List.of("Fly the grid", "Photograph defects"));

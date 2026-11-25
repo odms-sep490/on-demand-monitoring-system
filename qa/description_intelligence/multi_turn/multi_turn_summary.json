@@ -1,0 +1,8 @@
+{
+  "model": "qwen2.5:3b",
+  "REAL_MODEL_SESSIONS_EXECUTED": 32,
+  "REAL_MODEL_CALLS": 68,
+  "PASS": 29,
+  "FAIL": 3,
+  "BLOCKED": 0
+}

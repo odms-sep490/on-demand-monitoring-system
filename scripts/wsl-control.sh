@@ -306,7 +306,7 @@ wait_for_mavsdk_system() {
     printf '%s\n' '[DIAG] MAVSDK is running and owns UDP 14030, but no valid PX4 HEARTBEAT was observed.' >&2
     print_server_log_tail
     print_port_diagnostics
-    printf '%s\n' '[ACTION] Verify PX4 remains running and its onboard MAVLink instance targets 127.0.0.1:14030.' >&2
+    printf '%s\n' '[ACTION] Verify PX4 remains running and its onboard MAVLink instance targets localhost:14030.' >&2
     return 1
 }
 

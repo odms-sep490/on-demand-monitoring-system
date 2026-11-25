@@ -1,0 +1,56 @@
+[
+  {
+    "id": "BUG-01",
+    "area": "Spring transaction boundary",
+    "evidence": "G08 real validate endpoint returned HTTP 500 / UnexpectedRollbackException for a stale checklist version.",
+    "cause": "The nested MANDATORY checklist validator marked the shared session transaction rollback-only before OrderService converted the expected ApiException into field errors.",
+    "fix": "noRollbackFor ApiException on read-only selection preparation only; capture still rolls back normally.",
+    "verification": "G08, G09, G10 real API replay passed; 31 related Java tests passed."
+  },
+  {
+    "id": "BUG-02",
+    "area": "Agent catalog grounding",
+    "evidence": "B07 explained factory checklists after the customer selected construction monitoring.",
+    "cause": "The structured writer saw all services' checklists together, and repeated another service's catalog context.",
+    "fix": "Scope checklist context to the selected service; leave other service choices available when explicitly choosing/changing service.",
+    "verification": "B07 real model replay passed; final regression pending."
+  },
+  {
+    "id": "BUG-03",
+    "area": "Media quantities",
+    "evidence": "C02 duplicated one requested video across two items; C05 selected the entire optional package; C09 retained photos after an explicit video-only request.",
+    "cause": "Package defaults were mistaken for per-item customer totals and optional package items were selected unnecessarily.",
+    "fix": "Validate aggregate video counts, honor explicit no-image/no-video instructions, omit empty optional items, and constrain a new narrow single-media suggestion without selecting the full optional package.",
+    "verification": "C02, C05, C09 real model replays passed; final regression pending."
+  },
+  {
+    "id": "BUG-04",
+    "area": "Collection and conversation memory",
+    "evidence": "D01-D15 exposed acknowledgments without saved contact/site/purpose values; follow-up replies were generic and sometimes proposed an unrelated service.",
+    "cause": "Optional extraction fields, competing old assistant text, and English enum codes allowed missing or semantically wrong proposals.",
+    "fix": "Require extraction for explicitly supplied fields, constrain literal customer values and form labels, scope changes to the current intent, make recall read-only, and ground recall in the customer-confirmed values.",
+    "verification": "Final real-model regression pending; no template answer or mock model added."
+  },
+  {
+    "id": "BUG-05",
+    "area": "Service changes",
+    "evidence": "E09 switching back to factory inspection failed because its service name was interpreted as an instruction to choose construction checklists.",
+    "cause": "The words 'chọn' and 'kiểm tra' in a service name triggered checklist selection against the previous service.",
+    "fix": "Separate service selection from checklist selection and scope simultaneous media proposals to the newly selected service.",
+    "verification": "Final real-model regression pending."
+  },
+  {
+    "id": "HARNESS-01",
+    "area": "Test isolation and evidence",
+    "cause": "Initial view timestamps had nanosecond/microsecond differences; a service-change assertion inspected a proposal before confirmation; the original snapshot count used a nonexistent table name.",
+    "fix": "Compare all persisted state and revisions independently of timestamp precision, verify service-dependent clearing after actual confirmation, count actual order_checklist_items/revisions, and retain all failed execution history.",
+    "verification": "Security and recovery API replays passed."
+  },
+  {
+    "id": "HARNESS-02",
+    "area": "QA scheduler isolation",
+    "cause": "The initial QA profile referenced the wrong Spring scheduling processor bean name.",
+    "fix": "Use org.springframework.scheduling.config.internalScheduledAnnotationProcessor; the isolated QA backend refuses public or remote schemas.",
+    "verification": "Restarted QA profile; no recurring quality dispatcher warnings in the corrected run."
+  }
+]

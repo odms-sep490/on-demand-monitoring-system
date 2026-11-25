@@ -9,6 +9,7 @@ import java.util.Map;
 
 public interface IOrderChecklistSnapshotService {
     List<CustomerOrderChecklistItemResponse> capture(Order order, List<OrderChecklistItemRequest> items);
+    void validateSelection(Order order, List<OrderChecklistItemRequest> items);
     /** Reprices the already-frozen checklist snapshots after an editable order pricing input changes. */
     void recalculate(Order order);
     Map<String, List<CustomerOrderChecklistItemResponse>> getByOrders(List<String> orderIds);

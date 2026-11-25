@@ -14,6 +14,7 @@ try {
     Write-Host '  Image comparison: http://localhost:8000/ready'
     Write-Host '  Image quality assessment: http://localhost:8000/quality/ready (same image worker)'
     Write-Host '  Conversation, description and voice: http://localhost:8002/conversation/health'
+    Write-Host '  Checklist image assessment: served by the Java backend (see model setup above)'
     $lastProgress = Get-Date
     while ($true) {
         foreach ($job in $jobs) {

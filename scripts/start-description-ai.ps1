@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Stop'
 & (Join-Path $PSScriptRoot 'start-vieneu-tts.ps1')
 $env:PYTHONUTF8 = '1'
 $repo = Split-Path $PSScriptRoot -Parent
+$ollamaBaseUrl = 'http://127.0.0.1:11434'
 $config = Join-Path $repo '.env'
 $desiredLine = if (Test-Path -LiteralPath $config) { Get-Content -LiteralPath $config | Where-Object { $_ -match '^ORDER_AGENT_MODEL=' } | Select-Object -Last 1 }
 $desiredModel = if ($desiredLine) { ($desiredLine -split '=',2)[1].Trim().Trim('"') } else { 'odm-order-qwen:3b' }
@@ -37,13 +38,13 @@ foreach ($neededModel in @($model, $agentModel) | Select-Object -Unique) {
         if ($neededModel -eq 'odm-order-qwen:3b') {
             if (-not ($models.models | Where-Object { $_.name -eq 'qwen2.5:3b' })) {
                 Write-Host 'Downloading Qwen2.5:3b once for the order consultant.'
-                Invoke-RestMethod 'http://localhost:11434/api/pull' -Method Post -ContentType 'application/json' -Body '{"model":"qwen2.5:3b","stream":false}' -TimeoutSec 3600 | Out-Null
+                Invoke-RestMethod "$ollamaBaseUrl/api/pull" -Method Post -ContentType 'application/json' -Body '{"model":"qwen2.5:3b","stream":false}' -TimeoutSec 3600 | Out-Null
             }
-            Invoke-RestMethod 'http://localhost:11434/api/create' -Method Post -ContentType 'application/json' -Body '{"model":"odm-order-qwen:3b","from":"qwen2.5:3b","parameters":{"num_ctx":8192,"num_predict":1000},"stream":false}' -TimeoutSec 60 | Out-Null
+            Invoke-RestMethod "$ollamaBaseUrl/api/create" -Method Post -ContentType 'application/json' -Body '{"model":"odm-order-qwen:3b","from":"qwen2.5:3b","parameters":{"num_ctx":8192,"num_predict":1000},"stream":false}' -TimeoutSec 60 | Out-Null
             continue
         }
         Write-Host "Downloading $neededModel. The first run can take several minutes."
-        Invoke-RestMethod 'http://localhost:11434/api/pull' -Method Post -ContentType 'application/json' -Body (@{model=$neededModel;stream=$false} | ConvertTo-Json) -TimeoutSec 3600 | Out-Null
+        Invoke-RestMethod "$ollamaBaseUrl/api/pull" -Method Post -ContentType 'application/json' -Body (@{model=$neededModel;stream=$false} | ConvertTo-Json) -TimeoutSec 3600 | Out-Null
     }
 }
 Write-Host "Starting Description AI ($model) and Order Consultant ($agentModel) at http://localhost:8002."

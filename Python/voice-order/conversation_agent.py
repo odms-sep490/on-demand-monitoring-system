@@ -360,6 +360,10 @@ def validate_turn(raw,request,guided_step=None):
             turn.requestedUiAction=''
     return turn
 
+def order_agent_model_server():
+    return os.getenv('ORDER_AGENT_URL', os.getenv('DESCRIPTION_LLM_URL', 'http://127.0.0.1:11434/v1'))
+
+
 def converse(request:TurnInput):
     deadline=time.monotonic()+float(os.getenv('ORDER_AGENT_TOTAL_TIMEOUT_SECONDS','85'))
     trace=[]
@@ -397,7 +401,7 @@ def converse(request:TurnInput):
     if not protected:next(tool for tool in tools if tool.name=='getCurrentOrderDraft').call({})
     llm={
         'model':os.getenv('ORDER_AGENT_MODEL','qwen2.5:3b'),
-        'model_server':os.getenv('ORDER_AGENT_URL',os.getenv('DESCRIPTION_LLM_URL','http://localhost:11434/v1')),
+        'model_server':order_agent_model_server(),
         'api_key':os.getenv('ORDER_AGENT_API_KEY','EMPTY'),
         'generate_cfg':{'temperature':0,'max_input_tokens':6500,'max_tokens':1500,'reasoning_effort':'none',
             'request_timeout':int(os.getenv('ORDER_AGENT_TIMEOUT_SECONDS','25')),'max_retries':0,

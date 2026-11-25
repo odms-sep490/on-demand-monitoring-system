@@ -131,7 +131,7 @@ def generate(request: Generate) -> Draft:
         prompt += ' BẮT BUỘC giữ nguyên các cụm mục tiêu sau trong CẢ HAI đoạn: ' + ', '.join(objectives) + '. Không thay bằng quan sát tổng quát.'
     agent = Assistant(llm={
         'model': os.getenv('DESCRIPTION_LLM_MODEL', 'qwen3:1.7b'),
-        'model_server': os.getenv('DESCRIPTION_LLM_URL', 'http://localhost:11434/v1'),
+        'model_server': os.getenv('DESCRIPTION_LLM_URL', 'http://127.0.0.1:11434/v1'),
         'api_key': 'EMPTY',
         'generate_cfg': {'max_input_tokens': 3500, 'max_tokens': 1600, 'reasoning_effort': 'none',
                          'response_format': {'type':'json_schema','json_schema':{'name':'description_draft','schema':schema}},
@@ -223,7 +223,7 @@ def health():
     from fastapi.responses import JSONResponse
     model = os.getenv('DESCRIPTION_LLM_MODEL', 'qwen3:1.7b')
     try:
-        url = os.getenv('DESCRIPTION_LLM_URL', 'http://localhost:11434/v1').rstrip('/')
+        url = os.getenv('DESCRIPTION_LLM_URL', 'http://127.0.0.1:11434/v1').rstrip('/')
         with urllib.request.urlopen(url + '/models', timeout=3) as response:
             models = json.load(response).get('data', [])
         ready = any(row.get('id') == model for row in models)

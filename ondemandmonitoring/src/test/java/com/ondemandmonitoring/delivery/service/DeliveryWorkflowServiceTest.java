@@ -151,6 +151,20 @@ class DeliveryWorkflowServiceTest {
         verify(completion, never()).completeIfReady(any());
     }
 
+    @Test void acceptanceAutoConfiguresMissingMissionMilestoneAndMarksHandedOver() {
+        configureMissionScope();
+        invoice.setStatus(InvoiceStatus.PARTIALLY_PAID);
+        invoice.setDepositStatus(com.ondemandmonitoring.finance.enums.DepositStatus.DEPOSIT_PAID);
+        when(paymentMilestones.isConfiguredForHandover("order", "mission")).thenReturn(false, true, true);
+        when(paymentMilestones.ensureConfiguredFromChecklistPrices("order")).thenReturn(true);
+
+        var accepted = service.acceptResult("order", "round", 2L);
+
+        assertThat(accepted.deliveryStatus()).isEqualTo(DeliveryStatus.DELIVERED);
+        verify(paymentMilestones).ensureConfiguredFromChecklistPrices("order");
+        verify(paymentMilestones).markHandedOver(eq("order"), eq("mission"), any());
+    }
+
     @Test void mediaDownloadDependsOnItsMissionAcceptanceNotAnotherMission() {
         configureMissionScope();
         when(paymentMilestones.isPaidForMission("order", "mission")).thenReturn(true);

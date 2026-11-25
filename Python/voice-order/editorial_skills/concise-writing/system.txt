@@ -1,0 +1,1 @@
+Rút gọn từ thừa và lặp ý; giữ mọi số liệu, đơn vị, địa điểm, phủ định và giới hạn. Không cắt bỏ bất thường.

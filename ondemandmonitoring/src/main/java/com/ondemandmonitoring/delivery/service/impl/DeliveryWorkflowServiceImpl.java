@@ -562,10 +562,10 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
                     || delivery.getStatus() == DeliveryStatus.DELIVERED)) {
             if ((delivery.getStatus() == DeliveryStatus.AWAITING_MISSION_PAYMENT
                     || delivery.getStatus() == DeliveryStatus.FINAL_PAYMENT_PENDING)
-                    && isHandoverPaymentReady(orderId, missionId, invoice))
+                    && ensureHandoverPaymentReady(orderId, missionId, invoice))
                 delivery.setStatus(DeliveryStatus.READY_FOR_DELIVERY);
             if (delivery.getStatus() == DeliveryStatus.READY_FOR_DELIVERY
-                    && isHandoverPaymentReady(orderId, missionId, invoice))
+                    && ensureHandoverPaymentReady(orderId, missionId, invoice))
                 return releaseOriginals(orderId, missionId);
             return response(delivery, effective, List.of(), false);
         }
@@ -583,7 +583,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
         // delivery to Manager until every case item has reached a terminal decision.
         delivery.setStatus(activeRevisionCase != null && !caseResolved && hasBlockingCase(orderId, missionId)
                 ? DeliveryStatus.READY_FOR_MANAGER_REVIEW
-                : isHandoverPaymentReady(orderId, missionId, invoice)
+                : ensureHandoverPaymentReady(orderId, missionId, invoice)
                     ? DeliveryStatus.READY_FOR_DELIVERY : DeliveryStatus.AWAITING_MISSION_PAYMENT);
         if (delivery.getStatus() == DeliveryStatus.READY_FOR_DELIVERY) return releaseOriginals(orderId, missionId);
         if (delivery.getStatus() == DeliveryStatus.READY_FOR_MANAGER_REVIEW) publishInspectedResults(orderId);
@@ -598,7 +598,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
             if (scoped.getMissionId() != null && hasCustomerAcceptedCurrentReview(scoped)
                     && !hasBlockingCase(orderId, scoped.getMissionId()) && scoped.getStatus() != DeliveryStatus.DELIVERED) {
                 var lockedScope = deliveries.findScopedForUpdate(orderId, scoped.getMissionId()).orElseThrow();
-                lockedScope.setStatus(isHandoverPaymentReady(orderId, scoped.getMissionId(), invoice(orderId))
+                lockedScope.setStatus(ensureHandoverPaymentReady(orderId, scoped.getMissionId(), invoice(orderId))
                         ? DeliveryStatus.READY_FOR_DELIVERY : DeliveryStatus.AWAITING_MISSION_PAYMENT);
                 if (lockedScope.getStatus() == DeliveryStatus.READY_FOR_DELIVERY) releaseOriginals(orderId, scoped.getMissionId());
             }
@@ -660,7 +660,7 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     public DeliveryResponse releaseOriginals(String orderId, String missionId) {
         List<Mission> effective = missionId == null ? completedMissions(orderId) : scopedMissions(orderId, missionId);
         Invoice invoice = invoice(orderId);
-        if (!isHandoverPaymentReady(orderId, missionId, invoice))
+        if (!ensureHandoverPaymentReady(orderId, missionId, invoice))
             throw new ApiException(ErrorCode.MISSION_PAYMENT_REQUIRED,
                     missionId == null ? null : "Deposit and an agreed Mission payment allocation are required before handover");
         OrderDelivery delivery = scopedDelivery(orderId, missionId, true).orElseThrow(() -> new ApiException(ErrorCode.DELIVERY_NOT_READY));
@@ -1053,6 +1053,16 @@ public class DeliveryWorkflowServiceImpl implements IDeliveryWorkflowService {
     private static boolean isInvoiceFullyPaid(Invoice invoice) {
         return invoice.getStatus() == InvoiceStatus.PAID && invoice.getRemainingAmount() != null
                 && invoice.getRemainingAmount().signum() == 0;
+    }
+
+    private boolean ensureHandoverPaymentReady(String orderId, String missionId, Invoice invoice) {
+        if (isHandoverPaymentReady(orderId, missionId, invoice)) return true;
+        if (missionId != null && invoice != null
+                && invoice.effectiveDepositStatus() == DepositStatus.DEPOSIT_PAID) {
+            paymentMilestones.ensureConfiguredFromChecklistPrices(orderId);
+            return isHandoverPaymentReady(orderId, missionId, invoice);
+        }
+        return false;
     }
 
     private boolean isHandoverPaymentReady(String orderId, String missionId, Invoice invoice) {

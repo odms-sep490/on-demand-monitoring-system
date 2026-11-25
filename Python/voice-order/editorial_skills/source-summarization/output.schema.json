@@ -1,0 +1,1 @@
+{"type": "object", "required": ["edits", "warnings"], "properties": {"edits": {"type": "array", "items": {"type": "object", "required": ["key", "text"], "properties": {"key": {"type": "string"}, "text": {"type": "string"}}, "additionalProperties": false}}, "warnings": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": false}

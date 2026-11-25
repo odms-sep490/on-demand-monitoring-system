@@ -121,6 +121,7 @@ public class SecurityConfig {
                                         "frame-ancestors 'self';")))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/simulation-viewer/simulation_map_top.png").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/internal/ai/prompts/**").permitAll()
                         .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2

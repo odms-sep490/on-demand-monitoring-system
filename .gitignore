@@ -62,3 +62,7 @@ ondemandmonitoring/src/main/resources/application-local.yaml
 # Safe public templates (after generic *.example rule)
 !Python/change-detection/.env.example
 !ondemandmonitoring/image-quality.env.example
+
+# Local AI codebase intelligence & indexing caches
+.serena/
+.jcodemunch/

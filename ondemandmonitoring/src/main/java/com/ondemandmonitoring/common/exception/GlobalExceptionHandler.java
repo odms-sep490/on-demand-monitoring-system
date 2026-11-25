@@ -22,6 +22,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
@@ -217,6 +218,25 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.REQUEST_TIMEOUT)
                 .body(response);
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiResponse<Void>> handleResponseStatusException(
+            ResponseStatusException exception,
+            HttpServletRequest request
+    ) {
+        var status = exception.getStatusCode();
+        String reason = exception.getReason();
+        boolean reasonIsCode = reason != null && reason.matches("[A-Z][A-Z0-9_]{2,79}");
+        String code = reasonIsCode ? reason : "HTTP_" + status.value();
+        HttpStatus resolvedStatus = HttpStatus.resolve(status.value());
+        String message = reasonIsCode || resolvedStatus == null
+                ? (resolvedStatus == null ? "Request failed" : resolvedStatus.getReasonPhrase())
+                : reason;
+
+        log.warn("Request rejected. status={}, method={}, path={}, code={}",
+                status.value(), request.getMethod(), request.getRequestURI(), code);
+        return ResponseEntity.status(status).body(ApiResponse.error(code, message));
     }
 
     @ExceptionHandler(Exception.class)

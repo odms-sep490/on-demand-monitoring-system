@@ -281,6 +281,101 @@ public class MissionPaymentMilestoneService {
         return allocated;
     }
 
+    /**
+     * Ensures Mission payment milestones exist for an Order with a post-Deposit balance so
+     * customer acceptance can hand over the Mission receivable even if a Manager did not
+     * manually trigger checklist-based calculation earlier.
+     */
+    @Transactional
+    public boolean ensureConfiguredFromChecklistPrices(String orderId) {
+        var order = orders.findByIdForUpdate(orderId).orElse(null);
+        if (order == null || (order.getOrderStatus() != OrderStatus.APPROVED
+                && order.getOrderStatus() != OrderStatus.IN_PROGRESS
+                && order.getOrderStatus() != OrderStatus.COMPLETED)) {
+            return false;
+        }
+        Invoice invoice = invoices.findByOrderId(orderId).orElse(null);
+        if (invoice == null) return false;
+        invoice = invoices.findByIdForUpdate(invoice.getId()).orElse(invoice);
+        if (invoice.getStatus() == InvoiceStatus.CANCELLED || invoice.getStatus() == InvoiceStatus.REFUNDED
+                || invoice.getStatus() == InvoiceStatus.OVERDUE) {
+            return false;
+        }
+        if (invoice.getTotalAmount() == null || invoice.getDepositAmount() == null
+                || invoice.getDepositAmount().signum() < 0
+                || invoice.getTotalAmount().compareTo(invoice.getDepositAmount()) < 0) {
+            return false;
+        }
+        BigDecimal target = allocationTarget(invoice);
+        if (target.signum() <= 0) return false;
+        if (hasCompleteAllocation(invoice)) return true;
+
+        List<Mission> billableMissions = billableMissions(orderId);
+        if (billableMissions.isEmpty()) return false;
+
+        List<MissionPaymentMilestone> existing = milestones.findAllByInvoiceIdForDisplay(invoice.getId());
+        boolean paymentStarted = invoice.getPaidAmount().compareTo(invoice.getDepositAmount()) > 0
+                || existing.stream().anyMatch(milestone -> milestone.getHandedOverAt() != null
+                || (milestone.getStatus() != MissionPaymentMilestoneStatus.NOT_YET_DUE
+                    && milestone.getStatus() != MissionPaymentMilestoneStatus.CANCELLED)
+                || payments.existsByMissionPaymentMilestoneId(milestone.getId()));
+        if (paymentStarted) return hasCompleteAllocation(invoice);
+
+        Set<String> billableMissionIds = billableMissions.stream()
+                .map(Mission::getId).collect(Collectors.toSet());
+        Map<String, BigDecimal> grossByMissionId = new LinkedHashMap<>();
+        billableMissions.forEach(mission -> grossByMissionId.put(mission.getId(), BigDecimal.ZERO));
+        if (invoice.getQuote() != null
+                && milestones.countPricedChecklistItemsWithoutBillableMission(
+                        invoice.getQuote().getId(), orderId, billableMissionIds) == 0) {
+            milestones.sumChecklistPricesByMission(invoice.getQuote().getId(), orderId, billableMissionIds)
+                    .forEach(row -> grossByMissionId.put(row.getMissionId(), row.getGrossAmount()));
+        }
+
+        Map<String, BigDecimal> calculatedAmounts;
+        if (grossByMissionId.values().stream().allMatch(amount -> amount != null && amount.signum() > 0)) {
+            calculatedAmounts = distributeRemainingBalance(target, grossByMissionId);
+        } else if (billableMissions.size() == 1) {
+            calculatedAmounts = Map.of(billableMissions.getFirst().getId(), target.setScale(0, RoundingMode.UNNECESSARY));
+        } else {
+            return false;
+        }
+
+        User pricedBy = null;
+        if (invoice.getQuote() != null) {
+            pricedBy = invoice.getQuote().getApprovedBy();
+            if (pricedBy == null) pricedBy = invoice.getQuote().getPricingApprovedBy();
+        }
+        if (pricedBy == null) pricedBy = currentUser.getCurrentUser();
+        if (pricedBy == null) pricedBy = order.getCustomer();
+
+        Map<String, MissionPaymentMilestone> existingByMissionId = existing.stream()
+                .collect(Collectors.toMap(item -> item.getMission().getId(), item -> item));
+        Instant calculatedAt = Instant.now();
+        List<MissionPaymentMilestone> saved = new ArrayList<>();
+        for (Mission mission : billableMissions) {
+            MissionPaymentMilestone milestone = existingByMissionId.get(mission.getId());
+            if (milestone == null) {
+                milestone = new MissionPaymentMilestone();
+                milestone.setMission(mission);
+                milestone.setInvoice(invoice);
+                milestone.setCurrency("VND");
+                milestone.setStatus(MissionPaymentMilestoneStatus.NOT_YET_DUE);
+            }
+            if (milestone.getStatus() == MissionPaymentMilestoneStatus.CANCELLED) {
+                milestone.setStatus(MissionPaymentMilestoneStatus.NOT_YET_DUE);
+                milestone.setHandedOverAt(null);
+                milestone.setPaymentExpiresAt(null);
+            }
+            milestone.setAmount(calculatedAmounts.get(mission.getId()));
+            milestone.setPricedBy(pricedBy);
+            milestone.setPricedAt(calculatedAt);
+            saved.add(milestone);
+        }
+        milestones.saveAllAndFlush(saved);
+        return true;
+    }
+
     @PreAuthorize("hasRole('MANAGER')")
     @Transactional(readOnly = true)
     public MissionPaymentAllocationResponse getForManager(String orderId) {

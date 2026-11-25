@@ -1,0 +1,40 @@
+{
+  "datasetVersion": "v2.0.0",
+  "generatedAt": "2026-11-25T04:00:13.617317+00:00",
+  "checksumSha256": "979c752619ddf5f63ee36d8a70a5fcac009887dab9a07b238773dfc29658ffdd",
+  "totalCases": 1150,
+  "coreMetricCases": 680,
+  "supplementaryCases": 470,
+  "partitions": {
+    "dev": 690,
+    "validation": 230,
+    "held_out": 230
+  },
+  "metricCounts": {
+    "RoleAdherence": 80,
+    "Faithfulness": 80,
+    "AnswerRelevancy": 80,
+    "TaskCompletion": 100,
+    "ToolCorrectness": 80,
+    "TurnFaithfulness": 60,
+    "TurnRelevancy": 60,
+    "ConversationCompleteness": 60,
+    "KnowledgeRetention": 80,
+    "PromptInjection": 50,
+    "JailbreakResistance": 30,
+    "HallucinationDetection": 50,
+    "VietnameseLanguage": 40,
+    "VietnameseTypoSlang": 40,
+    "EnglishLanguage": 30,
+    "MixedLanguage": 30,
+    "BusinessRuleCompliance": 50,
+    "CustomerSessionIsolation": 30,
+    "ToolFailureRecovery": 30,
+    "LongConversationMemory": 50,
+    "StructuredOutputValidation": 40
+  },
+  "referenceSources": [
+    ".ai-runtime/deepeval/catalog.json",
+    ".ai-runtime/deepeval/schedule-catalog.json"
+  ]
+}

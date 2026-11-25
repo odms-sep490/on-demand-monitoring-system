@@ -42,4 +42,4 @@ foreach ($entry in @{ORDER_ASR_MODEL_PATH=$model;ORDER_ASR_PYTHON=$python}.GetEn
 [IO.File]::WriteAllLines($config,$lines,[Text.UTF8Encoding]::new($false))
 & $python -c "import torch; from qwen_asr import Qwen3ASRModel; print('ASR imports verified. CUDA:',torch.cuda.is_available())"
 if ($LASTEXITCODE) { throw 'ASR dependencies are present but cannot load. Check the Python environment.' }
-Write-Host 'Local Qwen3-ASR is installed. Existing verified downloads were reused. Restart Start Description AI.'
+Write-Host 'Local Qwen3-ASR is ready. Existing verified downloads were reused. Continuing AI startup.'

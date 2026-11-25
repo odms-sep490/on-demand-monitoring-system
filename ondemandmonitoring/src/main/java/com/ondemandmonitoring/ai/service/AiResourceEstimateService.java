@@ -7,10 +7,13 @@ import com.ondemandmonitoring.ai.dto.AiResourceEstimateContent;
 import com.ondemandmonitoring.ai.dto.AiResourceEstimateResponse;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
+import com.ondemandmonitoring.prompt.PromptManagementService;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -18,7 +21,8 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class AiResourceEstimateService {
     private static final int MAX_SUGGESTED_DEVICES = 100;
-    private static final String SYSTEM_PROMPT = "You estimate the number of devices needed for a mission. "
+    private static final String PROMPT_KEY = "mission.resource-estimate.system";
+    private static final String BOOTSTRAP_FALLBACK_PROMPT = "You estimate the number of devices needed for a mission. "
             + "Return exactly one JSON object with these fields: minimumSuggestedDevices (positive integer), "
             + "recommendedDevices (integer >= minimumSuggestedDevices), reason (short string), "
             + "assumptions (array of strings), warnings (array of strings). "
@@ -28,13 +32,27 @@ public class AiResourceEstimateService {
     private final AiResourceEstimateContextService contextService;
     private final OpenRouterChatClient openRouter;
     private final ObjectMapper objectMapper;
+    @Autowired(required = false)
+    private PromptManagementService promptManagement;
 
     public AiResourceEstimateResponse estimate(String missionId) {
         long contextStartedAt = System.nanoTime();
         AiResourceEstimateContextService.EstimateContext context = contextService.buildContext(missionId);
         log.info("Mission AI estimation context loaded; missionId={}, elapsedMs={}",
                 missionId, (System.nanoTime() - contextStartedAt) / 1_000_000);
-        OpenRouterChatClient.Completion completion = openRouter.complete(SYSTEM_PROMPT, context.userPrompt());
+        String systemPrompt = BOOTSTRAP_FALLBACK_PROMPT;
+        if (promptManagement != null) {
+            try {
+                var resolved = promptManagement.resolve(PROMPT_KEY, Map.of());
+                systemPrompt = resolved.renderedContent();
+                log.info("Resolved dynamic prompt key={} version=v{} staleCache={}",
+                        PROMPT_KEY, resolved.versionNumber(), resolved.staleCacheUsed());
+            } catch (Exception ex) {
+                log.warn("Dynamic prompt resolution failed for key={}, using bootstrap fallback: {}",
+                        PROMPT_KEY, ex.getMessage());
+            }
+        }
+        OpenRouterChatClient.Completion completion = openRouter.complete(systemPrompt, context.userPrompt());
         if ("length".equalsIgnoreCase(completion.finishReason())) {
             log.warn("OpenRouter response was truncated; model={}, outputChars={}",
                     completion.model(), completion.content().length());

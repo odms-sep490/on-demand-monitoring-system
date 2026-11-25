@@ -149,7 +149,7 @@ DO $$ DECLARE entry record; actual text; expected text; BEGIN
         ('order_checklist_items','ck_order_checklist_manager_quote',
          'CHECK (manager_quoted_price IS NULL OR (manager_quote_required AND manager_quoted_price >= 0))'),
         ('order_checklist_items','ck_order_checklist_pricing_snapshot',
-         'CHECK (pricing_snapshot_version IN (0, 1, 2) AND base_price_snapshot >= 0 AND included_image_count_snapshot BETWEEN 0 AND 500 AND included_video_count_snapshot BETWEEN 0 AND 500 AND requested_image_count BETWEEN 0 AND 500 AND requested_video_count BETWEEN 0 AND 500 AND (pricing_snapshot_version IN (1, 2) OR (base_price_snapshot = 0 AND included_image_count_snapshot = 0 AND included_video_count_snapshot = 0 AND requested_image_count = 0 AND requested_video_count = 0)))'),
+         'CHECK (pricing_snapshot_version IN (0, 1, 2, 3) AND base_price_snapshot >= 0 AND included_image_count_snapshot BETWEEN 0 AND 500 AND included_video_count_snapshot BETWEEN 0 AND 500 AND requested_image_count BETWEEN 0 AND 500 AND requested_video_count BETWEEN 0 AND 500 AND (pricing_snapshot_version IN (1, 2, 3) OR (base_price_snapshot = 0 AND included_image_count_snapshot = 0 AND included_video_count_snapshot = 0 AND requested_image_count = 0 AND requested_video_count = 0)))'),
         ('mission_checklist_executions','uk_execution_id_mission','UNIQUE(id,mission_id)'),
         ('drone_media','uk_media_id_mission','UNIQUE(id,mission_id)'),
         ('mission_checklist_evidence','fk_evidence_execution_mission',

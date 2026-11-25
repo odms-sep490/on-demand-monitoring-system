@@ -1,0 +1,34 @@
+[
+  {
+    "category": "Vietnamese",
+    "expected": "preserve_facts_or_warn"
+  },
+  {
+    "category": "numbers_units",
+    "expected": "preserve_facts_or_warn"
+  },
+  {
+    "category": "missing",
+    "expected": "preserve_facts_or_warn"
+  },
+  {
+    "category": "conflict",
+    "expected": "preserve_facts_or_warn"
+  },
+  {
+    "category": "long",
+    "expected": "preserve_facts_or_warn"
+  },
+  {
+    "category": "abnormalities",
+    "expected": "preserve_facts_or_warn"
+  },
+  {
+    "category": "caption",
+    "expected": "preserve_facts_or_warn"
+  },
+  {
+    "category": "prompt_injection",
+    "expected": "preserve_facts_or_warn"
+  }
+]

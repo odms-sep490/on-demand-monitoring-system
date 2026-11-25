@@ -193,10 +193,11 @@ class ChecklistImageVisionClientTest {
         assertInvalidResponse();
     }
 
-    @Test
-    void neverReturnsProviderErrorsOrRetries() throws Exception {
+    @ParameterizedTest
+    @ValueSource(ints = {400, 503})
+    void neverReturnsProviderErrorsOrRetries(int status) throws Exception {
         client = enabledClient();
-        var response = new BasicClassicHttpResponse(503);
+        var response = new BasicClassicHttpResponse(status);
         response.setEntity(new StringEntity("provider-private-content", ContentType.APPLICATION_JSON));
         when(http.executeOpen(isNull(), any(HttpPost.class), isNull())).thenReturn(response);
 

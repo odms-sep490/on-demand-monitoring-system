@@ -21,6 +21,7 @@ import java.util.Set;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.hc.client5.http.classic.methods.HttpPost;
 import org.apache.hc.client5.http.config.ConnectionConfig;
 import org.apache.hc.client5.http.config.RequestConfig;
@@ -35,6 +36,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
+@Slf4j
 public class ChecklistImageVisionClient {
     public static final int MAX_JPEG_BYTES = 2 * 1024 * 1024;
     public static final int MAX_CRITERIA = 16;
@@ -43,6 +45,7 @@ public class ChecklistImageVisionClient {
     private static final int REQUEST_TIMEOUT_SECONDS = 25;
     private static final Pattern MODEL_ID = Pattern.compile("[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(?::free)?");
     private static final Pattern BEARER_TOKEN = Pattern.compile("[a-zA-Z0-9._~+/-]+=*");
+    private static final Pattern CLOUDFLARE_RAY = Pattern.compile("[a-fA-F0-9]{16}-[A-Z]{3}");
     private static final String SYSTEM_PROMPT = """
             Assess each supplied checklist criterion using only what is visible in the single JPEG.
             Checklist context explains the task. Evaluate only the explicit criteria and do not infer
@@ -124,6 +127,11 @@ public class ChecklistImageVisionClient {
             boolean readComplete = false;
             try {
                 if (response.getCode() != 200) {
+                    var ray = response.getFirstHeader("CF-Ray");
+                    String reference = ray != null && CLOUDFLARE_RAY.matcher(ray.getValue()).matches()
+                            ? ray.getValue() : "unavailable";
+                    log.warn("Checklist vision upstream rejected request: status={}, cfRay={}",
+                            response.getCode(), reference);
                     throw new ApiException(ErrorCode.AI_PROVIDER_UNAVAILABLE, "Checklist vision provider rejected the request");
                 }
                 var entity = response.getEntity();

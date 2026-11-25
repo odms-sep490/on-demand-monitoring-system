@@ -7,9 +7,9 @@ $config = Join-Path $repo '.env'
 $desiredLine = if (Test-Path -LiteralPath $config) { Get-Content -LiteralPath $config | Where-Object { $_ -match '^ORDER_AGENT_MODEL=' } | Select-Object -Last 1 }
 $desiredModel = if ($desiredLine) { ($desiredLine -split '=',2)[1].Trim().Trim('"') } else { 'odm-order-qwen:3b' }
 try {
-    $ready = Invoke-RestMethod 'http://localhost:8002/description/health' -TimeoutSec 3
-    $conversation = Invoke-RestMethod 'http://localhost:8002/conversation/health' -TimeoutSec 3
-    if ($ready.status -eq 'ready' -and $conversation.protocolVersion -eq 1 -and $conversation.model -eq $desiredModel) { Write-Host ('Description and conversation worker is already running at http://localhost:8002. ASR configured: '+$conversation.asrConfigured); exit 0 }
+    $ready = Invoke-RestMethod 'http://127.0.0.1:8002/description/health' -TimeoutSec 3
+    $conversation = Invoke-RestMethod 'http://127.0.0.1:8002/conversation/health' -TimeoutSec 3
+    if ($ready.status -eq 'ready' -and $conversation.protocolVersion -eq 1 -and $conversation.model -eq $desiredModel) { Write-Host ('Description and conversation worker is already running at http://127.0.0.1:8002. ASR configured: '+$conversation.asrConfigured); exit 0 }
 } catch { }
 $python = Join-Path $repo 'Python/.venv/Scripts/python.exe'
 if (-not (Test-Path -LiteralPath $python)) { throw 'Python/.venv is missing. Restore the project Python environment first.' }

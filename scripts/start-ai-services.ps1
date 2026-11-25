@@ -11,9 +11,9 @@ try {
         }
     }
     Write-Host 'Starting ALL AI services:'
-    Write-Host '  Image comparison: http://localhost:8000/ready'
-    Write-Host '  Image quality assessment: http://localhost:8000/quality/ready (same image worker)'
-    Write-Host '  Conversation, description and voice: http://localhost:8002/conversation/health'
+    Write-Host '  Image comparison: http://127.0.0.1:8000/ready'
+    Write-Host '  Image quality assessment: http://127.0.0.1:8000/quality/ready (same image worker)'
+    Write-Host '  Conversation, description and voice: http://127.0.0.1:8002/conversation/health'
     Write-Host '  Checklist image assessment: served by the Java backend (see model setup above)'
     $lastProgress = Get-Date
     while ($true) {
@@ -25,9 +25,9 @@ try {
         }
         if (@($jobs | Where-Object { $_.State -eq 'Running' }).Count -eq 0) { break }
         if (((Get-Date) - $lastProgress).TotalSeconds -ge 15) {
-            foreach ($url in @('http://localhost:8000/quality/ready', 'http://localhost:8002/conversation/health')) {
+            foreach ($url in @('http://127.0.0.1:8000/quality/ready', 'http://127.0.0.1:8002/description/health')) {
                 try {
-                    $health = Invoke-RestMethod $url -TimeoutSec 2
+                    $health = Invoke-RestMethod $url -TimeoutSec 4
                     Write-Host "[Status] $url : $($health.status)"
                 } catch { Write-Host "[Status] $url : starting/installing; waiting for worker output..." }
             }

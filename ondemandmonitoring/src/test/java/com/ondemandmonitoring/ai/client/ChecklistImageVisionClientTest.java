@@ -109,6 +109,42 @@ class ChecklistImageVisionClientTest {
     }
 
     @Test
+    void localOllamaUsesLoopbackAndDoesNotSendTheOpenRouterKey() throws Exception {
+        vision.setEnabled(true);
+        vision.setProvider(ChecklistVisionProperties.Provider.OLLAMA);
+        vision.setModel("qwen3-vl:2b-instruct");
+        shared.setApiKey("shared-test-key");
+        client = new ChecklistImageVisionClient(vision, shared, mapper, http);
+        respond("stop", FINDING);
+
+        client.assess(JPEG_PREFIX, "vi", CRITERIA);
+
+        var captured = ArgumentCaptor.forClass(HttpPost.class);
+        verify(http).executeOpen(isNull(), captured.capture(), isNull());
+        var request = captured.getValue();
+        assertThat(request.getUri().toString()).isEqualTo("http://127.0.0.1:11434/v1/chat/completions");
+        assertThat(request.getFirstHeader(HttpHeaders.AUTHORIZATION)).isNull();
+        var body = requestBody(request);
+        assertThat(body.path("model").asText()).isEqualTo("qwen3-vl:2b-instruct");
+        assertThat(body.has("provider")).isFalse();
+        assertThat(body.at("/response_format/type").asText()).isEqualTo("json_schema");
+        assertThat(body.path("max_tokens").asInt()).isEqualTo(248);
+        assertThat(body.at("/response_format/json_schema/schema/properties/findings/properties/landing_area/properties/observation/maxLength")
+                .asInt()).isEqualTo(160);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"http://192.0.2.1:11434/v1", "https://example.test/v1", "http://user@127.0.0.1:11434/v1"})
+    void localOllamaRejectsNonLocalOrCredentialedEndpoints(String url) {
+        vision.setEnabled(true);
+        vision.setProvider(ChecklistVisionProperties.Provider.OLLAMA);
+        vision.setModel("qwen3-vl:2b");
+        vision.setBaseUrl(url);
+        client = new ChecklistImageVisionClient(vision, shared, mapper, http);
+        assertThat(client.available()).isFalse();
+    }
+
+    @Test
     void disabledByDefaultAndDoesNotInheritTheEstimateModel() {
         shared.setApiKey("shared-test-key");
         shared.setModel("vendor/estimate-model");

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.ondemandmonitoring.ai.config.ChecklistVisionProperties;
+import com.ondemandmonitoring.ai.config.ChecklistVisionProperties.Provider;
 import com.ondemandmonitoring.ai.config.OpenRouterProperties;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
@@ -16,6 +17,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -43,7 +45,9 @@ public class ChecklistImageVisionClient {
     private static final int MAX_RESPONSE_BYTES = 64 * 1024;
     private static final int MAX_OBSERVATION_CHARS = 400;
     private static final int REQUEST_TIMEOUT_SECONDS = 25;
+    private static final int LOCAL_TIMEOUT_SECONDS = 90;
     private static final Pattern MODEL_ID = Pattern.compile("[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(?::free)?");
+    private static final Pattern LOCAL_MODEL_ID = Pattern.compile("[a-zA-Z0-9_.-]+:[a-zA-Z0-9_.-]+");
     private static final Pattern BEARER_TOKEN = Pattern.compile("[a-zA-Z0-9._~+/-]+=*");
     private static final Pattern CLOUDFLARE_RAY = Pattern.compile("[a-fA-F0-9]{16}-[A-Z]{3}");
     private static final String SYSTEM_PROMPT = """
@@ -64,13 +68,15 @@ public class ChecklistImageVisionClient {
     private final URI endpoint;
     private final String model;
     private final String apiKey;
+    private final boolean local;
+    private final int timeoutSeconds;
     private final CloseableHttpClient httpClient;
     private final ScheduledThreadPoolExecutor deadlines;
 
     @Autowired
     public ChecklistImageVisionClient(ChecklistVisionProperties vision, OpenRouterProperties openRouter,
                                       ObjectMapper mapper) {
-        this(vision, openRouter, mapper, vision.isEnabled() ? createHttpClient() : null);
+        this(vision, openRouter, mapper, vision.isEnabled() ? createHttpClient(timeoutFor(vision)) : null);
     }
 
     ChecklistImageVisionClient(ChecklistVisionProperties vision, OpenRouterProperties openRouter,
@@ -79,9 +85,12 @@ public class ChecklistImageVisionClient {
         this.strictJson = mapper.readerFor(JsonNode.class)
                 .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
                 .with(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY);
-        this.endpoint = vision.isEnabled() ? endpoint(firstSet(vision.getBaseUrl(), openRouter.getBaseUrl())) : null;
+        this.local = vision.getProvider() == Provider.OLLAMA;
+        this.timeoutSeconds = timeoutFor(vision);
+        String defaultBase = local ? "http://127.0.0.1:11434/v1" : openRouter.getBaseUrl();
+        this.endpoint = vision.isEnabled() ? endpoint(firstSet(vision.getBaseUrl(), defaultBase), local) : null;
         this.model = firstSet(vision.getModel(), "");
-        this.apiKey = firstSet(vision.getApiKey(), openRouter.getApiKey());
+        this.apiKey = local ? "" : firstSet(vision.getApiKey(), openRouter.getApiKey());
         this.httpClient = httpClient;
         this.deadlines = available() ? new ScheduledThreadPoolExecutor(1, task ->
                 Thread.ofPlatform().daemon().name("checklist-vision-deadline").unstarted(task)) : null;
@@ -91,7 +100,11 @@ public class ChecklistImageVisionClient {
     }
 
     public boolean available() {
-        return endpoint != null && model.length() <= 128 && MODEL_ID.matcher(model).matches()
+        if (endpoint == null || model.length() > 128) return false;
+        if (local) return LOCAL_MODEL_ID.matcher(model).matches()
+                && !model.toLowerCase(Locale.ROOT).endsWith(":cloud")
+                && !model.toLowerCase(Locale.ROOT).endsWith("-cloud");
+        return MODEL_ID.matcher(model).matches()
                 && !model.regionMatches(true, 0, "openrouter/", 0, "openrouter/".length())
                 && !apiKey.isEmpty() && BEARER_TOKEN.matcher(apiKey).matches();
     }
@@ -107,7 +120,7 @@ public class ChecklistImageVisionClient {
         }
         Set<String> codes = validateInput(jpeg, language, criteria);
         HttpPost request = new HttpPost(endpoint);
-        request.setHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey);
+        if (!local) request.setHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey);
         request.setHeader(HttpHeaders.ACCEPT, ContentType.APPLICATION_JSON.getMimeType());
 
         byte[] body;
@@ -122,7 +135,7 @@ public class ChecklistImageVisionClient {
     }
 
     private byte[] execute(HttpPost request) throws IOException {
-        var deadline = deadlines.schedule(request::cancel, REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        var deadline = deadlines.schedule(request::cancel, timeoutSeconds, TimeUnit.SECONDS);
         try (var response = httpClient.executeOpen(null, request, null)) {
             boolean readComplete = false;
             try {
@@ -163,11 +176,13 @@ public class ChecklistImageVisionClient {
         if (context != null) input.put("checklistContext", context);
         String instructions = mapper.writeValueAsString(input);
         String image = "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(jpeg);
+        var observationSchema = local ? Map.of("type", "string", "minLength", 1, "maxLength", 160)
+                : Map.of("type", "string");
         Map<String, Object> finding = Map.of(
                 "type", "object", "additionalProperties", false, "required", List.of("verdict", "observation"),
                 "properties", Map.of(
                         "verdict", Map.of("type", "string", "enum", List.of("MATCH", "MISMATCH", "UNCERTAIN")),
-                        "observation", Map.of("type", "string")));
+                        "observation", observationSchema));
         Map<String, Object> findingProperties = new LinkedHashMap<>();
         codes.forEach(code -> findingProperties.put(code, finding));
         Map<String, Object> schema = Map.of(
@@ -176,12 +191,10 @@ public class ChecklistImageVisionClient {
                         "type", "object", "additionalProperties", false,
                         "required", codes, "properties", findingProperties)));
 
-        return mapper.writeValueAsBytes(Map.of(
+        var payload = new LinkedHashMap<>(Map.of(
                 "model", model,
                 "stream", false,
-                "max_tokens", 4096,
-                "provider", Map.of("data_collection", "deny", "zdr", true,
-                        "allow_fallbacks", false, "require_parameters", true),
+                "max_tokens", local ? 128 + 120 * codes.size() : 4096,
                 "response_format", Map.of("type", "json_schema", "json_schema",
                         Map.of("name", "checklist_assessment", "strict", true, "schema", schema)),
                 "messages", List.of(
@@ -189,6 +202,13 @@ public class ChecklistImageVisionClient {
                         Map.of("role", "user", "content", List.of(
                                 Map.of("type", "text", "text", instructions),
                                 Map.of("type", "image_url", "image_url", Map.of("url", image)))))));
+        if (local) {
+            payload.put("temperature", 0);
+        } else {
+            payload.put("provider", Map.of("data_collection", "deny", "zdr", true,
+                    "allow_fallbacks", false, "require_parameters", true));
+        }
+        return mapper.writeValueAsBytes(payload);
     }
 
     private Map<String, Finding> parseResponse(byte[] body, Set<String> codes) {
@@ -255,10 +275,14 @@ public class ChecklistImageVisionClient {
         return shared == null ? "" : shared.strip();
     }
 
-    private static URI endpoint(String baseUrl) {
+    private static URI endpoint(String baseUrl, boolean local) {
         try {
             URI base = URI.create(baseUrl);
-            if ("https".equalsIgnoreCase(base.getScheme()) && base.getHost() != null
+            String host = base.getHost();
+            boolean permitted = local
+                    ? "http".equals(base.getScheme()) && "127.0.0.1".equals(host)
+                    : "https".equalsIgnoreCase(base.getScheme()) && host != null;
+            if (permitted
                     && base.getRawUserInfo() == null && base.getRawQuery() == null && base.getRawFragment() == null) {
                 return URI.create(baseUrl.replaceAll("/+$", "") + "/chat/completions");
             }
@@ -268,7 +292,11 @@ public class ChecklistImageVisionClient {
         return null;
     }
 
-    private static CloseableHttpClient createHttpClient() {
+    private static int timeoutFor(ChecklistVisionProperties vision) {
+        return vision.getProvider() == Provider.OLLAMA ? LOCAL_TIMEOUT_SECONDS : REQUEST_TIMEOUT_SECONDS;
+    }
+
+    private static CloseableHttpClient createHttpClient(int timeoutSeconds) {
         return HttpClients.custom()
                 .disableAutomaticRetries()
                 .disableRedirectHandling()
@@ -277,7 +305,7 @@ public class ChecklistImageVisionClient {
                 .disableContentCompression()
                 .setDefaultRequestConfig(RequestConfig.custom()
                         .setConnectionRequestTimeout(Timeout.ofSeconds(1))
-                        .setResponseTimeout(Timeout.ofSeconds(REQUEST_TIMEOUT_SECONDS))
+                        .setResponseTimeout(Timeout.ofSeconds(timeoutSeconds))
                         .setAuthenticationEnabled(false)
                         .build())
                 .setConnectionManager(PoolingHttpClientConnectionManagerBuilder.create()
@@ -285,7 +313,7 @@ public class ChecklistImageVisionClient {
                         .setMaxConnPerRoute(4)
                         .setDefaultConnectionConfig(ConnectionConfig.custom()
                                 .setConnectTimeout(Timeout.ofSeconds(3))
-                                .setSocketTimeout(Timeout.ofSeconds(REQUEST_TIMEOUT_SECONDS))
+                                .setSocketTimeout(Timeout.ofSeconds(timeoutSeconds))
                                 .build())
                         .build())
                 .build();

@@ -248,6 +248,7 @@ public class OrderChecklistSnapshotService implements IOrderChecklistSnapshotSer
             entity.setContent(packageChecklist
                     ? ChecklistContentNormalizer.serviceTemplateContent(source.getContent(), item.getContentOverride())
                     : ChecklistContentNormalizer.content(content));
+            OrderChecklistImageCriteriaSnapshot.capture(entity, source);
             if (source != null && !custom) {
                 // Customer-edited text may no longer match the catalog wording, but the guidance still describes the work.
                 entity.setDescriptionSnapshot(source.getDescription());

@@ -130,7 +130,7 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
                 .toList();
         var suggestion = deliverySuggestions.suggest(execution, images, requiredSuggestionImages(execution, type, applicable));
         return suggestion.withContentAssessmentAvailable(
-                !ChecklistImageRubrics.forChecklist(item).isEmpty()
+                !ChecklistImageRubrics.forChecklist(item, "en").isEmpty()
                 && images.stream().map(MissionChecklistEvidence::getMediaAsset).anyMatch(ChecklistEvidenceServiceImpl::hasAssessmentPreview));
     }
 
@@ -151,14 +151,20 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
         var asset = link.getMediaAsset();
         if (!"IMAGE".equals(asset.getType()) || !eligibleForSelection(missionId, selectionType(item), asset))
             throw new ApiException(ErrorCode.EVIDENCE_NOT_ELIGIBLE);
-        var criteria = ChecklistImageRubrics.forChecklist(item).stream()
-                .map(criterion -> criterion.input(request.language())).toList();
+        var criteria = ChecklistImageRubrics.forChecklist(item, request.language());
         if (criteria.isEmpty())
             throw new ApiException(ErrorCode.INVALID_REQUEST, "This checklist does not have a visual assessment rubric");
         if (!hasAssessmentPreview(asset))
             throw new ApiException(ErrorCode.MEDIA_DERIVATIVE_UNAVAILABLE);
         return new ChecklistImageAssessmentTarget(execution.getVersion(), link.getId(), asset.getS3Bucket(),
-                asset.getPreviewKey(), criteria);
+                asset.getPreviewKey(), criteria, assessmentContext(item));
+    }
+
+    private static ChecklistImageVisionClient.ChecklistContext assessmentContext(OrderChecklistItem item) {
+        if (item.getImageAssessmentCriteriaSnapshot() == null) return null;
+        var outputs = item.getExpectedOutputsSnapshot();
+        return new ChecklistImageVisionClient.ChecklistContext(
+                item.getContent(), item.getDescriptionSnapshot(), outputs == null ? List.of() : List.copyOf(outputs));
     }
 
     private static boolean hasAssessmentPreview(MediaAsset asset) {

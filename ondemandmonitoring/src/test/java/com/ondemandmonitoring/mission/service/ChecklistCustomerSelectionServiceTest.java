@@ -137,6 +137,28 @@ class ChecklistCustomerSelectionServiceTest {
         verify(evidence, never()).saveAllAndFlush(any());
     }
 
+    @Test void usesConfiguredSnapshotForAnUnseededChecklist() {
+        var definition = new ChecklistDefinition();
+        definition.setImageAssessmentCriteria(List.of("Current catalog criterion"));
+        item.setSourceChecklist(definition);
+        item.setContent("Photograph the marked access road");
+        item.setExpectedOutputsSnapshot(List.of("Wide shot of the access road"));
+        item.setImageAssessmentCriteriaSnapshot(List.of("Road is visible from end to end"));
+        var image = link("road", "IMAGE").getMediaAsset();
+        image.setS3Bucket("private-bucket");
+        image.setS3Key("original.jpg");
+        image.setPreviewKey("preview.jpg");
+        image.setDerivativeStatus(MediaDerivativeStatus.READY);
+        var request = new ChecklistImageContentAssessmentRequest(0L, "en");
+
+        var target = service.resolveContentAssessment("m", "e", "road", request);
+        assertEquals("Road is visible from end to end", target.criteria().getFirst().instruction());
+        assertEquals(List.of("Wide shot of the access road"), target.context().expectedOutputs());
+        assertTrue(service.getDeliverySuggestion("m", "e").contentAssessmentAvailable());
+        item.setImageAssessmentCriteriaSnapshot(List.of());
+        assertFalse(service.getDeliverySuggestion("m", "e").contentAssessmentAvailable());
+    }
+
     @Test void suggestionReadsOnlyEligibleImagesFromCurrentExecutionAndDoesNotChangeSelection() {
         var image = link("image", "IMAGE");
         var selected = link("video", "VIDEO"); selected.setSelectedForCustomer(true);

@@ -169,6 +169,9 @@ public class ServiceChecklistServiceImpl implements IServiceChecklistService {
         copy.setExecutionSteps(source.getExecutionSteps() == null ? null : List.copyOf(source.getExecutionSteps()));
         copy.setInputRequirements(source.getInputRequirements() == null ? null : List.copyOf(source.getInputRequirements()));
         copy.setExpectedOutputs(source.getExpectedOutputs() == null ? null : List.copyOf(source.getExpectedOutputs()));
+        if (source.getImageAssessmentCriteria() != null) {
+            copy.setImageAssessmentCriteria(List.copyOf(source.getImageAssessmentCriteria()));
+        }
         copy.setBasePrice(source.getBasePrice());
         copy.setExtraImageUnitPrice(source.getExtraImageUnitPrice());
         copy.setExtraVideoUnitPrice(source.getExtraVideoUnitPrice());

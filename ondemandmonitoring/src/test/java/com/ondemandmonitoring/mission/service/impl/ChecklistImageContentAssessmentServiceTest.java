@@ -41,7 +41,7 @@ class ChecklistImageContentAssessmentServiceTest {
             new CriterionInput("VISIBLE", "Visible", "Subject is visible"),
             new CriterionInput("FRAMING", "Framing", "Frame covers the surroundings"));
     private final ChecklistImageAssessmentTarget target =
-            new ChecklistImageAssessmentTarget(7, "evidence", "private", "preview.jpg", criteria);
+            new ChecklistImageAssessmentTarget(7, "evidence", "private", "preview.jpg", criteria, null);
 
     @BeforeEach void setup() {
         when(evidence.resolveContentAssessment("mission", "execution", "evidence", request)).thenReturn(target);
@@ -49,7 +49,7 @@ class ChecklistImageContentAssessmentServiceTest {
         when(user.getCurrentUserId()).thenReturn("inspector");
         when(storage.open("private", "preview.jpg")).thenAnswer(call ->
                 new StoredObjectStream(new ByteArrayInputStream(JPEG_HEADER), 3L, "image/jpeg"));
-        when(vision.assess(aryEq(JPEG_HEADER), eq("en"), eq(criteria))).thenReturn(Map.of(
+        when(vision.assess(aryEq(JPEG_HEADER), eq("en"), eq(criteria), eq(target.context()))).thenReturn(Map.of(
                 "VISIBLE", new Finding(Verdict.MATCH, "The roof is visible"),
                 "FRAMING", new Finding(Verdict.UNCERTAIN, "Only one side is visible")));
     }
@@ -64,7 +64,7 @@ class ChecklistImageContentAssessmentServiceTest {
     }
 
     @Test void dropsResultIfPreviewChangedDuringInference() {
-        var replacement = new ChecklistImageAssessmentTarget(7, "evidence", "private", "new.jpg", criteria);
+        var replacement = new ChecklistImageAssessmentTarget(7, "evidence", "private", "new.jpg", criteria, null);
         when(evidence.resolveContentAssessment("mission", "execution", "evidence", request)).thenReturn(target, replacement);
         assertEquals(ErrorCode.CONCURRENT_UPDATE, assertThrows(ApiException.class, this::assess).getErrorCode());
     }
@@ -78,13 +78,13 @@ class ChecklistImageContentAssessmentServiceTest {
                 new ByteArrayInputStream(new byte[]{0, 1, 2}), 3L, "image/jpeg"));
         assertEquals(ErrorCode.MEDIA_DERIVATIVE_UNAVAILABLE,
                 assertThrows(ApiException.class, this::assess).getErrorCode());
-        verify(vision, never()).assess(any(), any(), any());
+        verify(vision, never()).assess(any(), any(), any(), any());
     }
 
     @Test void limitsRepeatedRequestsFromTheSameInspector() {
         for (int index = 0; index < 8; index++) assess();
         assertEquals(HttpStatus.TOO_MANY_REQUESTS, assertThrows(ApiException.class, this::assess).getStatus());
-        verify(vision, times(8)).assess(any(), any(), any());
+        verify(vision, times(8)).assess(any(), any(), any(), any());
     }
 
     private ChecklistImageContentAssessmentResponse assess() {

@@ -62,7 +62,9 @@ class ChecklistImageVisionClientTest {
         client = enabledClient();
         respond("stop", FINDING);
 
-        assertThat(client.assess(JPEG_PREFIX, "vi", CRITERIA))
+        var context = new ChecklistImageVisionClient.ChecklistContext(
+                "Kiểm tra bãi đáp", "Chụp từ trên xuống", List.of("Một ảnh toàn cảnh"));
+        assertThat(client.assess(JPEG_PREFIX, "vi", CRITERIA, context))
                 .containsExactlyEntriesOf(Map.of("landing_area", new Finding(Verdict.MATCH, "Có dấu hiệu.")));
 
         ArgumentCaptor<HttpPost> captured = ArgumentCaptor.forClass(HttpPost.class);
@@ -87,6 +89,7 @@ class ChecklistImageVisionClientTest {
         JsonNode prompt = mapper.readTree(body.at("/messages/1/content/0/text").asText());
         assertThat(prompt.path("language").asText()).isEqualTo("vi");
         assertThat(prompt.path("criteria")).isEqualTo(mapper.valueToTree(CRITERIA));
+        assertThat(prompt.path("checklistContext")).isEqualTo(mapper.valueToTree(context));
     }
 
     @Test
@@ -122,7 +125,7 @@ class ChecklistImageVisionClientTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"openrouter/auto", "vendor/vision:free", "vision", "vendor/vision:latest"})
+    @ValueSource(strings = {"openrouter/auto", "openrouter/free", "vision", "vendor/vision:latest"})
     void rejectsRoutingAliases(String model) {
         vision.setEnabled(true);
         vision.setModel(model);
@@ -131,6 +134,15 @@ class ChecklistImageVisionClientTest {
 
         assertThat(client.available()).isFalse();
         verifyNoInteractions(http);
+    }
+
+    @Test
+    void acceptsAnExplicitFreeModelWithoutEnablingAliases() {
+        vision.setEnabled(true);
+        vision.setModel("vendor/vision:free");
+        shared.setApiKey("shared-test-key");
+        client = new ChecklistImageVisionClient(vision, shared, mapper, http);
+        assertThat(client.available()).isTrue();
     }
 
     @Test

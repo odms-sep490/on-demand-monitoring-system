@@ -53,7 +53,7 @@ public class ChecklistImageContentAssessmentService {
         String inspector = user.getCurrentUserId();
         begin(inspector);
         try {
-            var findings = vision.assess(readPreview(target), request.language(), target.criteria());
+            var findings = vision.assess(readPreview(target), request.language(), target.criteria(), target.context());
             var current = evidence.resolveContentAssessment(missionId, executionId, evidenceId, request);
             if (!target.equals(current)) throw new ApiException(ErrorCode.CONCURRENT_UPDATE);
             var criteria = target.criteria().stream().map(criterion -> {

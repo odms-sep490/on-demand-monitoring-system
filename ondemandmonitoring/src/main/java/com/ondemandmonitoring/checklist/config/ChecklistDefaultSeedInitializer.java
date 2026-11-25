@@ -45,6 +45,14 @@ public class ChecklistDefaultSeedInitializer implements ApplicationRunner {
                 return definitions.saveAndFlush(row);
             });
             fillGuidanceIfEmpty(definition, i);
+            if (definition.getImageAssessmentCriteria() == null) {
+                var criteria = ChecklistDefaultImageCriteria.forSeed(definition.getSeedCode(), definition.getContent());
+                if (!criteria.isEmpty() && !(definition.getIncludedImageCount() == 0
+                        && definition.getIncludedVideoCount() > 0)) {
+                    definition.setImageAssessmentCriteria(criteria.stream()
+                            .map(ChecklistDefaultImageCriteria.Criterion::instruction).toList());
+                }
+            }
             catalog.put(code, definition);
         }
         var existingServices = services.findAll();

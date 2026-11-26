@@ -43,6 +43,14 @@ public class CustomerWeatherSuitabilityEvaluator {
         level = check(level, warnings, "LOW_VISIBILITY", visibilityMeters,
                 caution.getVisibilityMeters(), poor.getVisibilityMeters(), false);
 
+        if (WeatherCodeLabels.isRain(weatherCode)) {
+            if (!warnings.contains("RAIN")) {
+                warnings.add("RAIN");
+            }
+            if (level == WeatherSuitability.GOOD) {
+                level = WeatherSuitability.CAUTION;
+            }
+        }
         if (WeatherCodeLabels.isThunderstorm(weatherCode)) {
             warnings.add("THUNDERSTORM");
             level = WeatherSuitability.POOR;

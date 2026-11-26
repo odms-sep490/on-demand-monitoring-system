@@ -77,6 +77,9 @@ class ExecutionPlanHttpTest {
     }
 
     @Configuration static class Beans {
+        @Bean com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy mEvidenceHandoffPolicy3() { return org.mockito.Mockito.mock(com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy.class); }
+        @Bean com.ondemandmonitoring.devicecheck.repository.PersistedPostDeviceCheckRepository mPersistedPostDeviceCheckRepository2() { return org.mockito.Mockito.mock(com.ondemandmonitoring.devicecheck.repository.PersistedPostDeviceCheckRepository.class); }
+        @Bean com.ondemandmonitoring.flightpermit.service.IFlightPermitService mIFlightPermitService1() { return org.mockito.Mockito.mock(com.ondemandmonitoring.flightpermit.service.IFlightPermitService.class); }
         @Bean IMissionChecklistAssignmentService selection() {return mock(IMissionChecklistAssignmentService.class);}
         @Bean IExecutionPlanService plan() {return mock(IExecutionPlanService.class);}
     }

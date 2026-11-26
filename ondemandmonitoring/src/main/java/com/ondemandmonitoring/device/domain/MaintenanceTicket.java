@@ -1,7 +1,7 @@
 package com.ondemandmonitoring.device.domain;
 
 import com.ondemandmonitoring.common.entity.BaseEntity;
-import com.ondemandmonitoring.device.domain.Device;
+import com.ondemandmonitoring.device.maintenance.enums.MaintenanceWorkflowStage;
 import com.ondemandmonitoring.user.domain.User;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -71,5 +71,38 @@ public class MaintenanceTicket extends BaseEntity {
 
     @Column(name = "closed_at")
     Instant closedAt; // set when ticket is formally closed after verification
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "workflow_stage", length = 40)
+    MaintenanceWorkflowStage workflowStage;
+
+    @Column(name = "current_round", nullable = false)
+    Integer currentRound = 1;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "handed_over_by_id")
+    User handedOverBy;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "receiving_manager_id")
+    User receivingManager;
+
+    @Column(name = "legacy_record", nullable = false)
+    Boolean legacyRecord = Boolean.FALSE;
+
+    @Column(name = "waiting_reason", length = 1000)
+    String waitingReason;
+
+    @Column(name = "waiting_parts_needed", length = 2000)
+    String waitingPartsNeeded;
+
+    @Column(name = "waiting_expected_at")
+    Instant waitingExpectedAt;
+
+    @Column(name = "accepted_report_revision")
+    Integer acceptedReportRevision;
+
+    @Column(name = "workflow_updated_at")
+    Instant workflowUpdatedAt;
 }
 

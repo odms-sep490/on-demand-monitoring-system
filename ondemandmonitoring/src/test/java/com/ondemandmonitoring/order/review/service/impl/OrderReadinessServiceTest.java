@@ -59,7 +59,7 @@ class OrderReadinessServiceTest {
                 .toList());
         order = new Order();
         order.setId("o1");
-        order.setOrderStatus(OrderStatus.PENDING);
+        order.setOrderStatus(OrderStatus.UNDER_REVIEW); // manual criteria can only be answered during review
         // Inside the Ho Chi Minh City service area.
         order.setPoint(GeoReader.createPoint(106.7009, 10.7769));
         for (ReviewCriterionCode code : ReviewCriterionCode.values()) {

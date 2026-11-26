@@ -529,4 +529,111 @@ class OrderServiceTest {
         assertEquals(List.of(email, api), response.getDeliveryMethods());
         assertEquals(180, response.getDataRetentionDays());
     }
+
+    private static final Map<String, Object> AREA_A = Map.of("type", "Polygon", "coordinates",
+            List.of(List.of(List.of(106.700, 10.776), List.of(106.701, 10.776), List.of(106.701, 10.777),
+                    List.of(106.700, 10.777), List.of(106.700, 10.776))));
+    private static final Map<String, Object> AREA_B = Map.of("type", "Polygon", "coordinates",
+            List.of(List.of(List.of(106.710, 10.786), List.of(106.711, 10.786), List.of(106.711, 10.787),
+                    List.of(106.710, 10.787), List.of(106.710, 10.786))));
+
+    private Order reviewedOrderInAreaA(OrderStatus status) {
+        Order order = Order.builder().orderStatus(status)
+                .customer(authenticatedUserResolver.getCurrentUser()).build();
+        order.setId("area-edit-" + status);
+        order.setPoint(orderMapper.toPoint(106.7005, 10.7765));
+        order.setTargetArea(orderMapper.toPolygon(AREA_A));
+        order.getFlightAreaReview().setLegalReviewStatus(
+                com.ondemandmonitoring.order.enums.LegalReviewStatus.NOT_REQUIRED);
+        order.getFlightAreaReview().setFlightAreaReviewNote("Khu A phu hop so bo");
+        when(orderRepository.findByIdForUpdate(order.getId())).thenReturn(Optional.of(order));
+        when(orderRepository.save(order)).thenReturn(order);
+        return order;
+    }
+
+    private static com.ondemandmonitoring.order.dto.request.OrderCustomerUpdateRequest areaUpdate(
+            double longitude, double latitude, Map<String, Object> area) {
+        return new com.ondemandmonitoring.order.dto.request.OrderCustomerUpdateRequest(
+                null, null, null, longitude, latitude, null, area, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+    }
+
+    @Test
+    void movingApprovedOrderToNewAreaClearsPreviousAreaVerdict() {
+        Order order = reviewedOrderInAreaA(OrderStatus.APPROVED);
+        orderService.updateCustomerOrder(order.getId(), areaUpdate(106.7105, 10.7865, AREA_B));
+        assertEquals(OrderStatus.PENDING, order.getOrderStatus());
+        assertEquals(com.ondemandmonitoring.order.enums.LegalReviewStatus.NOT_REVIEWED,
+                order.getFlightAreaReview().getLegalReviewStatus());
+        assertEquals(null, order.getFlightAreaReview().getFlightAreaReviewNote());
+    }
+
+    @Test
+    void movingPendingOrderToNewAreaClearsPreviousAreaVerdict() {
+        Order order = reviewedOrderInAreaA(OrderStatus.PENDING);
+        orderService.updateCustomerOrder(order.getId(), areaUpdate(106.7105, 10.7865, AREA_B));
+        assertEquals(com.ondemandmonitoring.order.enums.LegalReviewStatus.NOT_REVIEWED,
+                order.getFlightAreaReview().getLegalReviewStatus());
+    }
+
+    @Test
+    void resubmittingSameAreaKeepsAreaVerdict() {
+        Order order = reviewedOrderInAreaA(OrderStatus.PENDING);
+        orderService.updateCustomerOrder(order.getId(), areaUpdate(106.7005, 10.7765, AREA_A));
+        assertEquals(com.ondemandmonitoring.order.enums.LegalReviewStatus.NOT_REQUIRED,
+                order.getFlightAreaReview().getLegalReviewStatus());
+    }
+
+    private com.ondemandmonitoring.mission.repository.MissionRepository managerCancellationSetup(Order order,
+            com.ondemandmonitoring.mission.enums.MissionStatus... missionStatuses) {
+        var missionRepository = mock(com.ondemandmonitoring.mission.repository.MissionRepository.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(orderService, "missions", missionRepository);
+        List<com.ondemandmonitoring.mission.domain.Mission> orderMissions = new java.util.ArrayList<>();
+        for (var status : missionStatuses) {
+            var mission = new com.ondemandmonitoring.mission.domain.Mission();
+            mission.setStatus(status);
+            orderMissions.add(mission);
+        }
+        when(missionRepository.findAllByOrderIdOrderByScheduledStartAtAscIdAsc(order.getId())).thenReturn(orderMissions);
+        when(orderRepository.findByIdForUpdate(order.getId())).thenReturn(Optional.of(order));
+        when(orderRepository.save(order)).thenReturn(order);
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken("manager", null,
+                        List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_MANAGER"))));
+        return missionRepository;
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void clearSecurityContext() {
+        org.springframework.security.core.context.SecurityContextHolder.clearContext();
+    }
+
+    @Test
+    void managerCannotCancelOrderWhileAMissionIsExecuting() {
+        Order order = Order.builder().orderStatus(OrderStatus.IN_PROGRESS).build();
+        order.setId("cancel-in-progress");
+        managerCancellationSetup(order, com.ondemandmonitoring.mission.enums.MissionStatus.IN_PROGRESS);
+        assertThrows(ApiException.class, () -> orderService.cancelBeforeReview(order.getId(), "Khach doi y"));
+        assertEquals(OrderStatus.IN_PROGRESS, order.getOrderStatus());
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void managerCannotCancelApprovedOrderWithAReadyMission() {
+        Order order = Order.builder().orderStatus(OrderStatus.APPROVED).build();
+        order.setId("cancel-ready");
+        managerCancellationSetup(order, com.ondemandmonitoring.mission.enums.MissionStatus.READY);
+        assertThrows(ApiException.class, () -> orderService.cancelBeforeReview(order.getId(), "Khach doi y"));
+        assertEquals(OrderStatus.APPROVED, order.getOrderStatus());
+    }
+
+    @Test
+    void managerCanCancelOrderOnceItsMissionsAreClosed() {
+        Order order = Order.builder().orderStatus(OrderStatus.APPROVED).build();
+        order.setId("cancel-closed");
+        managerCancellationSetup(order, com.ondemandmonitoring.mission.enums.MissionStatus.CANCELLED,
+                com.ondemandmonitoring.mission.enums.MissionStatus.PLANNING);
+        assertEquals(OrderStatus.CANCELLED,
+                orderService.cancelBeforeReview(order.getId(), "Khach doi y").getOrderStatus());
+    }
 }

@@ -71,6 +71,18 @@ class CustomerWeatherSuitabilityEvaluatorTest {
     }
 
     @Test
+    void rainIsNeverGoodEvenWithLowRainProbabilityAndCalmWind() {
+        for (int code : List.of(61, 63, 65, 66, 67, 80, 81, 82)) {
+            var result = evaluator.evaluate(21.0, 4.0, 8.0, 20000.0, code);
+            assertEquals(WeatherSuitability.CAUTION, result.suitability(), "Weather code " + code);
+            assertEquals(List.of("RAIN"), result.warnings());
+        }
+        var poor = evaluator.evaluate(85.0, 38.0, 50.0, 10000.0, 61);
+        assertEquals(WeatherSuitability.POOR, poor.suitability());
+        assertEquals(1, poor.warnings().stream().filter("RAIN"::equals).count());
+    }
+
+    @Test
     void missingValuesAreIgnored() {
         var result = evaluator.evaluate(null, null, null, null, null);
         assertEquals(WeatherSuitability.GOOD, result.suitability());

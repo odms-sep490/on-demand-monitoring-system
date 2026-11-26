@@ -21,7 +21,7 @@ public class CustomerFinanceController {
 
     @GetMapping("/orders/{orderId}/quote")
     public ApiResponse<CustomerQuoteResponse> quote(@PathVariable String orderId) {
-        return ApiResponse.ok(quoteService.getCurrentForCustomer(orderId));
+        return ApiResponse.ok(quoteService.findCurrentForCustomer(orderId));
     }
 
     @PostMapping("/orders/{orderId}/quotes/{quoteId}/accept")
@@ -31,7 +31,7 @@ public class CustomerFinanceController {
 
     @GetMapping("/orders/{orderId}/invoice")
     public ApiResponse<InvoiceResponse> invoice(@PathVariable String orderId) {
-        return ApiResponse.ok(quoteService.getInvoiceByOrder(orderId));
+        return ApiResponse.ok(quoteService.findInvoiceByOrder(orderId));
     }
 
     @PostMapping("/invoices/{invoiceId}/payments/deposit")

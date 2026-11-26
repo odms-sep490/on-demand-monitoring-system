@@ -63,7 +63,7 @@ class ManagerDashboardServiceTest {
         when(orders.findAllByOrderByCreatedAtDesc(any(Pageable.class))).thenReturn(Page.empty());
         when(orders.findByCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtDesc(
                 any(), any(), any(Pageable.class))).thenReturn(Page.empty());
-        when(orders.findByOrderStatusOrderByCreatedAtAsc(eq(OrderStatus.PENDING), any(Pageable.class)))
+        when(orders.findByOrderStatusInOrderByCreatedAtAsc(anyCollection(), any(Pageable.class)))
                 .thenReturn(Page.empty());
         when(missions.findByStatusInOrderByScheduledStartAtAsc(anyCollection(), any(Pageable.class)))
                 .thenReturn(Page.empty());

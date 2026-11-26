@@ -159,6 +159,7 @@ class MissionResultEvidencePolicyV2Test {
 
         when(missions.findById("mission-1")).thenReturn(Optional.of(mission));
         when(missions.findByIdForUpdate("mission-1")).thenReturn(Optional.of(mission));
+        when(missions.findOrderIdByMissionId("mission-1")).thenReturn(Optional.of("order-1"));
         when(executionRepo.findOrderedByMissionId("mission-1")).thenAnswer(inv -> List.of(execution));
         when(evidenceRepo.findActiveByMissionId("mission-1")).thenAnswer(inv -> activeLinks);
         when(mediaRepo.findByMissionIdOrderByCapturedAtDesc("mission-1")).thenAnswer(inv -> missionMediaList);
@@ -263,6 +264,7 @@ class MissionResultEvidencePolicyV2Test {
         assertEquals(MissionResultApprovalStatus.PENDING_MANAGER_APPROVAL, response.getApprovalStatus());
     }
 
+    @org.junit.jupiter.api.Disabled("Manager approve route retired in c2fc0c2c2 (denyAll); inspection is confirmed through upsert")
     @Test
     void approve_RejectsWhenEvidenceIsStillPendingManagerApproval() {
         // For final approval, evidence media must be AVAILABLE (not just PENDING_MANAGER_APPROVAL)
@@ -285,6 +287,7 @@ class MissionResultEvidencePolicyV2Test {
         assertTrue(ex.getErrorCode() == ErrorCode.CHECKLIST_NOT_READY || ex.getErrorCode() == ErrorCode.DELIVERY_NOT_READY);
     }
 
+    @org.junit.jupiter.api.Disabled("Manager approve route retired in c2fc0c2c2 (denyAll); inspection is confirmed through upsert")
     @Test
     void approve_RejectsWhenEvidenceHasWrongMediaTypeEvenIfAvailable() {
         // Item requires VIDEO, but attached media are AVAILABLE IMAGEs
@@ -309,6 +312,7 @@ class MissionResultEvidencePolicyV2Test {
         assertTrue(ex.getMessage().contains("requires at least 1 VIDEO"), ex.getMessage());
     }
 
+    @org.junit.jupiter.api.Disabled("Manager approve route retired in c2fc0c2c2 (denyAll); inspection is confirmed through upsert")
     @Test
     void approve_SucceedsWithSufficientAvailableEvidence() {
         // Item requires 2 IMAGEs, attach 2 AVAILABLE IMAGEs
@@ -331,6 +335,7 @@ class MissionResultEvidencePolicyV2Test {
         assertEquals(MissionResultApprovalStatus.APPROVED, approved.getApprovalStatus());
     }
 
+    @org.junit.jupiter.api.Disabled("Manager approve route retired in c2fc0c2c2 (denyAll); inspection is confirmed through upsert")
     @Test
     void upsertAndApprove_AllowUnableToVerifyWithValidReasonWithoutEvidence() {
         // Item requires 2 IMAGEs, but execution is UNABLE_TO_VERIFY with reason

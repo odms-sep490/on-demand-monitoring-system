@@ -42,6 +42,7 @@ public class NotificationFeedService {
             MissionStatus.FAILED);
 
     private final ContractNotificationService contractNotifications;
+    private final FeedbackNotificationService feedbackNotifications;
     private final AuthenticatedUserResolver currentUser;
     private final OrderRepository orders;
     private final MissionRepository missions;
@@ -50,8 +51,12 @@ public class NotificationFeedService {
     private final MissionStaffAssignmentRepository staffAssignments;
     private final com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository deviceAssignments;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.ondemandmonitoring.device.maintenance.service.MaintenanceNotificationService maintenanceNotifications;
+
     public NotificationFeedService(
             ContractNotificationService contractNotifications,
+            FeedbackNotificationService feedbackNotifications,
             AuthenticatedUserResolver currentUser,
             OrderRepository orders,
             MissionRepository missions,
@@ -60,6 +65,7 @@ public class NotificationFeedService {
             MissionStaffAssignmentRepository staffAssignments,
             com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository deviceAssignments) {
         this.contractNotifications = contractNotifications;
+        this.feedbackNotifications = feedbackNotifications;
         this.currentUser = currentUser;
         this.orders = orders;
         this.missions = missions;
@@ -75,7 +81,7 @@ public class NotificationFeedService {
         int limit = Math.max(1, Math.min(requestedLimit, MAX_LIMIT));
         List<NotificationItemResponse> items = new ArrayList<>(switch (user.getRole().getCode()) {
             case CUSTOMER -> customerItems(user.getId(), limit);
-            case MANAGER -> managerItems(limit);
+            case MANAGER -> managerItems(user.getId(), limit);
             case STAFF -> staffItems(user.getId(), limit);
             // New order alerts are reserved for managers.
             case ADMIN -> List.of();
@@ -87,6 +93,7 @@ public class NotificationFeedService {
 
     private List<NotificationItemResponse> customerItems(String customerId, int limit) {
         List<NotificationItemResponse> items = new ArrayList<>(contractNotifications.customerItems(customerId, limit));
+        items.addAll(feedbackNotifications.customerItems(customerId, limit));
         invoices.findCustomerDepositsRequired(customerId, Instant.now(), PageRequest.of(0, limit)).forEach(invoice -> {
             Order order = invoice.getOrder();
             Instant at = invoice.getContractSubmittedAt() != null ? invoice.getContractSubmittedAt() : invoice.getIssuedAt();
@@ -106,8 +113,12 @@ public class NotificationFeedService {
         return items.stream().sorted(byTimeDescending()).limit(limit).toList();
     }
 
-    private List<NotificationItemResponse> managerItems(int limit) {
+    private List<NotificationItemResponse> managerItems(String managerId, int limit) {
         List<NotificationItemResponse> items = new ArrayList<>(contractNotifications.managerItems(limit));
+        items.addAll(feedbackNotifications.managerItems(limit));
+        if (maintenanceNotifications != null) {
+            items.addAll(maintenanceNotifications.managerItems(managerId, limit));
+        }
         // Resubmissions have their own event timestamp and notification identity.
         orders.findByOrderStatusInOrderByCreatedAtDesc(
                         List.of(OrderStatus.PENDING),
@@ -209,6 +220,9 @@ public class NotificationFeedService {
 
     private List<NotificationItemResponse> staffItems(String staffId, int limit) {
         List<NotificationItemResponse> items = new ArrayList<>();
+        if (maintenanceNotifications != null) {
+            items.addAll(maintenanceNotifications.technicalItems(staffId, limit));
+        }
         missions.findCurrentAssignmentsForStaff(
                         staffId, STAFF_MISSION_STATUSES, PageRequest.of(0, limit))
                 .forEach(mission -> {

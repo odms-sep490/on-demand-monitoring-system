@@ -90,6 +90,23 @@ public class OrderService implements IOrderService {
     @org.springframework.beans.factory.annotation.Autowired
     com.ondemandmonitoring.finance.repository.PaymentRepository payments;
 
+    @lombok.experimental.NonFinal
+    @org.springframework.beans.factory.annotation.Autowired
+    com.ondemandmonitoring.mission.repository.MissionRepository missions;
+
+    /**
+     * Mission states that hold crew/devices or are already executing. Cancelling the
+     * Order while one of these exists would leave an orphaned live Mission, so the
+     * Mission must be cancelled (or finished) through the Mission workflow first.
+     */
+    private static final java.util.Set<com.ondemandmonitoring.mission.enums.MissionStatus> ACTIVE_MISSION_STATUSES =
+            java.util.EnumSet.of(
+                    com.ondemandmonitoring.mission.enums.MissionStatus.PENDING_CONFIRMATION,
+                    com.ondemandmonitoring.mission.enums.MissionStatus.READY,
+                    com.ondemandmonitoring.mission.enums.MissionStatus.IN_PROGRESS,
+                    com.ondemandmonitoring.mission.enums.MissionStatus.AWAITING_REVIEW,
+                    com.ondemandmonitoring.mission.enums.MissionStatus.PENDING_REVIEW);
+
     @Override
     @Transactional
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
@@ -141,6 +158,11 @@ public class OrderService implements IOrderService {
                 && order.getOrderStatus() != OrderStatus.REJECTED;
         if (order.getOrderStatus() != OrderStatus.PENDING && !managerCanCancel) {
             throw new ApiException(ErrorCode.INVALID_REQUEST, "Order cannot be cancelled in its current state");
+        }
+        if (manager && missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc(orderId).stream()
+                .anyMatch(mission -> ACTIVE_MISSION_STATUSES.contains(mission.getStatus()))) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST,
+                    "Cancel or finish the Order's active Missions before cancelling the Order");
         }
         order.setOrderStatus(OrderStatus.CANCELLED);
         order.setCancellationReason(manager
@@ -688,6 +710,7 @@ public class OrderService implements IOrderService {
             order.setDescription(request.description().strip());
         }
         if (request.address() != null) order.setAddress(request.address().strip());
+        boolean monitoringAreaChanged = false;
         if (request.longitude() != null || request.latitude() != null || request.coverageArea() != null) {
             if (request.longitude() == null || request.latitude() == null || request.coverageArea() == null) {
                 throw new ApiException(ErrorCode.INVALID_REQUEST,
@@ -696,6 +719,8 @@ public class OrderService implements IOrderService {
             var point = orderMapper.toPoint(request.longitude(), request.latitude());
             var targetArea = orderMapper.toPolygon(request.coverageArea());
             com.ondemandmonitoring.order.util.ServiceAreaPolicy.assertSupported(point, targetArea);
+            monitoringAreaChanged = !java.util.Objects.equals(point, order.getPoint())
+                    || !java.util.Objects.equals(targetArea, order.getTargetArea());
             order.setPoint(point);
             order.setTargetArea(targetArea);
         }
@@ -758,9 +783,10 @@ public class OrderService implements IOrderService {
             order.setRequestedUpdateScope(null);
             order.setReviewAt(null);
         }
-        if (submittingLocationCorrection) {
+        if (submittingLocationCorrection || monitoringAreaChanged) {
             // The previous legal review belongs to the old coordinates and must
-            // never be shown as the verdict for the newly submitted area.
+            // never be shown as the verdict for the newly submitted area,
+            // whatever state the order was edited from.
             order.getFlightAreaReview().setLegalReviewStatus(LegalReviewStatus.NOT_REVIEWED);
             order.getFlightAreaReview().setRequestedScopeFeasible(null);
             order.getFlightAreaReview().setFlightAreaReviewReason(null);

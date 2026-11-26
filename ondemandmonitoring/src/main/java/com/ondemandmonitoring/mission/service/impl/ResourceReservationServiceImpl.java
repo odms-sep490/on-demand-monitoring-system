@@ -5,25 +5,30 @@ import com.ondemandmonitoring.mission.domain.*;
 import com.ondemandmonitoring.mission.enums.LockStatus;
 import com.ondemandmonitoring.mission.repository.ResourceTimeLockRepository;
 import com.ondemandmonitoring.mission.service.IResourceReservationService;
+import com.ondemandmonitoring.resourcelifecycle.service.ResourceEligibilityService;
 import com.ondemandmonitoring.userschedule.enums.UserScheduleStatus;
 import com.ondemandmonitoring.userschedule.enums.UserScheduleType;
 import com.ondemandmonitoring.userschedule.repository.UserScheduleRepository;
 import java.time.Instant;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.*;
 
 /** Half-open [start,end) reservations. Reservation writes validate overlap without acquiring row locks. */
 @Service
-@RequiredArgsConstructor
+@RequiredArgsConstructor(onConstructor_ = @Autowired)
 @Transactional(propagation = Propagation.MANDATORY)
 public class ResourceReservationServiceImpl implements IResourceReservationService {
     private final JdbcTemplate jdbc;
     private final ResourceTimeLockRepository locks;
     private final UserScheduleRepository schedules;
     private final com.ondemandmonitoring.user.service.AuthenticatedUserResolver actor;
+
+    @Autowired(required = false)
+    private ResourceEligibilityService resourceEligibilityService;
 
     @Override
     public void lockResources(Collection<String> ids) {
@@ -50,6 +55,10 @@ public class ResourceReservationServiceImpl implements IResourceReservationServi
         sorted.keySet().forEach(id -> validate(id, mission.getId(), mission.getScheduledStartAt(), mission.getScheduledEndAt()));
         sorted.forEach((id, staff) -> {
             if (Boolean.TRUE.equals(staff)) ensureStaffNotBusy(id, mission.getScheduledStartAt(), mission.getScheduledEndAt());
+            if (resourceEligibilityService != null) {
+                resourceEligibilityService.requireResourceEligibleForMission(
+                        id, Boolean.TRUE.equals(staff), mission.getScheduledStartAt(), mission.getScheduledEndAt(), mission.getId());
+            }
         });
         try {
             sorted.forEach((id, staff) -> {
@@ -81,6 +90,12 @@ public class ResourceReservationServiceImpl implements IResourceReservationServi
         var active = locks.findByMissionId(mission.getId()).stream().filter(l -> l.getReleasedAt() == null).toList();
         for (var lock : active) validate(lock.getResourceId(), mission.getId(), start, end);
         for (var lock : active) if ("STAFF".equals(lock.getResourceType())) ensureStaffNotBusy(lock.getResourceId(), start, end);
+        if (resourceEligibilityService != null) {
+            for (var lock : active) {
+                resourceEligibilityService.requireResourceEligibleForMission(
+                        lock.getResourceId(), "STAFF".equals(lock.getResourceType()), start, end, mission.getId());
+            }
+        }
         for (var lock : active) { lock.setStartTime(start); lock.setEndTime(end); }
         try { locks.saveAllAndFlush(active); }
         catch (org.springframework.dao.DataIntegrityViolationException conflict) { throw new ApiException(ErrorCode.RESOURCE_TIME_CONFLICT); }

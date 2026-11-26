@@ -12,6 +12,8 @@ public interface IQuoteService {
     QuoteResponse approve(String orderId, String quoteId);
     QuoteResponse decidePricingAdjustment(String orderId, String quoteId, PricingApprovalRequest request);
     CustomerQuoteResponse getCurrentForCustomer(String orderId);
+    CustomerQuoteResponse findCurrentForCustomer(String orderId);
     InvoiceResponse accept(String orderId, String quoteId);
     InvoiceResponse getInvoiceByOrder(String orderId);
+    InvoiceResponse findInvoiceByOrder(String orderId);
 }

@@ -130,6 +130,22 @@ public class AiModelSeedDataInitializer implements ApplicationRunner {
                         workerBase + "/conversation/health",
                         "680 MB",
                         "{\"sampleRate\":48000,\"timeoutSec\":30}"
+                },
+                new Object[]{
+                        "mdl-resource-allocation-rule-engine",
+                        "resource_allocation_rule_engine",
+                        "Resource Allocation Rule Engine",
+                        "deterministic-weighted-v1",
+                        "RULE_ENGINE",
+                        "Đánh giá ràng buộc cứng (bảo trì, tải nhân sự, nghỉ ngơi) và chấm điểm xác định cho phân bổ nguồn lực",
+                        "Internal Domain Engine",
+                        "Proprietary",
+                        "deterministic-java",
+                        "JVM",
+                        "CPU",
+                        "/api/resource-lifecycle/missions/{missionId}/recommend",
+                        "0 MB",
+                        "{\"hardConstraintsFirst\":true,\"offlineSafe\":true}"
                 }
         );
 

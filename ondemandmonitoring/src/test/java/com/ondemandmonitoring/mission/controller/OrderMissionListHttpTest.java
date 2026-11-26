@@ -137,6 +137,12 @@ class OrderMissionListHttpTest {
 
     @Configuration @EnableWebMvc
     static class Beans {
+        @Bean com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy mEvidenceHandoffPolicy6() { return org.mockito.Mockito.mock(com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy.class); }
+        @Bean com.ondemandmonitoring.devicecheck.repository.PersistedPostDeviceCheckRepository mPersistedPostDeviceCheckRepository5() { return org.mockito.Mockito.mock(com.ondemandmonitoring.devicecheck.repository.PersistedPostDeviceCheckRepository.class); }
+        @Bean com.ondemandmonitoring.weather.repository.MissionWeatherCheckRepository mMissionWeatherCheckRepository4() { return org.mockito.Mockito.mock(com.ondemandmonitoring.weather.repository.MissionWeatherCheckRepository.class); }
+        @Bean com.ondemandmonitoring.mission.repository.ControlHandoverRepository mControlHandoverRepository3() { return org.mockito.Mockito.mock(com.ondemandmonitoring.mission.repository.ControlHandoverRepository.class); }
+        @Bean com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository mMissionDeviceAssignmentRepository2() { return org.mockito.Mockito.mock(com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository.class); }
+        @Bean com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository mResultReviewRoundEvidenceRepository1() { return org.mockito.Mockito.mock(com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository.class); }
         @Bean com.ondemandmonitoring.mission.service.IMissionChecklistScopeService scope() { return com.ondemandmonitoring.mission.service.ScopeTestFixture.validScope(); }
         @Bean IMissionService missionService() { return mock(IMissionService.class); }
         @Bean OrderRepository orders() { return mock(OrderRepository.class); }

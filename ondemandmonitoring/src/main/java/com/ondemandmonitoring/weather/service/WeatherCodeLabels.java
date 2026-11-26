@@ -30,6 +30,14 @@ public final class WeatherCodeLabels {
         return code != null && (code == 95 || code == 96 || code == 99);
     }
 
+    /** Rain and rain showers require caution even when the probability is low. */
+    public static boolean isRain(Integer code) {
+        return code != null && switch (code) {
+            case 61, 63, 65, 66, 67, 80, 81, 82 -> true;
+            default -> false;
+        };
+    }
+
     /** WMO drizzle codes: light, persistent precipitation still needs caution for a flight. */
     public static boolean isDrizzle(Integer code) {
         return code != null && (code == 51 || code == 53 || code == 55 || code == 56 || code == 57);

@@ -11,7 +11,9 @@ import com.ondemandmonitoring.device.dto.response.MaintenanceTicketResponse;
 import com.ondemandmonitoring.device.repository.MaintenanceTicketRepository;
 import com.ondemandmonitoring.device.service.IMaintenanceTicketService;
 import com.ondemandmonitoring.device.service.IMaintenanceAuthorizationService;
+import com.ondemandmonitoring.resourcelifecycle.service.MaintenanceLifecycleService;
 import com.ondemandmonitoring.user.service.IStaffDirectoryService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import com.ondemandmonitoring.user.domain.User;
 import java.time.Instant;
@@ -20,12 +22,13 @@ import java.util.stream.Collectors;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
+import lombok.experimental.NonFinal;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-@RequiredArgsConstructor
+@RequiredArgsConstructor(onConstructor_ = @Autowired)
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class MaintenanceTicketService implements IMaintenanceTicketService {
 
@@ -33,6 +36,10 @@ public class MaintenanceTicketService implements IMaintenanceTicketService {
     DeviceRepository deviceRepository;
     IStaffDirectoryService staffDirectory;
     IMaintenanceAuthorizationService authorization;
+
+    @NonFinal
+    @Autowired(required = false)
+    MaintenanceLifecycleService maintenanceLifecycleService;
 
     @Override
     @Transactional(readOnly = true)
@@ -82,21 +89,11 @@ public class MaintenanceTicketService implements IMaintenanceTicketService {
         MaintenanceTicket ticket = maintenanceTicketRepository.findById(id)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Maintenance ticket not found: " + id));
 
-        ticket.setResolutionNotes(request.getResolutionNotes());
-        ticket.setStatus("RESOLVED");
-        ticket.setResolvedAt(Instant.now());
-
-        // Update the associated device status back to AVAILABLE (or requested status)
-        Device device = ticket.getDevice();
-        if (device != null) {
-            DeviceStatus targetStatus = request.getNewDeviceStatus() != null ? request.getNewDeviceStatus()
-                    : DeviceStatus.AVAILABLE;
-            device.setStatus(targetStatus);
-            deviceRepository.save(device);
-        }
-
-        MaintenanceTicket saved = maintenanceTicketRepository.save(ticket);
-        return mapToResponse(saved);
+        // Prevent legacy resolve endpoint from bypassing the handover, report, and Manager acceptance workflow.
+        throw new ApiException(
+                HttpStatus.CONFLICT,
+                "Direct ticket resolution is disabled. Complete the maintenance handover, report, "
+                        + "and Manager return acceptance workflow for ticket " + ticket.getTicketCode() + ".");
     }
 
     private MaintenanceTicketResponse mapToResponse(MaintenanceTicket ticket) {

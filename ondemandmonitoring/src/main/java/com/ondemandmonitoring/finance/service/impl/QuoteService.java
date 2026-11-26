@@ -487,6 +487,15 @@ public class QuoteService implements IQuoteService {
 
     @Transactional(readOnly = true)
     public CustomerQuoteResponse getCurrentForCustomer(String orderId) {
+        CustomerQuoteResponse quote = findCurrentForCustomer(orderId);
+        if (quote == null) throw new ApiException(ErrorCode.QUOTE_NOT_FOUND);
+        return quote;
+    }
+
+    /** Same visibility rules as {@link #getCurrentForCustomer}; {@code null} while no quote is visible yet. */
+    @Override
+    @Transactional(readOnly = true)
+    public CustomerQuoteResponse findCurrentForCustomer(String orderId) {
         assertOwner(orderId);
         return quotes.findFirstByOrderIdAndStatusInOrderByQuoteVersionDesc(orderId,
                         List.of(QuoteStatus.APPROVED, QuoteStatus.ACCEPTED_BY_CUSTOMER))
@@ -499,7 +508,7 @@ public class QuoteService implements IQuoteService {
                         requireGuidanceSnapshot(orderForCustomerQuote(orderId), quote,
                                 checklistItems.findAllByOrderIdOrderByDisplayOrderAscIdAsc(orderId));
                     return FinanceMapper.customerQuote(quote);
-                }).orElseThrow(() -> new ApiException(ErrorCode.QUOTE_NOT_FOUND));
+                }).orElse(null);
     }
 
     @Transactional
@@ -564,6 +573,14 @@ public class QuoteService implements IQuoteService {
         assertOwnerOrManager(orderId);
         return invoices.findByOrderId(orderId).map(this::invoiceResponse)
                 .orElseThrow(() -> new ApiException(ErrorCode.INVOICE_NOT_FOUND));
+    }
+
+    /** Same access rules as {@link #getInvoiceByOrder}; {@code null} until the quote is accepted. */
+    @Override
+    @Transactional(readOnly = true)
+    public InvoiceResponse findInvoiceByOrder(String orderId) {
+        assertOwnerOrManager(orderId);
+        return invoices.findByOrderId(orderId).map(this::invoiceResponse).orElse(null);
     }
 
     private InvoiceResponse invoiceResponse(Invoice invoice) {

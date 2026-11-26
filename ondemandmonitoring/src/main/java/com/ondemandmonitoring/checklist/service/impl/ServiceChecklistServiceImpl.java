@@ -172,6 +172,7 @@ public class ServiceChecklistServiceImpl implements IServiceChecklistService {
         if (source.getImageAssessmentCriteria() != null) {
             copy.setImageAssessmentCriteria(List.copyOf(source.getImageAssessmentCriteria()));
         }
+        copy.setImageAssessmentEnabled(source.isImageAssessmentEnabled());
         copy.setBasePrice(source.getBasePrice());
         copy.setExtraImageUnitPrice(source.getExtraImageUnitPrice());
         copy.setExtraVideoUnitPrice(source.getExtraVideoUnitPrice());

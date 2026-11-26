@@ -744,4 +744,17 @@ ALTER TABLE public.checklist_definitions
 ALTER TABLE public.order_checklist_items
     ADD COLUMN IF NOT EXISTS image_assessment_criteria_snapshot jsonb;
 
+ALTER TABLE public.checklist_definitions
+    ADD COLUMN IF NOT EXISTS image_assessment_enabled boolean NOT NULL DEFAULT true;
+
+CREATE TABLE IF NOT EXISTS public.checklist_image_ai_settings (
+    id varchar(36) PRIMARY KEY,
+    enabled boolean NOT NULL DEFAULT true,
+    version bigint NOT NULL DEFAULT 0,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    updated_by varchar(255) NOT NULL DEFAULT 'system'
+);
+INSERT INTO public.checklist_image_ai_settings (id, enabled, version, updated_at, updated_by)
+VALUES ('default', true, 0, now(), 'system') ON CONFLICT (id) DO NOTHING;
+
 COMMIT;

@@ -9,6 +9,7 @@ final class ChecklistImageRubrics {
     private ChecklistImageRubrics() {}
 
     static List<CriterionInput> forChecklist(OrderChecklistItem item) {
+        if (!enabled(item)) return List.of();
         var criteria = item.getImageAssessmentCriteriaSnapshot();
         if (criteria == null) return List.of();
         return IntStream.range(0, criteria.size())
@@ -16,5 +17,10 @@ final class ChecklistImageRubrics {
                     var instruction = criteria.get(index);
                     return new CriterionInput("PHOTO_" + (index + 1), instruction, instruction);
                 }).toList();
+    }
+
+    static boolean enabled(OrderChecklistItem item) {
+        var source = item.getSourceChecklist();
+        return source == null || source.isImageAssessmentEnabled();
     }
 }

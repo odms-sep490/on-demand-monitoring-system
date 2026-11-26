@@ -90,7 +90,7 @@ class ChecklistServiceImplTest {
         assertEquals(List.of("Show the roof", "Show surrounding structures"),
                 service.create(request).getImageAssessmentCriteria());
     }
-    @Test void updatePreservesOmittedImageCriteriaAndAllowsExplicitDisable() {
+    @Test void updatePreservesOmittedImageCriteriaAndAllowsExplicitRemoval() {
         var entity = entity();
         entity.setImageAssessmentCriteria(List.of("Show the roof"));
         when(repository.findByIdForUpdate("c1")).thenReturn(Optional.of(entity));
@@ -102,6 +102,23 @@ class ChecklistServiceImplTest {
         assertEquals(List.of(), service.update("c1", disabled).getImageAssessmentCriteria());
         assertEquals(List.of(), entity.getImageAssessmentCriteria());
     }
+    @Test void switchingAssessmentOffAndOnPreservesCriteria() {
+        var entity = entity();
+        entity.setImageAssessmentCriteria(List.of("Show the roof"));
+        when(repository.findByIdForUpdate("c1")).thenReturn(Optional.of(entity));
+        var request = request("Roof");
+        request.setImageAssessmentEnabled(false);
+        var disabled = service.update("c1", request);
+        assertFalse(disabled.isImageAssessmentEnabled());
+        assertEquals(List.of("Show the roof"), disabled.getImageAssessmentCriteria());
+        service.update("c1", request("Roof"));
+        assertFalse(entity.isImageAssessmentEnabled());
+        request.setImageAssessmentEnabled(true);
+        var enabled = service.update("c1", request);
+        assertTrue(enabled.isImageAssessmentEnabled());
+        assertEquals(List.of("Show the roof"), enabled.getImageAssessmentCriteria());
+    }
+
     @Test void rejectsInvalidImageCriteriaWithoutSaving() {
         var request = request("Roof");
         for (List<String> criteria : List.of(List.of(" "), List.of("x".repeat(301)),

@@ -21,8 +21,9 @@ public class ChecklistRequest {
     private java.util.List<@NotBlank @Size(max = 500) String> inputRequirements;
     @Size(max = 30)
     private java.util.List<@NotBlank @Size(max = 500) String> expectedOutputs;
-    /** Omit on update to keep the existing criteria; send [] to disable assessment. */
+    /** Omit on update to keep the existing criteria; send [] to remove them. */
     private List<String> imageAssessmentCriteria;
+    private Boolean imageAssessmentEnabled;
     /** Base price in whole VND for the configured standard area. */
     @jakarta.validation.constraints.DecimalMin("0")
     @jakarta.validation.constraints.Digits(integer = 13, fraction = 0)

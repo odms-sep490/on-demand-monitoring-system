@@ -104,6 +104,8 @@ public class ChecklistServiceImpl implements IChecklistService {
         applyPricing(entity, request, true);
         applyGuidance(entity, request);
         applyImageAssessmentCriteria(entity, request.getImageAssessmentCriteria());
+        if (request.getImageAssessmentEnabled() != null)
+            entity.setImageAssessmentEnabled(request.getImageAssessmentEnabled());
         var created = repository.saveAndFlush(entity);
         if (audit != null) audit.record(com.ondemandmonitoring.checklist.enums.ChecklistConfigAuditAction.CHECKLIST_CREATED,
                 created, null, java.util.Map.of(), audit.snapshot(created));
@@ -157,6 +159,8 @@ public class ChecklistServiceImpl implements IChecklistService {
         applyPricing(entity, request, false);
         applyGuidance(entity, request);
         applyImageAssessmentCriteria(entity, request.getImageAssessmentCriteria());
+        if (request.getImageAssessmentEnabled() != null)
+            entity.setImageAssessmentEnabled(request.getImageAssessmentEnabled());
         var saved = repository.saveAndFlush(entity);
         if (audit != null) audit.record(com.ondemandmonitoring.checklist.enums.ChecklistConfigAuditAction.CHECKLIST_UPDATED,
                 saved, null, before, audit.snapshot(saved));

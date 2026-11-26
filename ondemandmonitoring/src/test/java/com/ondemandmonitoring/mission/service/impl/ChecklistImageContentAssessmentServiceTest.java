@@ -34,8 +34,10 @@ class ChecklistImageContentAssessmentServiceTest {
     private final IMediaObjectStorage storage = mock(IMediaObjectStorage.class);
     private final ChecklistImageVisionClient vision = mock(ChecklistImageVisionClient.class);
     private final AuthenticatedUserResolver user = mock(AuthenticatedUserResolver.class);
+    private final com.ondemandmonitoring.ai.service.ChecklistImageAiSettingsService settings =
+            mock(com.ondemandmonitoring.ai.service.ChecklistImageAiSettingsService.class);
     private final ChecklistImageContentAssessmentService service = new ChecklistImageContentAssessmentService(
-            evidence, storage, vision, user, Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
+            evidence, storage, vision, user, Clock.fixed(Instant.EPOCH, ZoneOffset.UTC), settings);
     private final ChecklistImageContentAssessmentRequest request = new ChecklistImageContentAssessmentRequest(7L, "en");
     private final List<CriterionInput> criteria = List.of(
             new CriterionInput("VISIBLE", "Visible", "Subject is visible"),
@@ -46,6 +48,7 @@ class ChecklistImageContentAssessmentServiceTest {
     @BeforeEach void setup() {
         when(evidence.resolveContentAssessment("mission", "execution", "evidence", request)).thenReturn(target);
         when(vision.available()).thenReturn(true);
+        when(settings.isEnabled()).thenReturn(true);
         when(user.getCurrentUserId()).thenReturn("inspector");
         when(storage.open("private", "preview.jpg")).thenAnswer(call ->
                 new StoredObjectStream(new ByteArrayInputStream(JPEG_HEADER), 3L, "image/jpeg"));
@@ -85,6 +88,19 @@ class ChecklistImageContentAssessmentServiceTest {
         for (int index = 0; index < 8; index++) assess();
         assertEquals(HttpStatus.TOO_MANY_REQUESTS, assertThrows(ApiException.class, this::assess).getStatus());
         verify(vision, times(8)).assess(any(), any(), any(), any());
+    }
+
+    @Test void systemSwitchBlocksNewRequestsAndDropsInFlightResults() {
+        when(settings.isEnabled()).thenReturn(false);
+        assertEquals(false, service.available());
+        assertEquals(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED,
+                assertThrows(ApiException.class, this::assess).getErrorCode());
+        verify(vision, never()).assess(any(), any(), any(), any());
+        verifyNoInteractions(storage);
+        when(settings.isEnabled()).thenReturn(true, false);
+        assertEquals(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED,
+                assertThrows(ApiException.class, this::assess).getErrorCode());
+        verify(vision).assess(any(), any(), any(), any());
     }
 
     private ChecklistImageContentAssessmentResponse assess() {

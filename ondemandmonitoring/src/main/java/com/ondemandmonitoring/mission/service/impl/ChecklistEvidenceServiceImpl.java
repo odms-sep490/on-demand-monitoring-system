@@ -152,6 +152,8 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
         if (!"IMAGE".equals(asset.getType()) || !eligibleForSelection(missionId, selectionType(item), asset))
             throw new ApiException(ErrorCode.EVIDENCE_NOT_ELIGIBLE);
         var criteria = ChecklistImageRubrics.forChecklist(item);
+        if (!ChecklistImageRubrics.enabled(item))
+            throw new ApiException(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED);
         if (criteria.isEmpty())
             throw new ApiException(ErrorCode.INVALID_REQUEST, "This checklist does not have a visual assessment rubric");
         if (!hasAssessmentPreview(asset))

@@ -51,6 +51,7 @@ public class ChecklistAuditService {
         values.put("expectedOutputs", join(checklist.getExpectedOutputs()));
         var criteria = checklist.getImageAssessmentCriteria();
         values.put("imageAssessmentCriteria", criteria == null ? null : MAPPER.writeValueAsString(criteria));
+        values.put("imageAssessmentEnabled", Boolean.toString(checklist.isImageAssessmentEnabled()));
         values.put("basePrice", text(checklist.getBasePrice()));
         values.put("standardAreaM2", text(checklist.getStandardAreaM2()));
         values.put("includedImageCount", text(checklist.getIncludedImageCount()));

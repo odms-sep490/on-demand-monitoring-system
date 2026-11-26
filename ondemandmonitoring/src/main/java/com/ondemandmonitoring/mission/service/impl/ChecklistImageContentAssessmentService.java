@@ -1,6 +1,7 @@
 package com.ondemandmonitoring.mission.service.impl;
 
 import com.ondemandmonitoring.ai.client.ChecklistImageVisionClient;
+import com.ondemandmonitoring.ai.service.ChecklistImageAiSettingsService;
 import com.ondemandmonitoring.ai.client.ChecklistImageVisionClient.Verdict;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
@@ -37,23 +38,28 @@ public class ChecklistImageContentAssessmentService {
     private final ChecklistImageVisionClient vision;
     private final AuthenticatedUserResolver user;
     private final Clock clock;
+    private final ChecklistImageAiSettingsService settings;
     private final ArrayDeque<RequestStart> recent = new ArrayDeque<>();
     private final Set<String> activeInspectors = new HashSet<>();
 
     public boolean available() {
-        return vision.available();
+        return settings.isEnabled() && vision.available();
     }
 
     public ChecklistImageContentAssessmentResponse assess(String missionId, String executionId, String evidenceId,
             ChecklistImageContentAssessmentRequest request) {
         var target = evidence.resolveContentAssessment(missionId, executionId, evidenceId, request);
-        if (!available())
+        if (!settings.isEnabled())
+            throw new ApiException(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED);
+        if (!vision.available())
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "Checklist image content assessment is disabled");
 
         String inspector = user.getCurrentUserId();
         begin(inspector);
         try {
             var findings = vision.assess(readPreview(target), request.language(), target.criteria(), target.context());
+            if (!settings.isEnabled())
+                throw new ApiException(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED);
             var current = evidence.resolveContentAssessment(missionId, executionId, evidenceId, request);
             if (!target.equals(current)) throw new ApiException(ErrorCode.CONCURRENT_UPDATE);
             var criteria = target.criteria().stream().map(criterion -> {

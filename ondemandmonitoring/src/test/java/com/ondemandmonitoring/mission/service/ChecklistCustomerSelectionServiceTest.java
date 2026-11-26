@@ -168,6 +168,13 @@ class ChecklistCustomerSelectionServiceTest {
 
         var target = service.resolveContentAssessment("m", "e", "road", request);
         assertEquals("Road is visible from end to end", target.criteria().getFirst().instruction());
+        definition.setImageAssessmentEnabled(false);
+        assertFalse(service.getDeliverySuggestion("m", "e").contentAssessmentAvailable());
+        error(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED,
+                () -> service.resolveContentAssessment("m", "e", "road", request));
+        assertEquals(List.of("Road is visible from end to end"), item.getImageAssessmentCriteriaSnapshot());
+        definition.setImageAssessmentEnabled(true);
+        assertEquals(target, service.resolveContentAssessment("m", "e", "road", request));
         assertEquals(List.of("Wide shot of the access road"), target.context().expectedOutputs());
         assertTrue(service.getDeliverySuggestion("m", "e").contentAssessmentAvailable());
         item.setImageAssessmentCriteriaSnapshot(List.of());
@@ -196,8 +203,10 @@ class ChecklistCustomerSelectionServiceTest {
         configuration.setModel("qwen3-vl:2b-instruct");
         var vision = new ChecklistImageVisionClient(configuration, new OpenRouterProperties(), new ObjectMapper());
         try {
+            var settings = mock(com.ondemandmonitoring.ai.service.ChecklistImageAiSettingsService.class);
+            when(settings.isEnabled()).thenReturn(true);
             var assessment = new ChecklistImageContentAssessmentService(service, storage, vision, actor,
-                    java.time.Clock.systemUTC());
+                    java.time.Clock.systemUTC(), settings);
             var mvc = MockMvcBuilders.standaloneSetup(new ChecklistEvidenceController(service, assessment)).build();
             mvc.perform(post("/api/missions/m/checklist-executions/e/evidence/target/content-assessment")
                     .contentType(MediaType.APPLICATION_JSON)

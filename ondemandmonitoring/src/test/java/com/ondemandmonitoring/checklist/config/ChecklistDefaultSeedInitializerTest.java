@@ -45,6 +45,37 @@ class ChecklistDefaultSeedInitializerTest {
         verify(services).save(service);
     }
 
+    @Test void seedsDistinctDefinitionsAndAssignsTheExteriorPhotoChecklistWithImageCriteria() {
+        seed.run(null);
+        seed.run(null);
+
+        assertEquals(ChecklistDefaults.CONTENTS.size(), catalog.values().stream()
+                .map(ChecklistDefinition::getNormalizedContent).distinct().count());
+        var overview = catalog.get(ChecklistDefaults.code(5));
+        var exterior = catalog.get(ChecklistDefaults.code(20));
+        assertNotEquals(overview.getId(), exterior.getId());
+        assertEquals("Chụp ảnh tổng quan công trình", overview.getContent());
+        assertEquals("Chụp ảnh các mặt ngoài công trình", exterior.getContent());
+        assertFalse(exterior.getImageAssessmentCriteria().isEmpty());
+        assertTrue(exterior.getExpectedOutputs().contains("Ảnh các mặt bên ngoài công trình."));
+        assertEquals(List.of(exterior, catalog.get(ChecklistDefaults.code(21))),
+                templates.get("s").stream().map(ServiceChecklist::getChecklist).toList());
+    }
+
+    @Test void restartPreservesConfiguredAndExplicitlyClearedImageCriteria() {
+        seed.run(null);
+        var exterior = catalog.get(ChecklistDefaults.code(20));
+        var roof = catalog.get(ChecklistDefaults.code(8));
+        exterior.setImageAssessmentCriteria(List.of("All visible exterior faces are unobstructed"));
+        roof.setImageAssessmentCriteria(List.of());
+
+        seed.run(null);
+
+        assertEquals(List.of("All visible exterior faces are unobstructed"),
+                exterior.getImageAssessmentCriteria());
+        assertEquals(List.of(), roof.getImageAssessmentCriteria());
+    }
+
     @Test void restartKeepsEditedInactiveDefinitionsAndRestoresEmptySupportedTemplate() {
         seed.run(null);
         var edited = catalog.get(ChecklistDefaults.code(1)); edited.setContent("Admin edited"); edited.setIsActive(false);

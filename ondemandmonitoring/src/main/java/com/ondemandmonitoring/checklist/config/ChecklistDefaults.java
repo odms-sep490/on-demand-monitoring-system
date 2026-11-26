@@ -28,7 +28,7 @@ public final class ChecklistDefaults {
             "Quan sát khu vực có dấu hiệu bất thường",
             "Chụp ảnh các vị trí được chỉ định",
             "Ghi nhận hiện trạng sau khi hoàn tất giám sát",
-            "Chụp ảnh tổng quan công trình",
+            "Chụp ảnh các mặt ngoài công trình",
             "Quay video quanh công trình");
 
     public static String code(int number) { return "S4%03d".formatted(number); }

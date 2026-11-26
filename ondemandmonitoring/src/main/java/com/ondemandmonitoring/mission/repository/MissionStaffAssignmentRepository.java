@@ -14,6 +14,20 @@ import java.util.Optional;
 @Repository
 public interface MissionStaffAssignmentRepository extends JpaRepository<MissionStaffAssignment, String> {
 
+    /** Staff's current, non-declined assignments on missions that have actually started but are not completed yet. */
+    @org.springframework.data.jpa.repository.Query("""
+            select a from MissionStaffAssignment a join fetch a.mission m
+            where a.staff.id = :staffId
+              and a.isCurrent = true
+              and a.releasedAt is null
+              and a.responseStatus <> com.ondemandmonitoring.mission.enums.MissionStaffAssignmentStatus.REJECTED
+              and m.actualStartAt is not null
+              and m.completedAt is null
+              and m.status = com.ondemandmonitoring.mission.enums.MissionStatus.IN_PROGRESS
+            """)
+    List<MissionStaffAssignment> findRunningMissionAssignmentsForStaff(
+            @org.springframework.data.repository.query.Param("staffId") String staffId);
+
     boolean existsByMissionIdAndStaffId(String missionId, String staffId);
 
     boolean existsByMissionIdAndStaffIdAndIsCurrentTrueAndReleasedAtIsNull(

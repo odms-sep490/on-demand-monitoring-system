@@ -186,6 +186,20 @@ async def conversation_transcribe(request: Request, x_internal_token: str = Head
     from starlette.concurrency import run_in_threadpool
     return await run_in_threadpool(transcribe, data, request.headers.get('content-type', ''))
 
+from landing_assistant import LandingChatInput, answer as landing_answer
+
+
+@app.post('/landing/chat')
+def landing_chat(body: LandingChatInput, x_internal_token: str = Header(default='')):
+    token = os.getenv('DESCRIPTION_AI_TOKEN', '')
+    if not token or not secrets.compare_digest(token, x_internal_token):
+        raise HTTPException(401)
+    try:
+        return landing_answer(body)
+    except Exception:
+        raise HTTPException(503, 'LANDING_ASSISTANT_UNAVAILABLE')
+
+
 @app.post('/conversation/turn')
 def conversation_endpoint(request: TurnInput, x_internal_token: str = Header(default='')):
     token = os.getenv('DESCRIPTION_AI_TOKEN', '')

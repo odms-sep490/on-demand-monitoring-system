@@ -82,6 +82,13 @@ public final class WorkTimeCalculator {
         return secondsWithin(input, startInstant, endInstant);
     }
 
+    public long yearlySeconds(List<Span> input, int year, ZoneId zone) {
+        ZoneId effectiveZone = zone == null ? DEFAULT_ZONE : zone;
+        Instant startInstant = LocalDate.of(year, 1, 1).atStartOfDay(effectiveZone).toInstant();
+        Instant endInstant = LocalDate.of(year + 1, 1, 1).atStartOfDay(effectiveZone).toInstant();
+        return secondsWithin(input, startInstant, endInstant);
+    }
+
     public long secondsWithin(List<Span> input, Instant windowStart, Instant windowEnd) {
         if (windowStart == null || windowEnd == null || !windowStart.isBefore(windowEnd)) {
             return 0L;

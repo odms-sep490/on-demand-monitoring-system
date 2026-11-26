@@ -61,8 +61,10 @@ public final class WorkforceRuleEngine {
             anyLimit = true;
             double ratio = 100.0 * projectedWeeklySeconds / limits.maxWeeklySeconds();
             maxUtilization = Math.max(maxUtilization, ratio);
+            // Weekly/monthly overruns only warn: assignment is blocked per day (the mission's own day),
+            // so a staff member who is over the week can still be scheduled on a day they have not worked.
             if (projectedWeeklySeconds > limits.maxWeeklySeconds()) {
-                blockingReasons.add("WEEKLY_WORKLOAD_LIMIT_EXCEEDED");
+                warningReasons.add("WEEKLY_WORKLOAD_LIMIT_EXCEEDED");
             } else if (ratio >= limits.warningPercent()) {
                 warningReasons.add("WEEKLY_WORKLOAD_NEAR_LIMIT");
             }
@@ -73,7 +75,7 @@ public final class WorkforceRuleEngine {
             double ratio = 100.0 * projectedMonthlySeconds / limits.maxMonthlySeconds();
             maxUtilization = Math.max(maxUtilization, ratio);
             if (projectedMonthlySeconds > limits.maxMonthlySeconds()) {
-                blockingReasons.add("MONTHLY_WORKLOAD_LIMIT_EXCEEDED");
+                warningReasons.add("MONTHLY_WORKLOAD_LIMIT_EXCEEDED");
             } else if (ratio >= limits.warningPercent()) {
                 warningReasons.add("MONTHLY_WORKLOAD_NEAR_LIMIT");
             }
@@ -84,14 +86,7 @@ public final class WorkforceRuleEngine {
             blockingReasons.add("INSUFFICIENT_REST_TIME");
         }
 
-        if (limits.requiredCertificates() != null && !limits.requiredCertificates().isEmpty()) {
-            Set<String> held = staffCertificates == null ? Set.of() : staffCertificates;
-            for (String required : limits.requiredCertificates()) {
-                if (!held.contains(required)) {
-                    blockingReasons.add("MISSING_CERTIFICATE:" + required);
-                }
-            }
-        }
+        // Certificates are intentionally not a workforce assignment constraint; only time-based rules apply.
 
         boolean blocked = !blockingReasons.isEmpty();
         boolean warning = !blocked && !warningReasons.isEmpty();

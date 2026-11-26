@@ -196,6 +196,8 @@ public final class LifecycleContracts {
             long weeklyEstimatedSeconds,
             long monthlyActualSeconds,
             long monthlyEstimatedSeconds,
+            long yearlyActualSeconds,
+            long yearlyEstimatedSeconds,
             Long restSecondsBeforeNextMission,
             String workloadStatus,
             Double maxUtilizationPercent,

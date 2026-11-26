@@ -29,5 +29,7 @@ public class MaintenanceTicketResponse {
     private Instant openedAt;
     private Instant resolvedAt;
     private Instant closedAt;
+    /** Effective workflow stage (e.g. DRAFT_HANDOVER, AWAITING_TECHNICAL_RECEIPT, IN_MAINTENANCE). */
+    private String workflowStage;
 }
 

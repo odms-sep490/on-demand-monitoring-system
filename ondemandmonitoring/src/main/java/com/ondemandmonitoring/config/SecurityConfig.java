@@ -78,6 +78,8 @@ public class SecurityConfig {
             "/api/planning/environment/**",
             "/api/geocoding/search",
             "/api/geocoding/reverse",
+            "/api/public/assistant/speech",
+            "/api/public/assistant/chat",
             "/api/internal/v1/drone-telemetry/*",
             "/swagger-ui/**",
             "/error",

@@ -50,11 +50,15 @@ public class MissionUsageRecorder {
     /** Runs inside the caller's transaction. Idempotent: a resource already recorded for this mission is skipped. */
     public void recordFinishedMission(Mission mission) {
         Instant start = mission.getActualStartAt();
-        Instant end = mission.getActualEndAt();
+        // Drone flight time: actual start -> actual flight end (landing).
+        Instant end = mission.getActualEndAt() != null ? mission.getActualEndAt() : mission.getCompletedAt();
+        // Staff work time: actual start -> mission completed (includes post-flight inspection and acceptance).
+        Instant staffEnd = mission.getCompletedAt() != null ? mission.getCompletedAt() : end;
         if (start == null || end == null || !start.isBefore(end)) {
             log.info("Mission {} has no valid actual start/end; usage not recorded", mission.getId());
             return;
         }
+        if (staffEnd == null || staffEnd.isBefore(end)) staffEnd = end;
         Set<String> touchedDevices = new HashSet<>();
         for (MissionDeviceAssignment assignment : deviceAssignments
                 .findAllByMissionIdAndIsCurrentTrueOrderByCreatedAtDesc(mission.getId())) {
@@ -70,8 +74,8 @@ public class MissionUsageRecorder {
             String staffId = assignment.getStaff().getId();
             if (!touchedStaff.add(staffId)) continue;
             String role = assignment.getAssignedRole() == null ? null : assignment.getAssignedRole().name();
-            save(mission, "STAFF", staffId, assignment.getId(), role, start, end,
-                    Duration.between(start, end).getSeconds(), null, null, SOURCE_MISSION);
+            save(mission, "STAFF", staffId, assignment.getId(), role, start, staffEnd,
+                    Duration.between(start, staffEnd).getSeconds(), null, null, SOURCE_MISSION);
         }
     }
 

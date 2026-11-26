@@ -6,6 +6,8 @@ import com.ondemandmonitoring.ai.config.ChecklistVisionProperties;
 import com.ondemandmonitoring.ai.config.OpenRouterProperties;
 import com.ondemandmonitoring.checklist.config.ChecklistDefaultSeedInitializer;
 import com.ondemandmonitoring.checklist.config.ChecklistDefaults;
+import com.ondemandmonitoring.checklist.config.ChecklistDefaultPricing;
+import com.ondemandmonitoring.checklist.config.ChecklistPricingSeedInitializer;
 import com.ondemandmonitoring.checklist.dto.request.ChecklistRequest;
 import com.ondemandmonitoring.delivery.repository.ResultReviewRoundEvidenceRepository;
 import com.ondemandmonitoring.imagequality.DeliveryImageQualityReader;
@@ -77,6 +79,18 @@ class ChecklistVisionPostgresTest extends ChecklistEvidenceIntegrationPostgresTe
         var seeded = definitions.findBySeedCode(ChecklistDefaults.code(20)).orElseThrow();
         assertEquals("Chụp ảnh các mặt ngoài công trình", seeded.getContent());
         assertFalse(seeded.getImageAssessmentCriteria().isEmpty());
+        transaction.executeWithoutResult(tx ->
+                new ChecklistPricingSeedInitializer(definitions, defaultPrices).run(null));
+        String seedService = service("Seed photo criteria QA");
+        for (int number = 1; number <= ChecklistDefaults.CONTENTS.size(); number++) {
+            var definition = definitions.findBySeedCode(ChecklistDefaults.code(number)).orElseThrow();
+            if (ChecklistDefaultPricing.forNumber(number).includedImages() > 0) {
+                assertFalse(definition.getImageAssessmentCriteria().isEmpty(), definition.getSeedCode());
+                assignments.assign(seedService, assignment(definition.getId(), number));
+            } else {
+                assertNull(definition.getImageAssessmentCriteria());
+            }
+        }
 
         String serviceId = service("AI snapshot QA");
         String originalCriterion = "A black rectangle is visible on a white background.";
@@ -105,6 +119,19 @@ class ChecklistVisionPostgresTest extends ChecklistEvidenceIntegrationPostgresTe
         assertEquals(updatedCriterion, jdbc.queryForObject(
                 "select image_assessment_criteria ->> 0 from checklist_definitions where id=?",
                 String.class, checklistId));
+        request.setServiceId(seedService);
+        when(serviceDeliverables.existsByServiceIdAndDeliverableTypeId(eq(seedService), anyString()))
+                .thenReturn(true);
+        String seedOrder = orderService.createOrder(request).getId();
+        var seedSnapshots = snapshots.findAllByOrderIdOrderByDisplayOrderAscIdAsc(seedOrder);
+        assertEquals(20, seedSnapshots.size());
+        transaction.executeWithoutResult(tx -> {
+            for (var snapshot : snapshots.findAllByOrderIdOrderByDisplayOrderAscIdAsc(seedOrder)) {
+                assertFalse(snapshot.getImageAssessmentCriteriaSnapshot().isEmpty());
+                assertEquals(snapshot.getSourceChecklist().getImageAssessmentCriteria(),
+                        snapshot.getImageAssessmentCriteriaSnapshot());
+            }
+        });
 
         byte[] jpeg = targetJpeg();
         when(storage.open("test", "qa-preview.jpg")).thenAnswer(call ->
@@ -173,6 +200,9 @@ class ChecklistVisionPostgresTest extends ChecklistEvidenceIntegrationPostgresTe
 
     @org.springframework.beans.factory.annotation.Autowired
     IMediaObjectStorage storage;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    com.ondemandmonitoring.pricing.service.ServiceDefaultPriceService defaultPrices;
 
     private static byte[] targetJpeg() throws java.io.IOException {
         var image = new java.awt.image.BufferedImage(320, 200, java.awt.image.BufferedImage.TYPE_INT_RGB);

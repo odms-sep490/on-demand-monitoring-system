@@ -143,8 +143,13 @@ class ChecklistVisionPostgresTest extends ChecklistEvidenceIntegrationPostgresTe
         properties.setModel("qwen3-vl:2b-instruct");
         var vision = new ChecklistImageVisionClient(properties, new OpenRouterProperties(), new ObjectMapper());
         try {
+            var settingsRepository = new JpaRepositoryFactory(
+                    SharedEntityManagerCreator.createSharedEntityManager(entityManagerFactory))
+                    .getRepository(com.ondemandmonitoring.ai.repository.ChecklistImageAiSettingsRepository.class);
+            var settings = new com.ondemandmonitoring.ai.service.ChecklistImageAiSettingsService(
+                    settingsRepository, vision, Clock.systemUTC());
             var assessment = new ChecklistImageContentAssessmentService(
-                    evidenceService, storage, vision, resolver, Clock.systemUTC());
+                    evidenceService, storage, vision, resolver, Clock.systemUTC(), settings);
             var mvc = MockMvcBuilders.standaloneSetup(new ChecklistEvidenceController(evidenceService, assessment)).build();
             for (String orderId : List.of(originalOrder, updatedOrder)) {
                 transaction.executeWithoutResult(tx -> {
@@ -176,6 +181,30 @@ class ChecklistVisionPostgresTest extends ChecklistEvidenceIntegrationPostgresTe
                 review.setAssessmentNote("QA Inspector reviewed the target.");
                 executionService.update(missionId, execution.getId(), review);
                 execution = row(missionId);
+                String executionId = execution.getId();
+                var assessmentRequest = new com.ondemandmonitoring.mission.dto.request.ChecklistImageContentAssessmentRequest(
+                        execution.getVersion(), "en");
+                var savedCriteria = snapshots.findById(originalItem).orElseThrow().getImageAssessmentCriteriaSnapshot();
+                transaction.executeWithoutResult(tx -> settings.update(
+                        new com.ondemandmonitoring.ai.service.ChecklistImageAiSettingsService.UpdateRequest(
+                                false, settings.current().version()), inspectorId));
+                assertFalse(assessment.available());
+                assertEquals(com.ondemandmonitoring.common.exception.ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED,
+                        assertThrows(com.ondemandmonitoring.common.exception.ApiException.class,
+                                () -> assessment.assess(missionId, executionId, evidenceId, assessmentRequest)).getErrorCode());
+                transaction.executeWithoutResult(tx -> settings.update(
+                        new com.ondemandmonitoring.ai.service.ChecklistImageAiSettingsService.UpdateRequest(
+                                true, settings.current().version()), inspectorId));
+                var switchOff = new ChecklistRequest();
+                switchOff.setContent(configuration.getContent());
+                switchOff.setImageAssessmentEnabled(false);
+                catalog.update(checklistId, switchOff);
+                assertEquals(com.ondemandmonitoring.common.exception.ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED,
+                        assertThrows(com.ondemandmonitoring.common.exception.ApiException.class,
+                                () -> assessment.assess(missionId, executionId, evidenceId, assessmentRequest)).getErrorCode());
+                assertEquals(savedCriteria, snapshots.findById(originalItem).orElseThrow().getImageAssessmentCriteriaSnapshot());
+                switchOff.setImageAssessmentEnabled(true);
+                catalog.update(checklistId, switchOff);
                 String expectedCriterion = orderId.equals(originalOrder) ? originalCriterion : updatedCriterion;
                 var response = mvc.perform(post("/api/missions/{mission}/checklist-executions/{execution}/evidence/{evidence}/content-assessment",
                                 missionId, execution.getId(), evidenceId)

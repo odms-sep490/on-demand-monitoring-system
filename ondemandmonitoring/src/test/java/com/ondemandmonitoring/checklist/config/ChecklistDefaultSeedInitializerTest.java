@@ -76,6 +76,50 @@ class ChecklistDefaultSeedInitializerTest {
         assertEquals(List.of(), roof.getImageAssessmentCriteria());
     }
 
+    @Test void everyPhotoSeedHasValidCriteriaAndVideoOnlySeedHasNone() {
+        seed.run(null);
+        for (int number = 1; number <= ChecklistDefaults.CONTENTS.size(); number++) {
+            var definition = catalog.get(ChecklistDefaults.code(number));
+            var pricing = ChecklistDefaultPricing.forNumber(number);
+            var criteria = ChecklistDefaultImageCriteria.forSeed(definition.getSeedCode(), definition.getContent());
+            if (pricing.includedImages() == 0) {
+                assertTrue(criteria.isEmpty(), definition.getSeedCode());
+                assertNull(definition.getImageAssessmentCriteria());
+                continue;
+            }
+            assertFalse(criteria.isEmpty(), definition.getSeedCode());
+            assertTrue(criteria.size() <= 8, definition.getSeedCode());
+            assertEquals(criteria, definition.getImageAssessmentCriteria());
+            assertEquals(criteria.size(), new HashSet<>(criteria).size());
+            for (String criterion : criteria) {
+                assertFalse(criterion.isBlank());
+                assertTrue(criterion.length() <= 300, definition.getSeedCode());
+                assertFalse(criterion.chars().anyMatch(Character::isISOControl));
+            }
+        }
+    }
+
+    @Test void restartOnlyFillsMissingCriteriaForMatchingPhotoSeeds() {
+        seed.run(null);
+        var missing = catalog.get(ChecklistDefaults.code(2));
+        missing.setImageAssessmentCriteria(null);
+        var changed = catalog.get(ChecklistDefaults.code(3));
+        changed.setContent("Admin changed the inspection subject");
+        changed.setImageAssessmentCriteria(null);
+        var videoOnly = catalog.get(ChecklistDefaults.code(4));
+        videoOnly.setImageAssessmentCriteria(null);
+        videoOnly.setIncludedImageCount(0);
+        videoOnly.setIncludedVideoCount(1);
+
+        seed.run(null);
+
+        assertFalse(missing.getImageAssessmentCriteria().isEmpty());
+        assertNull(changed.getImageAssessmentCriteria());
+        assertNull(videoOnly.getImageAssessmentCriteria());
+        assertTrue(ChecklistDefaultImageCriteria.forSeed(null, missing.getContent()).isEmpty());
+        assertTrue(ChecklistDefaultImageCriteria.forSeed("UNKNOWN", missing.getContent()).isEmpty());
+    }
+
     @Test void restartKeepsEditedInactiveDefinitionsAndRestoresEmptySupportedTemplate() {
         seed.run(null);
         var edited = catalog.get(ChecklistDefaults.code(1)); edited.setContent("Admin edited"); edited.setIsActive(false);

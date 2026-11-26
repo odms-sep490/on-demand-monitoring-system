@@ -235,7 +235,7 @@ public class PromptManagementService {
                         + "Do not select dates or resource IDs, check availability, or make assignments. Do not use markdown."
         );
         seedPromptIfAbsent(
-                "checklist.image-vision.system",
+                ChecklistVisionPlaygroundService.PROMPT_KEY,
                 "Checklist Image Vision — System Prompt",
                 "Đánh giá từng tiêu chí checklist dựa trên bằng chứng nhìn thấy trong ảnh JPEG.",
                 "CHECKLIST_VISION", "SYSTEM", "openrouter-vision", "en,vi",
@@ -584,6 +584,9 @@ public class PromptManagementService {
 
     @Transactional
     public TestRunView runPlaygroundTest(String promptKey, UUID versionId, PlaygroundTestRequest req) {
+        if (ChecklistVisionPlaygroundService.PROMPT_KEY.equals(promptKey)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Use the checklist vision playground with a JPEG image");
+        }
         ensureSchema();
         var v = requireVersion(promptKey, versionId);
         var promptRow = db.queryForMap("SELECT model_binding FROM ai_prompts WHERE prompt_key = ?", promptKey);

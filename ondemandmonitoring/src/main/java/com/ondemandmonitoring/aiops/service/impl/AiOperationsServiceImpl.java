@@ -423,11 +423,12 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
 
     public List<AiEvaluationView> listEvaluations() {
         ensureSchema();
+        var evaluations = readPersistedEvaluations();
+        return evaluations.isEmpty() ? syncDeepEvalFromDisk() : evaluations;
+    }
+
+    private List<AiEvaluationView> readPersistedEvaluations() {
         var rows = db.queryForList("SELECT * FROM ai_evaluation_runs ORDER BY suite_group ASC, metric_name ASC LIMIT 100");
-        if (rows.isEmpty()) {
-            syncDeepEvalFromDisk();
-            rows = db.queryForList("SELECT * FROM ai_evaluation_runs ORDER BY suite_group ASC, metric_name ASC LIMIT 100");
-        }
         List<AiEvaluationView> out = new ArrayList<>();
         for (var r : rows) {
             int totalCases = ((Number) r.getOrDefault("total_cases", 0)).intValue();
@@ -525,7 +526,7 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
                 // If file is unreadable, return persisted runs as-is.
             }
         }
-        return listEvaluations();
+        return readPersistedEvaluations();
     }
 
     public List<EvaluationCaseView> listEvaluationCases(

@@ -20,6 +20,8 @@ public class ChecklistImageAiSettingsService {
     private final ChecklistImageAiSettingsRepository repository;
     private final ChecklistImageVisionClient vision;
     private final Clock clock;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private org.springframework.jdbc.core.JdbcTemplate db;
 
     public boolean isEnabled() {
         return repository.findById(ChecklistImageAiSettings.DEFAULT_ID)
@@ -45,6 +47,12 @@ public class ChecklistImageAiSettingsService {
             settings.setUpdatedBy(actor);
             settings.setUpdatedAt(clock.instant());
             repository.saveAndFlush(settings);
+        }
+        if (db != null) {
+            db.update("""
+                    UPDATE ai_models SET enabled = ?, status = ?, updated_at = now()
+                    WHERE code = 'checklist-image-vision'
+                    """, request.enabled(), request.enabled() ? "IDLE" : "DISABLED");
         }
         return status(settings);
     }

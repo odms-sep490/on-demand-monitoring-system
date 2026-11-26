@@ -48,6 +48,7 @@ class ChecklistImageContentAssessmentServiceTest {
     @BeforeEach void setup() {
         when(evidence.resolveContentAssessment("mission", "execution", "evidence", request)).thenReturn(target);
         when(vision.available()).thenReturn(true);
+        when(vision.runtimeEnabled()).thenReturn(true);
         when(settings.isEnabled()).thenReturn(true);
         when(user.getCurrentUserId()).thenReturn("inspector");
         when(storage.open("private", "preview.jpg")).thenAnswer(call ->
@@ -88,6 +89,13 @@ class ChecklistImageContentAssessmentServiceTest {
         for (int index = 0; index < 8; index++) assess();
         assertEquals(HttpStatus.TOO_MANY_REQUESTS, assertThrows(ApiException.class, this::assess).getStatus());
         verify(vision, times(8)).assess(any(), any(), any(), any());
+    }
+
+    @Test void registryDisableDuringInferenceDropsResult() {
+        when(vision.runtimeEnabled()).thenReturn(true, false);
+        assertEquals(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED,
+                assertThrows(ApiException.class, this::assess).getErrorCode());
+        verify(vision).assess(any(), any(), any(), any());
     }
 
     @Test void systemSwitchBlocksNewRequestsAndDropsInFlightResults() {

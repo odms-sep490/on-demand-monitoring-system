@@ -4,6 +4,7 @@ import com.ondemandmonitoring.aiops.service.IAiOperationsService;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.ondemandmonitoring.aiops.service.ChecklistVisionRuntime;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ondemandmonitoring.aiops.dto.AiOperationsDtos.*;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
@@ -35,6 +36,9 @@ import org.springframework.web.server.ResponseStatusException;
 public class AiOperationsServiceImpl implements IAiOperationsService {
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final DateTimeFormatter DAY_FMT = DateTimeFormatter.ofPattern("dd/MM");
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private org.springframework.beans.factory.ObjectProvider<com.ondemandmonitoring.ai.client.ChecklistImageVisionClient> checklistVisionProvider;
 
     private final JdbcTemplate db;
     private final ObjectMapper json;
@@ -123,14 +127,35 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
         for (ServiceHealthView svc : services) {
             endpointStatus.put(svc.endpoint(), svc.status());
         }
+        var checklistVision = checklistVisionProvider == null ? null : checklistVisionProvider.getIfAvailable();
         var rows = db.queryForList("SELECT * FROM ai_models ORDER BY model_type, name");
         List<AiModelView> result = new ArrayList<>();
-        for (var row : rows) {
+        for (var stored : rows) {
+            var row = new HashMap<>(stored);
+            if (ChecklistVisionRuntime.MODEL_CODE.equals(row.get("code")) && checklistVision != null) {
+                var deployment = checklistVision.deployment();
+                row.put("enabled", Boolean.TRUE.equals(row.get("enabled")) && db.query(
+                        "SELECT enabled FROM checklist_image_ai_settings WHERE id = 'default'",
+                        rs -> rs.next() && rs.getBoolean(1)));
+                row.put("name", deployment.model().isBlank() ? "Chưa cấu hình mô hình" : deployment.model());
+                row.put("version", "Đánh giá ảnh checklist");
+                row.put("capability", "Đối chiếu ảnh với từng tiêu chí của checklist");
+                row.put("source", deployment.provider());
+                row.put("runtime", deployment.provider().equals("Ollama") ? "Ollama cục bộ" : "OpenRouter qua API");
+                row.put("device", "Theo cấu hình nhà cung cấp");
+                row.put("endpoint", deployment.endpoint());
+                row.put("license", "Theo giấy phép của mô hình");
+                row.put("checksum_sha256", "Chưa xác minh");
+                row.put("model_size", "Chưa xác định");
+                if (!deployment.configured()) row.put("status", "UNCONFIGURED");
+            }
             boolean enabled = Boolean.TRUE.equals(row.get("enabled"));
             String endpoint = Objects.toString(row.get("endpoint"), "");
             String computedStatus;
             if (!enabled) {
                 computedStatus = "DISABLED";
+            } else if ("UNCONFIGURED".equals(row.get("status"))) {
+                computedStatus = "UNCONFIGURED";
             } else {
                 String live = endpointStatus.get(endpoint);
                 if (live == null) {
@@ -176,6 +201,13 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
         if (updated == 0) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy model: " + code);
         }
+        if (ChecklistVisionRuntime.MODEL_CODE.equals(code)) {
+            db.update("""
+                    UPDATE checklist_image_ai_settings
+                    SET enabled = ?, version = version + 1, updated_at = now(), updated_by = ?
+                    WHERE id = 'default'
+                    """, enabled, safeCurrentUser());
+        }
         recordAudit(
                 code,
                 enabled ? "ENABLE_MODEL" : "KILL_SWITCH_DISABLE",
@@ -196,6 +228,7 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
     @Transactional
     public AiModelView updateModelConfig(String code, Map<String, Object> config) {
         ensureSchema();
+        if (ChecklistVisionRuntime.MODEL_CODE.equals(code)) ChecklistVisionRuntime.parse(json.valueToTree(config));
         // Whitelist only safe configuration keys — never allow shell/command/path execution keys.
         Set<String> allowedKeys = Set.of("temperature", "timeoutSec", "maxTokens", "threshold", "blurThreshold", "language", "sampleRate");
         Map<String, Object> sanitized = new LinkedHashMap<>();

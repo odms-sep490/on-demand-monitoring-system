@@ -128,6 +128,40 @@ class ChecklistImageVisionClientTest {
     }
 
     @Test
+    void playgroundUsesExactPromptWithoutResolvingTheActiveVersion() throws Exception {
+        client = enabledClient();
+        var prompts = mock(com.ondemandmonitoring.prompt.PromptManagementService.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(client, "promptManagement", prompts);
+        respond("stop", FINDING);
+        assertThat(client.assessWithPrompt(JPEG_PREFIX, "vi", CRITERIA, "Draft instructions"))
+                .containsKey("landing_area");
+        var captured = ArgumentCaptor.forClass(HttpPost.class);
+        verify(http).executeOpen(isNull(), captured.capture(), isNull());
+        assertThat(requestBody(captured.getValue()).at("/messages/0/content").asText()).isEqualTo("Draft instructions");
+        verifyNoInteractions(prompts);
+    }
+
+    @Test
+    void runtimeConfigAppliesToProviderAndDisabledModelStopsPlayground() throws Exception {
+        client = enabledClient();
+        var runtime = mock(com.ondemandmonitoring.aiops.service.ChecklistVisionRuntime.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(client, "runtime", runtime);
+        when(runtime.config()).thenReturn(
+                new com.ondemandmonitoring.aiops.service.ChecklistVisionRuntime.Config(false, null, null, null),
+                new com.ondemandmonitoring.aiops.service.ChecklistVisionRuntime.Config(true, 0.4, 300, 5));
+        assertThatThrownBy(() -> client.assessWithPrompt(JPEG_PREFIX, "vi", CRITERIA, "Draft"))
+                .isInstanceOf(ApiException.class);
+        verifyNoInteractions(http);
+        respond("stop", FINDING);
+        client.assessWithPrompt(JPEG_PREFIX, "vi", CRITERIA, "Draft");
+        var captured = ArgumentCaptor.forClass(HttpPost.class);
+        verify(http).executeOpen(isNull(), captured.capture(), isNull());
+        var body = requestBody(captured.getValue());
+        assertThat(body.path("temperature").doubleValue()).isEqualTo(0.4);
+        assertThat(body.path("max_tokens").intValue()).isEqualTo(300);
+    }
+
+    @Test
     void dedicatedEndpointAndKeyTakePrecedence() throws Exception {
         vision.setBaseUrl("https://vision.example.test/api/v1/");
         vision.setApiKey("vision-test-key");

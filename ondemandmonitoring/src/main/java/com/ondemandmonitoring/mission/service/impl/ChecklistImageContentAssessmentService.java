@@ -43,13 +43,13 @@ public class ChecklistImageContentAssessmentService {
     private final Set<String> activeInspectors = new HashSet<>();
 
     public boolean available() {
-        return settings.isEnabled() && vision.available();
+        return settings.isEnabled() && vision.available() && vision.runtimeEnabled();
     }
 
     public ChecklistImageContentAssessmentResponse assess(String missionId, String executionId, String evidenceId,
             ChecklistImageContentAssessmentRequest request) {
         var target = evidence.resolveContentAssessment(missionId, executionId, evidenceId, request);
-        if (!settings.isEnabled())
+        if (!settings.isEnabled() || !vision.runtimeEnabled())
             throw new ApiException(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED);
         if (!vision.available())
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "Checklist image content assessment is disabled");
@@ -58,7 +58,7 @@ public class ChecklistImageContentAssessmentService {
         begin(inspector);
         try {
             var findings = vision.assess(readPreview(target), request.language(), target.criteria(), target.context());
-            if (!settings.isEnabled())
+            if (!settings.isEnabled() || !vision.runtimeEnabled())
                 throw new ApiException(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED);
             var current = evidence.resolveContentAssessment(missionId, executionId, evidenceId, request);
             if (!target.equals(current)) throw new ApiException(ErrorCode.CONCURRENT_UPDATE);

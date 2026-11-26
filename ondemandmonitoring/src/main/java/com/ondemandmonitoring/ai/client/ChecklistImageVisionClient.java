@@ -9,6 +9,8 @@ import com.ondemandmonitoring.ai.config.ChecklistVisionProperties.Provider;
 import com.ondemandmonitoring.ai.config.OpenRouterProperties;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
+import com.ondemandmonitoring.aiops.service.ChecklistVisionRuntime;
+import com.ondemandmonitoring.prompt.PromptDtos.ResolvedPrompt;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.net.URI;
@@ -72,6 +74,8 @@ public class ChecklistImageVisionClient {
     private final int timeoutSeconds;
     private final CloseableHttpClient httpClient;
     private final ScheduledThreadPoolExecutor deadlines;
+    @Autowired
+    private ChecklistVisionRuntime runtime;
     @Autowired(required = false)
     private com.ondemandmonitoring.prompt.PromptManagementService promptManagement;
 
@@ -117,27 +121,70 @@ public class ChecklistImageVisionClient {
 
     public Map<String, Finding> assess(byte[] jpeg, String language, List<CriterionInput> criteria,
                                       ChecklistContext context) {
+        return assessInternal(jpeg, language, criteria, context, null);
+    }
+
+    public Map<String, Finding> assessWithPrompt(byte[] jpeg, String language, List<CriterionInput> criteria,
+                                                  String systemPrompt) {
+        if (systemPrompt == null || systemPrompt.isBlank()) throw invalidInput();
+        return assessInternal(jpeg, language, criteria, null, systemPrompt);
+    }
+
+    public record Deployment(String model, String provider, String endpoint, int timeoutSeconds, boolean configured) {}
+
+    public Deployment deployment() {
+        return new Deployment(model, local ? "Ollama" : "OpenRouter",
+                endpoint == null ? "" : endpoint.toString(), timeoutSeconds, available());
+    }
+
+    public boolean runtimeEnabled() {
+        return runtime == null || runtime.enabled();
+    }
+
+    private Map<String, Finding> assessInternal(byte[] jpeg, String language, List<CriterionInput> criteria,
+                                                ChecklistContext context, String override) {
         if (!available()) {
             throw new ApiException(ErrorCode.AI_PROVIDER_UNAVAILABLE, "Checklist vision is not configured");
         }
         Set<String> codes = validateInput(jpeg, language, criteria);
+        var config = runtime == null ? ChecklistVisionRuntime.Config.DEFAULT : runtime.config();
+        if (!config.enabled()) throw new ApiException(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED);
+        ResolvedPrompt resolved = null;
+        if (override == null && promptManagement != null) {
+            try {
+                resolved = promptManagement.resolve("checklist.image-vision.system", Map.of());
+            } catch (RuntimeException unavailable) {
+                log.warn("Using bundled checklist vision prompt");
+            }
+        }
+        String prompt = override != null ? override : resolved == null ? SYSTEM_PROMPT : resolved.renderedContent();
         HttpPost request = new HttpPost(endpoint);
         if (!local) request.setHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey);
         request.setHeader(HttpHeaders.ACCEPT, ContentType.APPLICATION_JSON.getMimeType());
 
-        byte[] body;
+        long start = System.nanoTime();
+        int status = 500;
         try {
-            request.setEntity(new ByteArrayEntity(buildRequest(jpeg, language, criteria, codes, context),
+            request.setEntity(new ByteArrayEntity(buildRequest(jpeg, language, criteria, codes, context, prompt, config),
                     ContentType.APPLICATION_JSON));
-            body = execute(request);
+            var findings = parseResponse(execute(request, config.timeoutSec() == null ? timeoutSeconds
+                    : Math.min(timeoutSeconds, config.timeoutSec())), codes);
+            status = 200;
+            return findings;
+        } catch (ApiException exception) {
+            status = exception.getStatus().value();
+            throw exception;
         } catch (IOException exception) {
+            status = ErrorCode.AI_PROVIDER_UNAVAILABLE.getStatus().value();
             throw new ApiException(ErrorCode.AI_PROVIDER_UNAVAILABLE, "Checklist vision request failed");
+        } finally {
+            if (runtime != null) runtime.trace(model, resolved, prompt, override != null, status,
+                    (int) TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
         }
-        return parseResponse(body, codes);
     }
 
-    private byte[] execute(HttpPost request) throws IOException {
-        var deadline = deadlines.schedule(request::cancel, timeoutSeconds, TimeUnit.SECONDS);
+    private byte[] execute(HttpPost request, int deadlineSeconds) throws IOException {
+        var deadline = deadlines.schedule(request::cancel, deadlineSeconds, TimeUnit.SECONDS);
         try (var response = httpClient.executeOpen(null, request, null)) {
             boolean readComplete = false;
             try {
@@ -170,7 +217,7 @@ public class ChecklistImageVisionClient {
     }
 
     private byte[] buildRequest(byte[] jpeg, String language, List<CriterionInput> criteria, Set<String> codes,
-                                ChecklistContext context)
+                                ChecklistContext context, String effectiveSystemPrompt, ChecklistVisionRuntime.Config config)
             throws IOException {
         Map<String, Object> input = new LinkedHashMap<>();
         input.put("language", language);
@@ -193,18 +240,10 @@ public class ChecklistImageVisionClient {
                         "type", "object", "additionalProperties", false,
                         "required", codes, "properties", findingProperties)));
 
-        String effectiveSystemPrompt = SYSTEM_PROMPT;
-        if (promptManagement != null) {
-            try {
-                effectiveSystemPrompt = promptManagement.resolve("checklist.image-vision.system", Map.of()).renderedContent();
-            } catch (Exception ignored) {
-                // Keep bootstrap fallback if registry unavailable in isolated tests.
-            }
-        }
         var payload = new LinkedHashMap<>(Map.of(
                 "model", model,
                 "stream", false,
-                "max_tokens", local ? 128 + 120 * codes.size() : 4096,
+                "max_tokens", config.maxTokens() != null ? config.maxTokens() : local ? 128 + 120 * codes.size() : 4096,
                 "response_format", Map.of("type", "json_schema", "json_schema",
                         Map.of("name", "checklist_assessment", "strict", true, "schema", schema)),
                 "messages", List.of(
@@ -218,6 +257,7 @@ public class ChecklistImageVisionClient {
             payload.put("provider", Map.of("data_collection", "deny", "zdr", true,
                     "allow_fallbacks", false, "require_parameters", true));
         }
+        if (config.temperature() != null) payload.put("temperature", config.temperature());
         return mapper.writeValueAsBytes(payload);
     }
 

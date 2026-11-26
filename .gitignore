@@ -3,7 +3,12 @@ ondemandmonitoring/.env
 *.env.*
 !Python/change-detection/.env.example
 !ondemandmonitoring/image-quality.env.example
-/.ai-runtime/
+/.ai-runtime/*
+!/.ai-runtime/deepeval/
+/.ai-runtime/deepeval/*
+!/.ai-runtime/deepeval/deepeval-summary.json
+!/.ai-runtime/deepeval/deepeval-cases.json
+!/.ai-runtime/deepeval/eval-runs-history.jsonl
 ondemandmonitoring/.ai-runtime/
 ondemandmonitoring/.description-check.pom.xml
 ondemandmonitoring/.env

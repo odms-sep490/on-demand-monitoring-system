@@ -119,6 +119,9 @@ public class OrderConversationService {
     }
     @Transactional(readOnly=true) public byte[] speech(String id,String text) {
         owned(id);
+        return synthesizeSpeech(text);
+    }
+    public byte[] synthesizeSpeech(String text) {
         try {
             var request=HttpRequest.newBuilder(URI.create(workerUrl+"/conversation/speech"))
                 .timeout(Duration.ofSeconds(245)).header("Content-Type","application/json")

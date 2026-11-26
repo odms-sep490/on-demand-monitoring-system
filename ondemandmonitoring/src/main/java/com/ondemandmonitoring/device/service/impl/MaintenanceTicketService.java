@@ -74,12 +74,10 @@ public class MaintenanceTicketService implements IMaintenanceTicketService {
         MaintenanceTicket ticket = maintenanceTicketRepository.findById(id)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Maintenance ticket not found: " + id));
 
-        User staff = staffDirectory.requireActiveStaff(request.getStaffId());
-
-        ticket.setAssignedStaff(staff);
-        ticket.setStatus("IN_PROGRESS");
-        MaintenanceTicket saved = maintenanceTicketRepository.save(ticket);
-        return mapToResponse(saved);
+        // Direct assignment bypassed the handover, certification check and technician claim.
+        throw new ApiException(HttpStatus.CONFLICT,
+                "Direct staff assignment is disabled. Send ticket " + ticket.getTicketCode()
+                        + " through the maintenance handover so a qualified Technical can claim it.");
     }
 
     @Override
@@ -115,7 +113,14 @@ public class MaintenanceTicketService implements IMaintenanceTicketService {
                 .openedAt(ticket.getOpenedAt())
                 .resolvedAt(ticket.getResolvedAt())
                 .closedAt(ticket.getClosedAt())
+                .workflowStage(effectiveStage(ticket))
                 .build();
+    }
+
+    /** Mirrors MaintenanceTransitionPolicy.effectiveStage for tickets created before the workflow existed. */
+    private static String effectiveStage(MaintenanceTicket ticket) {
+        if (ticket.getWorkflowStage() != null) return ticket.getWorkflowStage().name();
+        return "CLOSED".equalsIgnoreCase(ticket.getStatus()) ? "COMPLETED" : "DRAFT_HANDOVER";
     }
 }
 

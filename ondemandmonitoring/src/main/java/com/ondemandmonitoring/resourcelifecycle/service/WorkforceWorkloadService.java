@@ -48,10 +48,15 @@ public class WorkforceWorkloadService {
 
     @Transactional(readOnly = true)
     public List<StaffWorkloadResponse> listAllStaffWorkloads() {
+        return listAllStaffWorkloads(null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<StaffWorkloadResponse> listAllStaffWorkloads(LocalDate asOfDate) {
         List<User> activeStaff = userRepository
                 .findAllByRole_CodeAndIsActiveTrueOrderByFullNameAsc(RoleCode.STAFF);
         return activeStaff.stream()
-                .map(staff -> evaluateStaff(staff, null, null, null, null))
+                .map(staff -> evaluateStaff(staff, null, null, null, null, asOfDate))
                 .toList();
     }
 
@@ -59,7 +64,7 @@ public class WorkforceWorkloadService {
     public StaffWorkloadResponse getStaffWorkload(String staffId) {
         User staff = userRepository.findById(staffId)
                 .orElseThrow(() -> new IllegalArgumentException("Staff not found: " + staffId));
-        return evaluateStaff(staff, null, null, null, null);
+        return evaluateStaff(staff, null, null, null, null, null);
     }
 
     @Transactional(readOnly = true)
@@ -69,6 +74,17 @@ public class WorkforceWorkloadService {
             Instant projectedEnd,
             String excludeMissionId,
             ResourcePolicyEntity overridePolicy) {
+        return evaluateStaff(staff, projectedStart, projectedEnd, excludeMissionId, overridePolicy, null);
+    }
+
+    @Transactional(readOnly = true)
+    public StaffWorkloadResponse evaluateStaff(
+            User staff,
+            Instant projectedStart,
+            Instant projectedEnd,
+            String excludeMissionId,
+            ResourcePolicyEntity overridePolicy,
+            LocalDate asOfDate) {
         ResourcePolicyEntity policy = overridePolicy != null
                 ? overridePolicy
                 : resolveActiveWorkforcePolicy(staff);
@@ -90,9 +106,22 @@ public class WorkforceWorkloadService {
         combinedSpans.addAll(actualSpans);
         combinedSpans.addAll(estimatedSpans);
 
-        Instant referenceInstant = projectedStart != null ? projectedStart : Instant.now();
-        LocalDate referenceDate = referenceInstant.atZone(VN_ZONE).toLocalDate();
+        Instant now = Instant.now();
+        LocalDate today = now.atZone(VN_ZONE).toLocalDate();
+        Instant referenceInstant;
+        LocalDate referenceDate;
+        if (projectedStart != null) {
+            referenceInstant = projectedStart;
+            referenceDate = projectedStart.atZone(VN_ZONE).toLocalDate();
+        } else if (asOfDate != null && !asOfDate.equals(today)) {
+            referenceDate = asOfDate;
+            referenceInstant = asOfDate.plusDays(1).atStartOfDay(VN_ZONE).toInstant().minusSeconds(1);
+        } else {
+            referenceInstant = now;
+            referenceDate = today;
+        }
         YearMonth referenceMonth = YearMonth.from(referenceDate);
+        int referenceYear = referenceDate.getYear();
 
         Long restBeforeMission = workTimeCalculator.restSecondsBefore(combinedSpans, referenceInstant);
 
@@ -106,6 +135,8 @@ public class WorkforceWorkloadService {
         long weeklyEstimated = workTimeCalculator.weeklySeconds(estimatedSpans, referenceDate, VN_ZONE);
         long monthlyActual = workTimeCalculator.monthlySeconds(actualSpans, referenceMonth, VN_ZONE);
         long monthlyEstimated = workTimeCalculator.monthlySeconds(estimatedSpans, referenceMonth, VN_ZONE);
+        long yearlyActual = workTimeCalculator.yearlySeconds(actualSpans, referenceYear, VN_ZONE);
+        long yearlyEstimated = workTimeCalculator.yearlySeconds(estimatedSpans, referenceYear, VN_ZONE);
 
         long projectedDaily = workTimeCalculator.dailySeconds(combinedSpans, VN_ZONE).getOrDefault(referenceDate, 0L);
         long projectedWeekly = workTimeCalculator.weeklySeconds(combinedSpans, referenceDate, VN_ZONE);
@@ -130,6 +161,8 @@ public class WorkforceWorkloadService {
                 weeklyEstimated,
                 monthlyActual,
                 monthlyEstimated,
+                yearlyActual,
+                yearlyEstimated,
                 restBeforeMission,
                 evaluation.status(),
                 evaluation.maxUtilizationPercent(),
@@ -154,26 +187,28 @@ public class WorkforceWorkloadService {
         return policyRepository.findFirstByFamilyAndTargetIdAndActiveTrue("WORKFORCE", "ALL").orElse(null);
     }
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.ondemandmonitoring.mission.repository.MissionStaffAssignmentRepository staffAssignmentRepository;
+
+    /**
+     * Work still in progress: missions the staff member is on that have actually started but are not
+     * completed yet, counted from the real start until now. Planned resource locks are not work time;
+     * finished missions are already in the verified records (recorded at completion).
+     */
     private List<WorkTimeCalculator.Span> collectEstimatedLockSpans(
             String staffId,
             String excludeMissionId,
             List<ResourceUsageRecordEntity> verifiedRecords) {
-        return lockRepository.findAll().stream()
-                .filter(lock -> "STAFF".equals(lock.getResourceType())
-                        && staffId.equals(lock.getResourceId())
-                        && lock.getReleasedAt() == null
-                        && lock.getStartTime() != null
-                        && lock.getEndTime() != null
-                        && lock.getStartTime().isBefore(lock.getEndTime()))
-                .filter(lock -> excludeMissionId == null
-                        || lock.getMission() == null
-                        || !excludeMissionId.equals(lock.getMission().getId()))
-                .filter(lock -> {
-                    String missionId = lock.getMission() == null ? null : lock.getMission().getId();
-                    return missionId == null || verifiedRecords.stream()
-                            .noneMatch(record -> missionId.equals(record.getMissionId()));
-                })
-                .map(lock -> new WorkTimeCalculator.Span(lock.getStartTime(), lock.getEndTime()))
+        if (staffAssignmentRepository == null) return List.of();
+        Instant now = Instant.now();
+        Set<String> seenMissions = new HashSet<>();
+        return staffAssignmentRepository.findRunningMissionAssignmentsForStaff(staffId).stream()
+                .map(assignment -> assignment.getMission())
+                .filter(mission -> excludeMissionId == null || !excludeMissionId.equals(mission.getId()))
+                .filter(mission -> seenMissions.add(mission.getId()))
+                .filter(mission -> verifiedRecords.stream().noneMatch(r -> mission.getId().equals(r.getMissionId())))
+                .filter(mission -> mission.getActualStartAt().isBefore(now))
+                .map(mission -> new WorkTimeCalculator.Span(mission.getActualStartAt(), now))
                 .toList();
     }
 

@@ -98,6 +98,23 @@ class MissionUsageRecorderTest {
     }
 
     @Test
+    void staffTimeRunsToCompletionWhileDroneTimeEndsAtLanding() {
+        mission.setCompletedAt(end.plusSeconds(1800)); // 30 min of post-flight inspection after landing
+
+        recorder.recordFinishedMission(mission);
+
+        ArgumentCaptor<ResourceUsageRecordEntity> saved = ArgumentCaptor.forClass(ResourceUsageRecordEntity.class);
+        verify(usageRepository, times(2)).save(saved.capture());
+        assertThat(saved.getAllValues()).filteredOn(r -> "DEVICE".equals(r.getResourceKind()))
+                .singleElement().extracting(ResourceUsageRecordEntity::getActualSeconds).isEqualTo(5400L);
+        assertThat(saved.getAllValues()).filteredOn(r -> "STAFF".equals(r.getResourceKind()))
+                .singleElement().satisfies(r -> {
+                    assertThat(r.getActualSeconds()).isEqualTo(7200L);
+                    assertThat(r.getEndedAt()).isEqualTo(end.plusSeconds(1800));
+                });
+    }
+
+    @Test
     void isIdempotentPerMissionAndResource() {
         when(usageRepository.findByIdempotencyKey(anyString())).thenReturn(Optional.of(new ResourceUsageRecordEntity()));
 

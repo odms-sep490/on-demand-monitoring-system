@@ -38,6 +38,8 @@ import com.ondemandmonitoring.resourcelifecycle.service.WorkforceWorkloadService
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import jakarta.validation.Valid;
 import java.time.Instant;
+import java.time.LocalDate;
+import org.springframework.format.annotation.DateTimeFormat;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -120,8 +122,11 @@ public class ResourceLifecycleController {
 
     @GetMapping("/staff")
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
-    public ResponseEntity<ApiResponse<List<StaffWorkloadResponse>>> listStaff() {
-        return ResponseEntity.ok(ApiResponse.ok("Staff workloads loaded", workforceWorkloadService.listAllStaffWorkloads()));
+    public ResponseEntity<ApiResponse<List<StaffWorkloadResponse>>> listStaff(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Staff workloads loaded",
+                workforceWorkloadService.listAllStaffWorkloads(date)));
     }
 
     @GetMapping("/staff/me")
@@ -164,13 +169,13 @@ public class ResourceLifecycleController {
     }
 
     @PostMapping("/policies")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
     public ResponseEntity<ApiResponse<PolicyResponse>> createPolicy(@Valid @RequestBody PolicyRequest request) {
         return ResponseEntity.ok(ApiResponse.ok("Policy created", policyService.createPolicy(request)));
     }
 
     @PutMapping("/policies/{policyId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
     public ResponseEntity<ApiResponse<PolicyResponse>> updatePolicy(
             @PathVariable UUID policyId,
             @Valid @RequestBody PolicyRequest request) {
@@ -184,13 +189,13 @@ public class ResourceLifecycleController {
     }
 
     @PostMapping("/policies/{policyId}/preview")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
     public ResponseEntity<ApiResponse<PolicyImpactPreview>> previewPolicy(@PathVariable UUID policyId) {
         return ResponseEntity.ok(ApiResponse.ok("Policy impact previewed", policyService.previewImpact(policyId)));
     }
 
     @PostMapping("/policies/{policyId}/activate")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
     public ResponseEntity<ApiResponse<PolicyResponse>> activatePolicy(
             @PathVariable UUID policyId,
             @Valid @RequestBody PolicyActionRequest request) {
@@ -198,7 +203,7 @@ public class ResourceLifecycleController {
     }
 
     @PostMapping("/policies/{policyId}/deactivate")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
     public ResponseEntity<ApiResponse<PolicyResponse>> deactivatePolicy(
             @PathVariable UUID policyId,
             @Valid @RequestBody PolicyActionRequest request) {

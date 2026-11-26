@@ -52,7 +52,7 @@ class PolicyEngineTest {
     }
 
     @Test
-    void staff38HoursWith4HourMissionBlockedUnder40HourWeeklyPolicy() {
+    void weeklyOverrunOnlyWarnsSoAnUnworkedDayCanStillBeAssigned() {
         WorkforceRuleEngine.PolicyLimits policy = new WorkforceRuleEngine.PolicyLimits(
                 8L * 3600L,
                 40L * 3600L,
@@ -69,13 +69,26 @@ class PolicyEngineTest {
                 Set.of("DRONE_PILOT_A2"),
                 policy);
 
-        assertTrue(result.blocked());
-        assertEquals("BLOCKED", result.status());
-        assertTrue(result.blockingReasons().contains("WEEKLY_WORKLOAD_LIMIT_EXCEEDED"));
+        // 4h on the mission's day is within the 8h daily limit, so the assignment is allowed with a warning.
+        assertEquals(false, result.blocked());
+        assertEquals("WARNING", result.status());
+        assertTrue(result.warningReasons().contains("WEEKLY_WORKLOAD_LIMIT_EXCEEDED"));
     }
 
     @Test
-    void insufficientRestAndMissingCertificateAreBlocked() {
+    void dailyOverrunOnTheMissionDayIsBlocked() {
+        WorkforceRuleEngine.PolicyLimits policy = new WorkforceRuleEngine.PolicyLimits(
+                8L * 3600L, 40L * 3600L, 160L * 3600L, 8L * 3600L, 80, Set.of());
+
+        WorkforceRuleEngine.Evaluation result = new WorkforceRuleEngine().evaluate(
+                9L * 3600L, 30L * 3600L, 60L * 3600L, 12L * 3600L, Set.of(), policy);
+
+        assertTrue(result.blocked());
+        assertTrue(result.blockingReasons().contains("DAILY_WORKLOAD_LIMIT_EXCEEDED"));
+    }
+
+    @Test
+    void insufficientRestIsBlockedButCertificatesAreNotRequired() {
         WorkforceRuleEngine.PolicyLimits policy = new WorkforceRuleEngine.PolicyLimits(
                 8L * 3600L,
                 40L * 3600L,
@@ -94,7 +107,7 @@ class PolicyEngineTest {
 
         assertTrue(result.blocked());
         assertTrue(result.blockingReasons().contains("INSUFFICIENT_REST_TIME"));
-        assertTrue(result.blockingReasons().contains("MISSING_CERTIFICATE:VLOS_CERT"));
+        assertTrue(result.blockingReasons().stream().noneMatch(r -> r.startsWith("MISSING_CERTIFICATE")));
     }
 
     @Test

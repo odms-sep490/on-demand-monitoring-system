@@ -265,24 +265,30 @@ public class DroneHealthService {
                 warningPercent);
     }
 
-    private long computeUnverifiedLockSeconds(String deviceId, List<ResourceUsageRecordEntity> verifiedRecords) {
-        List<ResourceTimeLock> deviceLocks = lockRepository.findAll().stream()
-                .filter(lock -> "DEVICE".equals(lock.getResourceType())
-                        && deviceId.equals(lock.getResourceId())
-                        && lock.getStartTime() != null
-                        && lock.getEndTime() != null
-                        && lock.getStartTime().isBefore(lock.getEndTime())
-                        && lock.getEndTime().isBefore(Instant.now()))
-                .toList();
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository deviceAssignmentRepository;
 
+    /**
+     * Flight time not yet recorded: missions on this drone that actually started and are not completed,
+     * counted from the real start to the real flight end (or now while still flying). Planned resource
+     * locks are not flight time; completed missions are already verified records.
+     */
+    private long computeUnverifiedLockSeconds(String deviceId, List<ResourceUsageRecordEntity> verifiedRecords) {
+        if (deviceAssignmentRepository == null) return 0L;
+        Instant now = Instant.now();
+        java.util.Set<String> seen = new java.util.HashSet<>();
         long estimated = 0L;
-        for (ResourceTimeLock lock : deviceLocks) {
-            Mission mission = lock.getMission();
-            String missionId = mission == null ? null : mission.getId();
-            boolean coveredByVerified = missionId != null && verifiedRecords.stream()
-                    .anyMatch(record -> missionId.equals(record.getMissionId()));
-            if (!coveredByVerified) {
-                estimated += Duration.between(lock.getStartTime(), lock.getEndTime()).getSeconds();
+        for (var assignment : deviceAssignmentRepository.findCurrentByDeviceIdAndMissionStatusIn(
+                deviceId, List.of(com.ondemandmonitoring.mission.enums.MissionStatus.IN_PROGRESS))) {
+            Mission mission = assignment.getMission();
+            if (mission == null || mission.getActualStartAt() == null || mission.getCompletedAt() != null) continue;
+            if (!seen.add(mission.getId())) continue;
+            boolean coveredByVerified = verifiedRecords.stream()
+                    .anyMatch(record -> mission.getId().equals(record.getMissionId()));
+            if (coveredByVerified) continue;
+            Instant end = mission.getActualEndAt() != null ? mission.getActualEndAt() : now;
+            if (mission.getActualStartAt().isBefore(end)) {
+                estimated += Duration.between(mission.getActualStartAt(), end).getSeconds();
             }
         }
         return estimated;

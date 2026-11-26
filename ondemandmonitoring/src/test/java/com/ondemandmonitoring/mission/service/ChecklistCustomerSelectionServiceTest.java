@@ -33,7 +33,6 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -122,6 +121,7 @@ class ChecklistCustomerSelectionServiceTest {
         definition.setSeedCode(ChecklistDefaults.code(8));
         item.setSourceChecklist(definition);
         item.setContent(ChecklistDefaults.CONTENTS.get(7));
+        item.setImageAssessmentCriteriaSnapshot(List.of("Roof is visible", "Roof detail is visible"));
         var image = link("roof", "IMAGE").getMediaAsset();
         image.setS3Bucket("private-bucket");
         image.setS3Key("original.jpg");
@@ -131,7 +131,7 @@ class ChecklistCustomerSelectionServiceTest {
 
         var target = service.resolveContentAssessment("m", "e", "roof", request);
         assertEquals("preview.jpg", target.previewKey());
-        assertEquals(List.of("ROOF_VISIBLE", "ROOF_INSPECTABLE"),
+        assertEquals(List.of("PHOTO_1", "PHOTO_2"),
                 target.criteria().stream().map(criterion -> criterion.code()).toList());
         assertTrue(service.getDeliverySuggestion("m", "e").contentAssessmentAvailable());
         image.setPreviewKey(image.getS3Key());
@@ -139,7 +139,11 @@ class ChecklistCustomerSelectionServiceTest {
         error(ErrorCode.MEDIA_DERIVATIVE_UNAVAILABLE,
                 () -> service.resolveContentAssessment("m", "e", "roof", request));
         image.setPreviewKey("preview.jpg");
-        item.setContent("Different accepted checklist");
+        item.setImageAssessmentCriteriaSnapshot(List.of());
+        assertFalse(service.getDeliverySuggestion("m", "e").contentAssessmentAvailable());
+        error(ErrorCode.INVALID_REQUEST, () -> service.resolveContentAssessment("m", "e", "roof", request));
+        item.setImageAssessmentCriteriaSnapshot(null);
+        assertFalse(service.getDeliverySuggestion("m", "e").contentAssessmentAvailable());
         error(ErrorCode.INVALID_REQUEST, () -> service.resolveContentAssessment("m", "e", "roof", request));
         error(ErrorCode.CONCURRENT_UPDATE, () -> service.resolveContentAssessment("m", "e", "roof",
                 new ChecklistImageContentAssessmentRequest(1L, "en")));
@@ -170,19 +174,11 @@ class ChecklistCustomerSelectionServiceTest {
         assertFalse(service.getDeliverySuggestion("m", "e").contentAssessmentAvailable());
     }
 
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
+    @Test
     @EnabledIfEnvironmentVariable(named = "ODMS_TEST_LOCAL_VISION", matches = "true")
-    void inspectorEndpointReturnsRealOllamaFindings(boolean legacy) throws Exception {
-        if (legacy) {
-            var definition = new ChecklistDefinition();
-            definition.setSeedCode(ChecklistDefaults.code(8));
-            item.setSourceChecklist(definition);
-            item.setContent(ChecklistDefaults.CONTENTS.get(7));
-        } else {
-            item.setContent("Photograph the test target");
-            item.setImageAssessmentCriteriaSnapshot(List.of("A black rectangle is visible on a white background."));
-        }
+    void inspectorEndpointReturnsRealOllamaFindings() throws Exception {
+        item.setContent("Photograph the test target");
+        item.setImageAssessmentCriteriaSnapshot(List.of("A black rectangle is visible on a white background."));
         var image = link("target", "IMAGE").getMediaAsset();
         image.setS3Bucket("private-bucket");
         image.setS3Key("original.jpg");
@@ -203,20 +199,16 @@ class ChecklistCustomerSelectionServiceTest {
             var assessment = new ChecklistImageContentAssessmentService(service, storage, vision, actor,
                     java.time.Clock.systemUTC());
             var mvc = MockMvcBuilders.standaloneSetup(new ChecklistEvidenceController(service, assessment)).build();
-            var response = mvc.perform(post("/api/missions/m/checklist-executions/e/evidence/target/content-assessment")
+            mvc.perform(post("/api/missions/m/checklist-executions/e/evidence/target/content-assessment")
                     .contentType(MediaType.APPLICATION_JSON)
                     .content("""
                             {"expectedVersion":0,"language":"en"}
                             """))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.evidenceId").value("target"))
-                    .andExpect(jsonPath("$.data.criteria[0].code").value(legacy ? "ROOF_VISIBLE" : "PHOTO_1"))
-                    .andExpect(jsonPath("$.data.criteria[0].observation").isNotEmpty());
-            if (legacy) {
-                response.andExpect(jsonPath("$.data.criteria[1].code").value("ROOF_INSPECTABLE"));
-            } else {
-                response.andExpect(jsonPath("$.data.verdict").value("MATCH"));
-            }
+                    .andExpect(jsonPath("$.data.criteria[0].code").value("PHOTO_1"))
+                    .andExpect(jsonPath("$.data.criteria[0].observation").isNotEmpty())
+                    .andExpect(jsonPath("$.data.verdict").value("MATCH"));
         } finally {
             ReflectionTestUtils.invokeMethod(vision, "close");
         }

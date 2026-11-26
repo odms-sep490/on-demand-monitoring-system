@@ -738,7 +738,7 @@ CREATE INDEX IF NOT EXISTS ix_admin_audit_logs_created_at ON admin_audit_logs(cr
 CREATE INDEX IF NOT EXISTS ix_admin_audit_logs_actor_id ON admin_audit_logs(actor_id);
 CREATE INDEX IF NOT EXISTS ix_admin_audit_logs_entity_type ON admin_audit_logs(entity_type);
 
--- Checklist image assessment. Null snapshots identify orders placed before this feature.
+-- Checklist image assessment criteria and order snapshots.
 ALTER TABLE public.checklist_definitions
     ADD COLUMN IF NOT EXISTS image_assessment_criteria jsonb;
 ALTER TABLE public.order_checklist_items

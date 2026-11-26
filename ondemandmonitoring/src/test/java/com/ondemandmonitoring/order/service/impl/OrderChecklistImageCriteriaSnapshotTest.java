@@ -1,7 +1,6 @@
 package com.ondemandmonitoring.order.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 
 import com.ondemandmonitoring.checklist.domain.ChecklistDefinition;
 import com.ondemandmonitoring.order.domain.OrderChecklistItem;
@@ -26,14 +25,14 @@ class OrderChecklistImageCriteriaSnapshotTest {
     }
 
     @Test
-    void distinguishesOldOrdersFromNewUnconfiguredOrdersAndChangedChecklistContent() {
-        var old = item("Photograph the roof");
-        var revision = item(old.getContent());
-        OrderChecklistImageCriteriaSnapshot.carryForward(revision, old);
-        assertNull(revision.getImageAssessmentCriteriaSnapshot());
+    void keepsUnconfiguredAndChangedChecklistsWithoutImageCriteria() {
+        var unconfigured = item("Photograph the roof");
+        var revision = item(unconfigured.getContent());
+        OrderChecklistImageCriteriaSnapshot.carryForward(revision, unconfigured);
+        assertEquals(List.of(), revision.getImageAssessmentCriteriaSnapshot());
 
         var changed = item("Photograph the road");
-        OrderChecklistImageCriteriaSnapshot.carryForward(changed, old);
+        OrderChecklistImageCriteriaSnapshot.carryForward(changed, unconfigured);
         assertEquals(List.of(), changed.getImageAssessmentCriteriaSnapshot());
 
         var custom = item("Customer checklist");

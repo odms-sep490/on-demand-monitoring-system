@@ -16,8 +16,8 @@ final class OrderChecklistImageCriteriaSnapshot {
 
     static void carryForward(OrderChecklistItem item, OrderChecklistItem previous) {
         var criteria = previous.getImageAssessmentCriteriaSnapshot();
-        item.setImageAssessmentCriteriaSnapshot(sameContent(item, previous.getContent())
-                ? (criteria == null ? null : List.copyOf(criteria)) : List.of());
+        item.setImageAssessmentCriteriaSnapshot(criteria != null && sameContent(item, previous.getContent())
+                ? List.copyOf(criteria) : List.of());
     }
 
     private static boolean sameContent(OrderChecklistItem item, String content) {

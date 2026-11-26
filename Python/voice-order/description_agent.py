@@ -8,6 +8,7 @@ from typing import Literal, Annotated
 from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from qwen_agent.agents import Assistant
+from prompt_resolver import resolve_prompt
 
 
 class StrictModel(BaseModel):
@@ -137,7 +138,7 @@ def generate(request: Generate) -> Draft:
                          'response_format': {'type':'json_schema','json_schema':{'name':'description_draft','schema':schema}},
                          'extra_body': {'think': False, 'options': {'num_ctx': 4096}},
                          'temperature': 0, 'max_retries': 0, 'request_timeout': 45},
-    }, system_message=prompt)
+    }, system_message=resolve_prompt('order.description.system', variables={'required_objectives': ''}, bootstrap_fallback=prompt).content + ('' if not objectives else ' BẮT BUỘC giữ nguyên các cụm mục tiêu sau trong CẢ HAI đoạn: ' + ', '.join(objectives) + '. Không thay bằng quan sát tổng quát.'))
     messages = [{'role': 'user', 'content': json.dumps(request.model_dump(), ensure_ascii=False)}]
     for attempt in range(2):
         response = []
@@ -162,6 +163,8 @@ def generate(request: Generate) -> Draft:
 
 
 app = FastAPI(title='OnDemand Description Assistant')
+from inspection_report import router as inspection_report_router
+app.include_router(inspection_report_router)
 
 from conversation_agent import TurnInput, converse
 

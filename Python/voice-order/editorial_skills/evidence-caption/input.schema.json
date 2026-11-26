@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "required": [
+    "fields",
+    "context"
+  ],
+  "properties": {
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "key",
+          "text"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 6000
+          },
+          "mediaId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "context": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

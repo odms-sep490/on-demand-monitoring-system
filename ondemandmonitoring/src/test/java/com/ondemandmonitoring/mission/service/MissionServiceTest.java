@@ -930,8 +930,20 @@ class MissionServiceTest {
         return m;
     }
 
+    @Test
+    void technicalIsNotFlightCrewAndDoesNotBlockScheduling() {
+        var mission = buildMission("crew", MissionStatus.READY);
+        var crew = java.util.Arrays.stream(MissionStaffRole.values())
+                .filter(role -> role != MissionStaffRole.TECHNICAL)
+                .map(role -> staffAssignment(mission, role.name(), role, "ACCEPTED")).toList();
+        when(missionStaffAssignmentRepository.findAllByMissionIdAndIsCurrentTrue("crew")).thenReturn(crew);
+        assertThat((Boolean) org.springframework.test.util.ReflectionTestUtils.invokeMethod(
+                missionService, "hasRequiredCrewAssigned", "crew")).isTrue();
+    }
+
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.EnumSource(MissionStaffRole.class)
+    @org.junit.jupiter.params.provider.EnumSource(value = MissionStaffRole.class,
+            names = {"PILOT", "OPERATOR", "MAINTAINER", "INSPECTOR"})
     void missingAnyOperationalRolePreventsScheduling(MissionStaffRole missing) {
         var mission = buildMission("crew", MissionStatus.READY);
         var crew = java.util.Arrays.stream(MissionStaffRole.values())

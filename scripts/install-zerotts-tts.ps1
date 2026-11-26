@@ -56,4 +56,4 @@ for filename in files:
 '@ | & $python -
 if ($LASTEXITCODE -ne 0) { throw 'ZeroTTS model download failed. Check the network and run this installer again.' }
 
-Write-Host 'ZeroTTS and the Hà My / Mai Chi voice packs are installed locally.'
+Write-Host 'ZeroTTS and Ha My / Mai Chi voice packs are ready locally.'

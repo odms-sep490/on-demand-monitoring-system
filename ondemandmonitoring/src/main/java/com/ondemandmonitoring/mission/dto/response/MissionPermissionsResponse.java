@@ -17,5 +17,6 @@ public record MissionPermissionsResponse(
         boolean canDetachChecklistEvidence,
         boolean canAssessMonitoringChecklist,
         boolean canConfirmMissionFailure,
-        boolean canAccessMissionInspection) {
+        boolean canAccessMissionInspection,
+        boolean canReviewMissionMedia) {
 }

@@ -3,6 +3,7 @@ package com.ondemandmonitoring.missiontemplate.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -62,7 +63,7 @@ class MissionTemplateServiceImplTest {
 
     @Test
     void rejectsChecklistAssignedToAnotherTemplateInTheSameService() {
-        when(items.countOverlappingChecklistsExcludingTemplate("s1", "mt1", any()))
+        when(items.countOverlappingChecklistsExcludingTemplate(eq("s1"), any(), any()))
                 .thenReturn(1L);
 
         var error = assertThrows(ApiException.class,
@@ -83,7 +84,7 @@ class MissionTemplateServiceImplTest {
                 "s1", "mt1", new MissionTemplateRequest("Updated scope", List.of("c1")));
 
         assertEquals("Updated scope", response.scopeLabel());
-        verify(items).countOverlappingChecklistsExcludingTemplate("s1", "mt1", any());
+        verify(items).countOverlappingChecklistsExcludingTemplate(eq("s1"), eq("mt1"), any());
     }
 
     @Test

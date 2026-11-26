@@ -61,6 +61,9 @@ class OrderChecklistPricingSnapshotTest {
         when(resolver.getCurrentUser()).thenReturn(user);
         var service = Service.builder().name("Service").isActive(true).build(); service.setId("s1");
         order = Order.builder().customer(user).service(service).orderStatus(OrderStatus.PENDING).build(); order.setId("o1");
+        // Snapshot pricing now measures the order area; give the order a small real polygon.
+        order.setTargetArea(org.mapstruct.factory.Mappers.getMapper(com.ondemandmonitoring.order.mapper.OrderMapper.class).toPolygon(java.util.Map.of("type", "Polygon", "coordinates",
+                List.of(List.of(List.of(106.700, 10.776), List.of(106.701, 10.776), List.of(106.701, 10.777), List.of(106.700, 10.777), List.of(106.700, 10.776))))));
         when(services.findByIdForUpdate("s1")).thenReturn(Optional.of(service));
         roof = definition("c1", "Check roof", "200000", 10, 1);
         var wall = definition("c2", "Check wall", "100000", 0, 0);
@@ -90,6 +93,7 @@ class OrderChecklistPricingSnapshotTest {
         var c = new ChecklistDefinition();
         c.setId(id); c.setContent(content); c.setVersion(2L); c.setIsActive(true);
         c.setBasePrice(new BigDecimal(base)); c.setIncludedImageCount(images); c.setIncludedVideoCount(videos);
+        c.setStandardAreaM2(new BigDecimal("100"));
         c.setStandardVideoDurationSeconds(images > 0 ? 30 : null);
         return c;
     }

@@ -4,5 +4,6 @@ public enum MissionStaffRole {
     PILOT,
     OPERATOR,
     MAINTAINER,
-    INSPECTOR
+    INSPECTOR,
+    TECHNICAL
 }

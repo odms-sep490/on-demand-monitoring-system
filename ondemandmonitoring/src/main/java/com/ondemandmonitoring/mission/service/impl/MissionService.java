@@ -98,7 +98,8 @@ import com.ondemandmonitoring.weather.repository.MissionWeatherCheckRepository;
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class MissionService implements IMissionService {
 
-    // Each operational step has a distinct actor and no role fallback.
+    // Each operational step has a distinct actor and no role fallback. TECHNICAL is not flight crew:
+    // technicians claim maintenance tickets from the shared queue instead of being assigned to missions.
     static final Set<MissionStaffRole> REQUIRED_CREW_ROLES = Set.of(
             MissionStaffRole.PILOT, MissionStaffRole.OPERATOR,
             MissionStaffRole.MAINTAINER, MissionStaffRole.INSPECTOR);
@@ -151,6 +152,10 @@ public class MissionService implements IMissionService {
     com.ondemandmonitoring.delivery.repository.ResultRevisionCaseRepository resultRevisionCases;
     @Autowired @NonFinal
     com.ondemandmonitoring.delivery.repository.ResultRevisionCaseItemRepository resultRevisionCaseItems;
+    @Autowired(required = false) @NonFinal
+    com.ondemandmonitoring.resourcelifecycle.service.MissionUsageRecorder missionUsageRecorder;
+    @Autowired(required = false) @NonFinal
+    com.ondemandmonitoring.device.maintenance.service.MaintenanceWorkflowService maintenanceWorkflowService;
     // =========================================================================
     // Query Methods
     // =========================================================================
@@ -876,8 +881,7 @@ public class MissionService implements IMissionService {
                 .filter(a -> a.getReleasedAt() == null && a.getStaff() != null
                         && a.getResponseStatus() != MissionStaffAssignmentStatus.REJECTED)
                 .map(a -> a.getAssignedRole()).filter(java.util.Objects::nonNull).forEach(roles::add);
-        if (!roles.containsAll(java.util.EnumSet.of(MissionStaffRole.PILOT, MissionStaffRole.OPERATOR,
-                MissionStaffRole.MAINTAINER, MissionStaffRole.INSPECTOR)))
+        if (!roles.containsAll(REQUIRED_CREW_ROLES))
             throw new ApiException(ErrorCode.INVALID_REQUEST,
                     "Mission " + mission.getId() + " requires PILOT, OPERATOR, MAINTAINER and INSPECTOR");
         boolean main = equipment.stream()
@@ -1304,6 +1308,12 @@ public class MissionService implements IMissionService {
             assignment.setReplacementRequestReason(request.reason().trim());
             assignment.setReplacementRequestedBy(authenticatedUserResolver.getCurrentUserId());
             missionDeviceAssignmentRepository.save(assignment);
+        }
+        // The failed drone goes straight to the shared Technical queue; no Manager assignment needed.
+        // Idempotent, so a request sent before this existed still gets its ticket on retry.
+        if (maintenanceWorkflowService != null && assignment.getDevice() != null) {
+            maintenanceWorkflowService.openPreflightFailureTicket(
+                    assignment.getDevice(), authenticatedUserResolver.getCurrentUser(), request.reason());
         }
         return missionMapper.toResponse(mission);
     }
@@ -1833,7 +1843,8 @@ public class MissionService implements IMissionService {
                         && assignment.getStatus() == MissionDeviceAssignmentStatus.READY_TO_FLY
                         && assignment.getCheckupStatus() == MissionDeviceCheckStatus.PASSED);
         return acceptedRoles.containsAll(REQUIRED_CREW_ROLES)
-                && crew.stream().allMatch(a -> a.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED)
+                && crew.stream().filter(a -> REQUIRED_CREW_ROLES.contains(a.getAssignedRole()))
+                        .allMatch(a -> a.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED)
                 && !devices.isEmpty()
                 && devices.stream().allMatch(a -> a.getCheckupStatus() == MissionDeviceCheckStatus.PASSED)
                 && mainDeviceReady;
@@ -2103,6 +2114,7 @@ public class MissionService implements IMissionService {
             mission.setActualEndAt(completedAt);
         }
         mission.setCompletedAt(completedAt);
+        recordMissionUsage(mission);
         releaseMissionResources(mission, "MISSION_COMPLETE");
         if (checklistAssignmentStatusSync != null) checklistAssignmentStatusSync.syncForMission(mission);
         log.info("Mission {} acceptance completed; awaiting result submission to Manager", missionId);
@@ -2162,12 +2174,24 @@ public class MissionService implements IMissionService {
         mission.setStatus(MissionStatus.FAILED);
         if (mission.getActualEndAt() == null) mission.setActualEndAt(Instant.now());
         mission.setFailureReason(effectiveReason);
+        // A failed mission that actually flew still consumed drone and staff hours.
+        recordMissionUsage(mission);
         if (checklistAssignmentStatusSync != null) checklistAssignmentStatusSync.syncForMission(mission);
         releaseFailedMissionChecklistAssignments(mission, effectiveReason);
         releaseMissionResources(mission, "MISSION_FAILED");
         log.error("Mission {} FAILED – reason: {}", missionId, effectiveReason);
         Mission saved = missionRepository.save(mission);
         return missionMapper.toResponse(saved);
+    }
+
+    /** Usage tracking must never block mission completion, so failures are logged only. */
+    private void recordMissionUsage(Mission mission) {
+        if (missionUsageRecorder == null) return;
+        try {
+            missionUsageRecorder.recordFinishedMission(mission);
+        } catch (RuntimeException e) {
+            log.error("Failed to record resource usage for mission {}", mission.getId(), e);
+        }
     }
 
     private void releaseFailedMissionChecklistAssignments(Mission mission, String reason) {

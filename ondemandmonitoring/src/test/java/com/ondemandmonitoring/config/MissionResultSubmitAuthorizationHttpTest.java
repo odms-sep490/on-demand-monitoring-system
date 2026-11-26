@@ -78,6 +78,10 @@ class MissionResultSubmitAuthorizationHttpTest {
 
     @Configuration @EnableWebMvc
     static class Beans {
+        @Bean com.ondemandmonitoring.mission.inspection.service.IInspectionCorrectionService mIInspectionCorrectionService4() { return org.mockito.Mockito.mock(com.ondemandmonitoring.mission.inspection.service.IInspectionCorrectionService.class); }
+        @Bean com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionPolicy mInspectionCorrectionPolicy3() { return org.mockito.Mockito.mock(com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionPolicy.class); }
+        @Bean com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy mEvidenceHandoffPolicy2() { return org.mockito.Mockito.mock(com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy.class); }
+        @Bean com.ondemandmonitoring.devicecheck.repository.PersistedPostDeviceCheckRepository mPersistedPostDeviceCheckRepository1() { return org.mockito.Mockito.mock(com.ondemandmonitoring.devicecheck.repository.PersistedPostDeviceCheckRepository.class); }
         @Bean com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository deviceAssignments() {
             return mock(com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository.class);
         }

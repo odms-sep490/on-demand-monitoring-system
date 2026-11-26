@@ -11,7 +11,6 @@ import com.ondemandmonitoring.mission.service.impl.ChecklistEvidencePolicy;
 import com.ondemandmonitoring.mission.service.impl.MissionChecklistAssignmentServiceImpl;
 import com.ondemandmonitoring.mission.service.impl.MissionResultService;
 import com.ondemandmonitoring.order.service.impl.OrderService;
-import com.ondemandmonitoring.pricing.domain.PricingPolicy;
 import com.ondemandmonitoring.pricing.service.ServiceDefaultPriceService;
 import com.ondemandmonitoring.pricing.service.ServicePriceResolver;
 import com.ondemandmonitoring.service.domain.Service;
@@ -56,7 +55,7 @@ class AuditInvocationSnapshotTest {
 
     @Test
     void doesNotAuditReadOnlyPricingResolverAsAMutation() {
-        assertThat(isAudited(ServicePriceResolver.class, "resolve", Service.class, PricingPolicy.class)).isFalse();
+        assertThat(isAudited(ServicePriceResolver.class, "resolve", Service.class)).isFalse();
         assertThat(isAudited(ChecklistEvidencePolicy.class, "attachable")).isFalse();
     }
 

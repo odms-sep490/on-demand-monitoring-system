@@ -26,7 +26,7 @@ public class ManagerPricingController {
 
     @GetMapping("/invoice")
     public ApiResponse<InvoiceResponse> invoice(@PathVariable String orderId) {
-        return ApiResponse.ok(quoteService.getInvoiceByOrder(orderId));
+        return ApiResponse.ok(quoteService.findInvoiceByOrder(orderId));
     }
 
     /**

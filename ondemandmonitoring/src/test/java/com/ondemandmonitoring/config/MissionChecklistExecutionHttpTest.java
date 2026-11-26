@@ -156,6 +156,8 @@ class MissionChecklistExecutionHttpTest {
     }
 
     @Configuration static class Beans {
+        @Bean com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionPolicy mInspectionCorrectionPolicy1() { return org.mockito.Mockito.mock(com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionPolicy.class); }
+        @Bean com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionMutationGuard mInspectionCorrectionMutationGuard1() { return org.mockito.Mockito.mock(com.ondemandmonitoring.mission.inspection.service.impl.InspectionCorrectionMutationGuard.class); }
         @Bean MissionChecklistExecutionRepository executions() { return mock(MissionChecklistExecutionRepository.class); }
         @Bean MissionResultRepository results() { return mock(MissionResultRepository.class); }
         @Bean OrderChecklistItemRepository items() { return mock(OrderChecklistItemRepository.class); }

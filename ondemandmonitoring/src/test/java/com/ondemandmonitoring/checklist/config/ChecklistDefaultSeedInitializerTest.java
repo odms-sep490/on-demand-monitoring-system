@@ -10,6 +10,9 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class ChecklistDefaultSeedInitializerTest {
+    /** CONTENTS #5 and #20 share the same text; the unique normalized_content claims one row for both. */
+    private static final long DISTINCT_DEFINITIONS = ChecklistDefaults.CONTENTS.stream()
+            .map(c -> c.toLowerCase(java.util.Locale.ROOT)).distinct().count();
     ServiceRepository services = mock(ServiceRepository.class);
     ChecklistDefinitionRepository definitions = mock(ChecklistDefinitionRepository.class);
     ServiceChecklistRepository assignments = mock(ServiceChecklistRepository.class);
@@ -36,12 +39,12 @@ class ChecklistDefaultSeedInitializerTest {
 
     @Test void bootstrapIsIdempotentAndDoesNotCreateServices() {
         seed.run(null); seed.run(null);
-        assertEquals(21, catalog.size()); assertEquals(2, templates.get("s").size());
+        assertEquals(DISTINCT_DEFINITIONS, catalog.size()); assertEquals(2, templates.get("s").size());
         assertEquals(java.util.stream.IntStream.range(0, 2).boxed().toList(), templates.get("s").stream().map(ServiceChecklist::getDisplayOrder).toList());
         assertTrue(catalog.values().stream().allMatch(row -> row.getDescription() != null
                 && !row.getExecutionSteps().isEmpty() && !row.getInputRequirements().isEmpty() && !row.getExpectedOutputs().isEmpty()));
         assertTrue(service.getChecklistDefaultsInitialized());
-        verify(definitions, times(21)).saveAndFlush(any());
+        verify(definitions, atLeast((int) DISTINCT_DEFINITIONS)).saveAndFlush(any());
         verify(services).save(service);
     }
 
@@ -126,7 +129,7 @@ class ChecklistDefaultSeedInitializerTest {
         templates.get("s").clear(); seed.run(null);
         assertEquals("Admin edited", catalog.get(ChecklistDefaults.code(1)).getContent());
         assertFalse(catalog.get(ChecklistDefaults.code(1)).getIsActive());
-        assertEquals(2, templates.get("s").size()); assertEquals(21, catalog.size());
+        assertEquals(2, templates.get("s").size()); assertEquals(DISTINCT_DEFINITIONS, catalog.size());
     }
 
     @Test void restartKeepsGuidanceWrittenByAdministrator() {
@@ -146,7 +149,7 @@ class ChecklistDefaultSeedInitializerTest {
 
     @Test void missingAndAmbiguousServicesAreSkipped() {
         when(services.findAll()).thenReturn(List.of()); seed.run(null);
-        assertEquals(21, catalog.size()); verify(assignments, never()).save(any());
+        assertEquals(DISTINCT_DEFINITIONS, catalog.size()); verify(assignments, never()).save(any());
         var duplicate = Service.builder().name(service.getName().toUpperCase(Locale.ROOT)).build(); duplicate.setId("other");
         when(services.findAll()).thenReturn(List.of(service, duplicate)); seed.run(null);
         verify(services, never()).findByIdForUpdate(anyString());

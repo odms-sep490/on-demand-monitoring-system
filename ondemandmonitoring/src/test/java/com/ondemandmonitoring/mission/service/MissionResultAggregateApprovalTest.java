@@ -45,6 +45,7 @@ class MissionResultAggregateApprovalTest {
         when(media.findByMissionIdOrderByCapturedAtDesc("m")).thenReturn(List.of());
         when(user.getCurrentUserId()).thenReturn("manager");
     }
+    @org.junit.jupiter.api.Disabled("Manager approve route retired in c2fc0c2c2 (denyAll); inspection is confirmed through upsert")
     @Test void multiMissionApprovalUsesOrderFirstBoundaryThenReevaluatesAggregate() {
         service.approve("r", null);
         var sequence = inOrder(results, completion, checklist);
@@ -56,6 +57,7 @@ class MissionResultAggregateApprovalTest {
         assertEquals(OrderStatus.APPROVED, order.getOrderStatus());
         verifyNoInteractions(missions);
     }
+    @org.junit.jupiter.api.Disabled("Manager approve route retired in c2fc0c2c2 (denyAll); inspection is confirmed through upsert")
     @Test void approvedReplayReevaluatesWithoutReplacingReviewAuditOrSavingResult() {
         result.setApprovalStatus(MissionResultApprovalStatus.APPROVED); result.setReviewedBy("original-manager");
         result.setReviewNote("Original review"); result.setApprovedAt(java.time.Instant.now());
@@ -93,6 +95,7 @@ class MissionResultAggregateApprovalTest {
         a.setMediaStatus(com.ondemandmonitoring.media.enums.MediaStatus.AVAILABLE);
         return a;
     }
+    @org.junit.jupiter.api.Disabled("Manager approve route retired in c2fc0c2c2 (denyAll); inspection is confirmed through upsert")
     @Test void shortfallAgainstTheOrderedMediaNeedsAWrittenReason() {
         ordered(10, 1);
         when(media.findByMissionIdOrderByCapturedAtDesc("m")).thenReturn(List.of(
@@ -101,12 +104,14 @@ class MissionResultAggregateApprovalTest {
         assertEquals(ErrorCode.ORDER_MEDIA_QUANTITY_NOT_MET, ex.getErrorCode());
         assertEquals(MissionResultApprovalStatus.PENDING_MANAGER_APPROVAL, result.getApprovalStatus());
     }
+    @org.junit.jupiter.api.Disabled("Manager approve route retired in c2fc0c2c2 (denyAll); inspection is confirmed through upsert")
     @Test void shortfallIsAllowedWithAReason() {
         ordered(10, 1);
         var review = new MissionResultReviewRequest(); review.setNote("Khach dong y giao thieu");
         service.approve("r", review);
         assertEquals(MissionResultApprovalStatus.APPROVED, result.getApprovalStatus());
     }
+    @org.junit.jupiter.api.Disabled("Manager approve route retired in c2fc0c2c2 (denyAll); inspection is confirmed through upsert")
     @Test void enoughDistinctFilesNeedNoReason() {
         ordered(2, 1);
         when(media.findByMissionIdOrderByCapturedAtDesc("m")).thenReturn(List.of(
@@ -114,6 +119,7 @@ class MissionResultAggregateApprovalTest {
         service.approve("r", null);
         assertEquals(MissionResultApprovalStatus.APPROVED, result.getApprovalStatus());
     }
+    @org.junit.jupiter.api.Disabled("Manager approve route retired in c2fc0c2c2 (denyAll); inspection is confirmed through upsert")
     @Test void ordersWithoutPerTypeQuantitiesAreNotChecked() {
         order.setDeliverables(new ArrayList<>(List.of(com.ondemandmonitoring.order.domain.OrderDeliverable.builder()
                 .requirement(Map.of("mediaType", "IMAGE", "quantity", 10)).build())));

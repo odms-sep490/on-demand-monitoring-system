@@ -92,6 +92,41 @@ class ChecklistImageVisionClientTest {
         assertThat(prompt.path("checklistContext")).isEqualTo(mapper.valueToTree(context));
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void managedPromptPreservesProviderSpecificRequestOptions(boolean local) throws Exception {
+        vision.setEnabled(true);
+        vision.setModel("vendor/vision-v1");
+        shared.setApiKey("shared-test-key");
+        if (local) {
+            vision.setProvider(ChecklistVisionProperties.Provider.OLLAMA);
+            vision.setModel("qwen3-vl:2b-instruct");
+        }
+        client = new ChecklistImageVisionClient(vision, shared, mapper, http);
+        var prompts = mock(com.ondemandmonitoring.prompt.PromptManagementService.class);
+        when(prompts.resolve("checklist.image-vision.system", Map.of()))
+                .thenReturn(new com.ondemandmonitoring.prompt.PromptDtos.ResolvedPrompt(
+                        "checklist.image-vision.system", "version-1", 1, "hash",
+                        "Managed vision instructions", Map.of(), false));
+        org.springframework.test.util.ReflectionTestUtils.setField(client, "promptManagement", prompts);
+        respond("stop", FINDING);
+
+        client.assess(JPEG_PREFIX, "vi", CRITERIA);
+
+        var captured = ArgumentCaptor.forClass(HttpPost.class);
+        verify(http).executeOpen(isNull(), captured.capture(), isNull());
+        var body = requestBody(captured.getValue());
+        assertThat(body.at("/messages/0/content").asText()).isEqualTo("Managed vision instructions");
+        if (local) {
+            assertThat(body.path("temperature").asInt(-1)).isZero();
+            assertThat(body.has("provider")).isFalse();
+        } else {
+            assertThat(body.path("provider")).isEqualTo(mapper.readTree("""
+                    {"data_collection":"deny","zdr":true,"allow_fallbacks":false,"require_parameters":true}
+                    """));
+        }
+    }
+
     @Test
     void dedicatedEndpointAndKeyTakePrecedence() throws Exception {
         vision.setBaseUrl("https://vision.example.test/api/v1/");

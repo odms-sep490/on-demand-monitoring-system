@@ -13,6 +13,8 @@ import org.springframework.data.repository.query.Param;
 public interface OrderDeliveryRepository extends JpaRepository<OrderDelivery, String> {
     @Query("select d from OrderDelivery d where d.order.id=:orderId and d.missionId is null")
     Optional<OrderDelivery> findByOrderId(@Param("orderId") String orderId);
+    /** True once the customer has accepted any delivered result of the order. */
+    boolean existsByOrder_IdAndCustomerAcceptedAtIsNotNull(String orderId);
     List<OrderDelivery> findByOrderIdIn(Iterable<String> orderIds);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select d from OrderDelivery d where d.order.id=:orderId and d.missionId is null")

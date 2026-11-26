@@ -43,13 +43,13 @@ public class RefundController {
     @GetMapping("/manager/orders/{orderId}/deposit-refund")
     @PreAuthorize("hasRole('MANAGER')")
     public ResponseEntity<ApiResponse<RefundResponse>> getManagerRefund(@PathVariable String orderId) {
-        return ResponseEntity.ok(ApiResponse.ok("Refund loaded", refunds.getRefundForOrder(orderId)));
+        return ResponseEntity.ok(ApiResponse.ok("Refund loaded", refunds.findRefundForOrder(orderId)));
     }
 
     @GetMapping("/orders/{orderId}/deposit-refund")
     @PreAuthorize("hasRole('CUSTOMER')")
     public ResponseEntity<ApiResponse<RefundResponse>> getCustomerRefund(@PathVariable String orderId) {
-        return ResponseEntity.ok(ApiResponse.ok("Refund loaded", refunds.getRefundForOrder(orderId)));
+        return ResponseEntity.ok(ApiResponse.ok("Refund loaded", refunds.findRefundForOrder(orderId)));
     }
 
     @GetMapping("/admin/deposit-refunds")

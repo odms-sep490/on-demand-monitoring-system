@@ -49,11 +49,12 @@ class ResultReviewLifecycleTest {
         delivery.setOrder(order); delivery.setCurrentReviewRoundId("round");
         delivery.setStatus(DeliveryStatus.CUSTOMER_REVIEW);
         delivery.setCustomerAcceptedAt(Instant.now());
-        round.setId("round"); round.setVersion(2L); round.setStatus(ResultReviewRoundStatus.OPEN);
+        round.setId("round"); round.setVersion(2L); round.setStatus(ResultReviewRoundStatus.OPEN); round.setOrder(order);
         when(users.getCurrentUser()).thenReturn(customer);
         when(users.getCurrentUserId()).thenReturn("customer");
         when(orders.findByIdForUpdate("order")).thenReturn(Optional.of(order));
-        when(deliveries.findByOrderIdForUpdate("order")).thenReturn(Optional.of(delivery));
+        delivery.setId("delivery"); round.setDeliveryId("delivery");
+        when(deliveries.findByIdForUpdate("delivery")).thenReturn(Optional.of(delivery));
         when(rounds.findByIdForUpdate("round")).thenReturn(Optional.of(round));
     }
 

@@ -387,6 +387,19 @@ public class RefundService {
         return response(refund, false);
     }
 
+    /** {@code null} when the Order has no refund; otherwise the same access rules as {@link #getRefundForOrder}. */
+    @PreAuthorize("hasAnyRole('CUSTOMER','MANAGER')")
+    @Transactional
+    public RefundResponse findRefundForOrder(String orderId) {
+        var refund = refunds.findByOrderId(orderId);
+        if (refund.isEmpty()) {
+            authorizeOrderView(orderId);
+            return null;
+        }
+        authorizeView(refund.get());
+        return response(refund.get(), false);
+    }
+
     @PreAuthorize("isAuthenticated()")
     @Transactional
     public RefundReceiptAccessResponse getReceiptAccess(String refundId, String receiptId) {
@@ -477,6 +490,17 @@ public class RefundService {
                     && List.of("image/jpeg", "image/png").contains(receipt.getContentType());
         } catch (RuntimeException exception) {
             return false;
+        }
+    }
+
+    /** A customer may only ask about their own Order, even when it has no refund yet. */
+    private void authorizeOrderView(String orderId) {
+        User user = currentUser.getCurrentUser();
+        if (user.getRole().getCode() != RoleCode.CUSTOMER) return;
+        Order order = orders.findById(orderId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found"));
+        if (order.getCustomer() == null || !order.getCustomer().getId().equals(user.getId())) {
+            throw new ApiException(ErrorCode.ACCESS_DENIED);
         }
     }
 

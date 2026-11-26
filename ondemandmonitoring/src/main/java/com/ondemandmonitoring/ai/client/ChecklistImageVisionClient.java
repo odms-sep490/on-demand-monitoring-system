@@ -72,6 +72,8 @@ public class ChecklistImageVisionClient {
     private final int timeoutSeconds;
     private final CloseableHttpClient httpClient;
     private final ScheduledThreadPoolExecutor deadlines;
+    @Autowired(required = false)
+    private com.ondemandmonitoring.prompt.PromptManagementService promptManagement;
 
     @Autowired
     public ChecklistImageVisionClient(ChecklistVisionProperties vision, OpenRouterProperties openRouter,
@@ -191,6 +193,14 @@ public class ChecklistImageVisionClient {
                         "type", "object", "additionalProperties", false,
                         "required", codes, "properties", findingProperties)));
 
+        String effectiveSystemPrompt = SYSTEM_PROMPT;
+        if (promptManagement != null) {
+            try {
+                effectiveSystemPrompt = promptManagement.resolve("checklist.image-vision.system", Map.of()).renderedContent();
+            } catch (Exception ignored) {
+                // Keep bootstrap fallback if registry unavailable in isolated tests.
+            }
+        }
         var payload = new LinkedHashMap<>(Map.of(
                 "model", model,
                 "stream", false,
@@ -198,7 +208,7 @@ public class ChecklistImageVisionClient {
                 "response_format", Map.of("type", "json_schema", "json_schema",
                         Map.of("name", "checklist_assessment", "strict", true, "schema", schema)),
                 "messages", List.of(
-                        Map.of("role", "system", "content", SYSTEM_PROMPT),
+                        Map.of("role", "system", "content", effectiveSystemPrompt),
                         Map.of("role", "user", "content", List.of(
                                 Map.of("type", "text", "text", instructions),
                                 Map.of("type", "image_url", "image_url", Map.of("url", image)))))));

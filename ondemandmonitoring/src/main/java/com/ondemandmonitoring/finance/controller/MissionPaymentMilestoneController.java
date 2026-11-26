@@ -48,7 +48,17 @@ public class MissionPaymentMilestoneController {
     @PreAuthorize("hasRole('CUSTOMER')")
     public ResponseEntity<ApiResponse<MissionPaymentAllocationResponse>> getForCustomer(
             @PathVariable String orderId) {
-        return ResponseEntity.ok(ApiResponse.ok("Mission payment milestones loaded", milestones.getForCustomer(orderId)));
+        var response = milestones.getForCustomer(orderId);
+        boolean needsHandoverReconciliation = response.allocationTargetAmount() != null
+                && response.allocationTargetAmount().signum() > 0
+                && (!response.allocationComplete()
+                    || response.milestones().stream().noneMatch(item -> item.handedOverAt() != null));
+        if (needsHandoverReconciliation) {
+            milestones.ensureConfiguredFromChecklistPrices(orderId);
+            delivery.completeAcceptedRevisionCase(orderId);
+            response = milestones.getForCustomer(orderId);
+        }
+        return ResponseEntity.ok(ApiResponse.ok("Mission payment milestones loaded", response));
     }
 
     private ResponseEntity<ApiResponse<MissionPaymentAllocationResponse>> calculateAndRefreshWorkflow(String orderId) {

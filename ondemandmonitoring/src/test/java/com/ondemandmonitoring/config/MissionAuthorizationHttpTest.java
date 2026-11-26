@@ -209,6 +209,9 @@ class MissionAuthorizationHttpTest {
     @Configuration
     @EnableWebMvc
     static class Beans {
+        @Bean com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy mEvidenceHandoffPolicy3() { return org.mockito.Mockito.mock(com.ondemandmonitoring.mission.service.impl.EvidenceHandoffPolicy.class); }
+        @Bean com.ondemandmonitoring.devicecheck.repository.PersistedPostDeviceCheckRepository mPersistedPostDeviceCheckRepository2() { return org.mockito.Mockito.mock(com.ondemandmonitoring.devicecheck.repository.PersistedPostDeviceCheckRepository.class); }
+        @Bean com.ondemandmonitoring.flightpermit.service.IFlightPermitService mIFlightPermitService1() { return org.mockito.Mockito.mock(com.ondemandmonitoring.flightpermit.service.IFlightPermitService.class); }
         @Bean com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository deviceAssignments() {
             return mock(com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository.class);
         }

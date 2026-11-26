@@ -41,6 +41,7 @@ project_name: "on-demand-monitoring-system"
 # Note that when using the JetBrains backend, language servers are not used and this list is correspondingly ignored.
 language_servers:
 - java
+- python
 
 # the encoding used by text files in the project
 # For a list of possible encodings, see https://docs.python.org/3.11/library/codecs.html#standard-encodings
@@ -117,7 +118,28 @@ ls_additional_workspace_folders: []
 #     - "**/bin/**"
 #     - "**/obj/**"
 # Note: global ignored_paths from serena_config.yml are also applied additively.
-ignored_paths: []
+ignored_paths:
+- "**/node_modules/**"
+- "**/dist/**"
+- "**/build/**"
+- "**/target/**"
+- "**/.git/**"
+- "**/.venv/**"
+- "**/venv/**"
+- "**/coverage/**"
+- "**/__pycache__/**"
+- "**/.ai-runtime/**"
+- "qa-artifacts/**"
+- "output/**"
+- "Blender/**"
+- "Forest3D/**"
+- "**/.env"
+- "**/.env.*"
+- "**/*.gguf"
+- "**/*.onnx"
+- "**/*.bin"
+- "**/*.pt"
+- "**/*.safetensors"
 
 # whether the project is in read-only mode
 # If set to true, all editing tools will be disabled and attempts to use them will result in an error

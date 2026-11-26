@@ -108,6 +108,10 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
     private final DeviceTelemetryRepository telemetryRepository;
     private final AuthenticatedUserResolver authenticatedUserResolver;
     private final MissionWeatherCheckRepository weatherCheckRepository;
+    /** Optional so unit tests and slim contexts work without the maintenance module; lazy to avoid cycles. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @org.springframework.context.annotation.Lazy
+    private com.ondemandmonitoring.device.maintenance.service.MaintenanceWorkflowService maintenanceWorkflowService;
     private DeviceCheckCatalog catalog = new DeviceCheckCatalog(null) {
         @Override
         public List<Criterion> activeCriteria(DeviceCheckPhase phase) { return defaults(phase); }
@@ -365,7 +369,24 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
             run.setCompletedAt(Instant.now());
         }
 
+        if (request.getStatus() == PreDeviceItemStatus.FAILED) {
+            openMaintenanceTicketForFailedItem(run, item);
+        }
+
         return PersistedPreDeviceCheckResponse.from(run);
+    }
+
+    /**
+     * A drone that fails a manual preflight inspection goes straight to the shared Technical queue.
+     * Idempotent per drone: an already open ticket is reused.
+     */
+    private void openMaintenanceTicketForFailedItem(PersistedPreDeviceCheck run, PersistedPreDeviceCheckItem item) {
+        Device device = run.getMissionDeviceAssignment() == null ? null : run.getMissionDeviceAssignment().getDevice();
+        if (maintenanceWorkflowService == null || device == null) return;
+        String label = item.getCheckName() == null || item.getCheckName().isBlank() ? item.getCheckType() : item.getCheckName();
+        String summary = item.getMessage() == null || item.getMessage().isBlank()
+                ? label : label + ": " + item.getMessage().trim();
+        maintenanceWorkflowService.openPreflightFailureTicket(device, authenticatedUserResolver.getCurrentUser(), summary);
     }
 
     /** Internal evidence path used by trusted backend probes; intentionally not exposed by a controller. */

@@ -248,7 +248,9 @@ public class ChecklistPricingPreviewService {
             Integer includedImagesOverride, Integer includedVideosOverride,
             Integer requestedImages, Integer requestedVideos, List<String> warnings) {
         BigDecimal actualAreaM2 = areaM2(context);
-        if (actualAreaM2 == null && warnings != null) actualAreaM2 = definition.getStandardAreaM2();
+        // No area yet (e.g. the customer is still on the service step): quote at the standard
+        // area, i.e. without an area surcharge. An explicit zero/negative area is still rejected.
+        if (actualAreaM2 == null) actualAreaM2 = definition.getStandardAreaM2();
         if (actualAreaM2 == null || actualAreaM2.signum() <= 0) {
             if (warnings == null) throw new ApiException(ErrorCode.PRICING_CALCULATION_FAILED, "Actual area must be greater than zero");
             warnings.add(definition.getContent() + ": Actual area must be greater than zero");

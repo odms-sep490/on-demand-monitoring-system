@@ -1,0 +1,42 @@
+[
+  {
+    "case": "professional",
+    "numericUnitPreservation": 1.0
+  },
+  {
+    "case": "shorten",
+    "numericUnitPreservation": 1.0
+  },
+  {
+    "case": "simplify",
+    "numericUnitPreservation": 1.0
+  },
+  {
+    "case": "summarize",
+    "numericUnitPreservation": 1.0
+  },
+  {
+    "case": "caption",
+    "numericUnitPreservation": 1.0
+  },
+  {
+    "case": "missing",
+    "numericUnitPreservation": 1.0
+  },
+  {
+    "case": "conflict",
+    "numericUnitPreservation": 1.0
+  },
+  {
+    "case": "injection",
+    "numericUnitPreservation": 1.0
+  },
+  {
+    "case": "abnormalities",
+    "numericUnitPreservation": 1.0
+  },
+  {
+    "case": "long",
+    "numericUnitPreservation": 1.0
+  }
+]

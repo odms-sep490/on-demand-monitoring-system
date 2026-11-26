@@ -106,6 +106,16 @@ class MissionPaymentMilestoneServiceTest {
         assertThat(milestone.getHandedOverAt()).isEqualTo(handedOverAt);
     }
 
+    @Test void ensureConfiguredAutoCreatesSingleMissionMilestoneEvenAfterOrderCompletes() {
+        order.setOrderStatus(OrderStatus.COMPLETED);
+        when(missions.findAllByOrderIdOrderByScheduledStartAtAscIdAsc("order-1")).thenReturn(List.of(first));
+
+        boolean configured = service.ensureConfiguredFromChecklistPrices("order-1");
+
+        assertThat(configured).isTrue();
+        verify(milestones).saveAllAndFlush(anyList());
+    }
+
     private Mission mission(String id, String code) {
         Mission mission = new Mission();
         mission.setId(id); mission.setMissionCode(code); mission.setOrder(order);

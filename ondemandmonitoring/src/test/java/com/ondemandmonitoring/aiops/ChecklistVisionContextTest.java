@@ -26,6 +26,7 @@ class ChecklistVisionContextTest {
             context.registerBean(AuthenticatedUserResolver.class, () -> mock(AuthenticatedUserResolver.class));
             context.register(ChecklistVisionProperties.class, OpenRouterProperties.class,
                     PromptTemplateRenderer.class, PromptManagementService.class,
+                    com.ondemandmonitoring.prompt.PromptRuntimeModelResolver.class,
                     ChecklistVisionRuntime.class, ChecklistImageVisionClient.class, AiOperationsServiceImpl.class,
                     com.ondemandmonitoring.aiops.service.ChecklistVisionIncidentService.class,
                     com.ondemandmonitoring.aiops.service.ChecklistVisionAuditFilter.class,

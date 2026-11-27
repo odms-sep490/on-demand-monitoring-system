@@ -82,7 +82,7 @@ class ChecklistVisionPlaygroundTest {
 
     @Test
     void textPlaygroundRejectsVisionBeforeScoring() {
-        var management = new PromptManagementService(null, null, null, null, null);
+        var management = new PromptManagementService(null, null, null, null, null, null);
         var error = assertThrows(ResponseStatusException.class, () ->
                 management.runPlaygroundTest(ChecklistVisionPlaygroundService.PROMPT_KEY, version, null));
         assertEquals(HttpStatus.BAD_REQUEST, error.getStatusCode());

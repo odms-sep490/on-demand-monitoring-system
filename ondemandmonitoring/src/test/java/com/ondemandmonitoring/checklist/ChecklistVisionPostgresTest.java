@@ -154,7 +154,8 @@ class ChecklistVisionPostgresTest extends ChecklistEvidenceIntegrationPostgresTe
         incidentBeans.addBean("incidents", new ChecklistVisionIncidentService(auditDb));
         ReflectionTestUtils.setField(runtime, "incidents", incidentBeans.getBeanProvider(ChecklistVisionIncidentService.class));
         var prompts = new PromptManagementService(auditDb, mapper, new PromptTemplateRenderer(), resolver,
-                mock(com.ondemandmonitoring.aiops.service.IAiOperationsService.class));
+                mock(com.ondemandmonitoring.aiops.service.IAiOperationsService.class),
+                mock(com.ondemandmonitoring.prompt.PromptRuntimeModelResolver.class));
         prompts.ensureSchema();
         var activePrompt = prompts.resolve("checklist.image-vision.system", java.util.Map.of());
         var vision = new ChecklistImageVisionClient(properties, new OpenRouterProperties(), mapper);

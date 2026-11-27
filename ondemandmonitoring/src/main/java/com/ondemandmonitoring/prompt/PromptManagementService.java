@@ -37,6 +37,7 @@ public class PromptManagementService {
     private final PromptTemplateRenderer renderer;
     private final AuthenticatedUserResolver users;
     private final IAiOperationsService aiOps;
+    private final PromptRuntimeModelResolver runtimeModels;
     private final AtomicBoolean schemaReady = new AtomicBoolean(false);
 
     @Value("${OLLAMA_URL:http://localhost:11434}")
@@ -385,7 +386,8 @@ public class PromptManagementService {
                     r.get("avg_in_tok") instanceof Number n ? Math.round(n.doubleValue() * 10.0) / 10.0 : null,
                     r.get("avg_out_tok") instanceof Number n ? Math.round(n.doubleValue() * 10.0) / 10.0 : null,
                     r.get("avg_lat") instanceof Number n ? Math.round(n.doubleValue() * 10.0) / 10.0 : null,
-                    toInstant(r.get("updated_at"))
+                    toInstant(r.get("updated_at")),
+                    runtimeModels.resolve(key)
             ));
         }
         return out;

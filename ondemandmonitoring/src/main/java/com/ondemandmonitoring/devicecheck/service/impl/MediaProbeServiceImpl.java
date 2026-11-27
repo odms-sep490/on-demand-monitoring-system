@@ -14,6 +14,7 @@ import com.ondemandmonitoring.devicecheck.service.IPersistedPreDeviceCheckServic
 import com.ondemandmonitoring.mission.dto.response.MissionResponse;
 import com.ondemandmonitoring.mission.service.IMissionService;
 import com.ondemandmonitoring.media.service.IMediaObjectStorage;
+import com.ondemandmonitoring.media.cleanup.ObjectCleanupOutbox;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -26,6 +27,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 @Service
@@ -39,6 +42,8 @@ public class MediaProbeServiceImpl implements IMediaProbeService {
     private final IPersistedPreDeviceCheckService preDeviceChecks;
     private final IMissionService missions;
     private final IMediaObjectStorage storage;
+    private final ObjectCleanupOutbox cleanup;
+    private final PlatformTransactionManager transactions;
 
     @Value("${app.device-check.media-probe.max-bytes:262144}")
     private long maxBytes;
@@ -87,7 +92,42 @@ public class MediaProbeServiceImpl implements IMediaProbeService {
             return fail(runId, "S3 bucket is not configured");
         }
 
-        String key = probeObjectPrefix() + "/" + runId + "/" + UUID.randomUUID() + ".jpg";
+        String key = ProbeObjectCleanupGuard.objectPrefix(storage.prefix(), probePrefix)
+                + "/" + runId + "/" + UUID.randomUUID() + ".jpg";
+        boolean cleanupVerified;
+        try {
+            // This durable intent survives rollback, a partial PUT and process termination.
+            String reservation = cleanup.reserveUpload(
+                    bucket, key, ProbeObjectCleanupGuard.TYPE, runId);
+            cleanupVerified = Boolean.TRUE.equals(new TransactionTemplate(transactions).execute(tx -> {
+                // Keep the task locked across I/O: the shared worker skips this active probe.
+                cleanup.protectReservation(reservation);
+                return verifyStorage(runId, bucket, key, uploaded, uploadedChecksum, reservation);
+            }));
+        } catch (RuntimeException failure) {
+            recordOutcome(runId, PreDeviceItemStatus.FAILED, failure.getMessage());
+            throw failure;
+        }
+
+        String message = "JPEG storage round-trip verified; checksum and cleanup passed";
+        recordOutcome(runId, PreDeviceItemStatus.PASSED, message);
+        return MediaProbeResponse.builder()
+                .status(PreDeviceItemStatus.PASSED.name())
+                .runId(runId)
+                .missionId(missionId)
+                .deviceId(deviceId)
+                .contentType(JPEG_CONTENT_TYPE)
+                .sizeBytes(uploaded.length)
+                .checksumVerified(true)
+                .storageVerified(true)
+                .cleanupVerified(cleanupVerified)
+                .message(message)
+                .checkedAt(Instant.now())
+                .build();
+    }
+
+    private boolean verifyStorage(String runId, String bucket, String key, byte[] uploaded,
+            String uploadedChecksum, String reservation) {
         RuntimeException failure = null;
         boolean stored = false;
         boolean cleanupVerified = false;
@@ -118,6 +158,7 @@ public class MediaProbeServiceImpl implements IMediaProbeService {
                 try {
                     storage.delete(bucket, key);
                     cleanupVerified = true;
+                    cleanup.cancelReservation(reservation);
                 } catch (RuntimeException cleanupException) {
                     if (failure == null) {
                         failure = probeFailure("Media probe cleanup failed: " + rootMessage(cleanupException),
@@ -128,25 +169,9 @@ public class MediaProbeServiceImpl implements IMediaProbeService {
         }
 
         if (failure != null) {
-            recordOutcome(runId, PreDeviceItemStatus.FAILED, failure.getMessage());
             throw failure;
         }
-
-        String message = "JPEG storage round-trip verified; checksum and cleanup passed";
-        recordOutcome(runId, PreDeviceItemStatus.PASSED, message);
-        return MediaProbeResponse.builder()
-                .status(PreDeviceItemStatus.PASSED.name())
-                .runId(runId)
-                .missionId(missionId)
-                .deviceId(deviceId)
-                .contentType(JPEG_CONTENT_TYPE)
-                .sizeBytes(uploaded.length)
-                .checksumVerified(true)
-                .storageVerified(true)
-                .cleanupVerified(cleanupVerified)
-                .message(message)
-                .checkedAt(Instant.now())
-                .build();
+        return cleanupVerified;
     }
 
     private byte[] readAndValidate(MultipartFile file) {
@@ -181,24 +206,6 @@ public class MediaProbeServiceImpl implements IMediaProbeService {
     private void recordOutcome(String runId, PreDeviceItemStatus status, String message) {
         preDeviceChecks.recordSystemResult(
                 runId, PreDeviceCheckType.MEDIA_STORAGE.code(), status, message);
-    }
-
-    private String probeObjectPrefix() {
-        String storagePrefix = normalizePrefix(storage.prefix());
-        String diagnosticPrefix = normalizePrefix(probePrefix);
-        if (diagnosticPrefix.isBlank()) {
-            diagnosticPrefix = "diagnostics/media-probes";
-        }
-        if (storagePrefix.isBlank()
-                || diagnosticPrefix.equals(storagePrefix)
-                || diagnosticPrefix.startsWith(storagePrefix + "/")) {
-            return diagnosticPrefix;
-        }
-        return storagePrefix + "/" + diagnosticPrefix;
-    }
-
-    private String normalizePrefix(String value) {
-        return value == null ? "" : value.strip().replaceAll("^/+|/+$", "");
     }
 
     private String sha256(byte[] bytes) {

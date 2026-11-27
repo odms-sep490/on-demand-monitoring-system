@@ -71,6 +71,7 @@ public class ChecklistImageVisionClient {
     private final String model;
     private final String apiKey;
     private final boolean local;
+    private final boolean localCpuOnly;
     private final int timeoutSeconds;
     private final CloseableHttpClient httpClient;
     private final ScheduledThreadPoolExecutor deadlines;
@@ -92,9 +93,12 @@ public class ChecklistImageVisionClient {
                 .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
                 .with(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY);
         this.local = vision.getProvider() == Provider.OLLAMA;
+        this.localCpuOnly = local && vision.isOllamaCpuOnly();
         this.timeoutSeconds = timeoutFor(vision);
         String defaultBase = local ? vision.getOllamaBaseUrl().replaceAll("/+$", "") + "/v1" : openRouter.getBaseUrl();
-        this.endpoint = vision.isEnabled() ? endpoint(firstSet(vision.getBaseUrl(), defaultBase), local) : null;
+        URI configuredEndpoint = vision.isEnabled() ? endpoint(firstSet(vision.getBaseUrl(), defaultBase), local) : null;
+        this.endpoint = configuredEndpoint != null && localCpuOnly
+                ? configuredEndpoint.resolve("/api/chat") : configuredEndpoint;
         this.model = firstSet(vision.getModel(), "");
         this.apiKey = local ? "" : firstSet(vision.getApiKey(), openRouter.getApiKey());
         this.httpClient = httpClient;
@@ -219,8 +223,19 @@ public class ChecklistImageVisionClient {
                     var ray = response.getFirstHeader("CF-Ray");
                     String reference = ray != null && CLOUDFLARE_RAY.matcher(ray.getValue()).matches()
                             ? ray.getValue() : "unavailable";
-                    log.warn("Checklist vision upstream rejected request: status={}, cfRay={}",
-                            response.getCode(), reference);
+                    String reason = "UPSTREAM_ERROR";
+                    if (local && response.getEntity() != null) {
+                        // Classify a bounded error without logging provider text, prompts or image data.
+                        byte[] errorBody = response.getEntity().getContent().readNBytes(8192);
+                        String error = new String(errorBody, java.nio.charset.StandardCharsets.UTF_8)
+                                .toLowerCase(Locale.ROOT);
+                        if (error.contains("cuda error") || error.contains("device kernel image is invalid"))
+                            reason = "OLLAMA_GPU_RUNTIME_ERROR";
+                        else if (error.contains("out of memory")) reason = "OLLAMA_OUT_OF_MEMORY";
+                        else if (error.contains("not found")) reason = "OLLAMA_MODEL_NOT_FOUND";
+                    }
+                    log.warn("Checklist vision upstream rejected request: provider={}, status={}, reason={}, cfRay={}",
+                            local ? "Ollama" : "OpenRouter", response.getCode(), reason, reference);
                     throw new ApiException(ErrorCode.AI_PROVIDER_UNAVAILABLE, "Checklist vision provider rejected the request");
                 }
                 var entity = response.getEntity();
@@ -267,6 +282,20 @@ public class ChecklistImageVisionClient {
                         "type", "object", "additionalProperties", false,
                         "required", codes, "properties", findingProperties)));
 
+        if (localCpuOnly) {
+            // Ollama's OpenAI-compatible endpoint ignores num_gpu. The native chat API
+            // supports per-request CPU selection while retaining the same model and server.
+            return mapper.writeValueAsBytes(Map.of(
+                    "model", model, "stream", false, "format", schema,
+                    "options", Map.of("num_gpu", 0,
+                            "num_predict", config.maxTokens() != null ? config.maxTokens() : 128 + 120 * codes.size(),
+                            "temperature", config.temperature() != null ? config.temperature() : 0),
+                    "messages", List.of(
+                            Map.of("role", "system", "content", effectiveSystemPrompt),
+                            Map.of("role", "user", "content", instructions,
+                                    "images", List.of(Base64.getEncoder().encodeToString(jpeg))))));
+        }
+
         var payload = new LinkedHashMap<>(Map.of(
                 "model", model,
                 "stream", false,
@@ -293,10 +322,12 @@ public class ChecklistImageVisionClient {
             JsonNode envelope = strictJson.readValue(body);
             JsonNode choices = envelope.path("choices");
             JsonNode choice = choices.path(0);
-            JsonNode message = choice.path("message");
+            JsonNode message = localCpuOnly ? envelope.path("message") : choice.path("message");
             JsonNode content = message.path("content");
-            if (envelope.hasNonNull("error") || !choices.isArray() || choices.size() != 1
-                    || !"stop".equals(choice.path("finish_reason").textValue())
+            boolean complete = localCpuOnly
+                    ? envelope.path("done").asBoolean(false) && "stop".equals(envelope.path("done_reason").textValue())
+                    : choices.isArray() && choices.size() == 1 && "stop".equals(choice.path("finish_reason").textValue());
+            if (envelope.hasNonNull("error") || !complete
                     || choice.hasNonNull("error") || message.hasNonNull("refusal") || !content.isTextual()) {
                 throw invalidResponse();
             }

@@ -197,6 +197,8 @@ ai:
     model: ${AI_CHECKLIST_VISION_MODEL:}
     base-url: ${AI_CHECKLIST_VISION_BASE_URL:}
     api-key: ${AI_CHECKLIST_VISION_API_KEY:}
+    # Use CPU for this model only when the local CUDA runtime is incompatible.
+    ollama-cpu-only: ${AI_CHECKLIST_VISION_OLLAMA_CPU_ONLY:false}
 
 # Preliminary flight-area assessment (advisory only, rule-based; NOT legal or aviation limits).
 # External providers are configuration only; every value has a code default in FlightAreaProperties.

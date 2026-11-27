@@ -358,6 +358,94 @@ class ChecklistImageVisionClientTest {
         verifyNoInteractions(http);
     }
 
+    @Test
+    void cpuModeUsesNativeOllamaOnTheSameServerWithStrictSchemaAndRuntimeOptions() throws Exception {
+        vision.setEnabled(true);
+        vision.setProvider(ChecklistVisionProperties.Provider.OLLAMA);
+        vision.setModel("qwen3-vl:2b-instruct");
+        vision.setOllamaCpuOnly(true);
+        client = new ChecklistImageVisionClient(vision, shared, mapper, http);
+        var runtime = mock(com.ondemandmonitoring.aiops.service.ChecklistVisionRuntime.class);
+        when(runtime.config()).thenReturn(new com.ondemandmonitoring.aiops.service.ChecklistVisionRuntime.Config(
+                true, 0.2, 600, 60));
+        org.springframework.test.util.ReflectionTestUtils.setField(client, "runtime", runtime);
+        when(runtime.enabled()).thenReturn(true);
+        var response = new BasicClassicHttpResponse(200);
+        response.setEntity(new StringEntity(mapper.writeValueAsString(Map.of(
+                "done", true, "done_reason", "stop", "message", Map.of("content", FINDING))), ContentType.APPLICATION_JSON));
+        when(http.executeOpen(isNull(), any(HttpPost.class), isNull())).thenReturn(response);
+
+        assertThat(client.assessWithPrompt(JPEG_PREFIX, "vi", CRITERIA, "Draft instructions"))
+                .containsEntry("landing_area", new Finding(Verdict.MATCH, "Có dấu hiệu."));
+        var captured = ArgumentCaptor.forClass(HttpPost.class);
+        verify(http).executeOpen(isNull(), captured.capture(), isNull());
+        var request = captured.getValue();
+        assertThat(request.getUri().toString()).isEqualTo("http://127.0.0.1:11434/api/chat");
+        assertThat(request.getFirstHeader(HttpHeaders.AUTHORIZATION)).isNull();
+        var body = requestBody(request);
+        assertThat(body.at("/options/num_gpu").asInt(-1)).isZero();
+        assertThat(body.at("/options/num_predict").asInt()).isEqualTo(600);
+        assertThat(body.at("/options/temperature").asDouble()).isEqualTo(0.2);
+        assertThat(body.at("/messages/0/content").asText()).isEqualTo("Draft instructions");
+        assertThat(body.at("/messages/1/images/0").asText()).isEqualTo("/9j/2Q==");
+        assertThat(mapper.readTree(body.at("/messages/1/content").asText()).path("criteria"))
+                .isEqualTo(mapper.valueToTree(CRITERIA));
+        assertThat(body.at("/format/properties/findings/required/0").asText()).isEqualTo("landing_area");
+        assertThat(body.at("/format/additionalProperties").asBoolean(true)).isFalse();
+        assertThat(body.has("response_format")).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"length", "", "load"})
+    void cpuModeRejectsIncompleteNativeResponses(String reason) throws Exception {
+        vision.setEnabled(true);
+        vision.setProvider(ChecklistVisionProperties.Provider.OLLAMA);
+        vision.setModel("qwen3-vl:2b-instruct");
+        vision.setOllamaCpuOnly(true);
+        client = new ChecklistImageVisionClient(vision, shared, mapper, http);
+        var response = new BasicClassicHttpResponse(200);
+        response.setEntity(new StringEntity(mapper.writeValueAsString(Map.of(
+                "done", true, "done_reason", reason, "message", Map.of("content", FINDING))), ContentType.APPLICATION_JSON));
+        when(http.executeOpen(isNull(), any(HttpPost.class), isNull())).thenReturn(response);
+        assertInvalidResponse();
+    }
+
+    @Test
+    void cpuOptionDoesNotChangeOpenRouterRequests() throws Exception {
+        vision.setOllamaCpuOnly(true);
+        client = enabledClient();
+        respond("stop", FINDING);
+        client.assess(JPEG_PREFIX, "vi", CRITERIA);
+        var captured = ArgumentCaptor.forClass(HttpPost.class);
+        verify(http).executeOpen(isNull(), captured.capture(), isNull());
+        assertThat(captured.getValue().getUri().toString()).isEqualTo("https://openrouter.ai/api/v1/chat/completions");
+        assertThat(requestBody(captured.getValue()).has("options")).isFalse();
+    }
+
+    @Test
+    @org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(named = "ODMS_TEST_OLLAMA", matches = "true")
+    void realOllamaCpuReturnsFindingsForEveryCriterion() throws Exception {
+        vision.setEnabled(true);
+        vision.setProvider(ChecklistVisionProperties.Provider.OLLAMA);
+        vision.setModel("qwen3-vl:2b-instruct");
+        vision.setOllamaCpuOnly(true);
+        client = new ChecklistImageVisionClient(vision, shared, mapper);
+        var image = new java.awt.image.BufferedImage(224, 224, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        var graphics = image.createGraphics();
+        graphics.setColor(java.awt.Color.RED);
+        graphics.fillRect(0, 0, 224, 224);
+        graphics.dispose();
+        var bytes = new ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(image, "jpeg", bytes);
+        var criteria = List.of(new CriterionInput("RED", "Red", "The image is predominantly red."),
+                new CriterionInput("BUILDING", "Building", "A building is clearly visible."));
+        var findings = client.assess(bytes.toByteArray(), "vi", criteria);
+        assertThat(findings).containsOnlyKeys("RED", "BUILDING");
+        assertThat(findings.get("RED").verdict()).isEqualTo(Verdict.MATCH);
+        assertThat(findings.get("BUILDING").verdict()).isNotEqualTo(Verdict.MATCH);
+        assertThat(findings.values()).allSatisfy(finding -> assertThat(finding.observation()).isNotBlank());
+    }
+
     private ChecklistImageVisionClient enabledClient() {
         vision.setEnabled(true);
         vision.setModel("vendor/vision-v1");

@@ -18,6 +18,7 @@ import com.ondemandmonitoring.finance.enums.*;
 import com.ondemandmonitoring.finance.repository.InvoiceRepository;
 import com.ondemandmonitoring.finance.service.impl.CommercialExpirationSettingsService;
 import com.ondemandmonitoring.media.service.IMediaObjectStorage;
+import com.ondemandmonitoring.media.cleanup.*;
 import com.ondemandmonitoring.order.domain.Order;
 import com.ondemandmonitoring.order.enums.OrderStatus;
 import com.ondemandmonitoring.order.repository.OrderRepository;
@@ -64,6 +65,8 @@ class OrderContractPostgresTest {
   @Autowired IOrderContractService contracts;
   @Autowired IContractCancellationService cancellations;
   @Autowired ContractSubmissionCleanupService cleanup;
+  @Autowired ObjectCleanupOutbox outbox;
+  @Autowired ObjectCleanupWorker cleanupWorker;
   @Autowired IMediaObjectStorage contextObjects;
   @Autowired AuthenticatedUserResolver users;
   String orderId, invoiceId;
@@ -76,7 +79,7 @@ class OrderContractPostgresTest {
     jdbc = new JdbcTemplate(dataSource);
     tx = new TransactionTemplate(transactions);
     jdbc.execute(
-        "TRUNCATE contract_submissions, order_contracts, invoices, quotes, orders, users, roles,"
+        "TRUNCATE object_cleanup_outbox, contract_submissions, order_contracts, invoices, quotes, orders, users, roles,"
             + " services, preferred_times CASCADE");
     OBJECTS.clear();
     reset(users);
@@ -279,6 +282,9 @@ class OrderContractPostgresTest {
                       throw new IllegalStateException("Force rollback");
                     }))
         .isInstanceOf(IllegalStateException.class);
+    assertThat(OBJECTS).hasSize(1);
+    makeReservationsDue();
+    assertThat(cleanupWorker.poll()).isEqualTo(1);
     assertThat(OBJECTS).isEmpty();
     assertThat(jdbc.queryForObject("select count(*) from order_contracts", Integer.class)).isZero();
   }
@@ -345,7 +351,7 @@ class OrderContractPostgresTest {
       accepted.setStatus(InvoiceStatus.ISSUED); accepted.setDepositStatus(DepositStatus.WAITING_DEPOSIT);
       accepted.setIssuedAt(NOW); accepted.setContractRequired(true); em.persist(accepted); em.flush();
       new QuoteContractPolicy(new org.springframework.data.jpa.repository.support.JpaRepositoryFactory(em).getRepository(OrderContractRepository.class),
-          new ContractDocumentStorage(contextObjects)).attachInvoice(accepted);
+          new ContractDocumentStorage(contextObjects, outbox)).attachInvoice(accepted);
     });
     var after = contracts.get(orderId);
     assertThat(after.id()).isEqualTo(prepared.id());
@@ -464,6 +470,9 @@ class OrderContractPostgresTest {
     assertThat(jdbc.queryForObject("select status from contract_submissions where id=?",String.class,oldId)).isEqualTo("SUPERSEDED");
     assertThat(jdbc.queryForObject("select reviewed_at is null and superseded_by=? and document_deleted_at is null from contract_submissions where id=?",Boolean.class,customer.getId(),oldId)).isTrue();
     assertThatThrownBy(()->contracts.download(orderId,oldId)).isInstanceOf(ApiException.class);
+    assertThat(cleanup.cleanup()).isZero();
+    assertThat(OBJECTS).hasSize(3);
+    assertThat(cleanupWorker.poll()).isEqualTo(1);
     assertThat(cleanup.cleanup()).isEqualTo(1);assertThat(cleanup.cleanup()).isZero();
     assertThat(OBJECTS).hasSize(2);
     assertThat(jdbc.queryForObject("select document_deleted_at is not null from contract_submissions where id=?",Boolean.class,oldId)).isTrue();
@@ -486,7 +495,11 @@ class OrderContractPostgresTest {
         throw new IllegalStateException("Force replacement rollback");
       })).isInstanceOf(IllegalStateException.class);
     } finally {pool.shutdownNow();}
-    assertThat(OBJECTS).hasSize(2);assertThat(cleanup.cleanup()).isZero();
+    assertThat(OBJECTS).hasSize(3);
+    assertThat(cleanup.cleanup()).isZero();
+    makeReservationsDue();
+    assertThat(cleanupWorker.poll()).isEqualTo(1);
+    assertThat(OBJECTS).hasSize(2);
     assertThat(jdbc.queryForObject("select count(*) from contract_submissions",Integer.class)).isEqualTo(1);
     assertThat(contracts.get(orderId).version()).isEqualTo(first.version());
     assertThat(contracts.get(orderId).submissions().getFirst().status()).isEqualTo(ContractSubmissionStatus.PENDING);
@@ -514,9 +527,17 @@ class OrderContractPostgresTest {
     var pool=Executors.newFixedThreadPool(2);var start=new CountDownLatch(1);
     try{
       var a=pool.submit(()->{start.await();return cleanup.cleanup();});var b=pool.submit(()->{start.await();return cleanup.cleanup();});
-      start.countDown();assertThat(a.get(30,TimeUnit.SECONDS)+b.get(30,TimeUnit.SECONDS)).isEqualTo(1);
+      start.countDown();assertThat(a.get(30,TimeUnit.SECONDS)+b.get(30,TimeUnit.SECONDS)).isZero();
+      assertThat(jdbc.queryForObject("select count(*) from object_cleanup_outbox where status='PENDING'", Integer.class)).isEqualTo(1);
+      var c=pool.submit(()->cleanupWorker.poll());var d=pool.submit(()->cleanupWorker.poll());
+      assertThat(c.get(30,TimeUnit.SECONDS)+d.get(30,TimeUnit.SECONDS)).isEqualTo(1);
+      assertThat(cleanup.cleanup()).isEqualTo(1);
       assertThat(OBJECTS).hasSize(2);
     }finally{pool.shutdownNow();}
+  }
+
+  void makeReservationsDue() {
+    jdbc.update("UPDATE object_cleanup_outbox SET next_attempt_at=now()-interval '1 second' WHERE status='PENDING'");
   }
 
   @Configuration
@@ -590,6 +611,14 @@ class OrderContractPostgresTest {
     @Bean
     IMediaObjectStorage objects() {
       var storage = mock(IMediaObjectStorage.class);
+      when(storage.bucket()).thenReturn("isolated-fake-bucket");
+      when(storage.put(anyString(), anyString(), anyString(), anyLong(), any(), anyString()))
+          .thenAnswer(call -> {
+            String key = call.getArgument(1);
+            Long size = call.getArgument(3);
+            OBJECTS.put(key, size);
+            return new IMediaObjectStorage.StoredObject(call.getArgument(0), key, null);
+          });
       when(storage.put(anyString(), anyString(), anyLong(), any(), anyString()))
           .thenAnswer(
               call -> {
@@ -616,13 +645,27 @@ class OrderContractPostgresTest {
       return storage;
     }
 
-    @Bean ContractSubmissionCleanupService cleanup(ContractSubmissionRepository submissions,OrderContractRepository contracts,IMediaObjectStorage storage,PlatformTransactionManager transactions) {
-      return new ContractSubmissionCleanupService(submissions,contracts,storage,transactions,Clock.fixed(NOW.plusSeconds(120),ZoneOffset.UTC));
+    @Bean ObjectCleanupProperties cleanupProperties() { return new ObjectCleanupProperties(); }
+
+    @Bean ObjectCleanupOutbox cleanupOutbox(DataSource source, PlatformTransactionManager manager, ObjectCleanupProperties properties) {
+      return new ObjectCleanupOutbox(new JdbcTemplate(source), manager, properties);
+    }
+
+    @Bean ObjectCleanupWorker cleanupWorker(ObjectCleanupOutbox outbox, IMediaObjectStorage storage,
+        ObjectCleanupProperties properties, DataSource source) {
+      var db = new JdbcTemplate(source);
+      return new ObjectCleanupWorker(outbox, storage, properties, List.of(
+          new ContractObjectCleanupGuard(db),
+          new ContractObjectCleanupGuard.Superseded(db, Clock.fixed(NOW.plusSeconds(120), ZoneOffset.UTC))));
+    }
+
+    @Bean ContractSubmissionCleanupService cleanup(ContractSubmissionRepository submissions,OrderContractRepository contracts,ObjectCleanupOutbox outbox,PlatformTransactionManager transactions) {
+      return new ContractSubmissionCleanupService(submissions,contracts,outbox,transactions,Clock.fixed(NOW.plusSeconds(120),ZoneOffset.UTC));
     }
 
     @Bean
-    ContractDocumentStorage documentStorage(IMediaObjectStorage storage) {
-      return new ContractDocumentStorage(storage);
+    ContractDocumentStorage documentStorage(IMediaObjectStorage storage, ObjectCleanupOutbox outbox) {
+      return new ContractDocumentStorage(storage, outbox);
     }
 
     @Bean

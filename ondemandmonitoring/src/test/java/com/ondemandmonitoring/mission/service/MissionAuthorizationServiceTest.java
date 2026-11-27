@@ -51,6 +51,68 @@ class MissionAuthorizationServiceTest {
         when(missions.findById(mission.getId())).thenReturn(Optional.of(mission));
     }
 
+    private java.util.ArrayList<MissionStaffAssignment> startCrew() {
+        var devices = mock(com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository.class);
+        var handovers = mock(com.ondemandmonitoring.mission.repository.ControlHandoverRepository.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(policy, "deviceAssignments", devices);
+        org.springframework.test.util.ReflectionTestUtils.setField(policy, "handovers", handovers);
+        var device = new com.ondemandmonitoring.mission.domain.MissionDeviceAssignment();
+        device.setDevice(new com.ondemandmonitoring.device.domain.Device());
+        device.setStatus(com.ondemandmonitoring.mission.enums.MissionDeviceAssignmentStatus.READY_TO_FLY);
+        when(devices.findAllByMissionIdAndDeviceRoleAndIsCurrentTrueOrderByCreatedAtDesc("mission-1", com.ondemandmonitoring.mission.enums.DeviceRole.MAIN))
+                .thenReturn(List.of(device));
+        when(handovers.findTopByStaffAssignment_Mission_IdAndStatusOrderByConfirmedAtDesc("mission-1", "CONFIRMED"))
+                .thenReturn(Optional.of(new com.ondemandmonitoring.mission.domain.ControlHandover()));
+        var crew = new java.util.ArrayList<MissionStaffAssignment>();
+        for (var role : List.of(MissionStaffRole.PILOT, MissionStaffRole.OPERATOR, MissionStaffRole.MAINTAINER, MissionStaffRole.INSPECTOR)) {
+            crew.add(MissionStaffAssignment.builder().staff(staff).mission(mission).assignedRole(role)
+                    .responseStatus(MissionStaffAssignmentStatus.ACCEPTED).isCurrent(true).build());
+        }
+        when(assignments.findAllByMissionIdAndIsCurrentTrue("mission-1")).thenReturn(crew);
+        return crew;
+    }
+
+    @Test void inspectorCanStartWithFourAcceptedRolesWithoutTechnical() {
+        startCrew();
+        assertThat(policy.canStartMission("mission-1")).isTrue();
+        assertThat(policy.canStartMission("another-mission")).isFalse();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = MissionStaffRole.class, names = {"PILOT", "OPERATOR", "MAINTAINER", "INSPECTOR"})
+    void eachCoreRoleIsStillRequiredForStart(MissionStaffRole missing) {
+        var crew = startCrew(); crew.removeIf(entry -> entry.getAssignedRole() == missing);
+        assertThat(policy.canStartMission("mission-1")).isFalse();
+    }
+
+    @Test void startStillRequiresAllAssignedCrewAcceptanceAndCurrentInspector() {
+        var crew = startCrew(); crew.getFirst().setResponseStatus(MissionStaffAssignmentStatus.PENDING);
+        assertThat(policy.canStartMission("mission-1")).isFalse();
+        crew.getFirst().setResponseStatus(MissionStaffAssignmentStatus.ACCEPTED);
+        crew.stream().filter(entry -> entry.getAssignedRole() == MissionStaffRole.INSPECTOR)
+                .forEach(entry -> entry.setReleasedAt(Instant.now()));
+        assertThat(policy.canStartMission("mission-1")).isFalse();
+    }
+
+    @Test void startStillRequiresReadyDeviceConfirmedHandoverAndReadyMission() {
+        startCrew();
+        var devices = (com.ondemandmonitoring.mission.repository.MissionDeviceAssignmentRepository)
+                org.springframework.test.util.ReflectionTestUtils.getField(policy, "deviceAssignments");
+        var handovers = (com.ondemandmonitoring.mission.repository.ControlHandoverRepository)
+                org.springframework.test.util.ReflectionTestUtils.getField(policy, "handovers");
+        mission.setStatus(MissionStatus.IN_PROGRESS);
+        assertThat(policy.canStartMission("mission-1")).isFalse();
+        mission.setStatus(MissionStatus.READY);
+        when(handovers.findTopByStaffAssignment_Mission_IdAndStatusOrderByConfirmedAtDesc("mission-1", "CONFIRMED"))
+                .thenReturn(Optional.empty());
+        assertThat(policy.canStartMission("mission-1")).isFalse();
+        when(handovers.findTopByStaffAssignment_Mission_IdAndStatusOrderByConfirmedAtDesc("mission-1", "CONFIRMED"))
+                .thenReturn(Optional.of(new com.ondemandmonitoring.mission.domain.ControlHandover()));
+        when(devices.findAllByMissionIdAndDeviceRoleAndIsCurrentTrueOrderByCreatedAtDesc("mission-1", com.ondemandmonitoring.mission.enums.DeviceRole.MAIN))
+                .thenReturn(List.of());
+        assertThat(policy.canStartMission("mission-1")).isFalse();
+    }
+
     @ParameterizedTest
     @EnumSource(MissionStaffRole.class)
     void flightControlRequiresAcceptedPilotAssignment(MissionStaffRole role) {

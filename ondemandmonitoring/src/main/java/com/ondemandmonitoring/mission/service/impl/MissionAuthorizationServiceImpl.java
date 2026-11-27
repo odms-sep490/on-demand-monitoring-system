@@ -137,7 +137,7 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
                     return inspector && mainDeviceReady && controlHandedOver
                             && acceptedRoles.containsAll(Set.of(MissionStaffRole.PILOT,
                                     MissionStaffRole.OPERATOR, MissionStaffRole.MAINTAINER,
-                                    MissionStaffRole.INSPECTOR, MissionStaffRole.TECHNICAL))
+                                    MissionStaffRole.INSPECTOR))
                             && crew.stream().allMatch(entry ->
                                     entry.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED);
                 }).orElse(false);

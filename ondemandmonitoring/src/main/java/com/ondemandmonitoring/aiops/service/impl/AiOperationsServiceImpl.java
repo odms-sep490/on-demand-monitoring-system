@@ -499,7 +499,7 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
     }
 
     private List<AiEvaluationView> readPersistedEvaluations() {
-        var rows = db.queryForList("SELECT * FROM ai_evaluation_runs ORDER BY suite_group ASC, metric_name ASC LIMIT 100");
+        var rows = db.queryForList("SELECT * FROM ai_evaluation_runs WHERE model_code <> 'checklist-image-vision' ORDER BY suite_group ASC, metric_name ASC LIMIT 100");
         List<AiEvaluationView> out = new ArrayList<>();
         for (var r : rows) {
             int totalCases = ((Number) r.getOrDefault("total_cases", 0)).intValue();

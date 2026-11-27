@@ -39,6 +39,8 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
     private final MissionChecklistExecutionMapper mapper;
     private final com.ondemandmonitoring.mission.service.IChecklistEvidenceService evidenceService;
     private final IAcceptedChecklistGuidanceService acceptedGuidance;
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.beans.factory.ObjectProvider<com.ondemandmonitoring.mission.workspace.MissionWorkspaceEvents> workspaceEvents;
 
     @Override
     @Transactional(readOnly = true)
@@ -206,6 +208,9 @@ public class MissionChecklistExecutionServiceImpl implements IMissionChecklistEx
                     assessedBy,
                     assessedAt);
             if (updated != 1) throw new ApiException(ErrorCode.CONCURRENT_UPDATE);
+            // Native compare-and-set bypasses Hibernate flush listeners.
+            if (workspaceEvents != null) workspaceEvents.ifAvailable(events -> events.changed(missionId,
+                    java.util.Set.of("checklist", "permissions", "corrections")));
             MissionChecklistExecution updatedExecution = executions.findById(executionId)
                     .orElseThrow(() -> new ApiException(ErrorCode.CHECKLIST_EXECUTION_NOT_FOUND));
             var currentEvidence = evidenceService.active(missionId);

@@ -757,4 +757,26 @@ CREATE TABLE IF NOT EXISTS public.checklist_image_ai_settings (
 INSERT INTO public.checklist_image_ai_settings (id, enabled, version, updated_at, updated_by)
 VALUES ('default', true, 0, now(), 'system') ON CONFLICT (id) DO NOTHING;
 
+-- Durable object deletion intents: deliberately independent of service/media owner foreign keys.
+CREATE TABLE IF NOT EXISTS public.object_cleanup_outbox (
+    id varchar(36) PRIMARY KEY,
+    object_hash varchar(64) NOT NULL,
+    bucket varchar(255) NOT NULL,
+    object_key varchar(1024) NOT NULL,
+    guard_type varchar(64) NOT NULL,
+    owner_id varchar(255) NOT NULL,
+    status varchar(20) NOT NULL,
+    attempts integer NOT NULL,
+    next_attempt_at timestamptz NOT NULL,
+    lease_token varchar(36),
+    lease_until timestamptz,
+    last_error varchar(100),
+    completed_at timestamptz,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL,
+    CONSTRAINT uq_object_cleanup_hash UNIQUE(object_hash)
+);
+CREATE INDEX IF NOT EXISTS ix_object_cleanup_ready ON public.object_cleanup_outbox(status,next_attempt_at,lease_until);
+CREATE INDEX IF NOT EXISTS ix_object_cleanup_retention ON public.object_cleanup_outbox(status,completed_at);
+
 COMMIT;

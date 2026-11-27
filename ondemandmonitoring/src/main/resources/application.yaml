@@ -68,6 +68,17 @@ auth:
     same-site: ${AUTH_REFRESH_COOKIE_SAME_SITE:Lax}
 
 app:
+  storage-cleanup:
+    enabled: ${APP_STORAGE_CLEANUP_ENABLED:true}
+    poll-delay-ms: ${APP_STORAGE_CLEANUP_POLL_DELAY_MS:5000}
+    initial-delay-ms: ${APP_STORAGE_CLEANUP_INITIAL_DELAY_MS:10000}
+    batch-size: ${APP_STORAGE_CLEANUP_BATCH_SIZE:20}
+    max-attempts: ${APP_STORAGE_CLEANUP_MAX_ATTEMPTS:8}
+    lease-seconds: ${APP_STORAGE_CLEANUP_LEASE_SECONDS:120}
+    retry-base-seconds: ${APP_STORAGE_CLEANUP_RETRY_BASE_SECONDS:30}
+    retry-max-seconds: ${APP_STORAGE_CLEANUP_RETRY_MAX_SECONDS:3600}
+    upload-grace-seconds: ${APP_STORAGE_CLEANUP_UPLOAD_GRACE_SECONDS:3600}
+    retention-days: ${APP_STORAGE_CLEANUP_RETENTION_DAYS:30}
   seed:
     demo-drones: ${APP_SEED_DEMO_DRONES:false}
     staff-licenses: ${APP_SEED_STAFF_LICENSES:true}

@@ -399,18 +399,21 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
         );
     }
 
-    public List<AiTraceView> listTraces(int limit) {
-        ensureSchema();
-        int bounded = Math.max(1, Math.min(limit, 200));
-        List<AiTraceView> items = new ArrayList<>();
+    public AiTraceView getTrace(String traceId) {
+        if (traceId == null || !traceId.matches("[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}"))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Mã truy vết không hợp lệ");
+        var rows = db.queryForList("SELECT * FROM ai_execution_audits WHERE trace_id = ? ORDER BY created_at DESC LIMIT 1", traceId);
+        if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy truy vết AI");
+        return mapTrace(rows.getFirst());
+    }
 
-        var auditRows = db.queryForList("SELECT * FROM ai_execution_audits ORDER BY created_at DESC LIMIT ?", bounded);
-        for (var r : auditRows) {
-            items.add(new AiTraceView(
+    private AiTraceView mapTrace(Map<String, Object> r) {
+        boolean checklistVision = Objects.toString(r.get("feature"), "").startsWith("CHECKLIST_VISION");
+        return new AiTraceView(
                     Objects.toString(r.get("id"), ""),
                     Objects.toString(r.get("trace_id"), ""),
-                    Objects.toString(r.get("user_id"), "system"),
-                    Objects.toString(r.get("user_role"), "SYSTEM"),
+                    Objects.toString(r.get("user_id"), checklistVision ? "" : "system"),
+                    Objects.toString(r.get("user_role"), checklistVision ? "" : "SYSTEM"),
                     Objects.toString(r.get("model_code"), ""),
                     Objects.toString(r.get("model_version"), ""),
                     Objects.toString(r.get("prompt_version"), "v1"),
@@ -427,7 +430,17 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
                     Objects.toString(r.get("human_review_status"), "PENDING"),
                     parseSpans(r.get("spans_json")),
                     toInstant(r.get("created_at"))
-            ));
+        );
+    }
+
+    public List<AiTraceView> listTraces(int limit) {
+        ensureSchema();
+        int bounded = Math.max(1, Math.min(limit, 200));
+        List<AiTraceView> items = new ArrayList<>();
+
+        var auditRows = db.queryForList("SELECT * FROM ai_execution_audits ORDER BY created_at DESC LIMIT ?", bounded);
+        for (var r : auditRows) {
+            items.add(mapTrace(r));
         }
 
         // Also project real Inspection Report Studio AI runs if the table exists.
@@ -817,7 +830,10 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
                 new GuardrailPolicyView("sec-7", "Unauthorized AI Access", "Spring Security RBAC (@PreAuthorize) + X-Internal-Token cho worker nội bộ", "Access Control", true),
                 new GuardrailPolicyView("sec-8", "Malicious Image Upload", "Kiểm tra MIME type, dung lượng tối đa 12 MB và xác thực nguồn ảnh đã duyệt", "Media Guard", true),
                 new GuardrailPolicyView("sec-9", "Unauthorized Tool Calling", "Chỉ cho phép gọi các read-only tool nằm trong allowlist của backend", "Tool Guardrail", true),
-                new GuardrailPolicyView("sec-10", "Resource Exhaustion", "Giới hạn max_tokens, context window và hàng đợi xử lý trên GPU/CPU local", "Runtime Guard", true)
+                new GuardrailPolicyView("sec-10", "Resource Exhaustion", "Giới hạn max_tokens, context window và hàng đợi xử lý trên GPU/CPU local", "Runtime Guard", true),
+                new GuardrailPolicyView("checklist-vision-input", "Ảnh đánh giá checklist", "JPEG tối đa 2 MiB, tối đa 16 tiêu chí và kiểm tra quyền truy cập bằng chứng", "Checklist Vision · Đầu vào", true),
+                new GuardrailPolicyView("checklist-vision-output", "Kết quả đánh giá checklist", "JSON đúng schema, đủ mã tiêu chí, kết luận MATCH/MISMATCH/UNCERTAIN và nhận xét có giới hạn", "Checklist Vision · Đầu ra", true),
+                new GuardrailPolicyView("checklist-vision-rate", "Quá tải đánh giá ảnh", "Luồng Inspector giới hạn 4 yêu cầu đồng thời, 48 yêu cầu/phút toàn hệ thống và 8 yêu cầu/phút mỗi Inspector", "Checklist Vision · Tần suất", true)
         );
         var rows = db.queryForList("SELECT * FROM ai_security_events ORDER BY created_at DESC LIMIT 100");
         List<AiSecurityEventView> events = new ArrayList<>();

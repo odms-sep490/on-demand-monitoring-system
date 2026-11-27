@@ -56,6 +56,31 @@ class ChecklistVisionPlaygroundTest {
     }
 
     @Test
+    void trustedAdminActorIsAttachedAndPermitReleasedAfterFailure() throws Exception {
+        var runtime = mock(com.ondemandmonitoring.aiops.service.ChecklistVisionRuntime.class);
+        var scope = mock(com.ondemandmonitoring.aiops.service.ChecklistVisionRuntime.RequestScope.class);
+        var user = mock(com.ondemandmonitoring.user.service.AuthenticatedUserResolver.class);
+        when(runtime.openRequest(any(), eq(true))).thenReturn(scope);
+        when(scope.traceId()).thenReturn("AI-test");
+        when(user.getCurrentUserId()).thenReturn("admin-id");
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "runtime", runtime);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "user", user);
+        when(prompts.previewVersion(ChecklistVisionPlaygroundService.PROMPT_KEY, version, Map.of()))
+                .thenReturn(new PromptDtos.PreviewResult("draft prompt", null));
+        var failure = new com.ondemandmonitoring.common.exception.ApiException(
+                com.ondemandmonitoring.common.exception.ErrorCode.AI_PROVIDER_UNAVAILABLE);
+        when(client.assessWithPrompt(any(), any(), any(), any())).thenThrow(failure);
+        assertSame(failure, assertThrows(com.ondemandmonitoring.common.exception.ApiException.class,
+                () -> service.assess(image, version, "[\"roof\"]", "en")));
+        doReturn(Map.of("PHOTO_1", new Finding(Verdict.MATCH, "visible")))
+                .when(client).assessWithPrompt(any(), any(), any(), any());
+        assertEquals(Verdict.MATCH, service.assess(image, version, "[\"roof\"]", "en").findings().getFirst().verdict());
+        verify(scope, times(2)).authorized("admin-id", null, null, null);
+        verify(scope).failed(failure);
+        verify(scope, times(2)).close();
+    }
+
+    @Test
     void textPlaygroundRejectsVisionBeforeScoring() {
         var management = new PromptManagementService(null, null, null, null, null);
         var error = assertThrows(ResponseStatusException.class, () ->

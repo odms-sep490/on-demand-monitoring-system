@@ -146,6 +146,7 @@ class ChecklistImageVisionClientTest {
         client = enabledClient();
         var runtime = mock(com.ondemandmonitoring.aiops.service.ChecklistVisionRuntime.class);
         org.springframework.test.util.ReflectionTestUtils.setField(client, "runtime", runtime);
+        when(runtime.enabled()).thenReturn(true);
         when(runtime.config()).thenReturn(
                 new com.ondemandmonitoring.aiops.service.ChecklistVisionRuntime.Config(false, null, null, null),
                 new com.ondemandmonitoring.aiops.service.ChecklistVisionRuntime.Config(true, 0.4, 300, 5));
@@ -312,6 +313,49 @@ class ChecklistImageVisionClientTest {
                     assertThat(error).hasMessage("Checklist vision provider rejected the request").hasNoCause();
                 });
         verify(http).executeOpen(isNull(), any(HttpPost.class), isNull());
+    }
+
+    @Test
+    void initializesRegistryBeforeCheckingLiveSwitchAndBlocksCachedDisabledPrompt() {
+        client = enabledClient();
+        var prompts = mock(com.ondemandmonitoring.prompt.PromptManagementService.class);
+        var runtime = mock(com.ondemandmonitoring.aiops.service.ChecklistVisionRuntime.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(client, "promptManagement", prompts);
+        org.springframework.test.util.ReflectionTestUtils.setField(client, "runtime", runtime);
+        when(runtime.config()).thenReturn(com.ondemandmonitoring.aiops.service.ChecklistVisionRuntime.Config.DEFAULT);
+        org.mockito.Mockito.doThrow(new ApiException(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED))
+                .when(runtime).requirePromptEnabled();
+        assertThatThrownBy(() -> client.assess(JPEG_PREFIX, "vi", CRITERIA))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getErrorCode())
+                        .isEqualTo(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED));
+        var ordered = org.mockito.Mockito.inOrder(prompts, runtime);
+        ordered.verify(prompts).ensureSchema();
+        ordered.verify(runtime).requirePromptEnabled();
+        org.mockito.Mockito.verify(prompts, org.mockito.Mockito.never()).resolve(any(), any());
+        verifyNoInteractions(http);
+    }
+
+    @Test
+    void registryOutageFailsClosedWithoutBundledFallbackOrPrivateException() {
+        client = enabledClient();
+        var prompts = mock(com.ondemandmonitoring.prompt.PromptManagementService.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(client, "promptManagement", prompts);
+        when(prompts.resolve(any(), any())).thenThrow(new IllegalStateException("private registry address or prompt"));
+        assertThatThrownBy(() -> client.assess(JPEG_PREFIX, "vi", CRITERIA))
+                .isInstanceOfSatisfying(ApiException.class, e -> {
+                    assertThat(e.getErrorCode()).isEqualTo(ErrorCode.AI_PROVIDER_UNAVAILABLE);
+                    assertThat(e).hasMessage("Checklist vision prompt is unavailable").hasNoCause();
+                });
+        verifyNoInteractions(http);
+    }
+
+    @Test
+    void rejectsUnboundedChecklistContextBeforeInference() {
+        client = enabledClient();
+        assertThatThrownBy(() -> client.assess(JPEG_PREFIX, "vi", CRITERIA,
+                new ChecklistImageVisionClient.ChecklistContext("x".repeat(4001), null, List.of())))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.INVALID_REQUEST));
+        verifyNoInteractions(http);
     }
 
     private ChecklistImageVisionClient enabledClient() {

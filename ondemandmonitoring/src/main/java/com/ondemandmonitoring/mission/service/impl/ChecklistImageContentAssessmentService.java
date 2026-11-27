@@ -33,6 +33,8 @@ public class ChecklistImageContentAssessmentService {
     private static final int MAX_REQUESTS_PER_MINUTE = 48;
     private static final int MAX_REQUESTS_PER_INSPECTOR_PER_MINUTE = 8;
     private static final Duration RATE_WINDOW = Duration.ofMinutes(1);
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.ondemandmonitoring.aiops.service.ChecklistVisionRuntime runtime;
     private final IChecklistEvidenceService evidence;
     private final IMediaObjectStorage storage;
     private final ChecklistImageVisionClient vision;
@@ -48,15 +50,22 @@ public class ChecklistImageContentAssessmentService {
 
     public ChecklistImageContentAssessmentResponse assess(String missionId, String executionId, String evidenceId,
             ChecklistImageContentAssessmentRequest request) {
-        var target = evidence.resolveContentAssessment(missionId, executionId, evidenceId, request);
-        if (!settings.isEnabled() || !vision.runtimeEnabled())
-            throw new ApiException(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED);
-        if (!vision.available())
-            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "Checklist image content assessment is disabled");
-
-        String inspector = user.getCurrentUserId();
-        begin(inspector);
+        var existing = runtime == null ? null : runtime.currentRequest();
+        var scope = existing != null ? existing : runtime == null ? null
+                : runtime.openRequest(com.ondemandmonitoring.aiops.service.ChecklistVisionRuntime.httpContext(), false);
+        boolean owner = existing == null;
+        String inspector = null;
+        boolean acquired = false;
         try {
+            var target = evidence.resolveContentAssessment(missionId, executionId, evidenceId, request);
+            inspector = user.getCurrentUserId();
+            if (scope != null) scope.authorized(inspector, missionId, executionId, evidenceId);
+            if (!settings.isEnabled() || !vision.runtimeEnabled())
+                throw new ApiException(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED);
+            if (!vision.available())
+                throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "Checklist image content assessment is disabled");
+            begin(inspector);
+            acquired = true;
             var findings = vision.assess(readPreview(target), request.language(), target.criteria(), target.context());
             if (!settings.isEnabled() || !vision.runtimeEnabled())
                 throw new ApiException(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED);
@@ -66,10 +75,16 @@ public class ChecklistImageContentAssessmentService {
                 var finding = findings.get(criterion.code());
                 return new Criterion(criterion.code(), criterion.label(), finding.verdict(), finding.observation());
             }).toList();
+            var verdict = overallVerdict(criteria);
+            if (scope != null) scope.succeeded(verdict.name());
             return new ChecklistImageContentAssessmentResponse(
-                    target.executionVersion(), target.evidenceId(), overallVerdict(criteria), criteria);
+                    target.executionVersion(), target.evidenceId(), verdict, criteria);
+        } catch (RuntimeException failure) {
+            if (scope != null) scope.failed(failure);
+            throw failure;
         } finally {
-            end(inspector);
+            if (acquired) end(inspector);
+            if (owner && scope != null) scope.close();
         }
     }
 

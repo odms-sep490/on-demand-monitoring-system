@@ -21,14 +21,21 @@ class ChecklistVisionContextTest {
             context.getDefaultListableBeanFactory().setAllowCircularReferences(false);
             context.registerBean(JdbcTemplate.class, () -> mock(JdbcTemplate.class));
             context.registerBean(ObjectMapper.class, () -> new ObjectMapper());
+            context.registerBean(org.springframework.transaction.PlatformTransactionManager.class,
+                    () -> mock(org.springframework.transaction.PlatformTransactionManager.class));
             context.registerBean(AuthenticatedUserResolver.class, () -> mock(AuthenticatedUserResolver.class));
             context.register(ChecklistVisionProperties.class, OpenRouterProperties.class,
                     PromptTemplateRenderer.class, PromptManagementService.class,
-                    ChecklistVisionRuntime.class, ChecklistImageVisionClient.class, AiOperationsServiceImpl.class);
+                    ChecklistVisionRuntime.class, ChecklistImageVisionClient.class, AiOperationsServiceImpl.class,
+                    com.ondemandmonitoring.aiops.service.ChecklistVisionIncidentService.class,
+                    com.ondemandmonitoring.aiops.service.ChecklistVisionAuditFilter.class,
+                    com.ondemandmonitoring.prompt.ChecklistVisionPlaygroundService.class,
+                    com.ondemandmonitoring.prompt.ChecklistVisionPlaygroundController.class);
             context.refresh();
             assertNotNull(context.getBean(AiOperationsServiceImpl.class));
             assertNotNull(context.getBean(PromptManagementService.class));
             assertNotNull(context.getBean(ChecklistImageVisionClient.class).deployment());
+            assertNotNull(context.getBean(com.ondemandmonitoring.prompt.ChecklistVisionPlaygroundController.class));
         }
     }
 }

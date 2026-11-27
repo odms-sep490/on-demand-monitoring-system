@@ -126,7 +126,7 @@ public class ChecklistImageVisionClient {
 
     public Map<String, Finding> assessWithPrompt(byte[] jpeg, String language, List<CriterionInput> criteria,
                                                   String systemPrompt) {
-        if (systemPrompt == null || systemPrompt.isBlank()) throw invalidInput();
+        if (systemPrompt == null) systemPrompt = "";
         return assessInternal(jpeg, language, criteria, null, systemPrompt);
     }
 
@@ -143,44 +143,71 @@ public class ChecklistImageVisionClient {
 
     private Map<String, Finding> assessInternal(byte[] jpeg, String language, List<CriterionInput> criteria,
                                                 ChecklistContext context, String override) {
-        if (!available()) {
-            throw new ApiException(ErrorCode.AI_PROVIDER_UNAVAILABLE, "Checklist vision is not configured");
-        }
-        Set<String> codes = validateInput(jpeg, language, criteria);
-        var config = runtime == null ? ChecklistVisionRuntime.Config.DEFAULT : runtime.config();
-        if (!config.enabled()) throw new ApiException(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED);
-        ResolvedPrompt resolved = null;
-        if (override == null && promptManagement != null) {
-            try {
-                resolved = promptManagement.resolve("checklist.image-vision.system", Map.of());
-            } catch (RuntimeException unavailable) {
-                log.warn("Using bundled checklist vision prompt");
-            }
-        }
-        String prompt = override != null ? override : resolved == null ? SYSTEM_PROMPT : resolved.renderedContent();
-        HttpPost request = new HttpPost(endpoint);
-        if (!local) request.setHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey);
-        request.setHeader(HttpHeaders.ACCEPT, ContentType.APPLICATION_JSON.getMimeType());
-
-        long start = System.nanoTime();
-        int status = 500;
+        var existing = runtime == null ? null : runtime.currentRequest();
+        var scope = existing != null ? existing : runtime == null ? null
+                : runtime.openRequest(ChecklistVisionRuntime.httpContext(), override != null);
+        boolean owner = existing == null;
         try {
+            if (override != null && override.isBlank()) throw invalidInput();
+            Set<String> codes = validateInput(jpeg, language, criteria);
+            validateContext(context);
+            if (!available()) throw new ApiException(ErrorCode.AI_PROVIDER_UNAVAILABLE, "Checklist vision is not configured");
+            var config = runtime == null ? ChecklistVisionRuntime.Config.DEFAULT : runtime.config();
+            if (!config.enabled()) throw new ApiException(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED);
+            ResolvedPrompt resolved = null;
+            if (promptManagement != null && (override == null || runtime != null)) {
+                try {
+                    promptManagement.ensureSchema();
+                    if (runtime != null) runtime.requirePromptEnabled();
+                    if (override == null) resolved = promptManagement.resolve("checklist.image-vision.system", Map.of());
+                } catch (ApiException disabled) {
+                    throw disabled;
+                } catch (org.springframework.web.server.ResponseStatusException missing) {
+                    if (missing.getStatusCode().value() == 404) throw new ApiException(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED);
+                    throw new ApiException(ErrorCode.AI_PROVIDER_UNAVAILABLE, "Checklist vision prompt is unavailable");
+                } catch (RuntimeException unavailable) {
+                    throw new ApiException(ErrorCode.AI_PROVIDER_UNAVAILABLE, "Checklist vision prompt is unavailable");
+                }
+                if (override == null && resolved == null)
+                    throw new ApiException(ErrorCode.AI_PROVIDER_UNAVAILABLE, "Checklist vision prompt is unavailable");
+            }
+            String prompt = override != null ? override : resolved == null ? SYSTEM_PROMPT : resolved.renderedContent();
+            if (prompt == null || prompt.isBlank()) throw invalidInput();
+            if (scope != null) scope.prompt(model, resolved, prompt, override != null);
+            HttpPost request = new HttpPost(endpoint);
+            if (scope != null) request.setHeader("X-Correlation-ID", scope.traceId());
+            if (!local) request.setHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey);
+            request.setHeader(HttpHeaders.ACCEPT, ContentType.APPLICATION_JSON.getMimeType());
             request.setEntity(new ByteArrayEntity(buildRequest(jpeg, language, criteria, codes, context, prompt, config),
                     ContentType.APPLICATION_JSON));
+            if (scope != null) scope.inferenceStarted();
             var findings = parseResponse(execute(request, config.timeoutSec() == null ? timeoutSeconds
                     : Math.min(timeoutSeconds, config.timeoutSec())), codes);
-            status = 200;
+            if (runtime != null) {
+                if (!runtime.enabled()) throw new ApiException(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED);
+                if (promptManagement != null) runtime.requirePromptEnabled();
+            }
+            if (scope != null) scope.succeeded(findings.values().stream().anyMatch(f -> f.verdict() == Verdict.MISMATCH)
+                    ? "MISMATCH" : findings.values().stream().allMatch(f -> f.verdict() == Verdict.MATCH) ? "MATCH" : "UNCERTAIN");
             return findings;
-        } catch (ApiException exception) {
-            status = exception.getStatus().value();
-            throw exception;
         } catch (IOException exception) {
-            status = ErrorCode.AI_PROVIDER_UNAVAILABLE.getStatus().value();
-            throw new ApiException(ErrorCode.AI_PROVIDER_UNAVAILABLE, "Checklist vision request failed");
+            var failure = new ApiException(ErrorCode.AI_PROVIDER_UNAVAILABLE, "Checklist vision request failed");
+            if (scope != null) scope.failed(failure);
+            throw failure;
+        } catch (RuntimeException exception) {
+            if (scope != null) scope.failed(exception);
+            throw exception;
         } finally {
-            if (runtime != null) runtime.trace(model, resolved, prompt, override != null, status,
-                    (int) TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
+            if (owner && scope != null) scope.close();
         }
+    }
+
+    private static void validateContext(ChecklistContext context) {
+        if (context == null) return;
+        if ((context.content() != null && !validText(context.content(), 4000))
+                || (context.description() != null && !context.description().isBlank() && !validText(context.description(), 4000))
+                || (context.expectedOutputs() != null && (context.expectedOutputs().size() > MAX_CRITERIA
+                    || context.expectedOutputs().stream().anyMatch(value -> !validText(value, 800))))) throw invalidInput();
     }
 
     private byte[] execute(HttpPost request, int deadlineSeconds) throws IOException {

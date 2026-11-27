@@ -111,6 +111,23 @@ class ChecklistImageContentAssessmentServiceTest {
         verify(vision).assess(any(), any(), any(), any());
     }
 
+    @Test void releasesInspectorPermitWhenProviderFails() {
+        when(vision.assess(any(), any(), any(), any())).thenThrow(new ApiException(ErrorCode.AI_PROVIDER_UNAVAILABLE));
+        assertEquals(ErrorCode.AI_PROVIDER_UNAVAILABLE, assertThrows(ApiException.class, this::assess).getErrorCode());
+        doReturn(Map.of(
+                "VISIBLE", new Finding(Verdict.MATCH, "visible"),
+                "FRAMING", new Finding(Verdict.MATCH, "visible")))
+                .when(vision).assess(any(), any(), any(), any());
+        assertEquals(Verdict.MATCH, assess().verdict());
+    }
+
+    @Test void accessDenialNeverReadsPreviewOrCallsProvider() {
+        when(evidence.resolveContentAssessment(any(), any(), any(), any())).thenThrow(new ApiException(ErrorCode.ACCESS_DENIED));
+        assertEquals(ErrorCode.ACCESS_DENIED, assertThrows(ApiException.class, this::assess).getErrorCode());
+        verifyNoInteractions(storage);
+        verify(vision, never()).assess(any(), any(), any(), any());
+    }
+
     private ChecklistImageContentAssessmentResponse assess() {
         return service.assess("mission", "execution", "evidence", request);
     }

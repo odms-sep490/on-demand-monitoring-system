@@ -4,6 +4,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ondemandmonitoring.ai.client.ChecklistImageVisionClient;
 import com.ondemandmonitoring.ai.config.ChecklistVisionProperties;
 import com.ondemandmonitoring.ai.config.OpenRouterProperties;
+import com.ondemandmonitoring.aiops.config.AiModelSeedDataInitializer;
+import com.ondemandmonitoring.aiops.service.ChecklistVisionIncidentService;
+import com.ondemandmonitoring.aiops.service.ChecklistVisionRuntime;
+import com.ondemandmonitoring.prompt.PromptManagementService;
+import com.ondemandmonitoring.prompt.PromptTemplateRenderer;
 import com.ondemandmonitoring.checklist.config.ChecklistDefaultSeedInitializer;
 import com.ondemandmonitoring.checklist.config.ChecklistDefaults;
 import com.ondemandmonitoring.checklist.config.ChecklistDefaultPricing;
@@ -94,7 +99,7 @@ class ChecklistVisionPostgresTest extends ChecklistEvidenceIntegrationPostgresTe
 
         String serviceId = service("AI snapshot QA");
         String originalCriterion = "A black rectangle is visible on a white background.";
-        String updatedCriterion = "A white background is visible around a black rectangle.";
+        String updatedCriterion = "A large red triangle is visible on the white background.";
         var configuration = new ChecklistRequest();
         configuration.setContent("Photograph the test target");
         configuration.setBasePrice(BigDecimal.valueOf(100000));
@@ -141,7 +146,23 @@ class ChecklistVisionPostgresTest extends ChecklistEvidenceIntegrationPostgresTe
         properties.setEnabled(true);
         properties.setProvider(ChecklistVisionProperties.Provider.OLLAMA);
         properties.setModel("qwen3-vl:2b-instruct");
-        var vision = new ChecklistImageVisionClient(properties, new OpenRouterProperties(), new ObjectMapper());
+        var mapper = new ObjectMapper();
+        var auditDb = isolatedAuditDatabase();
+        new AiModelSeedDataInitializer(auditDb).run(null);
+        var runtime = new ChecklistVisionRuntime(auditDb, mapper);
+        var incidentBeans = new org.springframework.beans.factory.support.StaticListableBeanFactory();
+        incidentBeans.addBean("incidents", new ChecklistVisionIncidentService(auditDb));
+        ReflectionTestUtils.setField(runtime, "incidents", incidentBeans.getBeanProvider(ChecklistVisionIncidentService.class));
+        var prompts = new PromptManagementService(auditDb, mapper, new PromptTemplateRenderer(), resolver,
+                mock(com.ondemandmonitoring.aiops.service.IAiOperationsService.class));
+        prompts.ensureSchema();
+        var activePrompt = prompts.resolve("checklist.image-vision.system", java.util.Map.of());
+        var vision = new ChecklistImageVisionClient(properties, new OpenRouterProperties(), mapper);
+        ReflectionTestUtils.setField(vision, "runtime", runtime);
+        ReflectionTestUtils.setField(vision, "promptManagement", prompts);
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken("inspector", "unused",
+                        List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_INSPECTOR"))));
         try {
             var settingsRepository = new JpaRepositoryFactory(
                     SharedEntityManagerCreator.createSharedEntityManager(entityManagerFactory))
@@ -150,7 +171,9 @@ class ChecklistVisionPostgresTest extends ChecklistEvidenceIntegrationPostgresTe
                     settingsRepository, vision, Clock.systemUTC());
             var assessment = new ChecklistImageContentAssessmentService(
                     evidenceService, storage, vision, resolver, Clock.systemUTC(), settings);
-            var mvc = MockMvcBuilders.standaloneSetup(new ChecklistEvidenceController(evidenceService, assessment)).build();
+            ReflectionTestUtils.setField(assessment, "runtime", runtime);
+            var mvc = MockMvcBuilders.standaloneSetup(new ChecklistEvidenceController(evidenceService, assessment))
+                    .setControllerAdvice(new com.ondemandmonitoring.common.exception.GlobalExceptionHandler()).build();
             for (String orderId : List.of(originalOrder, updatedOrder)) {
                 transaction.executeWithoutResult(tx -> {
                     var order = orders.findById(orderId).orElseThrow();
@@ -189,9 +212,24 @@ class ChecklistVisionPostgresTest extends ChecklistEvidenceIntegrationPostgresTe
                         new com.ondemandmonitoring.ai.service.ChecklistImageAiSettingsService.UpdateRequest(
                                 false, settings.current().version()), inspectorId));
                 assertFalse(assessment.available());
-                assertEquals(com.ondemandmonitoring.common.exception.ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED,
-                        assertThrows(com.ondemandmonitoring.common.exception.ApiException.class,
-                                () -> assessment.assess(missionId, executionId, evidenceId, assessmentRequest)).getErrorCode());
+                int auditsBefore = auditCount(auditDb);
+                var blocked = mvc.perform(post("/api/missions/{mission}/checklist-executions/{execution}/evidence/{evidence}/content-assessment",
+                                missionId, executionId, evidenceId).contentType(MediaType.APPLICATION_JSON)
+                                .content(mapper.writeValueAsBytes(assessmentRequest)))
+                        .andExpect(status().isConflict())
+                        .andExpect(jsonPath("$.success").value(false)).andReturn();
+                assertEquals(auditsBefore + 1, auditCount(auditDb), "One audit for the disabled HTTP request");
+                String blockedTrace = blocked.getResponse().getHeader("X-Correlation-ID");
+                assertNotNull(blockedTrace);
+                var blockedAudit = auditDb.queryForMap("SELECT * FROM ai_execution_audits WHERE trace_id=?", blockedTrace);
+                assertEquals("BLOCK", blockedAudit.get("security_decision"));
+                assertEquals("None", blockedAudit.get("inference_device"));
+                assertEquals(409, blockedAudit.get("http_status"));
+                var security = auditDb.queryForMap("SELECT * FROM ai_security_events WHERE trace_id=?", blockedTrace);
+                assertEquals("BLOCK", security.get("decision"));
+                assertEquals("CHECKLIST_VISION_GUARDRAIL", security.get("event_type"));
+                assertEquals("CHECKLIST_IMAGE_ASSESSMENT_DISABLED", security.get("summary"));
+                assertEquals(0, auditDb.queryForObject("SELECT count(*) FROM ai_incidents", Integer.class));
                 transaction.executeWithoutResult(tx -> settings.update(
                         new com.ondemandmonitoring.ai.service.ChecklistImageAiSettingsService.UpdateRequest(
                                 true, settings.current().version()), inspectorId));
@@ -199,14 +237,18 @@ class ChecklistVisionPostgresTest extends ChecklistEvidenceIntegrationPostgresTe
                 switchOff.setContent(configuration.getContent());
                 switchOff.setImageAssessmentEnabled(false);
                 catalog.update(checklistId, switchOff);
+                auditsBefore = auditCount(auditDb);
                 assertEquals(com.ondemandmonitoring.common.exception.ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED,
                         assertThrows(com.ondemandmonitoring.common.exception.ApiException.class,
                                 () -> assessment.assess(missionId, executionId, evidenceId, assessmentRequest)).getErrorCode());
+                assertEquals(auditsBefore + 1, auditCount(auditDb), "One audit for the disabled catalog request");
                 assertEquals(savedCriteria, snapshots.findById(originalItem).orElseThrow().getImageAssessmentCriteriaSnapshot());
                 switchOff.setImageAssessmentEnabled(true);
                 catalog.update(checklistId, switchOff);
                 String expectedCriterion = orderId.equals(originalOrder) ? originalCriterion : updatedCriterion;
-                var response = mvc.perform(post("/api/missions/{mission}/checklist-executions/{execution}/evidence/{evidence}/content-assessment",
+                auditsBefore = auditCount(auditDb);
+                String expectedVerdict = orderId.equals(originalOrder) ? "MATCH" : "MISMATCH";
+                var result = mvc.perform(post("/api/missions/{mission}/checklist-executions/{execution}/evidence/{evidence}/content-assessment",
                                 missionId, execution.getId(), evidenceId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(new ObjectMapper().writeValueAsBytes(
@@ -218,13 +260,55 @@ class ChecklistVisionPostgresTest extends ChecklistEvidenceIntegrationPostgresTe
                         .andExpect(jsonPath("$.data.criteria[0].code").value("PHOTO_1"))
                         .andExpect(jsonPath("$.data.criteria[0].label").value(expectedCriterion))
                         .andExpect(jsonPath("$.data.criteria[0].observation").isNotEmpty())
-                        .andExpect(jsonPath("$.data.verdict").value("MATCH"))
-                        .andReturn().getResponse().getContentAsString();
-                System.out.println("REAL_OLLAMA_INSPECTOR_RESPONSE " + response);
+                        .andExpect(jsonPath("$.data.verdict").value(expectedVerdict))
+                        .andReturn();
+                assertEquals(auditsBefore + 1, auditCount(auditDb), "Nested client/assessment must not duplicate the audit");
+                String trace = result.getResponse().getHeader("X-Correlation-ID");
+                assertNotNull(trace);
+                var audit = auditDb.queryForMap("SELECT * FROM ai_execution_audits WHERE trace_id=?", trace);
+                assertEquals(inspectorId, audit.get("user_id"));
+                assertEquals("INSPECTOR", audit.get("user_role"));
+                assertEquals(missionId, audit.get("resource_id"));
+                assertEquals(executionId, audit.get("input_ref"));
+                assertEquals(evidenceId, audit.get("output_ref"));
+                assertEquals("CHECKLIST_VISION", audit.get("feature"));
+                assertEquals(ChecklistVisionRuntime.MODEL_CODE, audit.get("model_code"));
+                assertEquals("ALLOW", audit.get("security_decision"));
+                assertEquals("Provider", audit.get("inference_device"));
+                assertEquals(200, audit.get("http_status"));
+                assertEquals("v" + activePrompt.versionNumber(), audit.get("prompt_version"));
+                assertEquals(false, audit.get("fallback_used"));
+                var span = mapper.readTree(audit.get("spans_json").toString()).get(0);
+                assertEquals(activePrompt.versionId(), span.path("versionId").asText());
+                assertEquals(activePrompt.contentHash(), span.path("contentHash").asText());
+                assertEquals(expectedVerdict, span.path("status").asText());
+                assertFalse(audit.get("spans_json").toString().contains(expectedCriterion));
+                assertEquals(0, auditDb.queryForObject("SELECT count(*) FROM ai_security_events WHERE trace_id=?", Integer.class, trace));
+                assertEquals(0, auditDb.queryForObject("SELECT count(*) FROM ai_incidents", Integer.class),
+                        "A valid MISMATCH is a checklist finding, never a provider incident");
+                assertEquals(auditCount(auditDb), auditDb.queryForObject(
+                        "SELECT count(DISTINCT trace_id) FROM ai_execution_audits", Integer.class));
             }
         } finally {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
             ReflectionTestUtils.invokeMethod(vision, "close");
         }
+    }
+
+    private JdbcTemplate isolatedAuditDatabase() {
+        // PromptManagementService owns runtime DDL. Exclude the public fallback so IF NOT EXISTS
+        // cannot reuse an application registry table outside this disposable schema.
+        var source = (org.springframework.jdbc.datasource.DriverManagerDataSource) dataSource;
+        assertTrue(SCHEMA.matches("checklist_verify_[a-f0-9]{32}"));
+        var isolated = new org.springframework.jdbc.datasource.DriverManagerDataSource(
+                source.getUrl().replace(",public", ""), source.getUsername(), source.getPassword());
+        var jdbc = new JdbcTemplate(isolated);
+        assertEquals(SCHEMA, jdbc.queryForObject("SELECT current_schema()", String.class));
+        return jdbc;
+    }
+
+    private int auditCount(JdbcTemplate jdbc) {
+        return jdbc.queryForObject("SELECT count(*) FROM ai_execution_audits", Integer.class);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -252,6 +336,10 @@ class ChecklistVisionPostgresTest extends ChecklistEvidenceIntegrationPostgresTe
     @Configuration
     @Import(ChecklistEvidenceIntegrationPostgresTest.EvidenceConfig.class)
     static class VisionConfig {
+        @Bean com.ondemandmonitoring.inspectionreport.ReportSourceGuard reportSourceGuard() {
+            return mock(com.ondemandmonitoring.inspectionreport.ReportSourceGuard.class);
+        }
+
         @Bean com.ondemandmonitoring.weather.repository.MissionWeatherCheckRepository weatherChecks() {
             return mock(com.ondemandmonitoring.weather.repository.MissionWeatherCheckRepository.class);
         }

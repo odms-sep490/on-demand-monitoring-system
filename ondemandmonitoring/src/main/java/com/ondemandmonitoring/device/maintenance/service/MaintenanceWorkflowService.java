@@ -461,6 +461,42 @@ public class MaintenanceWorkflowService {
         return saved;
     }
 
+    /**
+     * Undoes an automatic preflight ticket when the pilot corrects the failed item(s). Only a ticket the
+     * preflight gate opened and nobody has claimed yet is cancelled; the drone is unlocked unless another
+     * open ticket still blocks it. Runs in the caller's transaction. Returns true when a ticket was cancelled.
+     */
+    public boolean cancelPreflightFailureTicket(Device device, User actor, String reason) {
+        Optional<MaintenanceTicket> candidate = ticketRepository.findByDeviceId(device.getId()).stream()
+                .filter(t -> PREFLIGHT_GATE_REPORTER.equals(t.getReportedBy())
+                        && t.getWorkflowStage() == MaintenanceWorkflowStage.AWAITING_TECHNICAL_RECEIPT
+                        && t.getAssignedStaff() == null)
+                .findFirst();
+        if (candidate.isEmpty()) return false;
+        MaintenanceTicket ticket = lockTicket(candidate.get().getId());
+        if (ticket.getAssignedStaff() != null
+                || ticket.getWorkflowStage() != MaintenanceWorkflowStage.AWAITING_TECHNICAL_RECEIPT) {
+            return false; // claimed concurrently: the technician now owns the decision
+        }
+        Instant now = Instant.now();
+        ticket.setWorkflowStage(MaintenanceWorkflowStage.CANCELLED);
+        ticket.setStatus(MaintenanceWorkflowStage.CANCELLED.toTicketStatus());
+        ticket.setResolutionNotes(reason);
+        ticket.setClosedAt(now);
+        ticket.setWorkflowUpdatedAt(now);
+        MaintenanceTicket saved = ticketRepository.saveAndFlush(ticket);
+
+        if (device.getStatus() == com.ondemandmonitoring.device.enums.DeviceStatus.MAINTENANCE
+                && !eligibilityGuard.hasBlockingMaintenanceTicket(device.getId(), saved.getId())) {
+            device.setStatus(com.ondemandmonitoring.device.enums.DeviceStatus.AVAILABLE);
+            deviceRepository.save(device);
+        }
+        auditAdapter.record(saved, actor, "PREFLIGHT_FAILURE_TICKET_CANCELLED", AuditAction.STATUS_CHANGE,
+                MaintenanceWorkflowStage.AWAITING_TECHNICAL_RECEIPT, MaintenanceWorkflowStage.CANCELLED,
+                1, reason, List.of(), Map.of("source", PREFLIGHT_GATE_REPORTER));
+        return true;
+    }
+
     private MaintenanceHandover submittedInbound(String ticketId) {
         return handoverRepository
                 .findFirstByTicket_IdAndDirectionAndStatusOrderByRoundNumberDescRevisionDescCreatedAtDesc(

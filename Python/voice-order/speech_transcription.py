@@ -12,6 +12,33 @@ from pathlib import Path
 from fastapi import HTTPException
 
 _slot = threading.Lock()
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_DEFAULT_MODEL_REL = Path('.ai-runtime') / 'models' / 'Qwen3-ASR-0.6B'
+_DEFAULT_PYTHON_REL = Path('.ai-runtime') / 'asr-env' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
+
+def _resolve_repo_path(raw: str) -> Path:
+    expanded = os.path.expandvars(raw.strip().strip('"').strip("'"))
+    path = Path(expanded).expanduser()
+    return path if path.is_absolute() else (_REPO_ROOT / path).resolve()
+
+def _resolve_model_path() -> Path:
+    raw = os.getenv('ORDER_ASR_MODEL_PATH', '').strip()
+    if raw:
+        return _resolve_repo_path(raw)
+    return (_REPO_ROOT / _DEFAULT_MODEL_REL).resolve()
+
+def _resolve_python_path() -> Path:
+    raw = os.getenv('ORDER_ASR_PYTHON', '').strip()
+    if raw:
+        resolved = _resolve_repo_path(raw)
+        if resolved.is_file():
+            return resolved
+        # Allow a Windows-style .env path on Linux/macOS and vice versa.
+        alt_rel = 'bin/python' if resolved.name.lower() == 'python.exe' else 'Scripts/python.exe'
+        alt = resolved.parent.parent / alt_rel
+        return alt if alt.is_file() else resolved
+    default_python = (_REPO_ROOT / _DEFAULT_PYTHON_REL).resolve()
+    return default_python if default_python.is_file() else Path(sys.executable)
 
 def _infer(command):
     process=subprocess.Popen(command,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
@@ -26,12 +53,12 @@ def _infer(command):
         raise
 
 def configured():
-    model = Path(os.getenv('ORDER_ASR_MODEL_PATH', '__not_configured__'))
-    python = Path(os.getenv('ORDER_ASR_PYTHON', sys.executable))
+    model = _resolve_model_path()
+    python = _resolve_python_path()
     return model.is_dir() and (model/'model.safetensors').is_file() and python.is_file()
 
 def transcribe(data: bytes, content_type: str):
-    model_path = Path(os.getenv('ORDER_ASR_MODEL_PATH', '__not_configured__'))
+    model_path = _resolve_model_path()
     if not model_path.is_dir():
         raise HTTPException(503, 'QWEN_ASR_MODEL_NOT_CONFIGURED')
     if not _slot.acquire(blocking=False):
@@ -63,7 +90,7 @@ def transcribe(data: bytes, content_type: str):
                 except OSError:pass # CPU-only deployments need not run Ollama here.
             # A short-lived process releases ASR weights before conversational
             # inference. The local laptop cannot keep both models in RAM.
-            _infer([os.getenv('ORDER_ASR_PYTHON',sys.executable),
+            _infer([str(_resolve_python_path()),
                             str(Path(__file__).with_name('speech_inference.py')),
                             str(model_path),str(wav),str(output)])
             text=json.loads(output.read_text(encoding='utf-8'))['text'].strip()

@@ -123,6 +123,13 @@ public class WorkforceWorkloadService {
         YearMonth referenceMonth = YearMonth.from(referenceDate);
         int referenceYear = referenceDate.getYear();
 
+        // Assignment check only: missions already scheduled for this person on the SAME day as the new
+        // mission count toward that day's limit and the rest rule. Displayed workload stays actual-only,
+        // and scheduled missions on other days never block (per-day blocking rule).
+        if (projectedStart != null) {
+            combinedSpans.addAll(collectScheduledSameDaySpans(staff.getId(), excludeMissionId, referenceDate));
+        }
+
         Long restBeforeMission = workTimeCalculator.restSecondsBefore(combinedSpans, referenceInstant);
 
         if (projectedStart != null && projectedEnd != null && projectedStart.isBefore(projectedEnd)) {
@@ -189,6 +196,30 @@ public class WorkforceWorkloadService {
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.ondemandmonitoring.mission.repository.MissionStaffAssignmentRepository staffAssignmentRepository;
+
+    /**
+     * Planned (not yet started) missions held by this staff member's active resource locks that touch the
+     * given business day. Missions already started are counted from their actual times elsewhere, so they
+     * are skipped here to avoid double counting.
+     */
+    List<WorkTimeCalculator.Span> collectScheduledSameDaySpans(String staffId, String excludeMissionId, LocalDate day) {
+        Instant dayStart = day.atStartOfDay(VN_ZONE).toInstant();
+        Instant dayEnd = day.plusDays(1).atStartOfDay(VN_ZONE).toInstant();
+        return lockRepository.findAll().stream()
+                .filter(lock -> "STAFF".equals(lock.getResourceType())
+                        && staffId.equals(lock.getResourceId())
+                        && lock.getReleasedAt() == null
+                        && lock.getStartTime() != null
+                        && lock.getEndTime() != null
+                        && lock.getStartTime().isBefore(lock.getEndTime())
+                        && lock.getStartTime().isBefore(dayEnd)
+                        && lock.getEndTime().isAfter(dayStart))
+                .filter(lock -> lock.getMission() == null
+                        || ((excludeMissionId == null || !excludeMissionId.equals(lock.getMission().getId()))
+                            && lock.getMission().getActualStartAt() == null))
+                .map(lock -> new WorkTimeCalculator.Span(lock.getStartTime(), lock.getEndTime()))
+                .toList();
+    }
 
     /**
      * Work still in progress: missions the staff member is on that have actually started but are not

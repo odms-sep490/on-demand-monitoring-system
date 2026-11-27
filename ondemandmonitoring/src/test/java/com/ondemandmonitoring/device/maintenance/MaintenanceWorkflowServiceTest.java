@@ -200,7 +200,7 @@ class MaintenanceWorkflowServiceTest {
         draft.setLocked(false);
 
         when(userResolver.getCurrentUser()).thenReturn(custodian);
-        when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
+        lenient().when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
         when(capabilityResolver.canActAsCustodian(custodian, drone, ticket)).thenReturn(true);
         when(userRepository.findById("tech-1")).thenReturn(Optional.of(technical));
         when(capabilityResolver.isQualifiedTechnical(technical)).thenReturn(true);
@@ -220,7 +220,7 @@ class MaintenanceWorkflowServiceTest {
     void otherTechnicalCannotConfirmReceipt() {
         ticket.setWorkflowStage(MaintenanceWorkflowStage.AWAITING_TECHNICAL_RECEIPT);
         when(userResolver.getCurrentUser()).thenReturn(otherTechnical);
-        when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
+        lenient().when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
 
         assertThatThrownBy(() -> service.confirmOrRejectTechnicalReceipt(
                 "tkt-1",
@@ -234,7 +234,7 @@ class MaintenanceWorkflowServiceTest {
     void technicalCannotStartWorkBeforeReceivingDrone() {
         ticket.setWorkflowStage(MaintenanceWorkflowStage.AWAITING_TECHNICAL_RECEIPT);
         when(userResolver.getCurrentUser()).thenReturn(technical);
-        when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
+        lenient().when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
 
         assertThatThrownBy(() -> service.startWork("tkt-1", new StartWorkRequest(1L, "Starting early")))
                 .isInstanceOf(ApiException.class)
@@ -247,7 +247,7 @@ class MaintenanceWorkflowServiceTest {
         ticket.setVersion(5L);
         ticket.setWorkflowStage(MaintenanceWorkflowStage.RECEIVED);
         when(userResolver.getCurrentUser()).thenReturn(technical);
-        when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
+        lenient().when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
 
         assertThatThrownBy(() -> service.startWork("tkt-1", new StartWorkRequest(4L, "Stale version")))
                 .isInstanceOf(ApiException.class)
@@ -264,7 +264,7 @@ class MaintenanceWorkflowServiceTest {
         submitted.setStatus(HandoverStatus.SUBMITTED);
 
         when(userResolver.getCurrentUser()).thenReturn(technical);
-        when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
+        lenient().when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
         when(capabilityResolver.isQualifiedTechnical(technical)).thenReturn(true);
         when(handoverRepository.findFirstByTicket_IdAndDirectionAndStatusOrderByRoundNumberDescRevisionDescCreatedAtDesc(
                 "tkt-1", HandoverDirection.INBOUND, HandoverStatus.SUBMITTED)).thenReturn(Optional.of(submitted));
@@ -284,7 +284,7 @@ class MaintenanceWorkflowServiceTest {
         MaintenanceWorkItem work = completedWorkItem(1);
 
         when(userResolver.getCurrentUser()).thenReturn(technical);
-        when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
+        lenient().when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
         when(userRepository.findById("mgr-1")).thenReturn(Optional.of(manager));
         when(capabilityResolver.isEligibleReceivingManager(manager)).thenReturn(true);
         when(reportRepository.findFirstByTicket_IdOrderByRevisionDesc("tkt-1")).thenReturn(Optional.of(report));
@@ -302,7 +302,7 @@ class MaintenanceWorkflowServiceTest {
         ticket.setWorkflowStage(MaintenanceWorkflowStage.AWAITING_MANAGER_ACCEPTANCE);
         ticket.setReceivingManager(manager);
         when(userResolver.getCurrentUser()).thenReturn(technical);
-        when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
+        lenient().when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
 
         assertThatThrownBy(() -> service.acceptReturn(
                 "tkt-1",
@@ -344,7 +344,7 @@ class MaintenanceWorkflowServiceTest {
         returnHandover.setToUser(manager);
 
         when(userResolver.getCurrentUser()).thenReturn(manager);
-        when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
+        lenient().when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
         when(handoverRepository.findFirstByTicket_IdAndDirectionAndStatusOrderByRoundNumberDescRevisionDescCreatedAtDesc(
                 "tkt-1", HandoverDirection.RETURN, HandoverStatus.SUBMITTED)).thenReturn(Optional.of(returnHandover));
         when(reportRepository.findByTicket_IdAndRevision("tkt-1", 1)).thenReturn(Optional.of(rev1));
@@ -388,7 +388,7 @@ class MaintenanceWorkflowServiceTest {
         returnHandover.setToUser(manager);
 
         when(userResolver.getCurrentUser()).thenReturn(manager);
-        when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
+        lenient().when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
         when(handoverRepository.findFirstByTicket_IdAndDirectionAndStatusOrderByRoundNumberDescRevisionDescCreatedAtDesc(
                 "tkt-1", HandoverDirection.RETURN, HandoverStatus.SUBMITTED)).thenReturn(Optional.of(returnHandover));
         when(reportRepository.findByTicket_IdAndRevision("tkt-1", 1)).thenReturn(Optional.of(rev1));
@@ -508,7 +508,7 @@ class MaintenanceWorkflowServiceTest {
     private void pooledTicket() {
         ticket.setAssignedStaff(null);
         ticket.setWorkflowStage(MaintenanceWorkflowStage.AWAITING_TECHNICAL_RECEIPT);
-        when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
+        lenient().when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
     }
 
     @Test
@@ -516,7 +516,7 @@ class MaintenanceWorkflowServiceTest {
         ticket.setAssignedStaff(null);
         MaintenanceHandover draft = inboundHandover(HandoverStatus.DRAFT, null);
         when(userResolver.getCurrentUser()).thenReturn(custodian);
-        when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
+        lenient().when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
         when(capabilityResolver.canActAsCustodian(custodian, drone, ticket)).thenReturn(true);
         when(handoverRepository.findFirstByTicket_IdAndDirectionAndStatusOrderByRoundNumberDescRevisionDescCreatedAtDesc(
                 "tkt-1", HandoverDirection.INBOUND, HandoverStatus.DRAFT)).thenReturn(Optional.of(draft));
@@ -590,7 +590,7 @@ class MaintenanceWorkflowServiceTest {
         ticket.setWorkflowStage(MaintenanceWorkflowStage.AWAITING_TECHNICAL_RECEIPT);
         MaintenanceHandover inbound = inboundHandover(HandoverStatus.SUBMITTED, technical);
         when(userResolver.getCurrentUser()).thenReturn(technical);
-        when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
+        lenient().when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
         when(handoverRepository.findFirstByTicket_IdAndDirectionAndStatusOrderByRoundNumberDescRevisionDescCreatedAtDesc(
                 "tkt-1", HandoverDirection.INBOUND, HandoverStatus.SUBMITTED)).thenReturn(Optional.of(inbound));
 
@@ -628,6 +628,55 @@ class MaintenanceWorkflowServiceTest {
 
         assertThat(result).isSameAs(ticket);
         verify(ticketRepository, never()).saveAndFlush(any(MaintenanceTicket.class));
+    }
+
+    // ---- BA-06: correcting a mistaken preflight failure ------------------------------------
+
+    private void preflightTicket(User claimedBy) {
+        ticket.setReportedBy(MaintenanceWorkflowService.PREFLIGHT_GATE_REPORTER);
+        ticket.setWorkflowStage(MaintenanceWorkflowStage.AWAITING_TECHNICAL_RECEIPT);
+        ticket.setAssignedStaff(claimedBy);
+        drone.setStatus(DeviceStatus.MAINTENANCE);
+        when(ticketRepository.findByDeviceId("dev-1")).thenReturn(List.of(ticket));
+        lenient().when(ticketRepository.findByIdForUpdate("tkt-1")).thenReturn(Optional.of(ticket));
+    }
+
+    @Test
+    void correctedPreflightCancelsUnclaimedTicketAndUnlocksDrone() {
+        preflightTicket(null);
+        when(eligibilityGuard.hasBlockingMaintenanceTicket("dev-1", "tkt-1")).thenReturn(false);
+
+        boolean cancelled = service.cancelPreflightFailureTicket(drone, custodian, "corrected");
+
+        assertThat(cancelled).isTrue();
+        assertThat(ticket.getWorkflowStage()).isEqualTo(MaintenanceWorkflowStage.CANCELLED);
+        assertThat(drone.getStatus()).isEqualTo(DeviceStatus.AVAILABLE);
+    }
+
+    @Test
+    void claimedPreflightTicketIsLeftToTheTechnician() {
+        preflightTicket(technical);
+
+        assertThat(service.cancelPreflightFailureTicket(drone, custodian, "corrected")).isFalse();
+        assertThat(ticket.getWorkflowStage()).isEqualTo(MaintenanceWorkflowStage.AWAITING_TECHNICAL_RECEIPT);
+        assertThat(drone.getStatus()).isEqualTo(DeviceStatus.MAINTENANCE);
+    }
+
+    @Test
+    void droneStaysLockedWhenAnotherTicketStillBlocksIt() {
+        preflightTicket(null);
+        when(eligibilityGuard.hasBlockingMaintenanceTicket("dev-1", "tkt-1")).thenReturn(true);
+
+        assertThat(service.cancelPreflightFailureTicket(drone, custodian, "corrected")).isTrue();
+        assertThat(drone.getStatus()).isEqualTo(DeviceStatus.MAINTENANCE);
+    }
+
+    @Test
+    void manuallyCreatedTicketIsNeverAutoCancelled() {
+        preflightTicket(null);
+        ticket.setReportedBy(custodian.getId());
+
+        assertThat(service.cancelPreflightFailureTicket(drone, custodian, "corrected")).isFalse();
     }
 
     @Test

@@ -153,8 +153,10 @@ public class OrderConversationService {
         history.add(Map.of("role","user","content",input.text(),"requestId",input.requestId()));
         Map<String,Object> customerContext=input.customerContext()==null?Map.of():input.customerContext();
         if(!Set.of("locationConfirmed","address","preferredDateFrom","preferredDateTo","preferredTimeId","siteContactName","siteContactPhone",
-                "accessNotes","monitoringRelationship","monitoringAuthorizationConfirmed","termsAccepted").containsAll(customerContext.keySet())
-                || json.valueToTree(customerContext).toString().length()>5000) throw new ApiException(ErrorCode.INVALID_REQUEST);
+                "accessNotes","monitoringRelationship","monitoringAuthorizationConfirmed","termsAccepted",
+                "activeStep","activeSection","visibleServiceIds","initialServiceId","previousServiceId","lastAction",
+                "pendingIntention","currentServiceId","hasFlightPurpose","hasDescription","turnCount").containsAll(customerContext.keySet())
+                || json.valueToTree(customerContext).toString().length()>6000) throw new ApiException(ErrorCode.INVALID_REQUEST);
         state.put("customerContext",customerContext);
         Map<String,Object> catalog=catalog();
         Map<String,Object> result=infer(Map.of("messages",history,"confirmedFields",state.getOrDefault("confirmedFields",Map.of()),

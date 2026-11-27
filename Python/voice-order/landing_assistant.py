@@ -15,6 +15,16 @@ import urllib.request
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from consultation_engine import (
+    AgenticHybridRAG,
+    AnswerVerifier,
+    ConsultationRouter,
+    default_skill_registry,
+)
+
+_landing_rag = AgenticHybridRAG()
+_landing_router = ConsultationRouter()
+_landing_verifier = AnswerVerifier()
 
 LANDING_KNOWLEDGE: list[dict] = [
     {'id': 'overview', 'keywords': ['gioi thieu', 'he thong', 'la gi', 'tong quan', 'nen tang', 'overview', 'about', 'platform'],
@@ -169,14 +179,28 @@ def clean_reply(raw: str) -> str:
 
 
 def answer(body: LandingChatInput, call=_call_llm) -> dict:
-    """Retrieve knowledge, ask the model, and return {reply, sources}."""
+    """Retrieve hybrid knowledge + runtime skills, ask the model, verify, and return {reply, sources}."""
     entries = retrieve(body.message)
-    knowledge = '\n'.join(f'- {e[body.lang]}' for e in entries)
-    messages = [{'role': 'system', 'content': SYSTEM_PROMPT[body.lang] + '\n\nKIẾN THỨC / KNOWLEDGE:\n' + knowledge}]
+    route = _landing_router.route(body.message, has_active_draft=False)
+    rag_chunks = _landing_rag.retrieve(body.message, lang=body.lang, top_k=3)
+    skills_block = default_skill_registry.render_prompt_context(body.message, route.mode, max_skills=2)
+    knowledge_lines = [f'- {e[body.lang]}' for e in entries]
+    for chunk in rag_chunks:
+        line = f'- [{chunk.scope}] {chunk.content}'
+        if line not in knowledge_lines:
+            knowledge_lines.append(line)
+    knowledge = '\n'.join(knowledge_lines)
+    system_content = SYSTEM_PROMPT[body.lang] + '\n\nKIẾN THỨC / KNOWLEDGE:\n' + knowledge
+    if body.lang == 'vi' and skills_block:
+        system_content += '\n\nKỸ NĂNG TƯ VẤN:\n' + skills_block
+    messages = [{'role': 'system', 'content': system_content}]
     for turn in body.history[-6:]:
         messages.append({'role': turn.role, 'content': turn.content[:600]})
     messages.append({'role': 'user', 'content': body.message})
     reply = clean_reply(call(messages))
     if not reply:
         raise ValueError('EMPTY_REPLY')
+    ver = _landing_verifier.verify(reply, allow_draft_mutation=False)
+    if not ver.passed and ver.safe_correction:
+        reply = ver.safe_correction
     return {'reply': reply, 'sources': [e['id'] for e in entries]}

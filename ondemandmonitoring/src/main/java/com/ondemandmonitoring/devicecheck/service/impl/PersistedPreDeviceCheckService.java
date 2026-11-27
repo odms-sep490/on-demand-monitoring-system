@@ -357,6 +357,7 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
                     "A required inspection cannot be marked not applicable");
         }
 
+        PreDeviceItemStatus previousStatus = item.getStatus();
         item.setStatus(request.getStatus());
         item.setMessage(request.getMessage());
         item.setMeasuredValue(request.getMeasuredValue());
@@ -371,6 +372,8 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
 
         if (request.getStatus() == PreDeviceItemStatus.FAILED) {
             openMaintenanceTicketForFailedItem(run, item);
+        } else if (previousStatus == PreDeviceItemStatus.FAILED) {
+            cancelMaintenanceTicketIfCorrected(run);
         }
 
         return PersistedPreDeviceCheckResponse.from(run);
@@ -387,6 +390,22 @@ public class PersistedPreDeviceCheckService implements IPersistedPreDeviceCheckS
         String summary = item.getMessage() == null || item.getMessage().isBlank()
                 ? label : label + ": " + item.getMessage().trim();
         maintenanceWorkflowService.openPreflightFailureTicket(device, authenticatedUserResolver.getCurrentUser(), summary);
+    }
+
+    /**
+     * A mistaken "failed" mark that the pilot corrects must not leave the drone locked. When no item of this
+     * run is FAILED any more and the pilot has not requested a drone replacement (which confirms a real
+     * fault), the unclaimed ticket the preflight opened is cancelled and the drone unlocked.
+     */
+    private void cancelMaintenanceTicketIfCorrected(PersistedPreDeviceCheck run) {
+        var assignment = run.getMissionDeviceAssignment();
+        Device device = assignment == null ? null : assignment.getDevice();
+        if (maintenanceWorkflowService == null || device == null) return;
+        if (assignment.getReplacementRequestedAt() != null) return;
+        boolean stillFailing = run.getItems().stream().anyMatch(i -> i.getStatus() == PreDeviceItemStatus.FAILED);
+        if (stillFailing) return;
+        maintenanceWorkflowService.cancelPreflightFailureTicket(device, authenticatedUserResolver.getCurrentUser(),
+                "Phi công đã sửa kết quả kiểm tra trước bay thành đạt");
     }
 
     /** Internal evidence path used by trusted backend probes; intentionally not exposed by a controller. */

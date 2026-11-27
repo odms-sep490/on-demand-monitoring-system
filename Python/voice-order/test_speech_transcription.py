@@ -61,5 +61,35 @@ class SpeechTests(unittest.TestCase):
                 self.assertEqual(error.exception.status_code,429)
         finally:speech._slot.release()
         self.assertTrue(self.run_audio()['text'])
+    def test_relative_env_paths_resolve_from_repo_root(self):
+        with tempfile.TemporaryDirectory() as fake_repo:
+            repo = Path(fake_repo).resolve()
+            model_dir = repo / '.ai-runtime' / 'models' / 'Qwen3-ASR-0.6B'
+            model_dir.mkdir(parents=True)
+            (model_dir / 'model.safetensors').write_bytes(b'ok')
+            py_file = repo / '.ai-runtime' / 'asr-env' / 'Scripts' / 'python.exe'
+            py_file.parent.mkdir(parents=True)
+            py_file.write_bytes(b'py')
+            with patch.object(speech, '_REPO_ROOT', repo), patch.dict(
+                os.environ,
+                {
+                    'ORDER_ASR_MODEL_PATH': '.ai-runtime/models/Qwen3-ASR-0.6B',
+                    'ORDER_ASR_PYTHON': '.ai-runtime/asr-env/Scripts/python.exe',
+                },
+            ):
+                self.assertEqual(speech._resolve_model_path(), model_dir)
+                self.assertEqual(speech._resolve_python_path(), py_file)
+                self.assertTrue(speech.configured())
+    def test_unset_env_paths_fall_back_to_default_repo_runtime(self):
+        with tempfile.TemporaryDirectory() as fake_repo:
+            repo = Path(fake_repo).resolve()
+            model_dir = repo / '.ai-runtime' / 'models' / 'Qwen3-ASR-0.6B'
+            model_dir.mkdir(parents=True)
+            (model_dir / 'model.safetensors').write_bytes(b'ok')
+            with patch.object(speech, '_REPO_ROOT', repo), patch.dict(
+                os.environ, {'ORDER_ASR_MODEL_PATH': '', 'ORDER_ASR_PYTHON': ''}
+            ):
+                self.assertEqual(speech._resolve_model_path(), model_dir)
+                self.assertTrue(speech.configured())
 
 if __name__=='__main__':unittest.main()

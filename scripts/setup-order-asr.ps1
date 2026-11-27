@@ -35,7 +35,11 @@ foreach ($name in @('config.json','generation_config.json','chat_template.json',
 if ((Get-FileHash -LiteralPath $weights -Algorithm SHA256).Hash.ToLower() -ne $sha) { throw 'ASR checkpoint checksum mismatch.' }
 $config = Join-Path $repo '.env'
 $lines = if (Test-Path -LiteralPath $config) { @(Get-Content -LiteralPath $config) } else { @() }
-foreach ($entry in @{ORDER_ASR_MODEL_PATH=$model;ORDER_ASR_PYTHON=$python}.GetEnumerator()) {
+$envEntries = [ordered]@{
+    ORDER_ASR_PYTHON     = '.ai-runtime/asr-env/Scripts/python.exe'
+    ORDER_ASR_MODEL_PATH = '.ai-runtime/models/Qwen3-ASR-0.6B'
+}
+foreach ($entry in $envEntries.GetEnumerator()) {
     $lines = @($lines | Where-Object { $_ -notmatch ('^'+$entry.Key+'=') })
     $lines += ($entry.Key+'='+$entry.Value)
 }

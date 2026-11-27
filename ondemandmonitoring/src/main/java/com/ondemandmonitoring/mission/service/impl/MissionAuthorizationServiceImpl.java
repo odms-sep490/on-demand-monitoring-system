@@ -135,10 +135,9 @@ public class MissionAuthorizationServiceImpl implements IMissionAuthorizationSer
                                     mission.getId(), "CONFIRMED")
                             .isPresent();
                     return inspector && mainDeviceReady && controlHandedOver
-                            && acceptedRoles.containsAll(Set.of(MissionStaffRole.PILOT,
-                                    MissionStaffRole.OPERATOR, MissionStaffRole.MAINTAINER,
-                                    MissionStaffRole.INSPECTOR, MissionStaffRole.TECHNICAL))
-                            && crew.stream().allMatch(entry ->
+                            && acceptedRoles.containsAll(MissionService.REQUIRED_CREW_ROLES)
+                            // TECHNICAL is maintenance staff, not flight crew: it never gates a mission.
+                            && crew.stream().filter(entry -> MissionService.REQUIRED_CREW_ROLES.contains(entry.getAssignedRole())).allMatch(entry ->
                                     entry.getResponseStatus() == MissionStaffAssignmentStatus.ACCEPTED);
                 }).orElse(false);
     }

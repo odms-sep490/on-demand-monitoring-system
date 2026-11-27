@@ -704,7 +704,9 @@ public class MissionService implements IMissionService {
     @Transactional
     @PreAuthorize("@missionAuthorizationService.canManageMissions()")
     public MissionResponse cancelMission(String missionId, String reason) {
-        Mission mission = missionRepository.findById(missionId)
+        // Row lock: serializes with start-flight and other status changes so a mission cannot be cancelled
+        // (and its resources released) while it is concurrently being started.
+        Mission mission = missionRepository.findByIdForUpdate(missionId)
                 .orElseThrow(() -> new ApiException(ErrorCode.MISSION_NOT_FOUND));
         requireStatus(mission, MissionStatus.READY);
 

@@ -122,6 +122,7 @@ public enum ErrorCode {
     /**
      * Service & DeliverableType Error Codes
      */
+    SERVICE_IN_USE("Dịch vụ đã có đơn hàng hoặc dữ liệu liên quan nên không thể xóa. Bạn có thể tạm ngừng kích hoạt dịch vụ thay thế.", HttpStatus.CONFLICT),
     SERVICE_NOT_FOUND("Service not found", HttpStatus.NOT_FOUND),
     ORDER_CHECKLIST_LOCKED("Order checklist snapshot is immutable", HttpStatus.CONFLICT),
     ORDER_CHECKLIST_EDIT_LOCKED("Order checklist can no longer be edited", HttpStatus.CONFLICT),

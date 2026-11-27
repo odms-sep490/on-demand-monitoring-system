@@ -70,6 +70,13 @@ DO $$ DECLARE entry record; BEGIN
     END LOOP;
 END $$;
 
+-- Durable seed-once identity; deliberately no FK to services and no deletion cascade.
+-- JPA creates this on a fresh schema; keep the consolidated bootstrap self-describing/rerunnable.
+CREATE TABLE IF NOT EXISTS public.service_catalog_bootstrap (
+    id varchar(80) PRIMARY KEY,
+    initialized_at timestamp with time zone NOT NULL
+);
+
 -- Additional prerequisites: bootstrap markers and Phase 5/6 execution/evidence.
 -- JPA already owns base columns/tables and enum/reason/timing checks.
 DO $$ BEGIN

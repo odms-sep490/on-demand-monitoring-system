@@ -93,7 +93,7 @@ public class ChecklistImageVisionClient {
                 .with(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY);
         this.local = vision.getProvider() == Provider.OLLAMA;
         this.timeoutSeconds = timeoutFor(vision);
-        String defaultBase = local ? "http://127.0.0.1:11434/v1" : openRouter.getBaseUrl();
+        String defaultBase = local ? vision.getOllamaBaseUrl().replaceAll("/+$", "") + "/v1" : openRouter.getBaseUrl();
         this.endpoint = vision.isEnabled() ? endpoint(firstSet(vision.getBaseUrl(), defaultBase), local) : null;
         this.model = firstSet(vision.getModel(), "");
         this.apiKey = local ? "" : firstSet(vision.getApiKey(), openRouter.getApiKey());
@@ -330,7 +330,7 @@ public class ChecklistImageVisionClient {
             URI base = URI.create(baseUrl);
             String host = base.getHost();
             boolean permitted = local
-                    ? "http".equals(base.getScheme()) && "127.0.0.1".equals(host)
+                    ? "http".equals(base.getScheme()) && ("127.0.0.1".equals(host) || "localhost".equalsIgnoreCase(host))
                     : "https".equalsIgnoreCase(base.getScheme()) && host != null;
             if (permitted
                     && base.getRawUserInfo() == null && base.getRawQuery() == null && base.getRawFragment() == null) {

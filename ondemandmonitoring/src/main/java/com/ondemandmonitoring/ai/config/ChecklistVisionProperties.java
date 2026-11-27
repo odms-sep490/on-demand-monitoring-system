@@ -14,6 +14,8 @@ public class ChecklistVisionProperties {
 
     private boolean enabled;
     private Provider provider = Provider.OPENROUTER;
+    @org.springframework.beans.factory.annotation.Value("${OLLAMA_URL:http://127.0.0.1:11434}")
+    private String ollamaBaseUrl = "http://127.0.0.1:11434";
     private String model;
     private String baseUrl;
     private String apiKey;

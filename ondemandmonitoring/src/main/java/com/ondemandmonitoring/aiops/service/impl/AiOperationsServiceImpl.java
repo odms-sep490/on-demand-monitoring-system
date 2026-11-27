@@ -138,16 +138,20 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
                         "SELECT enabled FROM checklist_image_ai_settings WHERE id = 'default'",
                         rs -> rs.next() && rs.getBoolean(1)));
                 row.put("name", deployment.model().isBlank() ? "Chưa cấu hình mô hình" : deployment.model());
-                row.put("version", "Đánh giá ảnh checklist");
+                row.put("version", deployment.model().contains(":")
+                        ? deployment.model().substring(deployment.model().indexOf(':') + 1) : "");
                 row.put("capability", "Đối chiếu ảnh với từng tiêu chí của checklist");
                 row.put("source", deployment.provider());
-                row.put("runtime", deployment.provider().equals("Ollama") ? "Ollama cục bộ" : "OpenRouter qua API");
-                row.put("device", "Theo cấu hình nhà cung cấp");
+                row.put("runtime", deployment.provider());
+                row.put("device", "");
                 row.put("endpoint", deployment.endpoint());
                 row.put("license", "Theo giấy phép của mô hình");
                 row.put("checksum_sha256", "Chưa xác minh");
                 row.put("model_size", "Chưa xác định");
-                if (!deployment.configured()) row.put("status", "UNCONFIGURED");
+                var probe = probeChecklistVision(deployment);
+                row.put("status", probe.status());
+                row.put("endpoint", probe.endpoint());
+                endpointStatus.put(probe.endpoint(), probe.status());
             }
             boolean enabled = Boolean.TRUE.equals(row.get("enabled"));
             String endpoint = Objects.toString(row.get("endpoint"), "");
@@ -271,7 +275,9 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
         var row = rows.getFirst();
         String endpoint = Objects.toString(row.get("endpoint"), "");
         String name = Objects.toString(row.get("name"), code);
-        ServiceHealthView probe = probeEndpoint(code, name, endpoint, false);
+        var vision = checklistVisionProvider == null ? null : checklistVisionProvider.getIfAvailable();
+        ServiceHealthView probe = ChecklistVisionRuntime.MODEL_CODE.equals(code) && vision != null
+                ? probeChecklistVision(vision.deployment()) : probeEndpoint(code, name, endpoint, false);
         db.update(
                 "UPDATE ai_models SET status = ?, updated_at = now() WHERE code = ?",
                 Boolean.TRUE.equals(row.get("enabled")) ? probe.status() : "DISABLED",
@@ -291,6 +297,25 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
                 )
         );
         return probe;
+    }
+
+    private ServiceHealthView probeChecklistVision(
+            com.ondemandmonitoring.ai.client.ChecklistImageVisionClient.Deployment deployment) {
+        if (!deployment.configured()) {
+            return new ServiceHealthView(ChecklistVisionRuntime.MODEL_CODE, deployment.model(),
+                    deployment.endpoint(), "UNCONFIGURED", 0, "Chưa cấu hình nhà cung cấp hoặc mô hình", List.of(), Instant.now());
+        }
+        if (!"Ollama".equals(deployment.provider())) {
+            return new ServiceHealthView(ChecklistVisionRuntime.MODEL_CODE, deployment.model(),
+                    deployment.endpoint(), "IDLE", 0, "Đã cấu hình API, chưa kiểm tra suy luận", List.of(), Instant.now());
+        }
+        String readiness = URI.create(deployment.endpoint()).resolve("/api/tags").toString();
+        var probe = probeEndpoint(ChecklistVisionRuntime.MODEL_CODE, deployment.model(), readiness, true);
+        if (!"HEALTHY".equals(probe.status())) return probe;
+        boolean installed = probe.loadedModels().contains(deployment.model());
+        return new ServiceHealthView(probe.code(), probe.name(), probe.endpoint(), installed ? "HEALTHY" : "DEGRADED",
+                probe.latencyMs(), installed ? "Ollama đang chạy và đã có mô hình được cấu hình"
+                : "Ollama đang chạy nhưng chưa có mô hình " + deployment.model(), probe.loadedModels(), Instant.now());
     }
 
     public List<ServiceHealthView> checkServices() {

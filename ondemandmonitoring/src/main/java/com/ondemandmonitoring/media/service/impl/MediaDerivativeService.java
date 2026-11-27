@@ -1,6 +1,7 @@
 package com.ondemandmonitoring.media.service.impl;
 
 import com.ondemandmonitoring.media.domain.MediaAsset;
+import com.ondemandmonitoring.media.cleanup.ObjectCleanupOutbox;
 import com.ondemandmonitoring.media.enums.MediaDerivativeStatus;
 import com.ondemandmonitoring.media.enums.MediaStorageStatus;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
@@ -50,6 +51,7 @@ public class MediaDerivativeService {
     private final MediaAssetRepository media;
     private final IMediaObjectStorage storage;
     private final PlatformTransactionManager transactions;
+    private final ObjectCleanupOutbox cleanup;
     private final ConcurrentMap<String, CachedUrl> signedUrls = new ConcurrentHashMap<>();
     private final Semaphore videoProcessor = new Semaphore(1);
 
@@ -185,11 +187,8 @@ public class MediaDerivativeService {
                     BufferedImage decoded = decode(input);
                     byte[] preview = jpeg(resize(decoded, PREVIEW_EDGE), 0.84f);
                     byte[] thumbnail = jpeg(resize(decoded, THUMBNAIL_EDGE), 0.78f);
-                    storage.put(work.bucket(), thumbnailKey, "image/jpeg", thumbnail.length,
-                            new ByteArrayInputStream(thumbnail), "[MEDIA-THUMBNAIL]");
-                    storage.put(work.bucket(), previewKey, "image/jpeg", preview.length,
-                            new ByteArrayInputStream(preview), "[MEDIA-PREVIEW]");
-                    return persistSuccess(work, thumbnailKey, previewKey, thumbnail.length, preview.length);
+                    return uploadAndPublish(work, thumbnailKey, previewKey, thumbnail.length, preview.length,
+                            new ByteArrayInputStream(thumbnail), new ByteArrayInputStream(preview));
                 }
             }
 
@@ -210,13 +209,9 @@ public class MediaDerivativeService {
                 throw new IOException("Video preview failed output validation");
             try (InputStream poster = Files.newInputStream(thumbnailPath);
                  InputStream preview = Files.newInputStream(previewPath)) {
-                storage.put(work.bucket(), thumbnailKey, "image/jpeg", thumbnailSize, poster, "[MEDIA-VIDEO-POSTER]");
-                storage.put(work.bucket(), previewKey, "video/mp4", previewSize, preview, "[MEDIA-VIDEO-PREVIEW]");
+                return uploadAndPublish(work, thumbnailKey, previewKey, thumbnailSize, previewSize, poster, preview);
             }
-            return persistSuccess(work, thumbnailKey, previewKey, thumbnailSize, previewSize);
         } catch (Exception failure) {
-            storage.deleteQuietly(work.bucket(), thumbnailKey);
-            storage.deleteQuietly(work.bucket(), previewKey);
             markFailure(work, failure);
             log.warn("Media derivative creation failed. mediaId={}, mediaType={}, cause={}",
                     id, mediaType, failure.getClass().getSimpleName());
@@ -230,11 +225,12 @@ public class MediaDerivativeService {
     }
 
     private boolean persistSuccess(Work work, String thumbnailKey, String previewKey,
-            long thumbnailSize, long previewSize) {
+            long thumbnailSize, long previewSize, List<String> reservations) {
             boolean saved = new TransactionTemplate(transactions).execute(status -> {
                 MediaAsset asset = media.findByIdForUpdate(work.id()).orElse(null);
                 if (asset == null || asset.getStorageStatus() != MediaStorageStatus.AVAILABLE
-                        || !ownsAttempt(asset, work)) return false;
+                        || !ownsAttempt(asset, work) || !freshAttempt(asset)) return false;
+                reservations.forEach(cleanup::protectReservation);
                 asset.setThumbnailKey(thumbnailKey);
                 asset.setPreviewKey(previewKey);
                 asset.setThumbnailSizeBytes(thumbnailSize);
@@ -243,13 +239,39 @@ public class MediaDerivativeService {
                 asset.setDerivativeProcessedAt(Instant.now());
                 asset.setDerivativeErrorCode(null);
                 media.save(asset);
+                reservations.forEach(cleanup::cancelReservation);
                 return true;
             });
-            if (!Boolean.TRUE.equals(saved)) {
-                storage.deleteQuietly(work.bucket(), thumbnailKey);
-                storage.deleteQuietly(work.bucket(), previewKey);
-            }
             return Boolean.TRUE.equals(saved);
+    }
+
+    /** Both durable candidates exist before the publication transaction takes their locks. */
+    private boolean uploadAndPublish(Work work, String thumbnailKey, String previewKey,
+            long thumbnailSize, long previewSize, InputStream thumbnail, InputStream preview) {
+        var reservations = List.of(
+                cleanup.reserveUpload(work.bucket(), thumbnailKey, MediaDerivativeCleanupGuard.TYPE, work.id()),
+                cleanup.reserveUpload(work.bucket(), previewKey, MediaDerivativeCleanupGuard.TYPE, work.id()));
+        // REQUIRED: locks remain held through BOTH PUTs and nested persistSuccess. A cleanup claim
+        // either wins before this transaction (preventing PUT) or skips the protected task rows.
+        return Boolean.TRUE.equals(new TransactionTemplate(transactions).execute(status -> {
+            reservations.forEach(cleanup::protectReservation);
+            MediaAsset asset = media.findByIdForUpdate(work.id()).orElse(null);
+            if (asset == null || asset.getStorageStatus() != MediaStorageStatus.AVAILABLE
+                    || !ownsAttempt(asset, work) || !freshAttempt(asset)) return false;
+            asset.setDerivativeProcessedAt(Instant.now());
+            media.save(asset);
+            boolean video = "VIDEO".equals(work.mediaType());
+            storage.put(work.bucket(), thumbnailKey, "image/jpeg", thumbnailSize, thumbnail,
+                    video ? "[MEDIA-VIDEO-POSTER]" : "[MEDIA-THUMBNAIL]");
+            storage.put(work.bucket(), previewKey, video ? "video/mp4" : "image/jpeg", previewSize, preview,
+                    video ? "[MEDIA-VIDEO-PREVIEW]" : "[MEDIA-PREVIEW]");
+            return persistSuccess(work, thumbnailKey, previewKey, thumbnailSize, previewSize, reservations);
+        }));
+    }
+
+    private boolean freshAttempt(MediaAsset asset) {
+        return asset.getDerivativeProcessedAt() != null && !asset.getDerivativeProcessedAt()
+                .isBefore(Instant.now().minusSeconds(Math.max(1, staleMinutes) * 60L));
     }
 
     private void markFailure(Work work, Exception failure) {

@@ -10,6 +10,8 @@ import com.ondemandmonitoring.common.api.PageResponse;
 import com.ondemandmonitoring.common.exception.*;
 import static com.ondemandmonitoring.checklist.util.ChecklistContentNormalizer.content;
 import static com.ondemandmonitoring.checklist.util.ChecklistContentNormalizer.canonicalize;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +25,8 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class ChecklistServiceImpl implements IChecklistService {
+    private static final int MAX_IMAGE_ASSESSMENT_CRITERIA = 8;
+    private static final int MAX_IMAGE_ASSESSMENT_CRITERION_LENGTH = 300;
     private static final Set<String> SORT_FIELDS = Set.of("id", "content", "isActive", "createdAt", "updatedAt");
     private final ChecklistDefinitionRepository repository;
     private final ChecklistMapper mapper;
@@ -99,6 +103,9 @@ public class ChecklistServiceImpl implements IChecklistService {
         entity.setNormalizedContent(normalized);
         applyPricing(entity, request, true);
         applyGuidance(entity, request);
+        applyImageAssessmentCriteria(entity, request.getImageAssessmentCriteria());
+        if (request.getImageAssessmentEnabled() != null)
+            entity.setImageAssessmentEnabled(request.getImageAssessmentEnabled());
         var created = repository.saveAndFlush(entity);
         if (audit != null) audit.record(com.ondemandmonitoring.checklist.enums.ChecklistConfigAuditAction.CHECKLIST_CREATED,
                 created, null, java.util.Map.of(), audit.snapshot(created));
@@ -151,6 +158,9 @@ public class ChecklistServiceImpl implements IChecklistService {
         entity.setNormalizedContent(normalized);
         applyPricing(entity, request, false);
         applyGuidance(entity, request);
+        applyImageAssessmentCriteria(entity, request.getImageAssessmentCriteria());
+        if (request.getImageAssessmentEnabled() != null)
+            entity.setImageAssessmentEnabled(request.getImageAssessmentEnabled());
         var saved = repository.saveAndFlush(entity);
         if (audit != null) audit.record(com.ondemandmonitoring.checklist.enums.ChecklistConfigAuditAction.CHECKLIST_UPDATED,
                 saved, null, before, audit.snapshot(saved));
@@ -184,6 +194,33 @@ public class ChecklistServiceImpl implements IChecklistService {
         if (request.getExecutionSteps() != null) entity.setExecutionSteps(cleanList(request.getExecutionSteps()));
         if (request.getInputRequirements() != null) entity.setInputRequirements(cleanList(request.getInputRequirements()));
         if (request.getExpectedOutputs() != null) entity.setExpectedOutputs(cleanList(request.getExpectedOutputs()));
+    }
+
+    private static void applyImageAssessmentCriteria(ChecklistDefinition entity, List<String> criteria) {
+        if (criteria == null) return;
+        if (criteria.size() > MAX_IMAGE_ASSESSMENT_CRITERIA) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR, "imageAssessmentCriteria must contain at most 8 criteria");
+        }
+
+        var normalized = new ArrayList<String>(criteria.size());
+        for (String criterion : criteria) {
+            if (criterion == null || criterion.isBlank()) {
+                throw new ApiException(ErrorCode.VALIDATION_ERROR, "imageAssessmentCriteria must not contain blank criteria");
+            }
+            String instruction = criterion.strip();
+            if (instruction.chars().anyMatch(Character::isISOControl)) {
+                throw new ApiException(ErrorCode.VALIDATION_ERROR,
+                        "Image assessment criteria must not contain control characters");
+            }
+            if (instruction.length() > MAX_IMAGE_ASSESSMENT_CRITERION_LENGTH) {
+                throw new ApiException(ErrorCode.VALIDATION_ERROR, "Each image assessment criterion must contain at most 300 characters");
+            }
+            normalized.add(instruction);
+        }
+
+        if (!normalized.equals(entity.getImageAssessmentCriteria())) {
+            entity.setImageAssessmentCriteria(List.copyOf(normalized));
+        }
     }
 
     private static java.util.List<String> cleanList(java.util.List<String> values) {

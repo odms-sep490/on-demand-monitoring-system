@@ -37,6 +37,8 @@ public interface IAiOperationsService {
 
     List<AiTraceView> listTraces(int limit);
 
+    AiTraceView getTrace(String traceId);
+
     List<AiEvaluationView> listEvaluations();
 
     List<AiEvaluationView> syncDeepEvalFromDisk();

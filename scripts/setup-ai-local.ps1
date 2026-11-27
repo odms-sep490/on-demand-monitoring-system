@@ -44,15 +44,12 @@ foreach ($entry in @(
 }
 $config = Join-Path $repo '.env'
 if (-not (Test-Path -LiteralPath $config)) { New-Item -ItemType File -Path $config | Out-Null }
-$ollama = Find-LocalTool 'ollama' (Join-Path $env:LOCALAPPDATA 'Programs/Ollama/ollama.exe')
-if (-not $ollama) {
-    Write-Host '[Setup] Installing Ollama...'
-    & winget.exe install --id Ollama.Ollama --exact --accept-source-agreements --accept-package-agreements
-    if ($LASTEXITCODE) { throw 'Ollama installation failed. Install Ollama and retry.' }
-    $ollama = Find-LocalTool 'ollama' (Join-Path $env:LOCALAPPDATA 'Programs/Ollama/ollama.exe')
-    if (-not $ollama) { throw 'Cannot find Ollama after installation.' }
+$models = & (Join-Path $PSScriptRoot 'ensure-ollama.ps1') -InstallIfMissing
+try {
+    & (Join-Path $PSScriptRoot 'prepare-checklist-vision.ps1') -ConfigPath $config -ModelCatalog $models
+} catch {
+    Write-Warning "[Checklist Vision] $($_.Exception.Message) Run scripts/prepare-checklist-vision.ps1 to retry."
 }
-& (Join-Path $PSScriptRoot 'ensure-ollama.ps1') | Out-Null
 Write-Host '[Setup] Checking local ZeroTTS files; downloading only missing files...'
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'install-zerotts-tts.ps1')
 if ($LASTEXITCODE) { throw 'TTS setup failed.' }

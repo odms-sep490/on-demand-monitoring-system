@@ -1,6 +1,7 @@
 package com.ondemandmonitoring.checklist.dto.response;
 
 import java.time.Instant;
+import java.util.List;
 import lombok.*;
 
 @Getter
@@ -13,6 +14,8 @@ public class ChecklistResponse {
     private java.util.List<String> executionSteps;
     private java.util.List<String> inputRequirements;
     private java.util.List<String> expectedOutputs;
+    private List<String> imageAssessmentCriteria;
+    private boolean imageAssessmentEnabled;
     private Boolean isActive;
     private java.math.BigDecimal basePrice;
     private java.math.BigDecimal standardAreaM2;

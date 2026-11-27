@@ -20,8 +20,6 @@ import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 @RequiredArgsConstructor
@@ -39,6 +37,7 @@ public class MediaValidationServiceImpl implements IMediaValidationService {
     IMediaObjectStorage storage;
     IMediaObjectVerificationService verification;
     IMissionMediaEvidenceGuard missionLock;
+    MediaObjectCleanup cleanup;
 
     @Override
     @Transactional
@@ -68,27 +67,33 @@ public class MediaValidationServiceImpl implements IMediaValidationService {
         }
 
         MediaUploadAttempt attempt = found.get();
-        if (captured.getMediaStatus() == MediaStatus.REMOVED || captured.getStorageStatus() == MediaStorageStatus.DELETED
-                || captured.getStorageStatus() == MediaStorageStatus.DELETE_PENDING
-                || "ORPHAN_CLEANUP".equals(attempt.getFailureCode())) {
-            // A PUT started before expiry can arrive late. Never resurrect a removed object.
-            storage.delete(bucket, key);
-            recordEvent(eventKey, bucket, key);
-            return;
-        }
         // SQS and reconciliation can wait on the same row concurrently.
         if (inbox.existsByEventKey(eventKey)) {
+            return;
+        }
+
+        if (captured.getMediaStatus() == MediaStatus.REMOVED || captured.getStorageStatus() == MediaStorageStatus.DELETED
+                || captured.getStorageStatus() == MediaStorageStatus.DELETE_PENDING
+                || captured.getStorageStatus() == MediaStorageStatus.DELETE_FAILED
+                || "ORPHAN_CLEANUP".equals(attempt.getFailureCode())
+                || "ORPHAN_MULTIPART_ABORTED".equals(attempt.getFailureCode())) {
+            // A PUT started before expiry can arrive late. Never resurrect a removed object.
+            // Unique event identity permits cleaning a later PUT even after an earlier deletion completed.
+            cleanup.enqueue(bucket, key, eventKey);
+            recordEvent(eventKey, bucket, key);
             return;
         }
         boolean latest = attempts.findFirstByMediaIdOrderByAttemptNumberDesc(captured.getId())
                 .map(current -> current.getId().equals(attempt.getId())).orElse(false);
 
         if (!latest || attempt.getStatus() == UploadAttemptStatus.FAILED) {
+            cleanup.enqueue(bucket, key, eventKey);
             recordEvent(eventKey, bucket, key);
             return;
         }
 
         if (attempt.getStatus() == UploadAttemptStatus.SUCCEEDED) {
+            cleanup.enqueue(bucket, key, eventKey);
             recordEvent(eventKey, bucket, key);
             return;
         }
@@ -117,12 +122,14 @@ public class MediaValidationServiceImpl implements IMediaValidationService {
             return;
         }
 
-        String finalKey = key.replaceFirst("(^|/)staging/", "$1final/");
+        String finalKey = key.replaceFirst("(^|/)staging/", "$1final/" + UUID.randomUUID() + "/");
 
         if (finalKey.equals(key)) {
             throw new IllegalStateException("Attempt key is outside staging prefix");
         }
 
+        String reservation = cleanup.reserveUpload(bucket, finalKey, captured.getId());
+        cleanup.protectReservation(reservation);
         storage.copy(bucket, key, finalKey);
         Instant now = Instant.now();
         captured.setS3Key(finalKey);
@@ -146,14 +153,8 @@ public class MediaValidationServiceImpl implements IMediaValidationService {
         audit(captured, attempt, MediaAuditAction.AVAILABLE, null);
         recordEvent(eventKey, bucket, key);
 
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    storage.deleteQuietly(bucket, key);
-                }
-            });
-        }
+        cleanup.cancelReservation(reservation);
+        cleanup.enqueue(bucket, key, eventKey);
     }
 
     private long failedAutomaticAttempts(String mediaId) {

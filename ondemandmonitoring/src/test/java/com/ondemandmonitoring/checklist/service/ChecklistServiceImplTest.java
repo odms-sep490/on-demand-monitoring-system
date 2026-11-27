@@ -83,6 +83,60 @@ class ChecklistServiceImplTest {
         assertEquals(java.util.List.of("Old step"), response.getExecutionSteps());
         assertNull(response.getExpectedOutputs());
     }
+    @Test void imageCriteriaAreTrimmedAndOrderedOnCreate() {
+        var request = request("Roof");
+        request.setImageAssessmentCriteria(List.of("\t Show the roof \n", "Show surrounding structures"));
+
+        assertEquals(List.of("Show the roof", "Show surrounding structures"),
+                service.create(request).getImageAssessmentCriteria());
+    }
+    @Test void updatePreservesOmittedImageCriteriaAndAllowsExplicitRemoval() {
+        var entity = entity();
+        entity.setImageAssessmentCriteria(List.of("Show the roof"));
+        when(repository.findByIdForUpdate("c1")).thenReturn(Optional.of(entity));
+
+        assertEquals(List.of("Show the roof"), service.update("c1", request("Roof")).getImageAssessmentCriteria());
+
+        var disabled = request("Roof");
+        disabled.setImageAssessmentCriteria(List.of());
+        assertEquals(List.of(), service.update("c1", disabled).getImageAssessmentCriteria());
+        assertEquals(List.of(), entity.getImageAssessmentCriteria());
+    }
+    @Test void switchingAssessmentOffAndOnPreservesCriteria() {
+        var entity = entity();
+        entity.setImageAssessmentCriteria(List.of("Show the roof"));
+        when(repository.findByIdForUpdate("c1")).thenReturn(Optional.of(entity));
+        var request = request("Roof");
+        request.setImageAssessmentEnabled(false);
+        var disabled = service.update("c1", request);
+        assertFalse(disabled.isImageAssessmentEnabled());
+        assertEquals(List.of("Show the roof"), disabled.getImageAssessmentCriteria());
+        service.update("c1", request("Roof"));
+        assertFalse(entity.isImageAssessmentEnabled());
+        request.setImageAssessmentEnabled(true);
+        var enabled = service.update("c1", request);
+        assertTrue(enabled.isImageAssessmentEnabled());
+        assertEquals(List.of("Show the roof"), enabled.getImageAssessmentCriteria());
+    }
+
+    @Test void rejectsInvalidImageCriteriaWithoutSaving() {
+        var request = request("Roof");
+        for (List<String> criteria : List.of(List.of(" "), List.of("x".repeat(301)),
+                List.of("Show\tthe roof"), List.of("Show\nthe roof"), List.of("Show\u0085the roof"),
+                java.util.Collections.nCopies(9, "Show the roof"))) {
+            request.setImageAssessmentCriteria(criteria);
+            assertEquals(ErrorCode.VALIDATION_ERROR,
+                    assertThrows(ApiException.class, () -> service.create(request)).getErrorCode());
+        }
+        verify(repository, never()).saveAndFlush(any());
+    }
+    @Test void jsonImageCriteriaRejectNonStringValues() {
+        var json = tools.jackson.databind.json.JsonMapper.builder().build();
+        var request = json.readValue("{\"imageAssessmentCriteria\":[\"Show the roof\"]}", ChecklistRequest.class);
+        assertEquals(List.of("Show the roof"), request.getImageAssessmentCriteria());
+        assertThrows(tools.jackson.core.JacksonException.class,
+                () -> json.readValue("{\"imageAssessmentCriteria\":[123]}", ChecklistRequest.class));
+    }
     @Test void responsesCarryHowManyServicesAndOrdersUseTheChecklist() {
         var serviceUsage = mock(ServiceChecklistRepository.class);
         var orderUsage = mock(com.ondemandmonitoring.order.repository.OrderChecklistItemRepository.class);

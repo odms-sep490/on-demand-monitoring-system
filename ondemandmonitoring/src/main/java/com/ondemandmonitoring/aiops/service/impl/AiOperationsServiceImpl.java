@@ -4,6 +4,7 @@ import com.ondemandmonitoring.aiops.service.IAiOperationsService;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.ondemandmonitoring.aiops.service.ChecklistVisionRuntime;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ondemandmonitoring.aiops.dto.AiOperationsDtos.*;
 import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
@@ -35,6 +36,9 @@ import org.springframework.web.server.ResponseStatusException;
 public class AiOperationsServiceImpl implements IAiOperationsService {
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final DateTimeFormatter DAY_FMT = DateTimeFormatter.ofPattern("dd/MM");
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private org.springframework.beans.factory.ObjectProvider<com.ondemandmonitoring.ai.client.ChecklistImageVisionClient> checklistVisionProvider;
 
     private final JdbcTemplate db;
     private final ObjectMapper json;
@@ -123,14 +127,39 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
         for (ServiceHealthView svc : services) {
             endpointStatus.put(svc.endpoint(), svc.status());
         }
+        var checklistVision = checklistVisionProvider == null ? null : checklistVisionProvider.getIfAvailable();
         var rows = db.queryForList("SELECT * FROM ai_models ORDER BY model_type, name");
         List<AiModelView> result = new ArrayList<>();
-        for (var row : rows) {
+        for (var stored : rows) {
+            var row = new HashMap<>(stored);
+            if (ChecklistVisionRuntime.MODEL_CODE.equals(row.get("code")) && checklistVision != null) {
+                var deployment = checklistVision.deployment();
+                row.put("enabled", Boolean.TRUE.equals(row.get("enabled")) && db.query(
+                        "SELECT enabled FROM checklist_image_ai_settings WHERE id = 'default'",
+                        rs -> rs.next() && rs.getBoolean(1)));
+                row.put("name", deployment.model().isBlank() ? "Chưa cấu hình mô hình" : deployment.model());
+                row.put("version", deployment.model().contains(":")
+                        ? deployment.model().substring(deployment.model().indexOf(':') + 1) : "");
+                row.put("capability", "Đối chiếu ảnh với từng tiêu chí của checklist");
+                row.put("source", deployment.provider());
+                row.put("runtime", deployment.provider());
+                row.put("device", "");
+                row.put("endpoint", deployment.endpoint());
+                row.put("license", "Theo giấy phép của mô hình");
+                row.put("checksum_sha256", "Chưa xác minh");
+                row.put("model_size", "Chưa xác định");
+                var probe = probeChecklistVision(deployment);
+                row.put("status", probe.status());
+                row.put("endpoint", probe.endpoint());
+                endpointStatus.put(probe.endpoint(), probe.status());
+            }
             boolean enabled = Boolean.TRUE.equals(row.get("enabled"));
             String endpoint = Objects.toString(row.get("endpoint"), "");
             String computedStatus;
             if (!enabled) {
                 computedStatus = "DISABLED";
+            } else if ("UNCONFIGURED".equals(row.get("status"))) {
+                computedStatus = "UNCONFIGURED";
             } else {
                 String live = endpointStatus.get(endpoint);
                 if (live == null) {
@@ -176,6 +205,13 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
         if (updated == 0) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy model: " + code);
         }
+        if (ChecklistVisionRuntime.MODEL_CODE.equals(code)) {
+            db.update("""
+                    UPDATE checklist_image_ai_settings
+                    SET enabled = ?, version = version + 1, updated_at = now(), updated_by = ?
+                    WHERE id = 'default'
+                    """, enabled, safeCurrentUser());
+        }
         recordAudit(
                 code,
                 enabled ? "ENABLE_MODEL" : "KILL_SWITCH_DISABLE",
@@ -196,6 +232,7 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
     @Transactional
     public AiModelView updateModelConfig(String code, Map<String, Object> config) {
         ensureSchema();
+        if (ChecklistVisionRuntime.MODEL_CODE.equals(code)) ChecklistVisionRuntime.parse(json.valueToTree(config));
         // Whitelist only safe configuration keys — never allow shell/command/path execution keys.
         Set<String> allowedKeys = Set.of("temperature", "timeoutSec", "maxTokens", "threshold", "blurThreshold", "language", "sampleRate");
         Map<String, Object> sanitized = new LinkedHashMap<>();
@@ -238,7 +275,9 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
         var row = rows.getFirst();
         String endpoint = Objects.toString(row.get("endpoint"), "");
         String name = Objects.toString(row.get("name"), code);
-        ServiceHealthView probe = probeEndpoint(code, name, endpoint, false);
+        var vision = checklistVisionProvider == null ? null : checklistVisionProvider.getIfAvailable();
+        ServiceHealthView probe = ChecklistVisionRuntime.MODEL_CODE.equals(code) && vision != null
+                ? probeChecklistVision(vision.deployment()) : probeEndpoint(code, name, endpoint, false);
         db.update(
                 "UPDATE ai_models SET status = ?, updated_at = now() WHERE code = ?",
                 Boolean.TRUE.equals(row.get("enabled")) ? probe.status() : "DISABLED",
@@ -258,6 +297,25 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
                 )
         );
         return probe;
+    }
+
+    private ServiceHealthView probeChecklistVision(
+            com.ondemandmonitoring.ai.client.ChecklistImageVisionClient.Deployment deployment) {
+        if (!deployment.configured()) {
+            return new ServiceHealthView(ChecklistVisionRuntime.MODEL_CODE, deployment.model(),
+                    deployment.endpoint(), "UNCONFIGURED", 0, "Chưa cấu hình nhà cung cấp hoặc mô hình", List.of(), Instant.now());
+        }
+        if (!"Ollama".equals(deployment.provider())) {
+            return new ServiceHealthView(ChecklistVisionRuntime.MODEL_CODE, deployment.model(),
+                    deployment.endpoint(), "IDLE", 0, "Đã cấu hình API, chưa kiểm tra suy luận", List.of(), Instant.now());
+        }
+        String readiness = URI.create(deployment.endpoint()).resolve("/api/tags").toString();
+        var probe = probeEndpoint(ChecklistVisionRuntime.MODEL_CODE, deployment.model(), readiness, true);
+        if (!"HEALTHY".equals(probe.status())) return probe;
+        boolean installed = probe.loadedModels().contains(deployment.model());
+        return new ServiceHealthView(probe.code(), probe.name(), probe.endpoint(), installed ? "HEALTHY" : "DEGRADED",
+                probe.latencyMs(), installed ? "Ollama đang chạy và đã có mô hình được cấu hình"
+                : "Ollama đang chạy nhưng chưa có mô hình " + deployment.model(), probe.loadedModels(), Instant.now());
     }
 
     public List<ServiceHealthView> checkServices() {
@@ -341,18 +399,21 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
         );
     }
 
-    public List<AiTraceView> listTraces(int limit) {
-        ensureSchema();
-        int bounded = Math.max(1, Math.min(limit, 200));
-        List<AiTraceView> items = new ArrayList<>();
+    public AiTraceView getTrace(String traceId) {
+        if (traceId == null || !traceId.matches("[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}"))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Mã truy vết không hợp lệ");
+        var rows = db.queryForList("SELECT * FROM ai_execution_audits WHERE trace_id = ? ORDER BY created_at DESC LIMIT 1", traceId);
+        if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy truy vết AI");
+        return mapTrace(rows.getFirst());
+    }
 
-        var auditRows = db.queryForList("SELECT * FROM ai_execution_audits ORDER BY created_at DESC LIMIT ?", bounded);
-        for (var r : auditRows) {
-            items.add(new AiTraceView(
+    private AiTraceView mapTrace(Map<String, Object> r) {
+        boolean checklistVision = Objects.toString(r.get("feature"), "").startsWith("CHECKLIST_VISION");
+        return new AiTraceView(
                     Objects.toString(r.get("id"), ""),
                     Objects.toString(r.get("trace_id"), ""),
-                    Objects.toString(r.get("user_id"), "system"),
-                    Objects.toString(r.get("user_role"), "SYSTEM"),
+                    Objects.toString(r.get("user_id"), checklistVision ? "" : "system"),
+                    Objects.toString(r.get("user_role"), checklistVision ? "" : "SYSTEM"),
                     Objects.toString(r.get("model_code"), ""),
                     Objects.toString(r.get("model_version"), ""),
                     Objects.toString(r.get("prompt_version"), "v1"),
@@ -369,7 +430,17 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
                     Objects.toString(r.get("human_review_status"), "PENDING"),
                     parseSpans(r.get("spans_json")),
                     toInstant(r.get("created_at"))
-            ));
+        );
+    }
+
+    public List<AiTraceView> listTraces(int limit) {
+        ensureSchema();
+        int bounded = Math.max(1, Math.min(limit, 200));
+        List<AiTraceView> items = new ArrayList<>();
+
+        var auditRows = db.queryForList("SELECT * FROM ai_execution_audits ORDER BY created_at DESC LIMIT ?", bounded);
+        for (var r : auditRows) {
+            items.add(mapTrace(r));
         }
 
         // Also project real Inspection Report Studio AI runs if the table exists.
@@ -423,16 +494,12 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
 
     public List<AiEvaluationView> listEvaluations() {
         ensureSchema();
-        List<AiEvaluationView> out = loadEvaluationsFromDb();
-        if (out.isEmpty()) {
-            syncDeepEvalFromDisk();
-            out = loadEvaluationsFromDb();
-        }
-        return out;
+        var evaluations = readPersistedEvaluations();
+        return evaluations.isEmpty() ? syncDeepEvalFromDisk() : evaluations;
     }
 
-    private List<AiEvaluationView> loadEvaluationsFromDb() {
-        var rows = db.queryForList("SELECT * FROM ai_evaluation_runs ORDER BY suite_group ASC, metric_name ASC LIMIT 100");
+    private List<AiEvaluationView> readPersistedEvaluations() {
+        var rows = db.queryForList("SELECT * FROM ai_evaluation_runs WHERE model_code <> 'checklist-image-vision' ORDER BY suite_group ASC, metric_name ASC LIMIT 100");
         List<AiEvaluationView> out = new ArrayList<>();
         for (var r : rows) {
             int totalCases = ((Number) r.getOrDefault("total_cases", 0)).intValue();
@@ -530,7 +597,7 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
                 // If file is unreadable, return persisted runs as-is.
             }
         }
-        return loadEvaluationsFromDb();
+        return readPersistedEvaluations();
     }
 
     public List<EvaluationCaseView> listEvaluationCases(
@@ -763,7 +830,10 @@ public class AiOperationsServiceImpl implements IAiOperationsService {
                 new GuardrailPolicyView("sec-7", "Unauthorized AI Access", "Spring Security RBAC (@PreAuthorize) + X-Internal-Token cho worker nội bộ", "Access Control", true),
                 new GuardrailPolicyView("sec-8", "Malicious Image Upload", "Kiểm tra MIME type, dung lượng tối đa 12 MB và xác thực nguồn ảnh đã duyệt", "Media Guard", true),
                 new GuardrailPolicyView("sec-9", "Unauthorized Tool Calling", "Chỉ cho phép gọi các read-only tool nằm trong allowlist của backend", "Tool Guardrail", true),
-                new GuardrailPolicyView("sec-10", "Resource Exhaustion", "Giới hạn max_tokens, context window và hàng đợi xử lý trên GPU/CPU local", "Runtime Guard", true)
+                new GuardrailPolicyView("sec-10", "Resource Exhaustion", "Giới hạn max_tokens, context window và hàng đợi xử lý trên GPU/CPU local", "Runtime Guard", true),
+                new GuardrailPolicyView("checklist-vision-input", "Ảnh đánh giá checklist", "JPEG tối đa 2 MiB, tối đa 16 tiêu chí và kiểm tra quyền truy cập bằng chứng", "Checklist Vision · Đầu vào", true),
+                new GuardrailPolicyView("checklist-vision-output", "Kết quả đánh giá checklist", "JSON đúng schema, đủ mã tiêu chí, kết luận MATCH/MISMATCH/UNCERTAIN và nhận xét có giới hạn", "Checklist Vision · Đầu ra", true),
+                new GuardrailPolicyView("checklist-vision-rate", "Quá tải đánh giá ảnh", "Luồng Inspector giới hạn 4 yêu cầu đồng thời, 48 yêu cầu/phút toàn hệ thống và 8 yêu cầu/phút mỗi Inspector", "Checklist Vision · Tần suất", true)
         );
         var rows = db.queryForList("SELECT * FROM ai_security_events ORDER BY created_at DESC LIMIT 100");
         List<AiSecurityEventView> events = new ArrayList<>();

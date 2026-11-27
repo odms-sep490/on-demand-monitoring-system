@@ -9,9 +9,6 @@ import com.ondemandmonitoring.service.repository.ServiceRepository;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
@@ -27,26 +24,24 @@ import org.springframework.transaction.annotation.Transactional;
 public class ServiceCatalogSeedDataInitializer implements ApplicationRunner {
 
     private final ServiceRepository serviceRepository;
+    private final com.ondemandmonitoring.service.repository.ServiceCatalogBootstrapRepository bootstrap;
     private final DeliverableTypeRepository deliverableTypeRepository;
     private final ServiceDeliverableRepository serviceDeliverableRepository;
 
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
-        int servicesUpserted = seedServices();
-        int legacyServicesDeactivated = deactivateLegacyServices();
-        int deliverablesUpserted = seedDeliverableTypes();
-        int legacyDeliverablesDeactivated = deactivateUnsupportedDeliverableTypes();
+        if (bootstrap.claimInitialization() == 0) return;
+        // Adopt existing catalogs without rewriting activation, custom rows, names, or configuration.
+        if (serviceRepository.count() > 0) {
+            log.info("Existing service catalog marked initialized without changes");
+            return;
+        }
+        int servicesCreated = seedServices();
+        int deliverablesCreated = seedDeliverableTypes();
         int linksCreated = seedServiceDeliverables();
-        pruneUnsupportedServiceDeliverables();
-        log.info(
-                "Service catalog seed completed: services={}, legacyServicesDeactivated={}, deliverableTypes={}, legacyDeliverableTypesDeactivated={}, serviceDeliverables={}",
-                servicesUpserted,
-                legacyServicesDeactivated,
-                deliverablesUpserted,
-                legacyDeliverablesDeactivated,
-                linksCreated
-        );
+        log.info("Fresh service catalog initialized: services={}, deliverables={}, links={}",
+                servicesCreated, deliverablesCreated, linksCreated);
     }
 
     private int seedServices() {
@@ -89,59 +84,11 @@ public class ServiceCatalogSeedDataInitializer implements ApplicationRunner {
     }
 
     private boolean upsertService(ServiceSeed seed) {
-        Service service = serviceRepository.findByCodeIgnoreCase(seed.code())
-                .or(() -> serviceRepository.findByNameIgnoreCase(seed.name()))
-                .orElseGet(Service::new);
-
-        boolean changed = false;
-        if (!seed.code().equals(service.getCode())) {
-            service.setCode(seed.code());
-            changed = true;
-        }
-        if (!seed.name().equals(service.getName())) {
-            service.setName(seed.name());
-            changed = true;
-        }
-        if (!seed.description().equals(service.getDescription())) {
-            service.setDescription(seed.description());
-            changed = true;
-        }
-        if (!Objects.equals(seed.imageUrl(), service.getImageUrl())) {
-            service.setImageUrl(seed.imageUrl());
-            changed = true;
-        }
-        if (!Boolean.TRUE.equals(service.getIsActive())) {
-            service.setIsActive(true);
-            changed = true;
-        }
-
-        if (service.getId() == null || changed) {
-            serviceRepository.save(service);
-            return true;
-        }
-        return false;
-    }
-
-    private int deactivateLegacyServices() {
-        Set<String> supportedCodes = serviceSeeds().stream()
-                .map(ServiceSeed::code)
-                .collect(Collectors.toSet());
-        Set<String> supportedNames = serviceSeeds().stream()
-                .map(ServiceSeed::name)
-                .map(String::toLowerCase)
-                .collect(Collectors.toSet());
-
-        int count = 0;
-        for (Service service : serviceRepository.findAll()) {
-            boolean supported = supportedCodes.contains(service.getCode())
-                    || (service.getName() != null && supportedNames.contains(service.getName().toLowerCase()));
-            if (!supported && Boolean.TRUE.equals(service.getIsActive())) {
-                service.setIsActive(false);
-                serviceRepository.save(service);
-                count++;
-            }
-        }
-        return count;
+        if (serviceRepository.findByCodeIgnoreCase(seed.code())
+                .or(() -> serviceRepository.findByNameIgnoreCase(seed.name())).isPresent()) return false;
+        serviceRepository.save(Service.builder().code(seed.code()).name(seed.name())
+                .description(seed.description()).imageUrl(seed.imageUrl()).isActive(true).build());
+        return true;
     }
 
     private int seedDeliverableTypes() {
@@ -163,48 +110,10 @@ public class ServiceCatalogSeedDataInitializer implements ApplicationRunner {
     }
 
     private boolean upsertDeliverableType(DeliverableTypeSeed seed) {
-        DeliverableType type = deliverableTypeRepository.findByNameIgnoreCase(seed.name())
-                .orElseGet(DeliverableType::new);
-
-        boolean changed = false;
-        if (!seed.name().equals(type.getName())) {
-            type.setName(seed.name());
-            changed = true;
-        }
-        if (!seed.defaultFormat().equals(type.getDefaultFormat())) {
-            type.setDefaultFormat(seed.defaultFormat());
-            changed = true;
-        }
-        if (!Boolean.TRUE.equals(type.getIsActive())) {
-            type.setIsActive(true);
-            changed = true;
-        }
-
-        if (type.getId() == null || changed) {
-            deliverableTypeRepository.save(type);
-            return true;
-        }
-        return false;
-    }
-
-    private int deactivateUnsupportedDeliverableTypes() {
-        Set<String> supportedNames = deliverableSeeds().stream()
-                .map(DeliverableTypeSeed::name)
-                .map(String::toLowerCase)
-                .collect(Collectors.toSet());
-
-        int count = 0;
-        for (DeliverableType type : deliverableTypeRepository.findAll()) {
-            if (type.getName() == null || supportedNames.contains(type.getName().toLowerCase())) {
-                continue;
-            }
-            if (Boolean.TRUE.equals(type.getIsActive())) {
-                type.setIsActive(false);
-                deliverableTypeRepository.save(type);
-                count++;
-            }
-        }
-        return count;
+        if (deliverableTypeRepository.findByNameIgnoreCase(seed.name()).isPresent()) return false;
+        deliverableTypeRepository.save(DeliverableType.builder().name(seed.name())
+                .defaultFormat(seed.defaultFormat()).isActive(true).build());
+        return true;
     }
 
     private int seedServiceDeliverables() {
@@ -238,24 +147,6 @@ public class ServiceCatalogSeedDataInitializer implements ApplicationRunner {
             }
         }
         return count;
-    }
-
-    private void pruneUnsupportedServiceDeliverables() {
-        Set<String> supportedServiceCodes = serviceSeeds().stream()
-                .map(ServiceSeed::code)
-                .collect(Collectors.toSet());
-        Set<String> supportedDeliverableNames = deliverableSeeds().stream()
-                .map(DeliverableTypeSeed::name)
-                .map(String::toLowerCase)
-                .collect(Collectors.toSet());
-
-        serviceDeliverableRepository.findAll().stream()
-                .filter(link -> link.getService() == null
-                        || link.getDeliverableType() == null
-                        || !supportedServiceCodes.contains(link.getService().getCode())
-                        || link.getDeliverableType().getName() == null
-                        || !supportedDeliverableNames.contains(link.getDeliverableType().getName().toLowerCase()))
-                .forEach(serviceDeliverableRepository::delete);
     }
 
     private record ServiceSeed(String code, String name, String description, String imageUrl) {

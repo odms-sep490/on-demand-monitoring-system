@@ -43,7 +43,7 @@ public final class ChecklistDefaultPricing {
             Map.entry(17, Pricing.of(700_000, 10, 1)),  // Quan sát khu vực có dấu hiệu bất thường
             Map.entry(18, Pricing.of(600_000, 15, 0)),  // Chụp ảnh các vị trí được chỉ định
             Map.entry(19, Pricing.of(600_000, 5, 1)),   // Ghi nhận hiện trạng sau khi hoàn tất giám sát
-            Map.entry(20, Pricing.of(1_750_000, 4, 0)),  // Chụp ảnh tổng quan công trình
+            Map.entry(20, Pricing.of(1_750_000, 4, 0)),  // Chụp ảnh các mặt ngoài công trình
             Map.entry(21, Pricing.of(1_750_000, 0, 1))); // Quay video quanh công trình
 
     public static Pricing forNumber(int number) { return BY_NUMBER.get(number); }

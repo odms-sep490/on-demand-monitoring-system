@@ -92,6 +92,9 @@ class ServiceChecklistServiceImplTest {
     }
     @Test void forkGivesTheServiceItsOwnCopyAndKeepsTheOriginalForOthers() {
         checklist.setDescription("Phạm vi"); checklist.setExecutionSteps(List.of("Bước 1", "Bước 2"));
+        var criteria = new java.util.ArrayList<>(List.of("Show the emergency exit"));
+        checklist.setImageAssessmentCriteria(criteria);
+        checklist.setImageAssessmentEnabled(false);
         checklist.setBasePrice(new java.math.BigDecimal("800000"));
         var link = link(); link.setRequired(true);
         when(assignments.findByServiceIdAndChecklistId("s1", "c1")).thenReturn(Optional.of(link));
@@ -105,6 +108,9 @@ class ServiceChecklistServiceImplTest {
         assertEquals("Check exits (Service)", result.getContent());
         assertEquals("Phạm vi", result.getDescription());
         assertEquals(List.of("Bước 1", "Bước 2"), result.getExecutionSteps());
+        criteria.clear();
+        assertEquals(List.of("Show the emergency exit"), link.getChecklist().getImageAssessmentCriteria());
+        assertFalse(link.getChecklist().isImageAssessmentEnabled());
         assertTrue(result.isRequired());
         assertEquals("c1", checklist.getId());
         assertEquals("Check exits", checklist.getContent(), "the shared original is untouched");

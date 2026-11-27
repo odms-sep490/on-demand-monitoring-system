@@ -24,6 +24,7 @@ public class ServiceServiceImpl implements IServiceService {
     ServiceRepository serviceRepository;
     ServiceMapper serviceMapper;
     IServiceImageService serviceImageService;
+    org.springframework.jdbc.core.JdbcTemplate db;
 
     @Override
     @Transactional
@@ -87,8 +88,23 @@ public class ServiceServiceImpl implements IServiceService {
     @Transactional
     public void delete(String id) {
         Service entity = getEntityForUpdate(id);
-        entity.setIsActive(false);
-        serviceRepository.save(entity);
+        if (Boolean.TRUE.equals(db.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM orders WHERE service_id = ?)", Boolean.class, id))) {
+            throw new ApiException(ErrorCode.SERVICE_IN_USE);
+        }
+        try {
+            // Delete only owned configuration. Shared definitions and immutable audit rows remain.
+            db.update("DELETE FROM mission_template_items WHERE mission_template_id IN (SELECT id FROM mission_templates WHERE service_id = ?)", id);
+            db.update("DELETE FROM mission_templates WHERE service_id = ?", id);
+            db.update("DELETE FROM service_checklists WHERE service_id = ?", id);
+            db.update("DELETE FROM service_deliverables WHERE service_id = ?", id);
+            serviceRepository.delete(entity);
+            // Surface any FK race here, while it can still become the localized conflict contract.
+            serviceRepository.flush();
+        } catch (org.springframework.dao.DataIntegrityViolationException conflict) {
+            throw new ApiException(ErrorCode.SERVICE_IN_USE);
+        }
+        serviceImageService.scheduleDeletion(entity);
     }
 
     @Override

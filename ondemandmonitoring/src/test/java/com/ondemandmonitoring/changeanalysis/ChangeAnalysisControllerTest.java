@@ -21,13 +21,25 @@ class ChangeAnalysisControllerTest {
     private final Authentication auth = mock(Authentication.class);
 
     @Test
-    void rejectsInvalidImageWithoutCreatingJob() {
-        var controller = new ChangeAnalysisController(db, transaction, media, "http://worker", "test");
-        var fake = new MockMultipartFile("before", "fake.png", "image/png", new byte[] {1, 2, 3});
-        var error = assertThrows(ResponseStatusException.class,
-                () -> controller.create(auth, UUID.randomUUID(), fake, fake, null, null));
-        assertEquals("UNSUPPORTED_INPUT", error.getReason());
-        verifyNoInteractions(db, transaction, media);
+    void rejectsInvalidImageWithoutCreatingJob() throws Exception {
+        var worker = com.sun.net.httpserver.HttpServer.create(
+                new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        worker.createContext("/ready", exchange -> {
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        worker.start();
+        try {
+            var controller = new ChangeAnalysisController(db, transaction, media,
+                    "http://127.0.0.1:" + worker.getAddress().getPort(), "test");
+            var fake = new MockMultipartFile("before", "fake.png", "image/png", new byte[] {1, 2, 3});
+            var error = assertThrows(ResponseStatusException.class,
+                    () -> controller.create(auth, UUID.randomUUID(), fake, fake, null, null));
+            assertEquals("UNSUPPORTED_INPUT", error.getReason());
+            verifyNoInteractions(db, transaction, media);
+        } finally {
+            worker.stop(0);
+        }
     }
 
     @Test

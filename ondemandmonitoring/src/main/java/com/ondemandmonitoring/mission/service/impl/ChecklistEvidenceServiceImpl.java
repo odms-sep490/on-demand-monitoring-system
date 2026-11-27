@@ -151,14 +151,21 @@ public class ChecklistEvidenceServiceImpl implements IChecklistEvidenceService {
         var asset = link.getMediaAsset();
         if (!"IMAGE".equals(asset.getType()) || !eligibleForSelection(missionId, selectionType(item), asset))
             throw new ApiException(ErrorCode.EVIDENCE_NOT_ELIGIBLE);
-        var criteria = ChecklistImageRubrics.forChecklist(item).stream()
-                .map(criterion -> criterion.input(request.language())).toList();
+        var criteria = ChecklistImageRubrics.forChecklist(item);
+        if (!ChecklistImageRubrics.enabled(item))
+            throw new ApiException(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED);
         if (criteria.isEmpty())
             throw new ApiException(ErrorCode.INVALID_REQUEST, "This checklist does not have a visual assessment rubric");
         if (!hasAssessmentPreview(asset))
             throw new ApiException(ErrorCode.MEDIA_DERIVATIVE_UNAVAILABLE);
         return new ChecklistImageAssessmentTarget(execution.getVersion(), link.getId(), asset.getS3Bucket(),
-                asset.getPreviewKey(), criteria);
+                asset.getPreviewKey(), criteria, assessmentContext(item));
+    }
+
+    private static ChecklistImageVisionClient.ChecklistContext assessmentContext(OrderChecklistItem item) {
+        var outputs = item.getExpectedOutputsSnapshot();
+        return new ChecklistImageVisionClient.ChecklistContext(
+                item.getContent(), item.getDescriptionSnapshot(), outputs == null ? List.of() : List.copyOf(outputs));
     }
 
     private static boolean hasAssessmentPreview(MediaAsset asset) {

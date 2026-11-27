@@ -403,6 +403,36 @@ class ChecklistPostgresTest {
         assertEquals(0, orders.count());
     }
 
+    @Test void imageAssessmentCriteriaAreFrozenForEachOrder() {
+        String serviceId = service("Image assessment");
+        var definition = new ChecklistRequest();
+        definition.setContent("Photograph the test target");
+        definition.setBasePrice(new java.math.BigDecimal("100000"));
+        definition.setStandardAreaM2(new java.math.BigDecimal("10000"));
+        definition.setIncludedImageCount(1);
+        var firstCriteria = List.of("A black rectangle is visible on a white background.");
+        definition.setImageAssessmentCriteria(firstCriteria);
+        String checklistId = catalog.create(definition).getId();
+        assignments.assign(serviceId, assignment(checklistId, 0));
+        var request = orderRequest(serviceId);
+        var first = orderService.createOrder(request);
+
+        var secondCriteria = List.of("A red circle is visible on a white background.");
+        definition.setImageAssessmentCriteria(secondCriteria);
+        catalog.update(checklistId, definition);
+        var second = orderService.createOrder(request);
+        assertEquals(secondCriteria, catalog.getById(checklistId).getImageAssessmentCriteria());
+
+        var jdbc = new JdbcTemplate(dataSource);
+        String query = "SELECT image_assessment_criteria_snapshot::text FROM order_checklist_items WHERE order_id = ?";
+        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        assertEquals(json.valueToTree(firstCriteria).toString(), jdbc.queryForObject(query, String.class, first.getId()));
+        assertEquals(json.valueToTree(secondCriteria).toString(), jdbc.queryForObject(query, String.class, second.getId()));
+
+        jdbc.update("UPDATE order_checklist_items SET image_assessment_criteria_snapshot = NULL WHERE order_id = ?", first.getId());
+        assertNull(jdbc.queryForObject(query, String.class, first.getId()));
+    }
+
     @Test void historicalReadUsesOneBatchQueryAndNoCatalogContentJoin() {
         String s = service("A"), c = checklist("Original");
         assignments.assign(s, assignment(c, 0));

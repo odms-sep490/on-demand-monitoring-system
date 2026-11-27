@@ -432,6 +432,7 @@ public class OrderChecklistUpdateService implements IOrderChecklistUpdateService
         entity.setContent(templateItem
                 ? ChecklistContentNormalizer.serviceTemplateContent(existing.getContent(), item.getContentOverride())
                 : ChecklistContentNormalizer.content(content));
+        OrderChecklistImageCriteriaSnapshot.carryForward(entity, existing);
 
         if (!explicitMedia && !explicitEvidence) {
             entity.setRequestedImageCount(existing.getRequestedImageCount());
@@ -532,6 +533,7 @@ public class OrderChecklistUpdateService implements IOrderChecklistUpdateService
         entity.setContent(packageChecklist
                 ? ChecklistContentNormalizer.serviceTemplateContent(source.getContent(), item.getContentOverride())
                 : ChecklistContentNormalizer.content(content));
+        OrderChecklistImageCriteriaSnapshot.capture(entity, source);
         if (source != null && !custom) {
             entity.setDescriptionSnapshot(source.getDescription());
             entity.setExecutionStepsSnapshot(source.getExecutionSteps());

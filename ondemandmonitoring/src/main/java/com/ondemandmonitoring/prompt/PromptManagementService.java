@@ -37,6 +37,7 @@ public class PromptManagementService {
     private final PromptTemplateRenderer renderer;
     private final AuthenticatedUserResolver users;
     private final IAiOperationsService aiOps;
+    private final PromptRuntimeModelResolver runtimeModels;
     private final AtomicBoolean schemaReady = new AtomicBoolean(false);
 
     @Value("${OLLAMA_URL:http://localhost:11434}")
@@ -235,7 +236,7 @@ public class PromptManagementService {
                         + "Do not select dates or resource IDs, check availability, or make assignments. Do not use markdown."
         );
         seedPromptIfAbsent(
-                "checklist.image-vision.system",
+                ChecklistVisionPlaygroundService.PROMPT_KEY,
                 "Checklist Image Vision — System Prompt",
                 "Đánh giá từng tiêu chí checklist dựa trên bằng chứng nhìn thấy trong ảnh JPEG.",
                 "CHECKLIST_VISION", "SYSTEM", "openrouter-vision", "en,vi",
@@ -385,7 +386,8 @@ public class PromptManagementService {
                     r.get("avg_in_tok") instanceof Number n ? Math.round(n.doubleValue() * 10.0) / 10.0 : null,
                     r.get("avg_out_tok") instanceof Number n ? Math.round(n.doubleValue() * 10.0) / 10.0 : null,
                     r.get("avg_lat") instanceof Number n ? Math.round(n.doubleValue() * 10.0) / 10.0 : null,
-                    toInstant(r.get("updated_at"))
+                    toInstant(r.get("updated_at")),
+                    runtimeModels.resolve(key)
             ));
         }
         return out;
@@ -584,6 +586,9 @@ public class PromptManagementService {
 
     @Transactional
     public TestRunView runPlaygroundTest(String promptKey, UUID versionId, PlaygroundTestRequest req) {
+        if (ChecklistVisionPlaygroundService.PROMPT_KEY.equals(promptKey)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Use the checklist vision playground with a JPEG image");
+        }
         ensureSchema();
         var v = requireVersion(promptKey, versionId);
         var promptRow = db.queryForMap("SELECT model_binding FROM ai_prompts WHERE prompt_key = ?", promptKey);

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import com.ondemandmonitoring.media.domain.MediaAsset;
+import com.ondemandmonitoring.media.cleanup.ObjectCleanupOutbox;
 import com.ondemandmonitoring.media.enums.*;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
 import com.ondemandmonitoring.media.service.impl.MediaDerivativeService;
@@ -23,7 +24,8 @@ class MediaVideoDerivativeTest {
     final MediaAssetRepository media = mock(MediaAssetRepository.class);
     final IMediaObjectStorage storage = mock(IMediaObjectStorage.class);
     final PlatformTransactionManager tx = mock(PlatformTransactionManager.class);
-    final MediaDerivativeService service = new MediaDerivativeService(media, storage, tx);
+    final ObjectCleanupOutbox cleanup = mock(ObjectCleanupOutbox.class);
+    final MediaDerivativeService service = new MediaDerivativeService(media, storage, tx, cleanup);
     MediaAsset asset;
     void setup(byte[] bytes, String ffmpeg, String ffprobe) {
         for (var entry : Map.<String, Object>of("batchSize", 1, "videoBatchSize", 1, "staleMinutes", 15,
@@ -31,6 +33,8 @@ class MediaVideoDerivativeTest {
                 "maxVideoInputBytes", 100_000_000L, "maxVideoPreviewBytes", 20_000_000L,
                 "ffmpegBinary", ffmpeg, "ffprobeBinary", ffprobe).entrySet())
             ReflectionTestUtils.setField(service, entry.getKey(), entry.getValue());
+        when(cleanup.reserveUpload(anyString(), anyString(), anyString(), anyString()))
+                .thenAnswer(call -> call.getArgument(1, String.class));
         asset = new MediaAsset(); asset.setId("video"); asset.setType("VIDEO");
         asset.setStorageProvider("S3"); asset.setS3Bucket("bucket"); asset.setS3Key("source.mp4");
         asset.setFileSize((long) bytes.length); asset.setMediaStatus(MediaStatus.AVAILABLE); asset.setValidatedAt(Instant.now());

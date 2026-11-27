@@ -68,6 +68,17 @@ auth:
     same-site: ${AUTH_REFRESH_COOKIE_SAME_SITE:Lax}
 
 app:
+  storage-cleanup:
+    enabled: ${APP_STORAGE_CLEANUP_ENABLED:true}
+    poll-delay-ms: ${APP_STORAGE_CLEANUP_POLL_DELAY_MS:5000}
+    initial-delay-ms: ${APP_STORAGE_CLEANUP_INITIAL_DELAY_MS:10000}
+    batch-size: ${APP_STORAGE_CLEANUP_BATCH_SIZE:20}
+    max-attempts: ${APP_STORAGE_CLEANUP_MAX_ATTEMPTS:8}
+    lease-seconds: ${APP_STORAGE_CLEANUP_LEASE_SECONDS:120}
+    retry-base-seconds: ${APP_STORAGE_CLEANUP_RETRY_BASE_SECONDS:30}
+    retry-max-seconds: ${APP_STORAGE_CLEANUP_RETRY_MAX_SECONDS:3600}
+    upload-grace-seconds: ${APP_STORAGE_CLEANUP_UPLOAD_GRACE_SECONDS:3600}
+    retention-days: ${APP_STORAGE_CLEANUP_RETENTION_DAYS:30}
   seed:
     demo-drones: ${APP_SEED_DEMO_DRONES:false}
     staff-licenses: ${APP_SEED_STAFF_LICENSES:true}
@@ -180,11 +191,14 @@ ai:
     max-tokens: ${AI_OPENROUTER_MAX_TOKENS:1200}
   checklist-vision:
     enabled: ${AI_CHECKLIST_VISION_ENABLED:false}
-    # Select a specific model that accepts base64 JPEG and strict JSON schema on a ZDR endpoint.
-    # Set the OpenRouter account or guardrail to ZDR Only and keep input/output logging disabled.
+    provider: ${AI_CHECKLIST_VISION_PROVIDER:OPENROUTER}
+    # OPENROUTER requires a specific vision model on a ZDR endpoint and account logging disabled.
+    # OLLAMA uses a local model tag (e.g. qwen3-vl:2b-instruct) and defaults to http://127.0.0.1:11434/v1.
     model: ${AI_CHECKLIST_VISION_MODEL:}
     base-url: ${AI_CHECKLIST_VISION_BASE_URL:}
     api-key: ${AI_CHECKLIST_VISION_API_KEY:}
+    # Use CPU for this model only when the local CUDA runtime is incompatible.
+    ollama-cpu-only: ${AI_CHECKLIST_VISION_OLLAMA_CPU_ONLY:false}
 
 # Preliminary flight-area assessment (advisory only, rule-based; NOT legal or aviation limits).
 # External providers are configuration only; every value has a code default in FlightAreaProperties.

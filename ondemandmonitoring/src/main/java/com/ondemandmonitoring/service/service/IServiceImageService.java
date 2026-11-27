@@ -8,4 +8,6 @@ public interface IServiceImageService {
     ServiceResponse upload(String serviceId, MultipartFile file);
     ServiceResponse remove(String serviceId);
     String getImageUrl(Service service);
+    /** Caller holds the service lock; removes the captured illustration only after DB commit. */
+    void scheduleDeletion(Service service);
 }

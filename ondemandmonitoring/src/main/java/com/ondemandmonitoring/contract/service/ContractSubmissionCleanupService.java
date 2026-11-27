@@ -3,7 +3,7 @@ package com.ondemandmonitoring.contract.service;
 import com.ondemandmonitoring.contract.domain.ContractSubmission;
 import com.ondemandmonitoring.contract.enums.ContractSubmissionStatus;
 import com.ondemandmonitoring.contract.repository.*;
-import com.ondemandmonitoring.media.service.IMediaObjectStorage;
+import com.ondemandmonitoring.media.cleanup.ObjectCleanupOutbox;
 import java.time.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,14 +13,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Durable cleanup queue lives on the superseded submission, committed with its replacement. */
+/** Bridges superseded submission retention to the shared storage cleanup outbox. */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class ContractSubmissionCleanupService {
   private final ContractSubmissionRepository submissions;
   private final OrderContractRepository contracts;
-  private final IMediaObjectStorage storage;
+  private final ObjectCleanupOutbox cleanupOutbox;
   private final PlatformTransactionManager transactions;
   private final Clock clock;
 
@@ -37,7 +37,7 @@ public class ContractSubmissionCleanupService {
             new TransactionTemplate(transactions).execute(tx -> deleteOne(id, now, cutoff));
         if (Boolean.TRUE.equals(result)) deleted++;
       } catch (RuntimeException failure) {
-        // A DB failure leaves the durable queue unchanged. S3 DeleteObject is idempotent on retry.
+        // A DB failure leaves both durable queues available for a later reconciliation.
         log.warn(
             "Contract submission cleanup transaction failed; will retry. submissionId={},"
                 + " failure={}",
@@ -49,7 +49,7 @@ public class ContractSubmissionCleanupService {
   }
 
   private boolean deleteOne(String id, Instant now, Instant cutoff) {
-    // Serialize workers across application instances. No Order/Invoice lock is held during S3 I/O.
+    // Serialize domain reconciliation only. Storage I/O belongs exclusively to the outbox worker.
     ContractSubmission row = submissions.findByIdForUpdate(id).orElse(null);
     if (row == null
         || row.getStatus() != ContractSubmissionStatus.SUPERSEDED
@@ -73,20 +73,36 @@ public class ContractSubmissionCleanupService {
           || submissions.existsByDocumentBucketAndDocumentKeyAndIdNot(
               document.getBucket(), document.getKey(), id))
         throw new IllegalStateException("Document remains protected");
-      // Use throwing delete: deleteQuietly would lose failed cleanup work.
-      storage.delete(document.getBucket(), document.getKey());
-      row.setDocumentDeletedAt(now);
-      return true;
+      String taskId = cleanupOutbox.enqueue(
+          document.getBucket(), document.getKey(),
+          ContractObjectCleanupGuard.Superseded.TYPE, id);
+      // No new domain column is required: enqueue returns the same durable identity on replay.
+      // A cancelled/protected or exhausted task must never be reported as a deleted document.
+      String state = cleanupOutbox.status(taskId);
+      if ("COMPLETED".equals(state)) {
+        row.setDocumentDeletedAt(now);
+        return true;
+      }
+      if ("DEAD".equals(state)) {
+        retryLater(row, now);
+        log.warn("Contract document cleanup requires outbox retry; submissionId={}, taskId={}",
+            id, taskId);
+      }
+      return false;
     } catch (RuntimeException failure) {
-      int attempts = Math.min(row.getCleanupAttempts() + 1, 1000);
-      row.setCleanupAttempts(attempts);
-      row.setCleanupNextAttemptAt(
-          now.plusSeconds(Math.min(3600L, 60L * (1L << Math.min(attempts - 1, 6)))));
+      retryLater(row, now);
       log.warn(
           "Contract submission cleanup failed; will retry. submissionId={}, failure={}",
           id,
           failure.getClass().getSimpleName());
       return false;
     }
+  }
+
+  private void retryLater(ContractSubmission row, Instant now) {
+    int attempts = Math.min(row.getCleanupAttempts() + 1, 1000);
+    row.setCleanupAttempts(attempts);
+    row.setCleanupNextAttemptAt(
+        now.plusSeconds(Math.min(3600L, 60L * (1L << Math.min(attempts - 1, 6)))));
   }
 }

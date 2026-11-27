@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.ondemandmonitoring.media.domain.MediaAsset;
+import com.ondemandmonitoring.media.cleanup.ObjectCleanupOutbox;
 import com.ondemandmonitoring.media.enums.MediaDerivativeStatus;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
 import com.ondemandmonitoring.media.service.impl.MediaDerivativeService;
@@ -26,10 +27,13 @@ class MediaDerivativeServiceTest {
     private final MediaAssetRepository media = mock(MediaAssetRepository.class);
     private final IMediaObjectStorage storage = mock(IMediaObjectStorage.class);
     private final PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
-    private final MediaDerivativeService service = new MediaDerivativeService(media, storage, transactions);
+    private final ObjectCleanupOutbox cleanup = mock(ObjectCleanupOutbox.class);
+    private final MediaDerivativeService service = new MediaDerivativeService(media, storage, transactions, cleanup);
     private MediaAsset asset;
 
     @BeforeEach void setUp() {
+        when(cleanup.reserveUpload(anyString(), anyString(), anyString(), anyString()))
+                .thenAnswer(call -> call.getArgument(1, String.class));
         ReflectionTestUtils.setField(service, "batchSize", 8);
         ReflectionTestUtils.setField(service, "staleMinutes", 15);
         ReflectionTestUtils.setField(service, "maxAttempts", 5);
@@ -202,7 +206,77 @@ class MediaDerivativeServiceTest {
         }).when(storage).put(eq("bucket"), anyString(), anyString(), anyLong(), any(), anyString());
         assertThat(service.processBatch()).isZero();
         assertThat(asset.getThumbnailKey()).isEqualTo("new-thumbnail");
-        verify(storage).deleteQuietly("bucket", "media/derived/media/v1/attempt-1/thumbnail.jpg");
+        verify(cleanup).reserveUpload("bucket", "media/derived/media/v1/attempt-1/thumbnail.jpg", "MEDIA_DERIVATIVE", "media");
+        verify(cleanup, never()).cancelReservation(any());
+        verify(storage, never()).deleteQuietly(anyString(), anyString());
         verify(storage, never()).deleteQuietly("bucket", "new-thumbnail");
     }
+    private void readableImage() throws Exception {
+        var bytes = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(20, 10, BufferedImage.TYPE_INT_RGB), "png", bytes);
+        when(storage.open("bucket", "original.jpg")).thenReturn(new IMediaObjectStorage.StoredObjectStream(
+                new ByteArrayInputStream(bytes.toByteArray()), (long) bytes.size(), "image/png"));
+    }
+
+    @Test void reservesEachKeyBeforePutAndCancelsOnlyAfterSavingReady() throws Exception {
+        readableImage();
+        assertThat(service.processBatch()).isEqualTo(1);
+        var ordered = inOrder(cleanup, storage, media);
+        String thumb = "media/derived/media/v1/attempt-1/thumbnail.jpg";
+        String preview = "media/derived/media/v1/attempt-1/preview.jpg";
+        ordered.verify(cleanup).reserveUpload("bucket", thumb, "MEDIA_DERIVATIVE", "media");
+        ordered.verify(cleanup).reserveUpload("bucket", preview, "MEDIA_DERIVATIVE", "media");
+        ordered.verify(cleanup).protectReservation(thumb);
+        ordered.verify(cleanup).protectReservation(preview);
+        ordered.verify(storage).put(eq("bucket"), eq(thumb), anyString(), anyLong(), any(), anyString());
+        ordered.verify(storage).put(eq("bucket"), eq(preview), anyString(), anyLong(), any(), anyString());
+        ordered.verify(media).save(asset);
+        ordered.verify(cleanup).cancelReservation(thumb);
+        ordered.verify(cleanup).cancelReservation(preview);
+        verify(storage, never()).deleteQuietly(anyString(), anyString());
+    }
+
+    @Test void partialUploadFailureLeavesBothDurableCandidates() throws Exception {
+        readableImage();
+        doThrow(new IllegalStateException("S3 unavailable")).when(storage).put(
+                eq("bucket"), endsWith("preview.jpg"), anyString(), anyLong(), any(), anyString());
+        assertThat(service.processBatch()).isZero();
+        assertThat(asset.getDerivativeStatus()).isEqualTo(MediaDerivativeStatus.FAILED);
+        verify(cleanup, times(2)).reserveUpload(anyString(), anyString(), eq("MEDIA_DERIVATIVE"), eq("media"));
+        verify(cleanup, never()).cancelReservation(any());
+        verify(storage, never()).deleteQuietly(anyString(), anyString());
+    }
+
+    @Test void reservationFailurePreventsUntrackedS3Write() throws Exception {
+        readableImage();
+        when(cleanup.reserveUpload(anyString(), anyString(), anyString(), anyString()))
+                .thenThrow(new IllegalStateException("database unavailable"));
+        assertThat(service.processBatch()).isZero();
+        verify(storage, never()).put(anyString(), anyString(), anyString(), anyLong(), any(), anyString());
+        verify(cleanup, never()).cancelReservation(any());
+    }
+
+    @Test void expirationDuringPutCannotPublishReadyOrCancelCleanup() throws Exception {
+        readableImage();
+        doAnswer(call -> {
+            asset.setDerivativeProcessedAt(Instant.now().minusSeconds(3600));
+            return null;
+        }).when(storage).put(eq("bucket"), endsWith("preview.jpg"), anyString(), anyLong(), any(), anyString());
+        assertThat(service.processBatch()).isZero();
+        assertThat(asset.getThumbnailKey()).isNull();
+        verify(cleanup, never()).cancelReservation(any());
+    }
+
+    @Test void secondReservationProtectionFailurePreventsBothPutsAndPublication() throws Exception {
+        readableImage();
+        doThrow(new IllegalStateException("reservation already claimed")).when(cleanup)
+                .protectReservation("media/derived/media/v1/attempt-1/preview.jpg");
+        assertThat(service.processBatch()).isZero();
+        verify(cleanup, times(2)).reserveUpload(anyString(), anyString(), anyString(), anyString());
+        verify(storage, never()).put(anyString(), anyString(), anyString(), anyLong(), any(), anyString());
+        verify(cleanup, never()).cancelReservation(any());
+        assertThat(asset.getThumbnailKey()).isNull();
+        assertThat(asset.getDerivativeStatus()).isEqualTo(MediaDerivativeStatus.FAILED);
+    }
+
 }

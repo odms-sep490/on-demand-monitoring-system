@@ -77,8 +77,15 @@ public final class AiOperationsDtos {
     public record TraceSpan(
             String name,
             long durationMs,
-            String status
-    ) {}
+            String status,
+            String versionId,
+            String contentHash,
+            Boolean staleCacheUsed
+    ) {
+        public TraceSpan(String name, long durationMs, String status) {
+            this(name, durationMs, status, null, null, null);
+        }
+    }
 
     public record AiTraceView(
             String id,

@@ -15,6 +15,8 @@ public final class PromptDtos {
             String description
     ) {}
 
+    public record PromptRuntimeModelView(String provider, String model, boolean configured) {}
+
     public record PromptSummaryView(
             String id,
             String promptKey,
@@ -34,7 +36,8 @@ public final class PromptDtos {
             Double avgInputTokens,
             Double avgOutputTokens,
             Double avgLatencyMs,
-            Instant updatedAt
+            Instant updatedAt,
+            PromptRuntimeModelView runtimeModel
     ) {}
 
     public record PromptVersionView(

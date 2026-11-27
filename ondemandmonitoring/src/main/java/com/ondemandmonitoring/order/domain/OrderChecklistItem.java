@@ -64,6 +64,11 @@ public class OrderChecklistItem extends BaseEntity {
         @Column(name = "expected_outputs_snapshot", columnDefinition = "text", updatable = false)
         private java.util.List<String> expectedOutputsSnapshot;
 
+        /** Saved image criteria for this order. An empty list disables image assessment. */
+        @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+        @Column(name = "image_assessment_criteria_snapshot", columnDefinition = "jsonb", updatable = false)
+        private java.util.List<String> imageAssessmentCriteriaSnapshot = java.util.List.of();
+
         @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
         @Column(name = "custom_guidance", columnDefinition = "jsonb")
         private ChecklistGuidanceContent customGuidance;

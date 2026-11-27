@@ -13,8 +13,8 @@ function Test-PortListening {
 }
 
 $services = @(
-    @{ Name = 'start-change-ai.ps1'; Port = 8000; HealthUrl = 'http://localhost:8000/quality/ready' },
-    @{ Name = 'start-description-ai.ps1'; Port = 8002; HealthUrl = 'http://localhost:8002/conversation/health' }
+    @{ Name = 'start-change-ai.ps1'; Port = 8000; HealthUrl = 'http://127.0.0.1:8000/quality/ready' },
+    @{ Name = 'start-description-ai.ps1'; Port = 8002; HealthUrl = 'http://127.0.0.1:8002/conversation/health' }
 )
 
 $jobs = @()
@@ -33,11 +33,11 @@ try {
             if ($LASTEXITCODE -ne 0) { throw "AI service exited with code $LASTEXITCODE" }
         }
     }
-
     Write-Host 'Monitoring AI services:'
-    Write-Host '  Image comparison & quality: http://localhost:8000/quality/ready'
-    Write-Host '  Conversation, description, voice & report: http://localhost:8002/conversation/health'
-    Write-Host '  Ollama local runtime: http://localhost:11434/api/tags'
+    Write-Host '  Image comparison & quality: http://127.0.0.1:8000/quality/ready'
+    Write-Host '  Conversation, description, voice & report: http://127.0.0.1:8002/conversation/health'
+    Write-Host '  Ollama local runtime: http://127.0.0.1:11434/api/tags'
+    Write-Host '  Checklist image assessment: served by the Java backend (see model setup above)'
 
     $lastProgress = (Get-Date).AddSeconds(-20)
     while ($true) {
@@ -47,7 +47,7 @@ try {
         }
         if ($jobs.Count -gt 0 -and @($jobs | Where-Object { $_.State -eq 'Running' }).Count -eq 0) { break }
         if (((Get-Date) - $lastProgress).TotalSeconds -ge 15) {
-            foreach ($url in @('http://localhost:8000/quality/ready', 'http://localhost:8002/conversation/health', 'http://localhost:11434/api/tags')) {
+            foreach ($url in @('http://127.0.0.1:8000/quality/ready', 'http://127.0.0.1:8002/description/health', 'http://127.0.0.1:8002/conversation/health', 'http://127.0.0.1:11434/api/tags')) {
                 try {
                     $health = Invoke-RestMethod $url -TimeoutSec 5
                     $status = if ($health.models) {

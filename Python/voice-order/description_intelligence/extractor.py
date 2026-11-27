@@ -85,7 +85,7 @@ def _find_latest_grounding_turn(value: str, statements: list[str]) -> int | None
 
 def extract_with_qwen(statements: list[str], sources: list[dict], agent_factory=None) -> Extraction:
     """Invoke local Qwen-Agent with flat JSON schema to extract grounded semantic facts."""
-    from conversation_agent import BoundedAssistant
+    from conversation_agent import BoundedAssistant, order_agent_model_server
     factory = agent_factory or BoundedAssistant
     flat_schema = {
         'type': 'object',
@@ -113,7 +113,7 @@ def extract_with_qwen(statements: list[str], sources: list[dict], agent_factory=
         deadline=time.monotonic() + 75,
         llm={
             'model': os.getenv('ORDER_AGENT_MODEL', 'qwen2.5:3b'),
-            'model_server': os.getenv('ORDER_AGENT_URL', 'http://localhost:11434/v1'),
+            'model_server': order_agent_model_server(),
             'api_key': 'EMPTY',
             'generate_cfg': {
                 'temperature': 0,

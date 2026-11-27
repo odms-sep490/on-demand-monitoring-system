@@ -3,7 +3,10 @@ package com.ondemandmonitoring.checklist.domain;
 import com.ondemandmonitoring.common.entity.BaseEntity;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
+import java.util.List;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "checklist_definitions", uniqueConstraints =
@@ -35,6 +38,12 @@ public class ChecklistDefinition extends BaseEntity {
     @Convert(converter = StringListJsonConverter.class)
     @Column(name = "expected_outputs", columnDefinition = "text")
     private java.util.List<String> expectedOutputs;
+    /** Null for unconfigured checklists; an empty list explicitly disables image assessment. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "image_assessment_criteria", columnDefinition = "jsonb")
+    private List<String> imageAssessmentCriteria;
+    @Column(name = "image_assessment_enabled", nullable = false, columnDefinition = "boolean default true")
+    private boolean imageAssessmentEnabled = true;
     @Column(name = "normalized_content", nullable = false, length = 1000)
     private String normalizedContent;
     @Column(name = "is_active", nullable = false)

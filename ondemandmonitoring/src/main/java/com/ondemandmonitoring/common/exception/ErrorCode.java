@@ -122,6 +122,7 @@ public enum ErrorCode {
     /**
      * Service & DeliverableType Error Codes
      */
+    SERVICE_IN_USE("Dịch vụ đã có đơn hàng hoặc dữ liệu liên quan nên không thể xóa. Bạn có thể tạm ngừng kích hoạt dịch vụ thay thế.", HttpStatus.CONFLICT),
     SERVICE_NOT_FOUND("Service not found", HttpStatus.NOT_FOUND),
     ORDER_CHECKLIST_LOCKED("Order checklist snapshot is immutable", HttpStatus.CONFLICT),
     ORDER_CHECKLIST_EDIT_LOCKED("Order checklist can no longer be edited", HttpStatus.CONFLICT),
@@ -202,6 +203,7 @@ public enum ErrorCode {
     DEVICE_IMAGE_STORAGE_ERROR("Unable to store device image", HttpStatus.BAD_GATEWAY),
     AI_PROVIDER_UNAVAILABLE("AI provider is unavailable", HttpStatus.BAD_GATEWAY),
     AI_RESPONSE_INVALID("AI provider returned an unreadable response", HttpStatus.BAD_GATEWAY),
+    CHECKLIST_IMAGE_ASSESSMENT_DISABLED("AI image assessment is disabled", HttpStatus.CONFLICT),
     /**
      * Support Ticket Error Codes
      */

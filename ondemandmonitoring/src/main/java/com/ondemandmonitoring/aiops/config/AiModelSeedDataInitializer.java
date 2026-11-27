@@ -35,6 +35,10 @@ public class AiModelSeedDataInitializer implements ApplicationRunner {
         String workerBase = normalizeBase(aiWorkerUrl, "http://localhost:8002");
 
         List<Object[]> defaults = List.of(
+                new Object[]{"mdl-checklist-vision", "checklist-image-vision", "Checklist Image Vision",
+                        "v1", "COMPUTER_VISION", "Assess checklist image criteria", "Configured provider",
+                        "Provider-specific", "deployment-managed", "Chat completions", "Provider",
+                        "", "N/A", "{}"},
                 new Object[]{
                         "mdl-opencd",
                         "open-cd-changer",

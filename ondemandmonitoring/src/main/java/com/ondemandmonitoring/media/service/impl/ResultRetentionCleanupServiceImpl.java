@@ -2,7 +2,6 @@ package com.ondemandmonitoring.media.service.impl;
 
 import com.ondemandmonitoring.media.enums.MediaStorageStatus;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
-import com.ondemandmonitoring.media.service.IMediaObjectStorage;
 import com.ondemandmonitoring.media.service.IResultRetentionCleanupService;
 import com.ondemandmonitoring.media.infrastructure.s3.ResultRetentionProperties;
 import java.time.Instant;
@@ -20,7 +19,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class ResultRetentionCleanupServiceImpl implements IResultRetentionCleanupService {
     private final MediaAssetRepository media;
     private final com.ondemandmonitoring.order.repository.OrderRepository orders;
-    private final IMediaObjectStorage storage;
+    private final MediaObjectCleanup cleanup;
     private final ResultRetentionProperties properties;
     private final PlatformTransactionManager transactionManager;
 
@@ -30,21 +29,25 @@ public class ResultRetentionCleanupServiceImpl implements IResultRetentionCleanu
         Instant now = startedAt;
         int batchSize = Math.max(1, properties.getBatchSize());
         List<String> ids = media.findExpiredStorageCandidateIds(now,
-                List.of(MediaStorageStatus.AVAILABLE, MediaStorageStatus.DELETE_FAILED),
+                List.of(MediaStorageStatus.AVAILABLE, MediaStorageStatus.DELETE_PENDING, MediaStorageStatus.DELETE_FAILED),
                 PageRequest.of(0, batchSize)).getContent();
         int deleted = 0;
         int failed = 0;
         for (String id : ids) {
-            ClaimedAsset claimed = claim(id, now);
-            if (claimed == null) continue;
             try {
-                for (String key : claimed.keys()) storage.delete(claimed.bucket(), key);
-                markDeleted(id, Instant.now());
-                deleted++;
+                ClaimedAsset claimed = claim(id, now);
+                if (claimed == null) continue;
+                if (cleanup.completed(claimed.taskIds())) {
+                    markDeleted(id, Instant.now());
+                    deleted++;
+                } else if (cleanup.failed(claimed.taskIds())) {
+                    markFailed(id, "RESULT_RETENTION_CLEANUP_FAILED");
+                    failed++;
+                }
             } catch (RuntimeException exception) {
-                markFailed(id, sanitize(exception));
+                // Atomic retirement/enqueue rolled back; keep the candidate available for reconciliation.
                 failed++;
-                log.warn("Expired result deletion failed. mediaId={}, reason={}", id,
+                log.warn("Expired result reconciliation failed. mediaId={}, reason={}", id,
                         exception.getClass().getSimpleName());
             }
         }
@@ -60,6 +63,7 @@ public class ResultRetentionCleanupServiceImpl implements IResultRetentionCleanu
                 Instant expiresAt = asset.getMission().getOrder().getResultExpiresAt();
                 return expiresAt != null && !expiresAt.isAfter(now)
                         && (asset.getStorageStatus() == MediaStorageStatus.AVAILABLE
+                        || asset.getStorageStatus() == MediaStorageStatus.DELETE_PENDING
                         || asset.getStorageStatus() == MediaStorageStatus.DELETE_FAILED);
             }).map(asset -> {
                 asset.setStorageStatus(MediaStorageStatus.DELETE_PENDING);
@@ -70,7 +74,7 @@ public class ResultRetentionCleanupServiceImpl implements IResultRetentionCleanu
                 if (asset.getThumbnailKey() != null) keys.add(asset.getThumbnailKey());
                 if (asset.getPreviewKey() != null) keys.add(asset.getPreviewKey());
                 keys.removeIf(key -> key == null || key.isBlank());
-                return new ClaimedAsset(asset.getS3Bucket(), java.util.List.copyOf(keys));
+                return new ClaimedAsset(cleanup.enqueue(asset.getS3Bucket(), keys, id));
             }).orElse(null);
         });
     }
@@ -98,10 +102,5 @@ public class ResultRetentionCleanupServiceImpl implements IResultRetentionCleanu
         return new TransactionTemplate(transactionManager);
     }
 
-    private String sanitize(RuntimeException exception) {
-        String value = exception.getClass().getSimpleName();
-        return value.length() <= 500 ? value : value.substring(0, 500);
-    }
-
-    private record ClaimedAsset(String bucket, java.util.List<String> keys) {}
+    private record ClaimedAsset(java.util.List<String> taskIds) {}
 }

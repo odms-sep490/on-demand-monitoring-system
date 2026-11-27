@@ -317,7 +317,7 @@ class ManualUploadEscalationPolicyTest {
     private MediaValidationServiceImpl validationService() {
         return new MediaValidationServiceImpl(attempts, media, inbox, manualTasks, manualTaskService,
                 auditService, new MediaUploadPolicy(), storage,
-                new MediaObjectVerificationServiceImpl(storage), missionLock);
+                new MediaObjectVerificationServiceImpl(storage), missionLock, org.mockito.Mockito.mock(com.ondemandmonitoring.media.service.impl.MediaObjectCleanup.class));
     }
 
     /** An already-persisted FAILED automatic attempt row. */

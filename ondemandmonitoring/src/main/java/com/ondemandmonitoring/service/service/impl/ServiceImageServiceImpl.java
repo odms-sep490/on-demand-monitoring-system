@@ -3,6 +3,7 @@ package com.ondemandmonitoring.service.service.impl;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
 import com.ondemandmonitoring.media.service.IMediaObjectStorage;
+import com.ondemandmonitoring.media.cleanup.ObjectCleanupOutbox;
 import com.ondemandmonitoring.service.domain.Service;
 import com.ondemandmonitoring.service.dto.response.ServiceResponse;
 import com.ondemandmonitoring.service.mapper.ServiceMapper;
@@ -13,8 +14,8 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 @org.springframework.stereotype.Service
@@ -25,12 +26,12 @@ public class ServiceImageServiceImpl implements IServiceImageService {
     private final ServiceMapper mapper;
     private final IMediaObjectStorage storage;
     private final ServiceImageValidator validator;
+    private final ObjectCleanupOutbox cleanupOutbox;
+    private final PlatformTransactionManager transactionManager;
 
     @Override
-    @Transactional
     public ServiceResponse upload(String serviceId, MultipartFile file) {
         String contentType = validator.validate(file);
-        Service service = locked(serviceId);
         String extension = switch (contentType) {
             case "image/png" -> ".png";
             case "image/webp" -> ".webp";
@@ -38,23 +39,31 @@ public class ServiceImageServiceImpl implements IServiceImageService {
         };
         String key = "service-illustrations/" + serviceId + "/" + UUID.randomUUID() + extension;
         String bucket = storage.bucket();
-        scheduleCleanup(service, bucket, key);
-        try (var input = file.getInputStream()) {
-            storage.put(key, contentType, file.getSize(), input, "service-illustration");
-        } catch (IOException | RuntimeException exception) {
-            log.warn("Service illustration upload failed. serviceId={}", serviceId, exception);
-            throw new ApiException(ErrorCode.SERVICE_IMAGE_STORAGE_ERROR);
-        }
-        service.setImageS3Key(key);
-        service.setImageS3Bucket(bucket);
-        return response(repository.saveAndFlush(service));
+        String reservation = cleanupOutbox.reserveUpload(bucket, key, ServiceImageCleanupGuard.TYPE, serviceId);
+        // Reserve without opening an owner transaction for normal controller calls.
+        // REQUIRED joins an existing root transaction for callers that already have one.
+        return new TransactionTemplate(transactionManager).execute(status -> {
+            Service service = locked(serviceId);
+            scheduleDeletion(service);
+            try (var input = file.getInputStream()) {
+                storage.put(key, contentType, file.getSize(), input, "service-illustration");
+            } catch (IOException | RuntimeException exception) {
+                log.warn("Service illustration upload failed. serviceId={}", serviceId, exception);
+                throw new ApiException(ErrorCode.SERVICE_IMAGE_STORAGE_ERROR);
+            }
+            service.setImageS3Key(key);
+            service.setImageS3Bucket(bucket);
+            Service saved = repository.saveAndFlush(service);
+            cleanupOutbox.cancelReservation(reservation);
+            return response(saved);
+        });
     }
 
     @Override
     @Transactional
     public ServiceResponse remove(String serviceId) {
         Service service = locked(serviceId);
-        scheduleCleanup(service, null, null);
+        scheduleDeletion(service);
         service.setImageS3Key(null);
         service.setImageS3Bucket(null);
         return response(repository.saveAndFlush(service));
@@ -66,6 +75,14 @@ public class ServiceImageServiceImpl implements IServiceImageService {
             return storage.createPresignedGetUrl(service.getImageS3Bucket(), service.getImageS3Key());
         }
         return service.getImageUrl();
+    }
+
+    @Override
+    public void scheduleDeletion(Service service) {
+        if (service.getImageS3Key() != null) {
+            cleanupOutbox.enqueue(service.getImageS3Bucket(), service.getImageS3Key(),
+                    ServiceImageCleanupGuard.TYPE, service.getId());
+        }
     }
 
     private Service locked(String id) {
@@ -80,19 +97,4 @@ public class ServiceImageServiceImpl implements IServiceImageService {
         return response;
     }
 
-    private void scheduleCleanup(Service service, String newBucket, String newKey) {
-        String oldBucket = service.getImageS3Bucket();
-        String oldKey = service.getImageS3Key();
-        // S3 is outside the DB transaction: retain the old image until commit.
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCompletion(int status) {
-                if (status == STATUS_COMMITTED && oldKey != null) {
-                    storage.deleteQuietly(oldBucket, oldKey);
-                } else if (status == STATUS_ROLLED_BACK && newKey != null) {
-                    storage.deleteQuietly(newBucket, newKey);
-                }
-            }
-        });
-    }
 }

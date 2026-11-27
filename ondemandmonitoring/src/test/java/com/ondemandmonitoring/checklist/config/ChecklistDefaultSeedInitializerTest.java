@@ -48,6 +48,81 @@ class ChecklistDefaultSeedInitializerTest {
         verify(services).save(service);
     }
 
+    @Test void seedsDistinctDefinitionsAndAssignsTheExteriorPhotoChecklistWithImageCriteria() {
+        seed.run(null);
+        seed.run(null);
+
+        assertEquals(ChecklistDefaults.CONTENTS.size(), catalog.values().stream()
+                .map(ChecklistDefinition::getNormalizedContent).distinct().count());
+        var overview = catalog.get(ChecklistDefaults.code(5));
+        var exterior = catalog.get(ChecklistDefaults.code(20));
+        assertNotEquals(overview.getId(), exterior.getId());
+        assertEquals("Chụp ảnh tổng quan công trình", overview.getContent());
+        assertEquals("Chụp ảnh các mặt ngoài công trình", exterior.getContent());
+        assertFalse(exterior.getImageAssessmentCriteria().isEmpty());
+        assertTrue(exterior.getExpectedOutputs().contains("Ảnh các mặt bên ngoài công trình."));
+        assertEquals(List.of(exterior, catalog.get(ChecklistDefaults.code(21))),
+                templates.get("s").stream().map(ServiceChecklist::getChecklist).toList());
+    }
+
+    @Test void restartPreservesConfiguredAndExplicitlyClearedImageCriteria() {
+        seed.run(null);
+        var exterior = catalog.get(ChecklistDefaults.code(20));
+        var roof = catalog.get(ChecklistDefaults.code(8));
+        exterior.setImageAssessmentCriteria(List.of("All visible exterior faces are unobstructed"));
+        roof.setImageAssessmentCriteria(List.of());
+
+        seed.run(null);
+
+        assertEquals(List.of("All visible exterior faces are unobstructed"),
+                exterior.getImageAssessmentCriteria());
+        assertEquals(List.of(), roof.getImageAssessmentCriteria());
+    }
+
+    @Test void everyPhotoSeedHasValidCriteriaAndVideoOnlySeedHasNone() {
+        seed.run(null);
+        for (int number = 1; number <= ChecklistDefaults.CONTENTS.size(); number++) {
+            var definition = catalog.get(ChecklistDefaults.code(number));
+            var pricing = ChecklistDefaultPricing.forNumber(number);
+            var criteria = ChecklistDefaultImageCriteria.forSeed(definition.getSeedCode(), definition.getContent());
+            if (pricing.includedImages() == 0) {
+                assertTrue(criteria.isEmpty(), definition.getSeedCode());
+                assertNull(definition.getImageAssessmentCriteria());
+                continue;
+            }
+            assertFalse(criteria.isEmpty(), definition.getSeedCode());
+            assertTrue(criteria.size() <= 8, definition.getSeedCode());
+            assertEquals(criteria, definition.getImageAssessmentCriteria());
+            assertEquals(criteria.size(), new HashSet<>(criteria).size());
+            for (String criterion : criteria) {
+                assertFalse(criterion.isBlank());
+                assertTrue(criterion.length() <= 300, definition.getSeedCode());
+                assertFalse(criterion.chars().anyMatch(Character::isISOControl));
+            }
+        }
+    }
+
+    @Test void restartOnlyFillsMissingCriteriaForMatchingPhotoSeeds() {
+        seed.run(null);
+        var missing = catalog.get(ChecklistDefaults.code(2));
+        missing.setImageAssessmentCriteria(null);
+        var changed = catalog.get(ChecklistDefaults.code(3));
+        changed.setContent("Admin changed the inspection subject");
+        changed.setImageAssessmentCriteria(null);
+        var videoOnly = catalog.get(ChecklistDefaults.code(4));
+        videoOnly.setImageAssessmentCriteria(null);
+        videoOnly.setIncludedImageCount(0);
+        videoOnly.setIncludedVideoCount(1);
+
+        seed.run(null);
+
+        assertFalse(missing.getImageAssessmentCriteria().isEmpty());
+        assertNull(changed.getImageAssessmentCriteria());
+        assertNull(videoOnly.getImageAssessmentCriteria());
+        assertTrue(ChecklistDefaultImageCriteria.forSeed(null, missing.getContent()).isEmpty());
+        assertTrue(ChecklistDefaultImageCriteria.forSeed("UNKNOWN", missing.getContent()).isEmpty());
+    }
+
     @Test void restartKeepsEditedInactiveDefinitionsAndRestoresEmptySupportedTemplate() {
         seed.run(null);
         var edited = catalog.get(ChecklistDefaults.code(1)); edited.setContent("Admin edited"); edited.setIsActive(false);

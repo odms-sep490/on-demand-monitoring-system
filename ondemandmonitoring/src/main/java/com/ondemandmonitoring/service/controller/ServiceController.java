@@ -118,7 +118,7 @@ public class ServiceController {
         return ResponseEntity.ok(ApiResponse.ok("Service updated successfully", response));
     }
 
-    @Operation(summary = "Delete service", description = "Soft-deletes a service by setting isActive to false")
+    @Operation(summary = "Delete service", description = "Permanently deletes an unused service and its owned configuration; returns SERVICE_IN_USE (409) if referenced")
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable String id) {

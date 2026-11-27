@@ -77,6 +77,11 @@ public class AiOperationsController {
         return ApiResponse.ok(aiOps.listTraces(limit));
     }
 
+    @GetMapping("/traces/{traceId}")
+    public ApiResponse<AiTraceView> trace(@PathVariable String traceId) {
+        return ApiResponse.ok(aiOps.getTrace(traceId));
+    }
+
     @GetMapping("/evaluations")
     public ApiResponse<List<AiEvaluationView>> evaluations() {
         return ApiResponse.ok(aiOps.listEvaluations());

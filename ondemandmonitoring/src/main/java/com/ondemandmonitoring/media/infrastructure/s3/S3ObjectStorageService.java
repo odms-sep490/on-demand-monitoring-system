@@ -165,7 +165,8 @@ public class S3ObjectStorageService implements IMediaObjectStorage {
             s3Client.abortMultipartUpload(AbortMultipartUploadRequest.builder()
                     .bucket(bucket()).key(key).uploadId(uploadId).build());
         } catch (software.amazon.awssdk.services.s3.model.S3Exception failure) {
-            if (failure.statusCode() != 404) throw failure;
+            if (failure.awsErrorDetails() == null
+                    || !"NoSuchUpload".equals(failure.awsErrorDetails().errorCode())) throw failure;
         }
     }
 

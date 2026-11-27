@@ -52,6 +52,7 @@ public class MediaAssetServiceImpl implements IMediaAssetService {
     MediaAssetRepository mediaAssetRepository;
     IMissionMediaAccessService missionAccess;
     IMissionMediaEvidenceGuard missionLock;
+    MediaObjectCleanup cleanup;
 
     @Transactional
     @Override
@@ -105,6 +106,8 @@ public class MediaAssetServiceImpl implements IMediaAssetService {
                 ? "[S3-VIDEO]"
                 : "[S3-IMAGE]";
         StoredObject storedObject;
+        String reservation = cleanup.reserveUpload(bucket, key, resolvedMissionId);
+        cleanup.protectReservation(reservation);
 
         try {
             storedObject = objectStorage.put(
@@ -121,25 +124,22 @@ public class MediaAssetServiceImpl implements IMediaAssetService {
                     "Cannot upload media to S3: " + rootMessage(exception));
         }
 
-        try {
-            MediaAsset image = new MediaAsset();
-            image.setDeviceAssignment(deviceAssignment);
-            image.setMission(deviceAssignment.getMission());
-            image.setType(mediaType);
-            image.setStorageProvider(STORAGE_PROVIDER_S3);
-            image.setOriginalFileName(originalFileName);
-            image.setContentType(contentType);
-            image.setFileSize(file.getSize());
-            image.setS3Bucket(storedObject.bucket());
-            image.setS3Key(storedObject.key());
-            image.setS3Url(storedObject.url());
-            image.setCapturedAt(capturedAt == null ? Instant.now() : capturedAt);
+        MediaAsset image = new MediaAsset();
+        image.setDeviceAssignment(deviceAssignment);
+        image.setMission(deviceAssignment.getMission());
+        image.setType(mediaType);
+        image.setStorageProvider(STORAGE_PROVIDER_S3);
+        image.setOriginalFileName(originalFileName);
+        image.setContentType(contentType);
+        image.setFileSize(file.getSize());
+        image.setS3Bucket(storedObject.bucket());
+        image.setS3Key(storedObject.key());
+        image.setS3Url(storedObject.url());
+        image.setCapturedAt(capturedAt == null ? Instant.now() : capturedAt);
 
-            return mediaAssetRepository.save(image);
-        } catch (RuntimeException exception) {
-            cleanupUploadedObject(storedObject.bucket(), storedObject.key());
-            throw exception;
-        }
+        MediaAsset saved = mediaAssetRepository.save(image);
+        cleanup.cancelReservation(reservation);
+        return saved;
     }
 
     @Transactional(readOnly = true)
@@ -196,14 +196,16 @@ public class MediaAssetServiceImpl implements IMediaAssetService {
         missionLock.requireDeletable(mediaId);
         mediaAssetRepository.delete(mediaAsset);
         mediaAssetRepository.flush();
-        // FK failure or rollback must never remove the stored object.
-        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+        if (STORAGE_PROVIDER_LOCAL.equalsIgnoreCase(mediaAsset.getStorageProvider())) {
+            // Local disk lifecycle is independent of the S3 outbox.
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
                 new org.springframework.transaction.support.TransactionSynchronization() {
-                    @Override public void afterCommit() {
-                        try { deleteStoredObject(mediaAsset); }
-                        catch (RuntimeException exception) { log.error("Storage cleanup needs retry for deleted media {}", mediaId, exception); }
-                    }
+                    @Override public void afterCommit() { deleteStoredObject(mediaAsset); }
                 });
+        } else {
+            cleanup.enqueue(mediaAsset.getS3Bucket(), java.util.Arrays.asList(
+                    mediaAsset.getS3Key(), mediaAsset.getThumbnailKey(), mediaAsset.getPreviewKey()), mediaId);
+        }
     }
 
     @Override
@@ -241,6 +243,7 @@ public class MediaAssetServiceImpl implements IMediaAssetService {
     }
 
     @Override
+    @Transactional
     public String createPresignedGetUrl(MediaAsset image) {
         retentionAccess.requireAccessible(image);
         if (STORAGE_PROVIDER_LOCAL.equalsIgnoreCase(image.getStorageProvider())) {
@@ -315,33 +318,11 @@ public class MediaAssetServiceImpl implements IMediaAssetService {
         }
     }
 
-    private void cleanupUploadedObject(String bucket, String key) {
-        objectStorage.deleteQuietly(bucket, key);
-    }
-
     private void deleteStoredObject(MediaAsset mediaAsset) {
-        if (STORAGE_PROVIDER_LOCAL.equalsIgnoreCase(mediaAsset.getStorageProvider())) {
-            try {
-                Files.deleteIfExists(Path.of(mediaAsset.getS3Url()));
-            } catch (IOException exception) {
-                throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Cannot delete local media file");
-            }
-            return;
-        }
-
         try {
-            if (mediaAsset.getThumbnailKey() != null && !mediaAsset.getThumbnailKey().isBlank())
-                objectStorage.deleteQuietly(mediaAsset.getS3Bucket(), mediaAsset.getThumbnailKey());
-            if (mediaAsset.getPreviewKey() != null && !mediaAsset.getPreviewKey().isBlank())
-                objectStorage.deleteQuietly(mediaAsset.getS3Bucket(), mediaAsset.getPreviewKey());
-            objectStorage.delete(mediaAsset.getS3Bucket(), mediaAsset.getS3Key());
-        } catch (RuntimeException exception) {
-            log.error("Cannot delete media from S3. bucket={}, key={}",
-                    mediaAsset.getS3Bucket(),
-                    mediaAsset.getS3Key(),
-                    exception);
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Cannot delete media from S3: " + rootMessage(exception));
+            Files.deleteIfExists(Path.of(mediaAsset.getS3Url()));
+        } catch (IOException exception) {
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Cannot delete local media file");
         }
     }
 
@@ -393,7 +374,7 @@ public class MediaAssetServiceImpl implements IMediaAssetService {
 
     /**
      * Repairs media that was stored on the backend disk while S3 is now the configured storage:
-     * uploads the local file under a deterministic key and flips the record to S3. Best effort.
+     * uploads the local file under an immutable key and flips the record to S3. Best effort.
      */
     private boolean migrateLocalToS3(MediaAsset image) {
         try {
@@ -407,8 +388,10 @@ public class MediaAssetServiceImpl implements IMediaAssetService {
             String prefix = objectStorage.prefix();
             String normalizedPrefix = prefix == null ? "" : prefix.strip().replaceAll("^/+|/+$", "");
             String key = (normalizedPrefix.isBlank() ? "" : normalizedPrefix + "/")
-                    + "missions/" + safePathSegment(image.getMissionId()) + "/migrated/" + image.getId() + ".jpg";
+                    + "missions/" + safePathSegment(image.getMissionId()) + "/migrated/" + image.getId() + "/" + UUID.randomUUID() + ".jpg";
             StoredObject stored;
+            String reservation = cleanup.reserveUpload(objectStorage.bucket(), key, image.getId());
+            cleanup.protectReservation(reservation);
             try (InputStream in = Files.newInputStream(localFile)) {
                 stored = objectStorage.put(key, image.getContentType(), Files.size(localFile), in, "[S3-MIGRATE]");
             }
@@ -417,6 +400,7 @@ public class MediaAssetServiceImpl implements IMediaAssetService {
             image.setS3Key(stored.key());
             image.setS3Url(stored.url());
             mediaAssetRepository.save(image);
+            cleanup.cancelReservation(reservation);
             return true;
         } catch (IOException | RuntimeException exception) {
             log.warn("Cannot migrate local media {} to S3: {}", image.getId(), rootMessage(exception));

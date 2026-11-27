@@ -82,7 +82,7 @@ class CustomerMediaServiceTest {
 
     private CustomerMediaServiceImpl fallbackService() {
         var display = new MediaDerivativeService(media, storage,
-                mock(org.springframework.transaction.PlatformTransactionManager.class));
+                mock(org.springframework.transaction.PlatformTransactionManager.class), mock(com.ondemandmonitoring.media.cleanup.ObjectCleanupOutbox.class));
         var result = new CustomerMediaServiceImpl(access, media, storage, display,
                 org.mapstruct.factory.Mappers.getMapper(MediaWorkflowMapper.class), retention);
         ReflectionTestUtils.setField(result, "deliveryWorkflow", delivery);

@@ -18,7 +18,7 @@ class MediaEvidenceProtectionTest {
         var lock=new com.ondemandmonitoring.mission.service.impl.MissionMediaEvidenceGuardImpl(media,mock(MissionRepository.class),mock(MissionResultRepository.class),evidence);
         var storage=mock(IMediaObjectStorage.class); var asset=new MediaAsset(); asset.setId("a"); asset.setDeviceId("d");
         when(media.findById("a")).thenReturn(Optional.of(asset)); when(evidence.existsByMediaAsset_Id("a")).thenReturn(true);
-        var service=new MediaAssetServiceImpl(storage,mock(IResultRetentionAccessService.class),mock(Environment.class),mock(IDeviceService.class),media,mock(com.ondemandmonitoring.mission.service.IMissionMediaAccessService.class),mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class));
+        var service=new MediaAssetServiceImpl(storage,mock(IResultRetentionAccessService.class),mock(Environment.class),mock(IDeviceService.class),media,mock(com.ondemandmonitoring.mission.service.IMissionMediaAccessService.class),mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class), org.mockito.Mockito.mock(com.ondemandmonitoring.media.service.impl.MediaObjectCleanup.class));
         var commandLock=mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class); org.springframework.test.util.ReflectionTestUtils.setField(service,"missionLock",commandLock);
         doAnswer(call->{lock.requireDeletable("a");return null;}).when(commandLock).requireDeletable("a");
         assertEquals(ErrorCode.MEDIA_EVIDENCE_PROTECTED,assertThrows(ApiException.class,()->service.deleteByDeviceAndId("d","a")).getErrorCode());

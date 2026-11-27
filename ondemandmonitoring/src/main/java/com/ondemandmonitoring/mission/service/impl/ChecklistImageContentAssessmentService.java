@@ -1,6 +1,7 @@
 package com.ondemandmonitoring.mission.service.impl;
 
 import com.ondemandmonitoring.ai.client.ChecklistImageVisionClient;
+import com.ondemandmonitoring.ai.service.ChecklistImageAiSettingsService;
 import com.ondemandmonitoring.ai.client.ChecklistImageVisionClient.Verdict;
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.common.exception.ErrorCode;
@@ -32,38 +33,58 @@ public class ChecklistImageContentAssessmentService {
     private static final int MAX_REQUESTS_PER_MINUTE = 48;
     private static final int MAX_REQUESTS_PER_INSPECTOR_PER_MINUTE = 8;
     private static final Duration RATE_WINDOW = Duration.ofMinutes(1);
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.ondemandmonitoring.aiops.service.ChecklistVisionRuntime runtime;
     private final IChecklistEvidenceService evidence;
     private final IMediaObjectStorage storage;
     private final ChecklistImageVisionClient vision;
     private final AuthenticatedUserResolver user;
     private final Clock clock;
+    private final ChecklistImageAiSettingsService settings;
     private final ArrayDeque<RequestStart> recent = new ArrayDeque<>();
     private final Set<String> activeInspectors = new HashSet<>();
 
     public boolean available() {
-        return vision.available();
+        return settings.isEnabled() && vision.available() && vision.runtimeEnabled();
     }
 
     public ChecklistImageContentAssessmentResponse assess(String missionId, String executionId, String evidenceId,
             ChecklistImageContentAssessmentRequest request) {
-        var target = evidence.resolveContentAssessment(missionId, executionId, evidenceId, request);
-        if (!available())
-            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "Checklist image content assessment is disabled");
-
-        String inspector = user.getCurrentUserId();
-        begin(inspector);
+        var existing = runtime == null ? null : runtime.currentRequest();
+        var scope = existing != null ? existing : runtime == null ? null
+                : runtime.openRequest(com.ondemandmonitoring.aiops.service.ChecklistVisionRuntime.httpContext(), false);
+        boolean owner = existing == null;
+        String inspector = null;
+        boolean acquired = false;
         try {
-            var findings = vision.assess(readPreview(target), request.language(), target.criteria());
+            var target = evidence.resolveContentAssessment(missionId, executionId, evidenceId, request);
+            inspector = user.getCurrentUserId();
+            if (scope != null) scope.authorized(inspector, missionId, executionId, evidenceId);
+            if (!settings.isEnabled() || !vision.runtimeEnabled())
+                throw new ApiException(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED);
+            if (!vision.available())
+                throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "Checklist image content assessment is disabled");
+            begin(inspector);
+            acquired = true;
+            var findings = vision.assess(readPreview(target), request.language(), target.criteria(), target.context());
+            if (!settings.isEnabled() || !vision.runtimeEnabled())
+                throw new ApiException(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED);
             var current = evidence.resolveContentAssessment(missionId, executionId, evidenceId, request);
             if (!target.equals(current)) throw new ApiException(ErrorCode.CONCURRENT_UPDATE);
             var criteria = target.criteria().stream().map(criterion -> {
                 var finding = findings.get(criterion.code());
                 return new Criterion(criterion.code(), criterion.label(), finding.verdict(), finding.observation());
             }).toList();
+            var verdict = overallVerdict(criteria);
+            if (scope != null) scope.succeeded(verdict.name());
             return new ChecklistImageContentAssessmentResponse(
-                    target.executionVersion(), target.evidenceId(), overallVerdict(criteria), criteria);
+                    target.executionVersion(), target.evidenceId(), verdict, criteria);
+        } catch (RuntimeException failure) {
+            if (scope != null) scope.failed(failure);
+            throw failure;
         } finally {
-            end(inspector);
+            if (acquired) end(inspector);
+            if (owner && scope != null) scope.close();
         }
     }
 

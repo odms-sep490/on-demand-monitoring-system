@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 import com.ondemandmonitoring.common.exception.ApiException;
 import com.ondemandmonitoring.devicecheck.domain.PersistedPreDeviceCheck;
@@ -17,6 +17,10 @@ import com.ondemandmonitoring.mission.domain.Mission;
 import com.ondemandmonitoring.mission.dto.response.MissionResponse;
 import com.ondemandmonitoring.mission.service.IMissionService;
 import com.ondemandmonitoring.media.service.IMediaObjectStorage;
+import com.ondemandmonitoring.media.cleanup.ObjectCleanupOutbox;
+import com.ondemandmonitoring.devicecheck.service.impl.ProbeObjectCleanupGuard;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 import java.io.ByteArrayInputStream;
 import java.security.MessageDigest;
 import java.util.HexFormat;
@@ -36,12 +40,14 @@ class MediaProbeServiceImplTest {
     @Mock IPersistedPreDeviceCheckService preDeviceChecks;
     @Mock IMissionService missions;
     @Mock IMediaObjectStorage storage;
+    @Mock ObjectCleanupOutbox cleanup;
+    @Mock PlatformTransactionManager transactions;
 
     MediaProbeServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new MediaProbeServiceImpl(runs, preDeviceChecks, missions, storage);
+        service = new MediaProbeServiceImpl(runs, preDeviceChecks, missions, storage, cleanup, transactions);
         ReflectionTestUtils.setField(service, "maxBytes", 262144L);
         ReflectionTestUtils.setField(service, "probePrefix", "diagnostics/media-probes");
     }
@@ -85,7 +91,86 @@ class MediaProbeServiceImplTest {
                 org.mockito.ArgumentMatchers.contains("checksum"));
     }
 
+    @Test
+    void reservesAndLocksBeforePutAndCancelsOnlyAfterSynchronousDelete() {
+        stubRoundTrip();
+        service.verifyAutomatic("run-1");
+        var order = inOrder(cleanup, storage);
+        order.verify(cleanup).reserveUpload(eq("probe-bucket"), any(), eq("MEDIA_PROBE"), eq("run-1"));
+        order.verify(cleanup).protectReservation("reservation-1");
+        order.verify(storage).put(any(), eq("image/jpeg"), eq(4L), any(), eq("[MEDIA-PROBE]"));
+        order.verify(storage).open(eq("probe-bucket"), any());
+        order.verify(storage).delete(eq("probe-bucket"), any());
+        order.verify(cleanup).cancelReservation("reservation-1");
+    }
+
+    @Test
+    void failedDeleteKeepsDurableReservationAndCannotPassProbe() {
+        stubRoundTrip();
+        doThrow(new IllegalStateException("delete denied")).when(storage).delete(any(), any());
+        assertThatThrownBy(() -> service.verifyAutomatic("run-1"))
+                .isInstanceOf(ApiException.class).hasMessageContaining("cleanup failed: delete denied");
+        verify(cleanup, never()).cancelReservation(any());
+        verify(preDeviceChecks).recordSystemResult(eq("run-1"), eq("media_storage"),
+                eq(PreDeviceItemStatus.FAILED), contains("delete denied"));
+    }
+
+    @Test
+    void partialPutFailureKeepsDurableCandidateEvenWhenStoredFlagIsFalse() {
+        stubContext();
+        when(storage.bucket()).thenReturn("probe-bucket");
+        doThrow(new IllegalStateException("PUT response lost")).when(storage)
+                .put(any(), any(), anyLong(), any(), any());
+        assertThatThrownBy(() -> service.verifyAutomatic("run-1"))
+                .isInstanceOf(ApiException.class).hasMessageContaining("PUT response lost");
+        verify(cleanup).reserveUpload(eq("probe-bucket"), any(), eq("MEDIA_PROBE"), eq("run-1"));
+        verify(cleanup, never()).cancelReservation(any());
+        verify(storage, never()).delete(any(), any());
+    }
+
+    @Test
+    void readFailureStillTestsDeleteAndLeavesReservationOnRollback() {
+        stubContext();
+        when(storage.bucket()).thenReturn("probe-bucket");
+        when(storage.open(any(), any())).thenThrow(new IllegalStateException("GET denied"));
+        assertThatThrownBy(() -> service.verifyAutomatic("run-1"))
+                .isInstanceOf(ApiException.class).hasMessageContaining("GET denied");
+        verify(storage).delete(eq("probe-bucket"), any());
+        verify(cleanup).cancelReservation("reservation-1");
+        verify(transactions).rollback(any());
+    }
+
+    @Test
+    void unavailableOrAlreadyClaimedReservationPreventsUpload() {
+        stubContext();
+        when(storage.bucket()).thenReturn("probe-bucket");
+        doThrow(new IllegalStateException("not pending")).when(cleanup).protectReservation(any());
+        assertThatThrownBy(() -> service.verifyAutomatic("run-1")).hasMessageContaining("not pending");
+        verify(storage, never()).put(any(), any(), anyLong(), any(), any());
+    }
+
+    @Test
+    void eachExecutionUsesNewKeyEvenForSameRun() {
+        stubRoundTrip();
+        service.verifyAutomatic("run-1");
+        service.verifyAutomatic("run-1");
+        var keys = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(storage, times(2)).put(keys.capture(), any(), anyLong(), any(), any());
+        assertThat(keys.getAllValues()).doesNotHaveDuplicates();
+    }
+
+    private void stubRoundTrip() {
+        stubContext();
+        when(storage.bucket()).thenReturn("probe-bucket");
+        when(storage.open(any(), any())).thenAnswer(i -> new IMediaObjectStorage.StoredObjectStream(
+                new ByteArrayInputStream(new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff, (byte) 0xd9}),
+                4L, "image/jpeg"));
+    }
+
     private void stubContext() {
+        lenient().when(transactions.getTransaction(any())).thenAnswer(i -> new SimpleTransactionStatus());
+        lenient().when(cleanup.reserveUpload(any(), any(), eq(ProbeObjectCleanupGuard.TYPE), eq("run-1")))
+                .thenReturn("reservation-1");
         Mission mission = new Mission();
         mission.setId("mission-1");
         PersistedPreDeviceCheck run = new PersistedPreDeviceCheck();

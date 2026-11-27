@@ -1,5 +1,10 @@
 # Reuses Python/.venv; no Instructor dependency: Qwen-Agent output is validated by Pydantic.
 qwen-agent
+# Qwen-Agent imports these at runtime without declaring them for its base package.
+numpy>=1.26,<3
+soundfile>=0.12,<1
+tqdm>=4,<5
+python-dateutil>=2.8,<3
 fastapi
 uvicorn
 pydantic>=2,<3

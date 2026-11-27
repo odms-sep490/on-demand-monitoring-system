@@ -70,6 +70,13 @@ DO $$ DECLARE entry record; BEGIN
     END LOOP;
 END $$;
 
+-- Durable seed-once identity; deliberately no FK to services and no deletion cascade.
+-- JPA creates this on a fresh schema; keep the consolidated bootstrap self-describing/rerunnable.
+CREATE TABLE IF NOT EXISTS public.service_catalog_bootstrap (
+    id varchar(80) PRIMARY KEY,
+    initialized_at timestamp with time zone NOT NULL
+);
+
 -- Additional prerequisites: bootstrap markers and Phase 5/6 execution/evidence.
 -- JPA already owns base columns/tables and enum/reason/timing checks.
 DO $$ BEGIN
@@ -149,7 +156,7 @@ DO $$ DECLARE entry record; actual text; expected text; BEGIN
         ('order_checklist_items','ck_order_checklist_manager_quote',
          'CHECK (manager_quoted_price IS NULL OR (manager_quote_required AND manager_quoted_price >= 0))'),
         ('order_checklist_items','ck_order_checklist_pricing_snapshot',
-         'CHECK (pricing_snapshot_version IN (0, 1, 2) AND base_price_snapshot >= 0 AND included_image_count_snapshot BETWEEN 0 AND 500 AND included_video_count_snapshot BETWEEN 0 AND 500 AND requested_image_count BETWEEN 0 AND 500 AND requested_video_count BETWEEN 0 AND 500 AND (pricing_snapshot_version IN (1, 2) OR (base_price_snapshot = 0 AND included_image_count_snapshot = 0 AND included_video_count_snapshot = 0 AND requested_image_count = 0 AND requested_video_count = 0)))'),
+         'CHECK (pricing_snapshot_version IN (0, 1, 2, 3) AND base_price_snapshot >= 0 AND included_image_count_snapshot BETWEEN 0 AND 500 AND included_video_count_snapshot BETWEEN 0 AND 500 AND requested_image_count BETWEEN 0 AND 500 AND requested_video_count BETWEEN 0 AND 500 AND (pricing_snapshot_version IN (1, 2, 3) OR (base_price_snapshot = 0 AND included_image_count_snapshot = 0 AND included_video_count_snapshot = 0 AND requested_image_count = 0 AND requested_video_count = 0)))'),
         ('mission_checklist_executions','uk_execution_id_mission','UNIQUE(id,mission_id)'),
         ('drone_media','uk_media_id_mission','UNIQUE(id,mission_id)'),
         ('mission_checklist_evidence','fk_evidence_execution_mission',
@@ -737,5 +744,46 @@ CREATE TABLE IF NOT EXISTS admin_audit_logs (
 CREATE INDEX IF NOT EXISTS ix_admin_audit_logs_created_at ON admin_audit_logs(created_at);
 CREATE INDEX IF NOT EXISTS ix_admin_audit_logs_actor_id ON admin_audit_logs(actor_id);
 CREATE INDEX IF NOT EXISTS ix_admin_audit_logs_entity_type ON admin_audit_logs(entity_type);
+
+-- Checklist image assessment criteria and order snapshots.
+ALTER TABLE public.checklist_definitions
+    ADD COLUMN IF NOT EXISTS image_assessment_criteria jsonb;
+ALTER TABLE public.order_checklist_items
+    ADD COLUMN IF NOT EXISTS image_assessment_criteria_snapshot jsonb;
+
+ALTER TABLE public.checklist_definitions
+    ADD COLUMN IF NOT EXISTS image_assessment_enabled boolean NOT NULL DEFAULT true;
+
+CREATE TABLE IF NOT EXISTS public.checklist_image_ai_settings (
+    id varchar(36) PRIMARY KEY,
+    enabled boolean NOT NULL DEFAULT true,
+    version bigint NOT NULL DEFAULT 0,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    updated_by varchar(255) NOT NULL DEFAULT 'system'
+);
+INSERT INTO public.checklist_image_ai_settings (id, enabled, version, updated_at, updated_by)
+VALUES ('default', true, 0, now(), 'system') ON CONFLICT (id) DO NOTHING;
+
+-- Durable object deletion intents: deliberately independent of service/media owner foreign keys.
+CREATE TABLE IF NOT EXISTS public.object_cleanup_outbox (
+    id varchar(36) PRIMARY KEY,
+    object_hash varchar(64) NOT NULL,
+    bucket varchar(255) NOT NULL,
+    object_key varchar(1024) NOT NULL,
+    guard_type varchar(64) NOT NULL,
+    owner_id varchar(255) NOT NULL,
+    status varchar(20) NOT NULL,
+    attempts integer NOT NULL,
+    next_attempt_at timestamptz NOT NULL,
+    lease_token varchar(36),
+    lease_until timestamptz,
+    last_error varchar(100),
+    completed_at timestamptz,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL,
+    CONSTRAINT uq_object_cleanup_hash UNIQUE(object_hash)
+);
+CREATE INDEX IF NOT EXISTS ix_object_cleanup_ready ON public.object_cleanup_outbox(status,next_attempt_at,lease_until);
+CREATE INDEX IF NOT EXISTS ix_object_cleanup_retention ON public.object_cleanup_outbox(status,completed_at);
 
 COMMIT;

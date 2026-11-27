@@ -1,7 +1,9 @@
 package com.ondemandmonitoring.checklist.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonSetter;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import java.util.List;
 import lombok.*;
 
 @Getter
@@ -19,6 +21,9 @@ public class ChecklistRequest {
     private java.util.List<@NotBlank @Size(max = 500) String> inputRequirements;
     @Size(max = 30)
     private java.util.List<@NotBlank @Size(max = 500) String> expectedOutputs;
+    /** Omit on update to keep the existing criteria; send [] to remove them. */
+    private List<String> imageAssessmentCriteria;
+    private Boolean imageAssessmentEnabled;
     /** Base price in whole VND for the configured standard area. */
     @jakarta.validation.constraints.DecimalMin("0")
     @jakarta.validation.constraints.Digits(integer = 13, fraction = 0)
@@ -32,4 +37,12 @@ public class ChecklistRequest {
     private Integer includedVideoCount;
     @jakarta.validation.constraints.Min(1) @jakarta.validation.constraints.Max(7200)
     private Integer standardVideoDurationSeconds;
+
+    @JsonSetter("imageAssessmentCriteria")
+    public void setImageAssessmentCriteria(List<?> criteria) {
+        if (criteria != null && criteria.stream().anyMatch(value -> value != null && !(value instanceof String))) {
+            throw new IllegalArgumentException("imageAssessmentCriteria must contain only strings");
+        }
+        imageAssessmentCriteria = criteria == null ? null : criteria.stream().map(String.class::cast).toList();
+    }
 }

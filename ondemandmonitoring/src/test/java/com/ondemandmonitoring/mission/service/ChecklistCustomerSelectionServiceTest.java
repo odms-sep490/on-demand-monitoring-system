@@ -1,5 +1,9 @@
 package com.ondemandmonitoring.mission.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ondemandmonitoring.ai.client.ChecklistImageVisionClient;
+import com.ondemandmonitoring.ai.config.ChecklistVisionProperties;
+import com.ondemandmonitoring.ai.config.OpenRouterProperties;
 import com.ondemandmonitoring.checklist.config.ChecklistDefaults;
 import com.ondemandmonitoring.checklist.domain.ChecklistDefinition;
 import com.ondemandmonitoring.common.exception.*;
@@ -10,6 +14,7 @@ import com.ondemandmonitoring.media.enums.*;
 import com.ondemandmonitoring.media.repository.MediaAssetRepository;
 import com.ondemandmonitoring.media.service.IMediaObjectStorage;
 import com.ondemandmonitoring.mission.domain.*;
+import com.ondemandmonitoring.mission.controller.ChecklistEvidenceController;
 import com.ondemandmonitoring.mission.dto.request.*;
 import com.ondemandmonitoring.mission.dto.response.ChecklistExecutionResponse;
 import com.ondemandmonitoring.mission.enums.*;
@@ -25,11 +30,16 @@ import com.ondemandmonitoring.user.service.AuthenticatedUserResolver;
 import java.time.Instant;
 import java.util.*;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.test.util.ReflectionTestUtils;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 class ChecklistCustomerSelectionServiceTest {
     final com.ondemandmonitoring.order.repository.OrderRepository orders = mock(com.ondemandmonitoring.order.repository.OrderRepository.class);
@@ -111,6 +121,7 @@ class ChecklistCustomerSelectionServiceTest {
         definition.setSeedCode(ChecklistDefaults.code(8));
         item.setSourceChecklist(definition);
         item.setContent(ChecklistDefaults.CONTENTS.get(7));
+        item.setImageAssessmentCriteriaSnapshot(List.of("Roof is visible", "Roof detail is visible"));
         var image = link("roof", "IMAGE").getMediaAsset();
         image.setS3Bucket("private-bucket");
         image.setS3Key("original.jpg");
@@ -120,7 +131,7 @@ class ChecklistCustomerSelectionServiceTest {
 
         var target = service.resolveContentAssessment("m", "e", "roof", request);
         assertEquals("preview.jpg", target.previewKey());
-        assertEquals(List.of("ROOF_VISIBLE", "ROOF_INSPECTABLE"),
+        assertEquals(List.of("PHOTO_1", "PHOTO_2"),
                 target.criteria().stream().map(criterion -> criterion.code()).toList());
         assertTrue(service.getDeliverySuggestion("m", "e").contentAssessmentAvailable());
         image.setPreviewKey(image.getS3Key());
@@ -128,13 +139,104 @@ class ChecklistCustomerSelectionServiceTest {
         error(ErrorCode.MEDIA_DERIVATIVE_UNAVAILABLE,
                 () -> service.resolveContentAssessment("m", "e", "roof", request));
         image.setPreviewKey("preview.jpg");
-        item.setContent("Different accepted checklist");
+        item.setImageAssessmentCriteriaSnapshot(List.of());
+        assertFalse(service.getDeliverySuggestion("m", "e").contentAssessmentAvailable());
+        error(ErrorCode.INVALID_REQUEST, () -> service.resolveContentAssessment("m", "e", "roof", request));
+        item.setImageAssessmentCriteriaSnapshot(null);
+        assertFalse(service.getDeliverySuggestion("m", "e").contentAssessmentAvailable());
         error(ErrorCode.INVALID_REQUEST, () -> service.resolveContentAssessment("m", "e", "roof", request));
         error(ErrorCode.CONCURRENT_UPDATE, () -> service.resolveContentAssessment("m", "e", "roof",
                 new ChecklistImageContentAssessmentRequest(1L, "en")));
         when(auth.canSelectCustomerEvidence("m")).thenReturn(false);
         error(ErrorCode.ACCESS_DENIED, () -> service.resolveContentAssessment("m", "e", "roof", request));
         verify(evidence, never()).saveAllAndFlush(any());
+    }
+
+    @Test void usesConfiguredSnapshotForAnUnseededChecklist() {
+        var definition = new ChecklistDefinition();
+        definition.setImageAssessmentCriteria(List.of("Current catalog criterion"));
+        item.setSourceChecklist(definition);
+        item.setContent("Photograph the marked access road");
+        item.setExpectedOutputsSnapshot(List.of("Wide shot of the access road"));
+        item.setImageAssessmentCriteriaSnapshot(List.of("Road is visible from end to end"));
+        var image = link("road", "IMAGE").getMediaAsset();
+        image.setS3Bucket("private-bucket");
+        image.setS3Key("original.jpg");
+        image.setPreviewKey("preview.jpg");
+        image.setDerivativeStatus(MediaDerivativeStatus.READY);
+        var request = new ChecklistImageContentAssessmentRequest(0L, "en");
+
+        var target = service.resolveContentAssessment("m", "e", "road", request);
+        assertEquals("Road is visible from end to end", target.criteria().getFirst().instruction());
+        definition.setImageAssessmentEnabled(false);
+        assertFalse(service.getDeliverySuggestion("m", "e").contentAssessmentAvailable());
+        error(ErrorCode.CHECKLIST_IMAGE_ASSESSMENT_DISABLED,
+                () -> service.resolveContentAssessment("m", "e", "road", request));
+        assertEquals(List.of("Road is visible from end to end"), item.getImageAssessmentCriteriaSnapshot());
+        definition.setImageAssessmentEnabled(true);
+        assertEquals(target, service.resolveContentAssessment("m", "e", "road", request));
+        assertEquals(List.of("Wide shot of the access road"), target.context().expectedOutputs());
+        assertTrue(service.getDeliverySuggestion("m", "e").contentAssessmentAvailable());
+        item.setImageAssessmentCriteriaSnapshot(List.of());
+        assertFalse(service.getDeliverySuggestion("m", "e").contentAssessmentAvailable());
+    }
+
+    @Test
+    @EnabledIfEnvironmentVariable(named = "ODMS_TEST_LOCAL_VISION", matches = "true")
+    void inspectorEndpointReturnsRealOllamaFindings() throws Exception {
+        item.setContent("Photograph the test target");
+        item.setImageAssessmentCriteriaSnapshot(List.of("A black rectangle is visible on a white background."));
+        var image = link("target", "IMAGE").getMediaAsset();
+        image.setS3Bucket("private-bucket");
+        image.setS3Key("original.jpg");
+        image.setPreviewKey("preview.jpg");
+        image.setDerivativeStatus(MediaDerivativeStatus.READY);
+
+        byte[] jpeg = syntheticTargetJpeg();
+        var storage = mock(IMediaObjectStorage.class);
+        when(storage.open("private-bucket", "preview.jpg")).thenAnswer(call ->
+                new IMediaObjectStorage.StoredObjectStream(new java.io.ByteArrayInputStream(jpeg),
+                        (long) jpeg.length, "image/jpeg"));
+        var configuration = new ChecklistVisionProperties();
+        configuration.setEnabled(true);
+        configuration.setProvider(ChecklistVisionProperties.Provider.OLLAMA);
+        configuration.setModel("qwen3-vl:2b-instruct");
+        var vision = new ChecklistImageVisionClient(configuration, new OpenRouterProperties(), new ObjectMapper());
+        try {
+            var settings = mock(com.ondemandmonitoring.ai.service.ChecklistImageAiSettingsService.class);
+            when(settings.isEnabled()).thenReturn(true);
+            var assessment = new ChecklistImageContentAssessmentService(service, storage, vision, actor,
+                    java.time.Clock.systemUTC(), settings);
+            var mvc = MockMvcBuilders.standaloneSetup(new ChecklistEvidenceController(service, assessment)).build();
+            mvc.perform(post("/api/missions/m/checklist-executions/e/evidence/target/content-assessment")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                            {"expectedVersion":0,"language":"en"}
+                            """))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.evidenceId").value("target"))
+                    .andExpect(jsonPath("$.data.criteria[0].code").value("PHOTO_1"))
+                    .andExpect(jsonPath("$.data.criteria[0].observation").isNotEmpty())
+                    .andExpect(jsonPath("$.data.verdict").value("MATCH"));
+        } finally {
+            ReflectionTestUtils.invokeMethod(vision, "close");
+        }
+    }
+
+    private static byte[] syntheticTargetJpeg() throws java.io.IOException {
+        var image = new java.awt.image.BufferedImage(320, 200, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        var graphics = image.createGraphics();
+        try {
+            graphics.setColor(java.awt.Color.WHITE);
+            graphics.fillRect(0, 0, 320, 200);
+            graphics.setColor(java.awt.Color.BLACK);
+            graphics.fillRect(60, 60, 200, 80);
+        } finally {
+            graphics.dispose();
+        }
+        var bytes = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(image, "jpeg", bytes);
+        return bytes.toByteArray();
     }
 
     @Test void suggestionReadsOnlyEligibleImagesFromCurrentExecutionAndDoesNotChangeSelection() {

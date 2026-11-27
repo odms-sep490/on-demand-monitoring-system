@@ -35,8 +35,8 @@ class ChecklistVisionPlaygroundTest {
         var inputs = List.of(new CriterionInput("PHOTO_1", "roof", "roof"),
                 new CriterionInput("PHOTO_2", "door", "door"));
         when(client.assessWithPrompt(jpeg, "vi", inputs, "draft prompt")).thenReturn(Map.of(
-                "PHOTO_2", new Finding(Verdict.UNCERTAIN, "obscured"),
-                "PHOTO_1", new Finding(Verdict.MATCH, "visible")));
+                "PHOTO_2", new Finding(Verdict.UNCERTAIN, "obscured", "Second criterion"),
+                "PHOTO_1", new Finding(Verdict.MATCH, "visible", "First criterion")));
         MockMvcBuilders.standaloneSetup(new ChecklistVisionPlaygroundController(service)).build()
                 .perform(multipart("/api/admin/ai-ops/checklist-vision/playground").file(image)
                         .param("promptVersionId", version.toString()).param("language", "vi")
@@ -72,7 +72,7 @@ class ChecklistVisionPlaygroundTest {
         when(client.assessWithPrompt(any(), any(), any(), any())).thenThrow(failure);
         assertSame(failure, assertThrows(com.ondemandmonitoring.common.exception.ApiException.class,
                 () -> service.assess(image, version, "[\"roof\"]", "en")));
-        doReturn(Map.of("PHOTO_1", new Finding(Verdict.MATCH, "visible")))
+        doReturn(Map.of("PHOTO_1", new Finding(Verdict.MATCH, "visible", "First criterion")))
                 .when(client).assessWithPrompt(any(), any(), any(), any());
         assertEquals(Verdict.MATCH, service.assess(image, version, "[\"roof\"]", "en").findings().getFirst().verdict());
         verify(scope, times(2)).authorized("admin-id", null, null, null);

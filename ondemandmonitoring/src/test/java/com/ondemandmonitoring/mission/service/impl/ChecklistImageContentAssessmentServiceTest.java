@@ -54,8 +54,8 @@ class ChecklistImageContentAssessmentServiceTest {
         when(storage.open("private", "preview.jpg")).thenAnswer(call ->
                 new StoredObjectStream(new ByteArrayInputStream(JPEG_HEADER), 3L, "image/jpeg"));
         when(vision.assess(aryEq(JPEG_HEADER), eq("en"), eq(criteria), eq(target.context()))).thenReturn(Map.of(
-                "VISIBLE", new Finding(Verdict.MATCH, "The roof is visible"),
-                "FRAMING", new Finding(Verdict.UNCERTAIN, "Only one side is visible")));
+                "VISIBLE", new Finding(Verdict.MATCH, "The roof is visible", "Visible"),
+                "FRAMING", new Finding(Verdict.UNCERTAIN, "Only one side is visible", "Framing")));
     }
 
     @Test void sendsOnlyPreviewAndReturnsCriteriaInRubricOrder() {
@@ -65,6 +65,19 @@ class ChecklistImageContentAssessmentServiceTest {
         verify(evidence, times(2)).resolveContentAssessment("mission", "execution", "evidence", request);
         verify(storage).open("private", "preview.jpg");
         verify(evidence, never()).selectForCustomer(any(), any(), any());
+    }
+
+    @Test void returnsLocalizedDisplayLabelsWithoutChangingSnapshotCriteria() {
+        var vietnamese = new ChecklistImageContentAssessmentRequest(7L, "vi");
+        when(evidence.resolveContentAssessment("mission", "execution", "evidence", vietnamese)).thenReturn(target);
+        when(vision.assess(aryEq(JPEG_HEADER), eq("vi"), eq(criteria), eq(target.context()))).thenReturn(Map.of(
+                "VISIBLE", new Finding(Verdict.MATCH, "Có thể nhìn thấy mái công trình.", "Quan sát mái công trình"),
+                "FRAMING", new Finding(Verdict.UNCERTAIN, "Ảnh chỉ thể hiện một mặt công trình.", "Phạm vi khung hình")));
+        var result = service.assess("mission", "execution", "evidence", vietnamese);
+        assertEquals(List.of("Quan sát mái công trình", "Phạm vi khung hình"), result.criteria().stream().map(criterion -> criterion.label()).toList());
+        assertEquals("Có thể nhìn thấy mái công trình.", result.criteria().getFirst().observation());
+        assertEquals("Visible", target.criteria().getFirst().label());
+        assertEquals("Subject is visible", target.criteria().getFirst().instruction());
     }
 
     @Test void dropsResultIfPreviewChangedDuringInference() {
@@ -115,8 +128,8 @@ class ChecklistImageContentAssessmentServiceTest {
         when(vision.assess(any(), any(), any(), any())).thenThrow(new ApiException(ErrorCode.AI_PROVIDER_UNAVAILABLE));
         assertEquals(ErrorCode.AI_PROVIDER_UNAVAILABLE, assertThrows(ApiException.class, this::assess).getErrorCode());
         doReturn(Map.of(
-                "VISIBLE", new Finding(Verdict.MATCH, "visible"),
-                "FRAMING", new Finding(Verdict.MATCH, "visible")))
+                "VISIBLE", new Finding(Verdict.MATCH, "visible", "Visible"),
+                "FRAMING", new Finding(Verdict.MATCH, "visible", "Visible")))
                 .when(vision).assess(any(), any(), any(), any());
         assertEquals(Verdict.MATCH, assess().verdict());
     }

@@ -34,7 +34,7 @@ public class ChecklistVisionPlaygroundService {
     private final ObjectMapper json;
 
     public record Result(List<Finding> findings) {}
-    public record Finding(String code, Verdict verdict, String observation) {}
+    public record Finding(String code, Verdict verdict, String observation, String label) {}
 
     public Result assess(MultipartFile image, UUID version, String criteria, String language) throws IOException {
         var existing = runtime == null ? null : runtime.currentRequest();
@@ -73,7 +73,7 @@ public class ChecklistVisionPlaygroundService {
                     ? "MISMATCH" : findings.values().stream().allMatch(f -> f.verdict() == Verdict.MATCH) ? "MATCH" : "UNCERTAIN");
             return new Result(inputs.stream().map(input -> {
                 var finding = findings.get(input.code());
-                return new Finding(input.code(), finding.verdict(), finding.observation());
+                return new Finding(input.code(), finding.verdict(), finding.observation(), finding.label());
             }).toList());
         } catch (IOException | RuntimeException failure) {
             if (scope != null) scope.failed(failure);

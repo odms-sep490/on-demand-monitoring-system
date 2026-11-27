@@ -274,6 +274,59 @@ class QuoteGuidanceServiceTest {
                 .satisfies(response -> assertThat(response.getGuidanceBlockedReason()).isEqualTo("ACCESS_DENIED"));
     }
 
+    @Test void packageNoteCanChangeAndClearWithoutChangingClassificationOrPrice() {
+        item.setSourceType(OrderChecklistSourceType.SERVICE_TEMPLATE);
+        item.setReviewStatus(ChecklistReviewStatus.INCLUDED);
+        item.setPricingStatus(ChecklistPricingStatus.AUTO_PRICED);
+        item.setManagerApprovedAmount(BigDecimal.TEN);
+        item.setFinalAmount(BigDecimal.valueOf(1750000));
+        Quote quote = quote(QuoteStatus.APPROVED); active(quote);
+        service.reviewChecklist("o1", "i1", new ChecklistReviewRequest(ChecklistReviewStatus.INCLUDED, "  Clarify coverage  ", 2L));
+        assertThat(item.getManagerNote()).isEqualTo("Clarify coverage");
+        assertThat(item.getReviewStatus()).isEqualTo(ChecklistReviewStatus.INCLUDED);
+        assertThat(item.getPricingStatus()).isEqualTo(ChecklistPricingStatus.AUTO_PRICED);
+        assertThat(item.getFinalAmount()).isEqualByComparingTo("1750000");
+        assertThat(item.getManagerApprovedAmount()).isEqualByComparingTo("10");
+        assertThat(quote.getStatus()).isEqualTo(QuoteStatus.SUPERSEDED);
+        service.reviewChecklist("o1", "i1", new ChecklistReviewRequest(ChecklistReviewStatus.INCLUDED, "  ", 2L));
+        assertThat(item.getManagerNote()).isNull();
+    }
+
+    @Test void packageNoteNormalizedNoOpPreservesActiveQuote() {
+        item.setSourceType(OrderChecklistSourceType.SERVICE_TEMPLATE);
+        item.setReviewStatus(ChecklistReviewStatus.INCLUDED);
+        Quote quote = quote(QuoteStatus.APPROVED); active(quote);
+        service.reviewChecklist("o1", "i1", new ChecklistReviewRequest(ChecklistReviewStatus.INCLUDED, "  ", 2L));
+        assertThat(item.getManagerNote()).isNull();
+        assertThat(quote.getStatus()).isEqualTo(QuoteStatus.APPROVED);
+        item.setManagerNote("Existing note");
+        service.reviewChecklist("o1", "i1", new ChecklistReviewRequest(ChecklistReviewStatus.INCLUDED, " Existing note ", 2L));
+        assertThat(quote.getStatus()).isEqualTo(QuoteStatus.APPROVED);
+    }
+
+    @Test void packageNoteEndpointStillRejectsClassificationChangesAndStaleRevision() {
+        item.setSourceType(OrderChecklistSourceType.SERVICE_TEMPLATE);
+        item.setReviewStatus(ChecklistReviewStatus.INCLUDED);
+        for (var status : ChecklistReviewStatus.values()) {
+            if (status == ChecklistReviewStatus.INCLUDED) continue;
+            expect(ErrorCode.ORDER_CHECKLIST_REVIEW_INVALID, () -> service.reviewChecklist("o1", "i1",
+                    new ChecklistReviewRequest(status, "Reason", 2L)));
+        }
+        expect(ErrorCode.STALE_PRICING_REVISION, () -> service.reviewChecklist("o1", "i1",
+                new ChecklistReviewRequest(ChecklistReviewStatus.INCLUDED, "Note", 1L)));
+        assertThat(item.getManagerNote()).isNull();
+        assertThat(item.getReviewStatus()).isEqualTo(ChecklistReviewStatus.INCLUDED);
+    }
+
+    @Test void packageNotesRemainLockedAfterInvoicing() {
+        item.setSourceType(OrderChecklistSourceType.SERVICE_TEMPLATE);
+        item.setReviewStatus(ChecklistReviewStatus.INCLUDED);
+        when(invoices.findByOrderId("o1")).thenReturn(Optional.of(new Invoice()));
+        expect(ErrorCode.CHECKLIST_GUIDANCE_EDIT_BLOCKED, () -> service.reviewChecklist("o1", "i1",
+                new ChecklistReviewRequest(ChecklistReviewStatus.INCLUDED, "New note", 2L)));
+        assertThat(item.getManagerNote()).isNull();
+    }
+
     private void confirmed() {
         item.setCustomGuidance(ChecklistGuidanceContent.normalize(null, List.of("Inspect"), List.of("Access"), List.of("Photos")));
         item.setGuidanceVersion(1); item.setGuidanceConfirmedVersion(1L);

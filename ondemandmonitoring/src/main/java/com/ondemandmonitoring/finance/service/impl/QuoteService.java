@@ -244,8 +244,17 @@ public class QuoteService implements IQuoteService {
             throw new ApiException(ErrorCode.STALE_PRICING_REVISION);
         }
         if (item.getSourceType() == OrderChecklistSourceType.SERVICE_TEMPLATE) {
-            throw new ApiException(ErrorCode.ORDER_CHECKLIST_REVIEW_INVALID,
-                    "A service-package checklist is included and priced automatically");
+            if (request.status() != ChecklistReviewStatus.INCLUDED) {
+                throw new ApiException(ErrorCode.ORDER_CHECKLIST_REVIEW_INVALID,
+                        "A service-package checklist is included and priced automatically");
+            }
+            // Package classification and pricing are automatic; only the manager's note is editable.
+            String note = trimToNull(request.managerNote());
+            if (!Objects.equals(item.getManagerNote(), note)) {
+                supersedeQuotes(active);
+                item.setManagerNote(note);
+            }
+            return guidanceResponse(order, item, isManager(currentUser.getCurrentUser()), null);
         }
         if (request.status() == ChecklistReviewStatus.PENDING) {
             throw new ApiException(ErrorCode.ORDER_CHECKLIST_REVIEW_INVALID, "Manager must choose a final review status");

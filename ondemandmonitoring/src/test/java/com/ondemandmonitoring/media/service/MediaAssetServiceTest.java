@@ -32,7 +32,7 @@ class MediaAssetServiceTest {
                 mock(Environment.class),
                 mock(IDeviceService.class),
                 mock(MediaAssetRepository.class),
-                mock(IMissionMediaAccessService.class), mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class));
+                mock(IMissionMediaAccessService.class), mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class), org.mockito.Mockito.mock(com.ondemandmonitoring.media.service.impl.MediaObjectCleanup.class));
 
         assertThatThrownBy(() -> service.upload("MISSION_001", "DEVICE-01", null, null))
                 .isInstanceOf(ApiException.class)
@@ -47,7 +47,7 @@ class MediaAssetServiceTest {
                 mock(Environment.class),
                 mock(IDeviceService.class),
                 mock(MediaAssetRepository.class),
-                mock(IMissionMediaAccessService.class), mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class));
+                mock(IMissionMediaAccessService.class), mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class), org.mockito.Mockito.mock(com.ondemandmonitoring.media.service.impl.MediaObjectCleanup.class));
         MultipartFile file = new org.springframework.mock.web.MockMultipartFile(
                 "file", "capture.txt", "text/plain", "not-an-image".getBytes());
 
@@ -64,7 +64,7 @@ class MediaAssetServiceTest {
                 mock(Environment.class),
                 mock(IDeviceService.class),
                 mock(MediaAssetRepository.class),
-                mock(IMissionMediaAccessService.class), mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class));
+                mock(IMissionMediaAccessService.class), mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class), org.mockito.Mockito.mock(com.ondemandmonitoring.media.service.impl.MediaObjectCleanup.class));
         MultipartFile file = new org.springframework.mock.web.MockMultipartFile(
                 "file", "clip.mp4", "video/mp4", "fake-mp4".getBytes());
 
@@ -95,7 +95,7 @@ class MediaAssetServiceTest {
                 environment,
                 deviceService,
                 mediaAssetRepository,
-                assignmentRepository, mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class));
+                assignmentRepository, mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class), org.mockito.Mockito.mock(com.ondemandmonitoring.media.service.impl.MediaObjectCleanup.class));
         MultipartFile file = new org.springframework.mock.web.MockMultipartFile(
                 "file", "clip.mp4", "video/mp4", "fake-mp4".getBytes());
 
@@ -135,7 +135,7 @@ class MediaAssetServiceTest {
                 environment,
                 deviceService,
                 mediaAssetRepository,
-                assignmentRepository, mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class));
+                assignmentRepository, mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class), org.mockito.Mockito.mock(com.ondemandmonitoring.media.service.impl.MediaObjectCleanup.class));
         MultipartFile imageFile = new org.springframework.mock.web.MockMultipartFile(
                 "file", "capture.jpg", "image/jpeg", "fake-jpg".getBytes());
         MultipartFile videoFile = new org.springframework.mock.web.MockMultipartFile(
@@ -150,6 +150,44 @@ class MediaAssetServiceTest {
         assertThat(savedVideo.getS3Key())
                 .contains("/videos/")
                 .doesNotContain("/images/");
+    }
+
+    @Test
+    void deleteEnqueuesAllS3ObjectsAfterEvidenceAndForeignKeyChecks() {
+        var repository = mock(MediaAssetRepository.class);
+        var storage = mock(IMediaObjectStorage.class);
+        var cleanup = mock(com.ondemandmonitoring.media.service.impl.MediaObjectCleanup.class);
+        var guard = mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class);
+        var asset = new MediaAsset(); asset.setId("media"); asset.setDeviceId("device");
+        asset.setStorageProvider("S3"); asset.setS3Bucket("bucket"); asset.setS3Key("original");
+        asset.setThumbnailKey("thumb"); asset.setPreviewKey("preview");
+        when(repository.findById("media")).thenReturn(java.util.Optional.of(asset));
+        var service = new MediaAssetServiceImpl(storage, mock(IResultRetentionAccessService.class),
+                mock(Environment.class), mock(IDeviceService.class), repository,
+                mock(IMissionMediaAccessService.class), guard, cleanup);
+        service.deleteByDeviceAndId("device", "media");
+        var sequence = org.mockito.Mockito.inOrder(guard, repository, cleanup);
+        sequence.verify(guard).requireDeletable("media");
+        sequence.verify(repository).delete(asset);
+        sequence.verify(repository).flush();
+        sequence.verify(cleanup).enqueue("bucket", java.util.List.of("original", "thumb", "preview"), "media");
+        org.mockito.Mockito.verifyNoInteractions(storage);
+    }
+
+    @Test
+    void foreignKeyFailureDoesNotEnqueueStorageDeletion() {
+        var repository = mock(MediaAssetRepository.class);
+        var cleanup = mock(com.ondemandmonitoring.media.service.impl.MediaObjectCleanup.class);
+        var asset = new MediaAsset(); asset.setId("media"); asset.setDeviceId("device"); asset.setStorageProvider("S3");
+        when(repository.findById("media")).thenReturn(java.util.Optional.of(asset));
+        org.mockito.Mockito.doThrow(new org.springframework.dao.DataIntegrityViolationException("reference"))
+                .when(repository).flush();
+        var service = new MediaAssetServiceImpl(mock(IMediaObjectStorage.class), mock(IResultRetentionAccessService.class),
+                mock(Environment.class), mock(IDeviceService.class), repository,
+                mock(IMissionMediaAccessService.class), mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class), cleanup);
+        assertThatThrownBy(() -> service.deleteByDeviceAndId("device", "media"))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        org.mockito.Mockito.verifyNoInteractions(cleanup);
     }
 
     private MissionDeviceAssignment assignment(String missionId, Device device) {

@@ -39,6 +39,7 @@ class MediaValidationServiceImplTest {
     @org.mockito.Spy com.ondemandmonitoring.media.policy.MediaUploadPolicy policy;
 
     @Mock IMediaObjectStorage storage;
+    @Mock com.ondemandmonitoring.media.service.impl.MediaObjectCleanup cleanup;
     MediaValidationServiceImpl service;
 
     @org.junit.jupiter.api.BeforeEach
@@ -46,7 +47,7 @@ class MediaValidationServiceImplTest {
         service = new MediaValidationServiceImpl(attempts, media, inbox, manualTasks,
                 new com.ondemandmonitoring.media.service.impl.ManualUploadTaskServiceImpl(manualTasks),
                 auditService, policy, storage,
-                new com.ondemandmonitoring.media.service.impl.MediaObjectVerificationServiceImpl(storage), org.mockito.Mockito.mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class));
+                new com.ondemandmonitoring.media.service.impl.MediaObjectVerificationServiceImpl(storage), org.mockito.Mockito.mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class), cleanup);
     }
 
     @Test
@@ -87,9 +88,47 @@ class MediaValidationServiceImplTest {
         when(storage.bucket()).thenReturn("bucket");when(attempts.findMediaIdByStorageKey("staging/late.jpg")).thenReturn(Optional.of("removed"));
         when(media.findByIdForUpdate("removed")).thenReturn(Optional.of(asset));when(attempts.findByStorageKeyForUpdate("staging/late.jpg")).thenReturn(Optional.of(attempt));
         service.processObjectCreated("bucket","staging/late.jpg","late-event");
-        verify(storage).delete("bucket","staging/late.jpg");
+        verify(cleanup).enqueue(org.mockito.ArgumentMatchers.eq("bucket"),org.mockito.ArgumentMatchers.eq("staging/late.jpg"),org.mockito.ArgumentMatchers.anyString());
+        verify(storage,never()).delete(any(),any());
         verify(storage,never()).copy(any(),any(),any());verify(media,never()).save(any());
         verify(inbox).save(any(StorageEventInbox.class));
+    }
+
+    private MediaAsset lateEventFixture(UploadAttemptStatus status) {
+        var asset=new MediaAsset();asset.setId("late-media");asset.setS3Bucket("bucket");
+        var attempt=new MediaUploadAttempt();attempt.setId("late-attempt");attempt.setMedia(asset);attempt.setStatus(status);
+        when(storage.bucket()).thenReturn("bucket");
+        when(attempts.findMediaIdByStorageKey("staging/late")).thenReturn(Optional.of(asset.getId()));
+        when(media.findByIdForUpdate(asset.getId())).thenReturn(Optional.of(asset));
+        when(attempts.findByStorageKeyForUpdate("staging/late")).thenReturn(Optional.of(attempt));
+        return asset;
+    }
+
+    @Test void anotherPutAfterSuccessfulValidationEnqueuesIndependentStagingCleanup() {
+        lateEventFixture(UploadAttemptStatus.SUCCEEDED);
+        var attempt=new MediaUploadAttempt();attempt.setId("late-attempt");
+        when(attempts.findFirstByMediaIdOrderByAttemptNumberDesc("late-media")).thenReturn(Optional.of(attempt));
+        service.processObjectCreated("bucket","staging/late","new-event");
+        verify(cleanup).enqueue(org.mockito.ArgumentMatchers.eq("bucket"),org.mockito.ArgumentMatchers.eq("staging/late"),org.mockito.ArgumentMatchers.anyString());
+        verify(storage,never()).copy(any(),any(),any());
+    }
+
+    @Test void failedRetirementCannotPublishAnArrivingUpload() {
+        var asset=lateEventFixture(UploadAttemptStatus.PENDING);
+        asset.setStorageStatus(com.ondemandmonitoring.media.enums.MediaStorageStatus.DELETE_FAILED);
+        service.processObjectCreated("bucket","staging/late","retired-event");
+        verify(cleanup).enqueue(org.mockito.ArgumentMatchers.eq("bucket"),org.mockito.ArgumentMatchers.eq("staging/late"),org.mockito.ArgumentMatchers.anyString());
+        verify(storage,never()).copy(any(),any(),any());verify(storage,never()).inspect(any(),any());
+        assertThat(asset.getStorageStatus()).isEqualTo(com.ondemandmonitoring.media.enums.MediaStorageStatus.DELETE_FAILED);
+    }
+
+    @Test void concurrentDuplicateRetiredEventIsRecheckedAfterAcquiringLocks() {
+        var asset=lateEventFixture(UploadAttemptStatus.UPLOADED);
+        asset.setStorageStatus(com.ondemandmonitoring.media.enums.MediaStorageStatus.DELETED);
+        when(inbox.existsByEventKey(any())).thenReturn(false,true);
+        service.processObjectCreated("bucket","staging/late","same-event");
+        org.mockito.Mockito.verifyNoInteractions(cleanup);
+        verify(inbox,never()).save(any());
     }
 
     @Test
@@ -136,7 +175,10 @@ class MediaValidationServiceImplTest {
         verify(inbox).save(event.capture());
         assertThat(event.getValue().getBucket()).isEqualTo(bucket);
         assertThat(attempt.getStatus()).isEqualTo(UploadAttemptStatus.SUCCEEDED);
-        verify(storage).copy(bucket, stagingKey, stagingKey.replace("/staging/", "/final/"));
+        verify(storage).copy(bucket, stagingKey, captured.getS3Key());
+        assertThat(captured.getS3Key()).startsWith("drone-media/final/").doesNotContain("/staging/");
+        verify(cleanup).cancelReservation(any());
+        verify(cleanup).enqueue(org.mockito.ArgumentMatchers.eq(bucket),org.mockito.ArgumentMatchers.eq(stagingKey),org.mockito.ArgumentMatchers.anyString());
     }
     @Test void lateSqsEventCannotResurrectARemovedAssetAfterCleanupFailure() {
         var removed=new MediaAsset();removed.setId("removed");removed.setMediaStatus(MediaStatus.REMOVED);
@@ -147,7 +189,7 @@ class MediaValidationServiceImplTest {
         when(attempts.findByStorageKeyForUpdate("late-key")).thenReturn(Optional.of(attempt));
         service.processObjectCreated("bucket","late-key","late-removed");
         assertThat(removed.getMediaStatus()).isEqualTo(MediaStatus.REMOVED);
-        verify(storage).delete("bucket","late-key");org.mockito.Mockito.verifyNoInteractions(auditService);
+        verify(cleanup).enqueue(org.mockito.ArgumentMatchers.eq("bucket"),org.mockito.ArgumentMatchers.eq("late-key"),org.mockito.ArgumentMatchers.anyString());org.mockito.Mockito.verifyNoInteractions(auditService);
     }
 
 }

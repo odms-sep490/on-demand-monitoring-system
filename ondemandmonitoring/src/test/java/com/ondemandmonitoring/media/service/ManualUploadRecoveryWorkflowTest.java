@@ -106,7 +106,7 @@ class ManualUploadRecoveryWorkflowTest {
         validationService = new MediaValidationServiceImpl(attempts, media, inbox, manualTasks,
                 manualTaskService, auditService, new MediaUploadPolicy(), storage,
                 new MediaObjectVerificationServiceImpl(storage),
-                mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class));
+                mock(com.ondemandmonitoring.mission.service.IMissionMediaEvidenceGuard.class), org.mockito.Mockito.mock(com.ondemandmonitoring.media.service.impl.MediaObjectCleanup.class));
     }
 
     private MediaUploadAttempt automaticAttempt(int n) {

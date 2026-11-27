@@ -259,9 +259,14 @@ class MediaDetailsPostgresTest {
                 repositories.getRepository(com.ondemandmonitoring.mission.repository.MissionResultRepository.class),
                 repositories.getRepository(com.ondemandmonitoring.mission.repository.MissionChecklistEvidenceRepository.class));
         var storage=mock(com.ondemandmonitoring.media.service.IMediaObjectStorage.class);
-        var cleanup=new com.ondemandmonitoring.media.service.impl.MediaOrphanCleanupServiceImpl(media,attemptRepository,guard,storage,new JpaTransactionManager(emf));
+        var outbox=new com.ondemandmonitoring.media.cleanup.ObjectCleanupOutbox(jdbc,new JpaTransactionManager(emf),new com.ondemandmonitoring.media.cleanup.ObjectCleanupProperties());
+        var objectCleanup=new com.ondemandmonitoring.media.service.impl.MediaObjectCleanup(outbox);
+        var cleanup=new com.ondemandmonitoring.media.service.impl.MediaOrphanCleanupServiceImpl(media,attemptRepository,guard,storage,new JpaTransactionManager(emf),objectCleanup);
+        var worker=new com.ondemandmonitoring.media.cleanup.ObjectCleanupWorker(outbox,storage,new com.ondemandmonitoring.media.cleanup.ObjectCleanupProperties(),List.of(new com.ondemandmonitoring.media.service.impl.MediaObjectCleanupGuard(jdbc)));
         org.springframework.test.util.ReflectionTestUtils.setField(cleanup,"delaySeconds",0L);
         org.springframework.test.util.ReflectionTestUtils.setField(cleanup,"graceSeconds",0L);
+        cleanup.cleanup();
+        worker.poll();
         assertThat(cleanup.cleanup()).isGreaterThanOrEqualTo(1);
         verify(storage,never()).delete("qa",newKey);
         assertThat(jdbc.queryForObject("select media_status from drone_media where id=?",String.class,oldId)).isEqualTo("REMOVED");

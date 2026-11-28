@@ -7,6 +7,8 @@ import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
+import org.springframework.messaging.support.MessageHeaderAccessor;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -35,8 +37,8 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
             MessageChannel channel
     ) {
 
-        StompHeaderAccessor accessor =
-                StompHeaderAccessor.wrap(message);
+        StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
+        if (accessor == null || !accessor.isMutable()) accessor = StompHeaderAccessor.wrap(message);
 
         StompCommand command = accessor.getCommand();
 
@@ -93,6 +95,18 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
 
             String destination = accessor.getDestination();
 
+            // Clients may only subscribe to their own logical user queues. In particular,
+            // reject physical /queue/*-userSESSION subscriptions and all broker SENDs.
+            boolean userQueue = StompCommand.SUBSCRIBE.equals(command) && (
+                    "/user/queue/mission-events".equals(destination)
+                    || "/user/queue/order-events".equals(destination)
+                    || "/topic/notifications/refresh".equals(destination));
+            boolean chatDestination = destination != null && (StompCommand.SUBSCRIBE.equals(command)
+                    ? destination.matches("/topic/chat/[^/*#]+(?:/(?:typing|read))?")
+                    : destination.matches("/app/chat/[^/*#]+/(?:send|typing|read)"));
+            if (!userQueue && !chatDestination)
+                throw new IllegalArgumentException("WebSocket destination is not allowed");
+
             String roomId = extractRoomId(destination);
 
             if (roomId != null) {
@@ -114,7 +128,7 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
             }
         }
 
-        return message;
+        return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
     }
 
     private String extractRoomId(String destination) {

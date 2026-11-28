@@ -73,7 +73,7 @@ public class ChecklistImageContentAssessmentService {
             if (!target.equals(current)) throw new ApiException(ErrorCode.CONCURRENT_UPDATE);
             var criteria = target.criteria().stream().map(criterion -> {
                 var finding = findings.get(criterion.code());
-                return new Criterion(criterion.code(), criterion.label(), finding.verdict(), finding.observation());
+                return new Criterion(criterion.code(), finding.label(), finding.verdict(), finding.observation());
             }).toList();
             var verdict = overallVerdict(criteria);
             if (scope != null) scope.succeeded(verdict.name());

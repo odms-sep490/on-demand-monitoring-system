@@ -177,6 +177,7 @@ public class ChecklistImageVisionClient {
             }
             String prompt = override != null ? override : resolved == null ? SYSTEM_PROMPT : resolved.renderedContent();
             if (prompt == null || prompt.isBlank()) throw invalidInput();
+            prompt = localizedPrompt(prompt, language);
             if (scope != null) scope.prompt(model, resolved, prompt, override != null);
             HttpPost request = new HttpPost(endpoint);
             if (scope != null) request.setHeader("X-Correlation-ID", scope.traceId());
@@ -258,20 +259,43 @@ public class ChecklistImageVisionClient {
         }
     }
 
+    private static String localizedPrompt(String prompt, String language) {
+        String contract = "\n\nReturn only JSON containing findings, with localizedLabel, verdict and observation "
+                + "for each exact criterion code. Keep criterion codes and verdict enum values unchanged. ";
+        if ("vi".equals(language)) {
+            return prompt + contract + "QUY TẮC NGÔN NGỮ BẮT BUỘC: Trả lời hoàn toàn bằng tiếng Việt có dấu. "
+                    + "localizedLabel là bản dịch tiếng Việt của tên tiêu chí, tuyệt đối không sao chép tên tiếng Anh. "
+                    + "Ví dụ: Visible structure phải được dịch thành Kết cấu nhìn thấy được. "
+                    + "observation chỉ gồm một câu tiếng Việt ngắn mô tả bằng chứng liên quan nhìn thấy trong ảnh. "
+                    + "Không dùng tiếng Anh hoặc tiếng Trung trong hai trường này. Không thay đổi ý nghĩa tiêu chí hoặc thêm yêu cầu. "
+                    + "Ngôn ngữ của tiêu chí đầu vào không phải ngôn ngữ trả lời.";
+        }
+        return prompt + contract + "Mandatory response language: English. localizedLabel is a faithful translation "
+                + "of the supplied criterion label into English; observation is one short English sentence describing "
+                + "relevant visible evidence. The input criteria language must not determine the output language. "
+                + "Do not alter criterion meaning or add requirements.";
+    }
+
     private byte[] buildRequest(byte[] jpeg, String language, List<CriterionInput> criteria, Set<String> codes,
                                 ChecklistContext context, String effectiveSystemPrompt, ChecklistVisionRuntime.Config config)
             throws IOException {
         Map<String, Object> input = new LinkedHashMap<>();
         input.put("language", language);
+        input.put("responseLanguage", "vi".equals(language) ? "Vietnamese (Tiếng Việt)" : "English");
+        input.put("responseInstruction", "vi".equals(language)
+                ? "Hãy dịch tên mỗi tiêu chí sang tiếng Việt trong localizedLabel và viết observation bằng một câu tiếng Việt ngắn."
+                : "Translate each criterion name into English in localizedLabel and write observation as one short English sentence.");
         input.put("criteria", criteria);
         if (context != null) input.put("checklistContext", context);
         String instructions = mapper.writeValueAsString(input);
         String image = "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(jpeg);
-        var observationSchema = local ? Map.of("type", "string", "minLength", 1, "maxLength", 160)
+        var observationSchema = local ? Map.of("type", "string", "minLength", 1, "maxLength", MAX_OBSERVATION_CHARS)
                 : Map.of("type", "string");
         Map<String, Object> finding = Map.of(
-                "type", "object", "additionalProperties", false, "required", List.of("verdict", "observation"),
+                "type", "object", "additionalProperties", false, "required", List.of("localizedLabel", "verdict", "observation"),
                 "properties", Map.of(
+                        "localizedLabel", Map.of("type", "string", "minLength", 1, "maxLength", 300,
+                                "description", "vi".equals(language) ? "Tên tiêu chí bằng tiếng Việt, không sao chép nhãn tiếng Anh" : "Criterion name in English"),
                         "verdict", Map.of("type", "string", "enum", List.of("MATCH", "MISMATCH", "UNCERTAIN")),
                         "observation", observationSchema));
         Map<String, Object> findingProperties = new LinkedHashMap<>();
@@ -288,7 +312,7 @@ public class ChecklistImageVisionClient {
             return mapper.writeValueAsBytes(Map.of(
                     "model", model, "stream", false, "format", schema,
                     "options", Map.of("num_gpu", 0,
-                            "num_predict", config.maxTokens() != null ? config.maxTokens() : 128 + 120 * codes.size(),
+                            "num_predict", config.maxTokens() != null ? config.maxTokens() : 128 + 240 * codes.size(),
                             "temperature", config.temperature() != null ? config.temperature() : 0),
                     "messages", List.of(
                             Map.of("role", "system", "content", effectiveSystemPrompt),
@@ -299,7 +323,7 @@ public class ChecklistImageVisionClient {
         var payload = new LinkedHashMap<>(Map.of(
                 "model", model,
                 "stream", false,
-                "max_tokens", config.maxTokens() != null ? config.maxTokens() : local ? 128 + 120 * codes.size() : 4096,
+                "max_tokens", config.maxTokens() != null ? config.maxTokens() : local ? 128 + 240 * codes.size() : 4096,
                 "response_format", Map.of("type", "json_schema", "json_schema",
                         Map.of("name", "checklist_assessment", "strict", true, "schema", schema)),
                 "messages", List.of(
@@ -340,13 +364,14 @@ public class ChecklistImageVisionClient {
             Map<String, Finding> validated = new LinkedHashMap<>();
             for (String code : codes) {
                 JsonNode finding = findings.path(code);
+                String label = finding.path("localizedLabel").textValue();
                 String verdict = finding.path("verdict").textValue();
                 String observation = finding.path("observation").textValue();
-                if (!finding.isObject() || finding.size() != 2 || verdict == null
+                if (!finding.isObject() || finding.size() != 3 || verdict == null || !validText(label, 300)
                         || !validText(observation, MAX_OBSERVATION_CHARS)) {
                     throw invalidResponse();
                 }
-                validated.put(code, new Finding(Verdict.valueOf(verdict), observation.strip()));
+                validated.put(code, new Finding(Verdict.valueOf(verdict), observation.strip(), label.strip()));
             }
             return Collections.unmodifiableMap(validated);
         } catch (IOException | IllegalArgumentException exception) {
@@ -357,7 +382,7 @@ public class ChecklistImageVisionClient {
     private static Set<String> validateInput(byte[] jpeg, String language, List<CriterionInput> criteria) {
         if (jpeg == null || jpeg.length < 3 || jpeg.length > MAX_JPEG_BYTES
                 || jpeg[0] != (byte) 0xff || jpeg[1] != (byte) 0xd8 || jpeg[2] != (byte) 0xff
-                || !validText(language, 32) || criteria == null || criteria.isEmpty() || criteria.size() > MAX_CRITERIA) {
+                || !("vi".equals(language) || "en".equals(language)) || criteria == null || criteria.isEmpty() || criteria.size() > MAX_CRITERIA) {
             throw invalidInput();
         }
         Set<String> codes = new LinkedHashSet<>();
@@ -448,7 +473,7 @@ public class ChecklistImageVisionClient {
     public record CriterionInput(String code, String label, String instruction) {}
     public record ChecklistContext(String content, String description, List<String> expectedOutputs) {}
 
-    public record Finding(Verdict verdict, String observation) {}
+    public record Finding(Verdict verdict, String observation, String label) {}
 
     public enum Verdict { MATCH, MISMATCH, UNCERTAIN }
 }

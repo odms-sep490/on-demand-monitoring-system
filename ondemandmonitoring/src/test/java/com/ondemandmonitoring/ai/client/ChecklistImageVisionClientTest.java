@@ -41,7 +41,7 @@ class ChecklistImageVisionClientTest {
     private static final List<CriterionInput> CRITERIA = List.of(
             new CriterionInput("landing_area", "Landing area", "Look for a marked landing area."));
     private static final String FINDING = """
-            {"findings":{"landing_area":{"verdict":"MATCH","observation":"Có dấu hiệu."}}}
+            {"findings":{"landing_area":{"verdict":"MATCH","observation":"Có dấu hiệu.","localizedLabel":"Bãi đáp"}}}
             """;
 
     private final ObjectMapper mapper = new ObjectMapper();
@@ -65,7 +65,7 @@ class ChecklistImageVisionClientTest {
         var context = new ChecklistImageVisionClient.ChecklistContext(
                 "Kiểm tra bãi đáp", "Chụp từ trên xuống", List.of("Một ảnh toàn cảnh"));
         assertThat(client.assess(JPEG_PREFIX, "vi", CRITERIA, context))
-                .containsExactlyEntriesOf(Map.of("landing_area", new Finding(Verdict.MATCH, "Có dấu hiệu.")));
+                .containsExactlyEntriesOf(Map.of("landing_area", new Finding(Verdict.MATCH, "Có dấu hiệu.", "Bãi đáp")));
 
         ArgumentCaptor<HttpPost> captured = ArgumentCaptor.forClass(HttpPost.class);
         verify(http).executeOpen(isNull(), captured.capture(), isNull());
@@ -116,7 +116,7 @@ class ChecklistImageVisionClientTest {
         var captured = ArgumentCaptor.forClass(HttpPost.class);
         verify(http).executeOpen(isNull(), captured.capture(), isNull());
         var body = requestBody(captured.getValue());
-        assertThat(body.at("/messages/0/content").asText()).isEqualTo("Managed vision instructions");
+        assertThat(body.at("/messages/0/content").asText()).startsWith("Managed vision instructions").contains("tiếng Việt");
         if (local) {
             assertThat(body.path("temperature").asInt(-1)).isZero();
             assertThat(body.has("provider")).isFalse();
@@ -137,7 +137,7 @@ class ChecklistImageVisionClientTest {
                 .containsKey("landing_area");
         var captured = ArgumentCaptor.forClass(HttpPost.class);
         verify(http).executeOpen(isNull(), captured.capture(), isNull());
-        assertThat(requestBody(captured.getValue()).at("/messages/0/content").asText()).isEqualTo("Draft instructions");
+        assertThat(requestBody(captured.getValue()).at("/messages/0/content").asText()).startsWith("Draft instructions").contains("tiếng Việt");
         verifyNoInteractions(prompts);
     }
 
@@ -198,9 +198,9 @@ class ChecklistImageVisionClientTest {
         assertThat(body.path("model").asText()).isEqualTo("qwen3-vl:2b-instruct");
         assertThat(body.has("provider")).isFalse();
         assertThat(body.at("/response_format/type").asText()).isEqualTo("json_schema");
-        assertThat(body.path("max_tokens").asInt()).isEqualTo(248);
+        assertThat(body.path("max_tokens").asInt()).isEqualTo(368);
         assertThat(body.at("/response_format/json_schema/schema/properties/findings/properties/landing_area/properties/observation/maxLength")
-                .asInt()).isEqualTo(160);
+                .asInt()).isEqualTo(400);
     }
 
     @ParameterizedTest
@@ -267,11 +267,11 @@ class ChecklistImageVisionClientTest {
     @ValueSource(strings = {
             "provider-private-content",
             "{\"findings\":{}}",
-            "{\"findings\":{\"unexpected\":{\"verdict\":\"MATCH\",\"observation\":\"visible\"}}}",
-            "{\"findings\":{\"landing_area\":{\"verdict\":\"YES\",\"observation\":\"visible\"}}}",
-            "{\"findings\":{\"landing_area\":{\"verdict\":\"MATCH\",\"observation\":5}}}",
-            "{\"findings\":{\"landing_area\":{\"verdict\":\"MATCH\",\"verdict\":\"MATCH\",\"observation\":\"visible\"}}}",
-            "{\"findings\":{\"landing_area\":{\"verdict\":\"MATCH\",\"observation\":\"visible\"}}} {}"
+            "{\"findings\":{\"unexpected\":{\"localizedLabel\":\"Bãi đáp\",\"verdict\":\"MATCH\",\"observation\":\"visible\"}}}",
+            "{\"findings\":{\"landing_area\":{\"localizedLabel\":\"Bãi đáp\",\"verdict\":\"YES\",\"observation\":\"visible\"}}}",
+            "{\"findings\":{\"landing_area\":{\"localizedLabel\":\"Bãi đáp\",\"verdict\":\"MATCH\",\"observation\":5}}}",
+            "{\"findings\":{\"landing_area\":{\"localizedLabel\":\"Bãi đáp\",\"verdict\":\"MATCH\",\"verdict\":\"MATCH\",\"observation\":\"visible\"}}}",
+            "{\"findings\":{\"landing_area\":{\"localizedLabel\":\"Bãi đáp\",\"verdict\":\"MATCH\",\"observation\":\"visible\"}}} {}"
     })
     void rejectsInvalidProviderResponsesWithASanitizedError(String content) throws Exception {
         client = enabledClient();
@@ -376,7 +376,7 @@ class ChecklistImageVisionClientTest {
         when(http.executeOpen(isNull(), any(HttpPost.class), isNull())).thenReturn(response);
 
         assertThat(client.assessWithPrompt(JPEG_PREFIX, "vi", CRITERIA, "Draft instructions"))
-                .containsEntry("landing_area", new Finding(Verdict.MATCH, "Có dấu hiệu."));
+                .containsEntry("landing_area", new Finding(Verdict.MATCH, "Có dấu hiệu.", "Bãi đáp"));
         var captured = ArgumentCaptor.forClass(HttpPost.class);
         verify(http).executeOpen(isNull(), captured.capture(), isNull());
         var request = captured.getValue();
@@ -386,7 +386,7 @@ class ChecklistImageVisionClientTest {
         assertThat(body.at("/options/num_gpu").asInt(-1)).isZero();
         assertThat(body.at("/options/num_predict").asInt()).isEqualTo(600);
         assertThat(body.at("/options/temperature").asDouble()).isEqualTo(0.2);
-        assertThat(body.at("/messages/0/content").asText()).isEqualTo("Draft instructions");
+        assertThat(body.at("/messages/0/content").asText()).startsWith("Draft instructions").contains("tiếng Việt");
         assertThat(body.at("/messages/1/images/0").asText()).isEqualTo("/9j/2Q==");
         assertThat(mapper.readTree(body.at("/messages/1/content").asText()).path("criteria"))
                 .isEqualTo(mapper.valueToTree(CRITERIA));
@@ -444,6 +444,32 @@ class ChecklistImageVisionClientTest {
         assertThat(findings.get("RED").verdict()).isEqualTo(Verdict.MATCH);
         assertThat(findings.get("BUILDING").verdict()).isNotEqualTo(Verdict.MATCH);
         assertThat(findings.values()).allSatisfy(finding -> assertThat(finding.observation()).isNotBlank());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"vi", "en"})
+    void enforcesOutputLanguageForEnglishSourceCriteria(String language) throws Exception {
+        client = enabledClient();
+        respond("stop", language.equals("vi") ? FINDING : FINDING.replace("Bãi đáp", "Landing area").replace("Có dấu hiệu.", "A marking is visible."));
+        var result = client.assess(JPEG_PREFIX, language, CRITERIA);
+        assertThat(result.get("landing_area").label()).isEqualTo(language.equals("vi") ? "Bãi đáp" : "Landing area");
+        var captured = ArgumentCaptor.forClass(HttpPost.class);
+        verify(http).executeOpen(isNull(), captured.capture(), isNull());
+        var body = requestBody(captured.getValue());
+        var expected = language.equals("vi") ? "Vietnamese (Tiếng Việt)" : "English";
+        assertThat(body.at("/messages/0/content").asText()).contains(language.equals("vi") ? "QUY TẮC NGÔN NGỮ BẮT BUỘC" : "Mandatory response language: English")
+                .contains("localizedLabel, verdict and observation");
+        var input = mapper.readTree(body.at("/messages/1/content/0/text").asText());
+        assertThat(input.path("responseLanguage").asText()).isEqualTo(expected);
+        assertThat(input.path("criteria")).isEqualTo(mapper.valueToTree(CRITERIA));
+        assertThat(body.at("/response_format/json_schema/schema/properties/findings/properties/landing_area/required"))
+                .isEqualTo(mapper.valueToTree(List.of("localizedLabel", "verdict", "observation")));
+    }
+
+    @Test void rejectsMissingLocalizedCriterionLabel() throws Exception {
+        client = enabledClient();
+        respond("stop", "{\"findings\":{\"landing_area\":{\"verdict\":\"MATCH\",\"observation\":\"Visible\"}}}");
+        assertInvalidResponse();
     }
 
     private ChecklistImageVisionClient enabledClient() {

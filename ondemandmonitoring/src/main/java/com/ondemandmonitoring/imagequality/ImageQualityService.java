@@ -23,6 +23,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service @RequiredArgsConstructor
 public class ImageQualityService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.beans.factory.ObjectProvider<com.ondemandmonitoring.mission.workspace.MissionWorkspaceEvents> workspaceEvents;
     static final Set<String> PROFILES = Set.of("PANORAMA","DETAIL","INFRASTRUCTURE","MAPPING","CHANGE_COMPARISON");
     private final JdbcTemplate db;
     private final TransactionTemplate tx;
@@ -157,6 +159,9 @@ public class ImageQualityService {
     }
     void event(UUID id,String actor,String action) {
         db.update("insert into image_quality_event(check_id,actor,action) values(?,?,?)",id,actor,action);
+        if (workspaceEvents != null) workspaceEvents.ifAvailable(events ->
+            db.queryForList("select mission_id from image_quality_check where id=?",String.class,id)
+                .forEach(mission -> events.changed(mission,Set.of("checklist"))));
     }
     @Scheduled(fixedDelay=3000)
     public void dispatch() {
@@ -172,15 +177,18 @@ public class ImageQualityService {
     void runOne() throws Exception {
         UUID lease=UUID.randomUUID();
         var jobs=tx.execute(s -> {
-            db.update("update image_quality_check set status=case when attempts>=3 then 'FAILED' else 'PENDING' end,error_code='WORKER_TIMEOUT',lease=null,completed_at=case when attempts>=3 then now() else null end where status='PROCESSING' and lease_at<now()-interval '3 minutes'");
-            return db.queryForList("""
+            var recovered = db.queryForList("update image_quality_check set status=case when attempts>=3 then 'FAILED' else 'PENDING' end,error_code='WORKER_TIMEOUT',lease=null,completed_at=case when attempts>=3 then now() else null end where status='PROCESSING' and lease_at<now()-interval '3 minutes' returning id");
+            recovered.forEach(row -> event((UUID)row.get("id"),"worker","WORKER_TIMEOUT"));
+            var claimed = db.queryForList("""
                 update image_quality_check set status='PROCESSING',lease=?,lease_at=now(),started_at=now(),attempts=attempts+1
                 where id=(select id from image_quality_check where status='PENDING' order by created_at for update skip locked limit 1)
                 returning id,media_id,mission_id,profile,attempts
                 """,lease);
+            claimed.forEach(row -> event((UUID)row.get("id"),"worker","PROCESSING"));
+            return claimed;
         });
         if (jobs.isEmpty()) return;
-        var job=jobs.getFirst(); UUID id=(UUID)job.get("id"); event(id,"worker","PROCESSING");
+        var job=jobs.getFirst(); UUID id=(UUID)job.get("id");
         try {
             var asset=media.findById((String)job.get("media_id")).orElseThrow();
             retention.requireAccessible(asset);
